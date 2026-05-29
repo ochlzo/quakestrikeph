@@ -19,8 +19,9 @@ DISTANCE_BINS_KM = [
     ("100_200", 100.0, 200.0),
     ("200_plus", 200.0, math.inf),
 ]
-LOCAL_RADIUS_KM = 50.0
+LOCAL_RADII_KM = [10.0, 25.0, 50.0, 100.0]
 RECENT_WINDOWS_DAYS = [1, 7, 30]
+NEAREST_RECENT_WINDOW_DAYS = 30
 
 
 def parse_args():
@@ -35,11 +36,19 @@ def parse_args():
     parser.add_argument("--forecast-hours", type=float, default=FORECAST_HOURS)
     parser.add_argument(
         "--include-local-history",
+        dest="include_local_history",
         action="store_true",
+        default=True,
         help=(
-            "Also compute slower 50 km local-history features. The default build "
-            "uses fast global recent-event counts only."
+            "Compute local seismic-history features across 10, 25, 50, and "
+            "100 km radius bands. This is enabled by default."
         ),
+    )
+    parser.add_argument(
+        "--skip-local-history",
+        dest="include_local_history",
+        action="store_false",
+        help="Build the faster reduced dataset with global recent-event counts only.",
     )
     return parser.parse_args()
 
@@ -130,40 +139,114 @@ def add_recent_local_features(df):
     lat = df["latitude"].to_numpy(dtype=float)
     lon = df["longitude"].to_numpy(dtype=float)
     magnitude = df["magnitude"].to_numpy(dtype=float)
-
-    for days in RECENT_WINDOWS_DAYS:
-        df[f"local_events_{int(LOCAL_RADIUS_KM)}km_past_{days}d"] = 0
-        df[f"local_max_mag_{int(LOCAL_RADIUS_KM)}km_past_{days}d"] = np.nan
-
     windows_ns = {
         days: int(days * 86400 * 1_000_000_000)
         for days in RECENT_WINDOWS_DAYS
     }
+    nearest_window_ns = int(NEAREST_RECENT_WINDOW_DAYS * 86400 * 1_000_000_000)
+
+    feature_data = {}
+    for radius in LOCAL_RADII_KM:
+        radius_token = int(radius)
+        for days in RECENT_WINDOWS_DAYS:
+            feature_data[f"local_events_{radius_token}km_past_{days}d"] = np.zeros(
+                len(df),
+                dtype=np.int32,
+            )
+            feature_data[f"local_max_mag_{radius_token}km_past_{days}d"] = np.full(
+                len(df),
+                np.nan,
+            )
+            feature_data[f"local_log10_energy_{radius_token}km_past_{days}d"] = np.full(
+                len(df),
+                np.nan,
+            )
+
+    nearest_distance = np.full(len(df), np.nan)
+    nearest_magnitude = np.full(len(df), np.nan)
+    nearest_age_days = np.full(len(df), np.nan)
+    max_window_ns = windows_ns[max(RECENT_WINDOWS_DAYS)]
+    max_radius_km = max(LOCAL_RADII_KM)
+    max_window_starts = np.searchsorted(time_ns, time_ns - max_window_ns, side="left")
+    lat_delta_degrees = max_radius_km / 111.32
 
     for row_index in range(len(df)):
-        for days, window_ns in windows_ns.items():
-            start = np.searchsorted(time_ns, time_ns[row_index] - window_ns, side="left")
-            if start == row_index:
+        max_start = max_window_starts[row_index]
+        if max_start == row_index:
+            continue
+
+        candidate_lat = lat[max_start:row_index]
+        candidate_lon = lon[max_start:row_index]
+        lon_scale = max(math.cos(math.radians(lat[row_index])), 0.1)
+        lon_delta_degrees = max_radius_km / (111.32 * lon_scale)
+        bounding_box_mask = (
+            (np.abs(candidate_lat - lat[row_index]) <= lat_delta_degrees)
+            & (np.abs(candidate_lon - lon[row_index]) <= lon_delta_degrees)
+        )
+        if not bounding_box_mask.any():
+            continue
+
+        candidates = max_start + np.flatnonzero(bounding_box_mask)
+        candidate_times = time_ns[candidates]
+        candidate_magnitudes = magnitude[candidates]
+        distances = haversine_km(
+            lat[row_index],
+            lon[row_index],
+            lat[candidates],
+            lon[candidates],
+        )
+        radius_mask = distances <= max_radius_km
+        if not radius_mask.any():
+            continue
+
+        candidates = candidates[radius_mask]
+        candidate_times = candidate_times[radius_mask]
+        candidate_magnitudes = candidate_magnitudes[radius_mask]
+        distances = distances[radius_mask]
+
+        nearest_window_mask = candidate_times >= time_ns[row_index] - nearest_window_ns
+        if nearest_window_mask.any():
+            nearest_positions = np.flatnonzero(nearest_window_mask)
+            nearest_position = nearest_positions[
+                int(np.nanargmin(distances[nearest_window_mask]))
+            ]
+            nearest_distance[row_index] = float(distances[nearest_position])
+            nearest_magnitude[row_index] = float(candidate_magnitudes[nearest_position])
+            nearest_age_days[row_index] = float(
+                (time_ns[row_index] - candidate_times[nearest_position])
+                / (86400 * 1_000_000_000)
+            )
+
+        for days in RECENT_WINDOWS_DAYS:
+            window_mask = candidate_times >= time_ns[row_index] - windows_ns[days]
+            if not window_mask.any():
                 continue
 
-            candidates = np.arange(start, row_index)
-            distances = haversine_km(
-                lat[row_index],
-                lon[row_index],
-                lat[candidates],
-                lon[candidates],
-            )
-            local_mask = distances <= LOCAL_RADIUS_KM
-            local_count = int(local_mask.sum())
-            df.iat[
-                row_index,
-                df.columns.get_loc(f"local_events_{int(LOCAL_RADIUS_KM)}km_past_{days}d"),
-            ] = local_count
-            if local_count:
-                df.iat[
-                    row_index,
-                    df.columns.get_loc(f"local_max_mag_{int(LOCAL_RADIUS_KM)}km_past_{days}d"),
-                ] = float(np.nanmax(magnitude[candidates][local_mask]))
+            window_distances = distances[window_mask]
+            window_magnitudes = candidate_magnitudes[window_mask]
+            for radius in LOCAL_RADII_KM:
+                radius_token = int(radius)
+                local_mask = window_distances <= radius
+                local_count = int(local_mask.sum())
+                if not local_count:
+                    continue
+
+                local_magnitudes = window_magnitudes[local_mask]
+                feature_data[f"local_events_{radius_token}km_past_{days}d"][
+                    row_index
+                ] = local_count
+                feature_data[f"local_max_mag_{radius_token}km_past_{days}d"][
+                    row_index
+                ] = float(np.nanmax(local_magnitudes))
+                feature_data[f"local_log10_energy_{radius_token}km_past_{days}d"][
+                    row_index
+                ] = float(np.log10(np.nansum(10.0 ** (1.5 * local_magnitudes))))
+
+    for feature_name, values in feature_data.items():
+        df[feature_name] = values
+    df[f"nearest_recent_event_distance_km_past_{NEAREST_RECENT_WINDOW_DAYS}d"] = nearest_distance
+    df[f"nearest_recent_event_magnitude_past_{NEAREST_RECENT_WINDOW_DAYS}d"] = nearest_magnitude
+    df[f"nearest_recent_event_age_days_past_{NEAREST_RECENT_WINDOW_DAYS}d"] = nearest_age_days
 
     return df
 
@@ -267,12 +350,24 @@ def select_training_columns(df, include_local_history):
     for days in RECENT_WINDOWS_DAYS:
         feature_columns.append(f"events_past_{days}d")
         if include_local_history:
-            feature_columns.extend(
-                [
-                    f"local_events_{int(LOCAL_RADIUS_KM)}km_past_{days}d",
-                    f"local_max_mag_{int(LOCAL_RADIUS_KM)}km_past_{days}d",
-                ]
-            )
+            for radius in LOCAL_RADII_KM:
+                radius_token = int(radius)
+                feature_columns.extend(
+                    [
+                        f"local_events_{radius_token}km_past_{days}d",
+                        f"local_max_mag_{radius_token}km_past_{days}d",
+                        f"local_log10_energy_{radius_token}km_past_{days}d",
+                    ]
+                )
+
+    if include_local_history:
+        feature_columns.extend(
+            [
+                f"nearest_recent_event_distance_km_past_{NEAREST_RECENT_WINDOW_DAYS}d",
+                f"nearest_recent_event_magnitude_past_{NEAREST_RECENT_WINDOW_DAYS}d",
+                f"nearest_recent_event_age_days_past_{NEAREST_RECENT_WINDOW_DAYS}d",
+            ]
+        )
 
     target_columns = [
         "aftershock_24h",
