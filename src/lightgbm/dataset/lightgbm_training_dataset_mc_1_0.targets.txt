@@ -1,0 +1,10 @@
+aftershock_24h
+aftershock_dist_0_10km_24h
+aftershock_dist_10_25km_24h
+aftershock_dist_25_50km_24h
+aftershock_dist_50_100km_24h
+aftershock_dist_100_200km_24h
+aftershock_dist_200_pluskm_24h
+nearest_aftershock_distance_km_24h
+max_aftershock_distance_km_24h
+max_aftershock_mag_24h

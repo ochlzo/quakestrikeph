@@ -1,0 +1,229 @@
+{
+  "input_csv": "src\\lightgbm\\dataset\\lightgbm_training_dataset_mc_1_0.csv",
+  "feature_columns": [
+    "magnitude",
+    "depth_km",
+    "latitude",
+    "longitude",
+    "eta",
+    "log10_eta",
+    "is_strong_link",
+    "has_parent",
+    "parent_time_gap_days",
+    "parent_distance_km",
+    "parent_magnitude",
+    "parent_depth_km",
+    "event_year",
+    "event_month",
+    "event_dayofyear",
+    "event_hour",
+    "event_weekday",
+    "events_past_1d",
+    "events_past_7d",
+    "events_past_30d"
+  ],
+  "splits": {
+    "train_rows": 76233,
+    "validation_rows": 18135,
+    "test_rows": 27798,
+    "train_end_year": 2023,
+    "validation_year": 2024,
+    "test_start_year": 2025
+  },
+  "models": [
+    {
+      "target": "aftershock_24h",
+      "task": "classification",
+      "model_path": "outputs\\lightgbm_models_mc_1_0\\aftershock_24h.joblib",
+      "text_model_path": "outputs\\lightgbm_models_mc_1_0\\aftershock_24h.txt",
+      "best_iteration": 148,
+      "validation": {
+        "positive_rate": 0.24929693961952026,
+        "predicted_positive_rate_at_0_5": 0.295616211745244,
+        "brier": 0.06429771464045457,
+        "precision_at_0_5": 0.7834359261331841,
+        "recall_at_0_5": 0.9289980092899801,
+        "roc_auc": 0.9644524319153485,
+        "average_precision": 0.9013515589158108
+      },
+      "test": {
+        "positive_rate": 0.33106698323620404,
+        "predicted_positive_rate_at_0_5": 0.36581768472551984,
+        "brier": 0.056888042906519325,
+        "precision_at_0_5": 0.8520011800570361,
+        "recall_at_0_5": 0.9414321416929262,
+        "roc_auc": 0.974043232742915,
+        "average_precision": 0.9527888753916495
+      }
+    },
+    {
+      "target": "aftershock_dist_0_10km_24h",
+      "task": "classification",
+      "model_path": "outputs\\lightgbm_models_mc_1_0\\aftershock_dist_0_10km_24h.joblib",
+      "text_model_path": "outputs\\lightgbm_models_mc_1_0\\aftershock_dist_0_10km_24h.txt",
+      "best_iteration": 1722,
+      "validation": {
+        "positive_rate": 0.14982078853046596,
+        "predicted_positive_rate_at_0_5": 0.16090432864626414,
+        "brier": 0.07337819701013619,
+        "precision_at_0_5": 0.6175462645647704,
+        "recall_at_0_5": 0.6632315053367684,
+        "roc_auc": 0.9277508476462536,
+        "average_precision": 0.7168280306081836
+      },
+      "test": {
+        "positive_rate": 0.2707389020792863,
+        "predicted_positive_rate_at_0_5": 0.17727894093100224,
+        "brier": 0.09582859488644835,
+        "precision_at_0_5": 0.859375,
+        "recall_at_0_5": 0.5627159181504119,
+        "roc_auc": 0.9468545873384788,
+        "average_precision": 0.8595238384119501
+      }
+    },
+    {
+      "target": "aftershock_dist_10_25km_24h",
+      "task": "classification",
+      "model_path": "outputs\\lightgbm_models_mc_1_0\\aftershock_dist_10_25km_24h.joblib",
+      "text_model_path": "outputs\\lightgbm_models_mc_1_0\\aftershock_dist_10_25km_24h.txt",
+      "best_iteration": 372,
+      "validation": {
+        "positive_rate": 0.1738626964433416,
+        "predicted_positive_rate_at_0_5": 0.24146677695064792,
+        "brier": 0.06889036360571568,
+        "precision_at_0_5": 0.6672756337063257,
+        "recall_at_0_5": 0.9267364414843007,
+        "roc_auc": 0.9671601799101518,
+        "average_precision": 0.8641067228046598
+      },
+      "test": {
+        "positive_rate": 0.2708468235124829,
+        "predicted_positive_rate_at_0_5": 0.28847399093459963,
+        "brier": 0.061771661680700696,
+        "precision_at_0_5": 0.8143159995011847,
+        "recall_at_0_5": 0.86731305618276,
+        "roc_auc": 0.9686135083865794,
+        "average_precision": 0.905839363631516
+      }
+    },
+    {
+      "target": "aftershock_dist_25_50km_24h",
+      "task": "classification",
+      "model_path": "outputs\\lightgbm_models_mc_1_0\\aftershock_dist_25_50km_24h.joblib",
+      "text_model_path": "outputs\\lightgbm_models_mc_1_0\\aftershock_dist_25_50km_24h.txt",
+      "best_iteration": 108,
+      "validation": {
+        "positive_rate": 0.15875379101185552,
+        "predicted_positive_rate_at_0_5": 0.2459332781913427,
+        "brier": 0.06993007104744535,
+        "precision_at_0_5": 0.6197309417040359,
+        "recall_at_0_5": 0.9600555748523792,
+        "roc_auc": 0.9709824392427816,
+        "average_precision": 0.8456414363787974
+      },
+      "test": {
+        "positive_rate": 0.23951363407439383,
+        "predicted_positive_rate_at_0_5": 0.29534498884811855,
+        "brier": 0.0778495208341619,
+        "precision_at_0_5": 0.7097442143727162,
+        "recall_at_0_5": 0.8751877440672875,
+        "roc_auc": 0.9471746596024218,
+        "average_precision": 0.7665990777072131
+      }
+    },
+    {
+      "target": "aftershock_dist_50_100km_24h",
+      "task": "classification",
+      "model_path": "outputs\\lightgbm_models_mc_1_0\\aftershock_dist_50_100km_24h.joblib",
+      "text_model_path": "outputs\\lightgbm_models_mc_1_0\\aftershock_dist_50_100km_24h.txt",
+      "best_iteration": 78,
+      "validation": {
+        "positive_rate": 0.13443617314585057,
+        "predicted_positive_rate_at_0_5": 0.19404466501240694,
+        "brier": 0.06734192114986626,
+        "precision_at_0_5": 0.6265984654731458,
+        "recall_at_0_5": 0.9044298605414274,
+        "roc_auc": 0.9623324433071473,
+        "average_precision": 0.7511659351630857
+      },
+      "test": {
+        "positive_rate": 0.15900424490970574,
+        "predicted_positive_rate_at_0_5": 0.23332613857112022,
+        "brier": 0.0826972460462034,
+        "precision_at_0_5": 0.5790934320074006,
+        "recall_at_0_5": 0.8497737556561086,
+        "roc_auc": 0.943783458091279,
+        "average_precision": 0.7175716850123021
+      }
+    },
+    {
+      "target": "aftershock_dist_100_200km_24h",
+      "task": "classification",
+      "model_path": "outputs\\lightgbm_models_mc_1_0\\aftershock_dist_100_200km_24h.joblib",
+      "text_model_path": "outputs\\lightgbm_models_mc_1_0\\aftershock_dist_100_200km_24h.txt",
+      "best_iteration": 47,
+      "validation": {
+        "positive_rate": 0.07460711331679074,
+        "predicted_positive_rate_at_0_5": 0.23893024538185828,
+        "brier": 0.1172175901001357,
+        "precision_at_0_5": 0.30625432725594276,
+        "recall_at_0_5": 0.9807834441980784,
+        "roc_auc": 0.9320399069040906,
+        "average_precision": 0.417707408216284
+      },
+      "test": {
+        "positive_rate": 0.0843226131376358,
+        "predicted_positive_rate_at_0_5": 0.1838261745449313,
+        "brier": 0.10798498584118488,
+        "precision_at_0_5": 0.3391389432485323,
+        "recall_at_0_5": 0.7393344709897611,
+        "roc_auc": 0.9107764179966217,
+        "average_precision": 0.436228803141973
+      }
+    },
+    {
+      "target": "aftershock_dist_200_pluskm_24h",
+      "task": "classification",
+      "model_path": "outputs\\lightgbm_models_mc_1_0\\aftershock_dist_200_pluskm_24h.joblib",
+      "text_model_path": "outputs\\lightgbm_models_mc_1_0\\aftershock_dist_200_pluskm_24h.txt",
+      "best_iteration": 121,
+      "validation": {
+        "positive_rate": 0.02740556934105321,
+        "predicted_positive_rate_at_0_5": 0.1267714364488558,
+        "brier": 0.05982144530301334,
+        "precision_at_0_5": 0.197477163984341,
+        "recall_at_0_5": 0.9134808853118712,
+        "roc_auc": 0.9741893360389118,
+        "average_precision": 0.7322694993711294
+      },
+      "test": {
+        "positive_rate": 0.0638535146413411,
+        "predicted_positive_rate_at_0_5": 0.181559824447802,
+        "brier": 0.08030561249562151,
+        "precision_at_0_5": 0.31464236179908855,
+        "recall_at_0_5": 0.8946478873239436,
+        "roc_auc": 0.9626411305708438,
+        "average_precision": 0.7690927459791205
+      }
+    },
+    {
+      "target": "max_aftershock_mag_24h",
+      "task": "regression_positive_cases_only",
+      "model_path": "outputs\\lightgbm_models_mc_1_0\\max_aftershock_mag_24h.joblib",
+      "text_model_path": "outputs\\lightgbm_models_mc_1_0\\max_aftershock_mag_24h.txt",
+      "best_iteration": 406,
+      "validation": {
+        "mae": 0.7120140803315176,
+        "rmse": 0.8820637981553296,
+        "r2": 0.17611052104386837,
+        "target_mean": 3.4649856226498565
+      },
+      "test": {
+        "mae": 0.9926823402071013,
+        "rmse": 1.1786055564246762,
+        "r2": -0.086326863685386,
+        "target_mean": 3.904922307943062
+      }
+    }
+  ]
+}
