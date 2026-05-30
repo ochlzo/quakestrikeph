@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QuakeStrikePH LightGBM vs Random Forest Comparison</title>
+  <style>
+:root {
+  --ink: #17202c;
+  --muted: #5e6b7a;
+  --line: #d8e0e8;
+  --paper: #f7f9fb;
+  --panel: #ffffff;
+  --green: #1f8f5f;
+  --blue: #2d64c8;
+  --amber: #b56a00;
+  --red: #b93838;
+  --gray: #7c8794;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 14px/1.55 "Segoe UI", Arial, sans-serif;
+}
+.page { max-width: 1240px; margin: 0 auto; padding: 32px 24px 52px; }
+header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 24px;
+  align-items: end;
+  padding-bottom: 20px;
+  border-bottom: 2px solid var(--ink);
+}
+h1, h2, h3 { margin: 0; letter-spacing: 0; line-height: 1.15; }
+h1 { font-size: 34px; }
+h2 { margin-top: 34px; margin-bottom: 14px; font-size: 22px; }
+h3 { font-size: 15px; margin-bottom: 8px; }
+p { margin: 0 0 12px; }
+.subtitle { color: var(--muted); max-width: 820px; margin-top: 10px; font-size: 15px; }
+.stamp {
+  text-align: right;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+.metric {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+}
+.metric strong { display: block; font-size: 22px; line-height: 1.1; margin-top: 3px; }
+.metric span { color: var(--muted); font-size: 12px; }
+.note {
+  background: #fff7e8;
+  border-left: 4px solid var(--amber);
+  padding: 12px 14px;
+  margin: 12px 0 18px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+th, td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+  vertical-align: top;
+}
+th:first-child, td:first-child,
+th:nth-child(2), td:nth-child(2) { text-align: left; }
+th {
+  background: #eef3f8;
+  color: #233044;
+  font-weight: 700;
+  font-size: 12px;
+}
+tr:last-child td { border-bottom: 0; }
+.target { font-family: Consolas, "Courier New", monospace; font-size: 12px; }
+.winner {
+  display: inline-block;
+  min-width: 86px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: white;
+  text-align: center;
+  font-size: 12px;
+}
+.winner.lightgbm { background: var(--blue); }
+.winner.random_forest { background: var(--green); }
+.winner.mixed { background: var(--amber); }
+.small { color: var(--muted); font-size: 12px; }
+.sources {
+  font-family: Consolas, "Courier New", monospace;
+  color: var(--muted);
+  background: #f0f3f6;
+  padding: 12px;
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 860px) {
+  header, .grid { grid-template-columns: 1fr; }
+  .stamp { text-align: left; }
+  table { font-size: 12px; }
+  th, td { padding: 7px 6px; }
+}
+</style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <div>
+        <h1>QuakeStrikePH LightGBM vs Random Forest Comparison</h1>
+        <p class="subtitle">Per-target comparison and deployment recommendation using chronological test-split metrics plus the production-style backtest.</p>
+      </div>
+      <div class="stamp">Generated<br>2026-05-31 00:37</div>
+    </header>
+    
+    <section class="grid">
+      <div class="metric"><span>Classifier deployment recommendation</span><strong>LightGBM</strong></div>
+      <div class="metric"><span>Magnitude recommendation</span><strong>RF</strong></div>
+      <div class="metric"><span>RF tuning priority</span><strong>Thresholds</strong></div>
+      <div class="metric"><span>Primary evidence</span><strong>Backtest</strong></div>
+    </section>
+
+    <h2>Recommendation Summary</h2>
+    <p>Recommendations prioritize production-style backtest behavior. For classifiers, calibrated probability quality and usable recall at the current 0.5 threshold are weighted ahead of small AUC/AP wins. For regression, lower MAE/RMSE and higher R2 decide the recommendation.</p>
+    <table>
+      <thead><tr><th>Target</th><th>Description</th><th>Recommended model</th><th>Reason</th><th>Evidence signal</th></tr></thead>
+      <tbody><tr><td class='target'>aftershock_24h</td><td>Any aftershock within 24h</td><td><span class='winner lightgbm'>LightGBM</span></td><td>Use LightGBM for current deployment: backtest Brier and recall at 0.5 are materially better, while RF only has a tiny AP edge.</td><td>Backtest winners: AUC lightgbm, AP random_forest, Brier lightgbm, Recall@0.5 lightgbm.</td></tr>
+<tr><td class='target'>aftershock_dist_0_10km_24h</td><td>Aftershock 0-10 km within 24h</td><td><span class='winner lightgbm'>LightGBM</span></td><td>Use LightGBM: RF AUC is essentially tied, but LightGBM has better AP, Brier, and recall at 0.5.</td><td>Backtest winners: AUC random_forest, AP lightgbm, Brier lightgbm, Recall@0.5 lightgbm.</td></tr>
+<tr><td class='target'>aftershock_dist_10_25km_24h</td><td>Aftershock 10-25 km within 24h</td><td><span class='winner lightgbm'>LightGBM</span></td><td>Use LightGBM: it wins backtest AUC, AP, Brier, and recall by a wide margin.</td><td>Backtest winners: AUC lightgbm, AP lightgbm, Brier lightgbm, Recall@0.5 lightgbm.</td></tr>
+<tr><td class='target'>aftershock_dist_25_50km_24h</td><td>Aftershock 25-50 km within 24h</td><td><span class='winner lightgbm'>LightGBM</span></td><td>Use LightGBM for current binary alerts because its Brier and recall are better. RF is a ranking candidate after threshold calibration.</td><td>Backtest winners: AUC random_forest, AP random_forest, Brier lightgbm, Recall@0.5 lightgbm.</td></tr>
+<tr><td class='target'>aftershock_dist_50_100km_24h</td><td>Aftershock 50-100 km within 24h</td><td><span class='winner lightgbm'>LightGBM</span></td><td>Use LightGBM for current binary alerts. RF ranks better on AUC/AP, but its default threshold is too conservative and Brier is worse.</td><td>Backtest winners: AUC random_forest, AP random_forest, Brier lightgbm, Recall@0.5 lightgbm.</td></tr>
+<tr><td class='target'>aftershock_dist_100_200km_24h</td><td>Aftershock 100-200 km within 24h</td><td><span class='winner lightgbm'>LightGBM</span></td><td>Use LightGBM for current alerts: it has better backtest AUC, Brier, and recall. RF has a small AP edge worth revisiting after calibration.</td><td>Backtest winners: AUC lightgbm, AP random_forest, Brier lightgbm, Recall@0.5 lightgbm.</td></tr>
+<tr><td class='target'>aftershock_dist_200_pluskm_24h</td><td>Aftershock 200+ km within 24h</td><td><span class='winner lightgbm'>LightGBM</span></td><td>Use LightGBM for calibrated alerting because Brier and recall are better. RF has stronger ranking metrics and should be threshold-tuned separately.</td><td>Backtest winners: AUC random_forest, AP random_forest, Brier lightgbm, Recall@0.5 lightgbm.</td></tr>
+<tr><td class='target'>max_aftershock_mag_24h</td><td>Maximum aftershock magnitude within 24h</td><td><span class='winner random_forest'>Random Forest</span></td><td>RF wins MAE, RMSE, and R2 in both chronological test-split metrics and the production-style backtest.</td><td>Backtest delta: MAE -0.1361, RMSE -0.2045, R2 0.3775</td></tr></tbody>
+    </table>
+
+    <h2>Backtest Comparison</h2>
+    <table>
+      <thead><tr><th>Target</th><th>Description</th><th>LGBM AUC</th><th>RF AUC</th><th>LGBM AP</th><th>RF AP</th><th>LGBM Brier</th><th>RF Brier</th><th>LGBM Recall</th><th>RF Recall</th></tr></thead>
+      <tbody><tr><td class='target'>aftershock_24h</td><td>Any aftershock within 24h</td><td>0.9808</td><td>0.9792</td><td>0.9823</td><td>0.9846</td><td>0.0754</td><td>0.1627</td><td>0.8333</td><td>0.4400</td></tr><tr><td class='target'>aftershock_dist_0_10km_24h</td><td>Aftershock 0-10 km within 24h</td><td>0.9598</td><td>0.9598</td><td>0.9452</td><td>0.9419</td><td>0.1852</td><td>0.2087</td><td>0.3265</td><td>0.0829</td></tr><tr><td class='target'>aftershock_dist_10_25km_24h</td><td>Aftershock 10-25 km within 24h</td><td>0.9776</td><td>0.9492</td><td>0.9641</td><td>0.9110</td><td>0.0905</td><td>0.2220</td><td>0.7647</td><td>0.1100</td></tr><tr><td class='target'>aftershock_dist_25_50km_24h</td><td>Aftershock 25-50 km within 24h</td><td>0.9407</td><td>0.9727</td><td>0.8592</td><td>0.9443</td><td>0.1690</td><td>0.2034</td><td>0.1951</td><td>0.1135</td></tr><tr><td class='target'>aftershock_dist_50_100km_24h</td><td>Aftershock 50-100 km within 24h</td><td>0.9146</td><td>0.9310</td><td>0.7706</td><td>0.8245</td><td>0.0886</td><td>0.1190</td><td>0.3913</td><td>0.1951</td></tr><tr><td class='target'>aftershock_dist_100_200km_24h</td><td>Aftershock 100-200 km within 24h</td><td>0.9736</td><td>0.9610</td><td>0.7886</td><td>0.8043</td><td>0.0445</td><td>0.0582</td><td>0.6000</td><td>0.3051</td></tr><tr><td class='target'>aftershock_dist_200_pluskm_24h</td><td>Aftershock 200+ km within 24h</td><td>0.8799</td><td>0.9478</td><td>0.6377</td><td>0.7691</td><td>0.0338</td><td>0.0429</td><td>0.4286</td><td>0.4000</td></tr><tr><td class='target'>max_aftershock_mag_24h</td><td>Maximum aftershock magnitude within 24h</td><td colspan='2'>MAE: LGBM 0.8448 / RF 0.7087</td><td colspan='2'>RMSE: LGBM 1.0882 / RF 0.8837</td><td colspan='2'>R2: LGBM 0.0113 / RF 0.3888</td><td colspan='2'><span class='winner random_forest'>Random Forest</span></td></tr></tbody>
+    </table>
+
+    <h2>Interpretation</h2>
+    <p>LightGBM remains the safer classifier family for current deployment because it produces better-calibrated probabilities and much better recall at the current operating threshold. Random Forest is useful as a ranking baseline on several distance-bin targets, but it should not replace LightGBM classifiers until threshold tuning or probability calibration is performed.</p>
+    <p>Random Forest is the recommended model for <span class="target">max_aftershock_mag_24h</span>. It improves the production-style backtest magnitude estimate on MAE, RMSE, and R2.</p>
+
+    <h2>Artifacts</h2>
+    <div class="sources">
+      split comparison: outputs\model_comparison_mc_1_0\lightgbm_vs_random_forest_metrics.csv<br>
+      backtest comparison: outputs\model_comparison_mc_1_0\lightgbm_vs_random_forest_backtest_metrics.csv<br>
+      LightGBM backtest: outputs/lightgbm_backtests_mc_1_0/backtest_metrics.json<br>
+      Random Forest backtest: outputs\random_forest_backtests_mc_1_0\backtest_metrics.json
+    </div>
+    
+  </main>
+</body>
+</html>
