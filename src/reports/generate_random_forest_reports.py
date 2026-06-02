@@ -4,13 +4,13 @@ from datetime import datetime
 from pathlib import Path
 
 
-RF_TRAINING_METRICS = Path("outputs/random_forest_models_mc_1_0/metrics.json")
-RF_BACKTEST_METRICS = Path("outputs/random_forest_backtests_mc_1_0/backtest_metrics.json")
+RF_TRAINING_METRICS = Path("src/outputs/random-forest/models_mc_1_0/metrics.json")
+RF_BACKTEST_METRICS = Path("src/outputs/random-forest/backtests_mc_1_0/backtest_metrics.json")
 MODEL_COMPARISON_CSV = Path(
-    "outputs/model_comparison_mc_1_0/lightgbm_vs_random_forest_metrics.csv"
+    "src/outputs/model-comparison/mc_1_0/lightgbm_vs_random_forest_metrics.csv"
 )
 BACKTEST_COMPARISON_CSV = Path(
-    "outputs/model_comparison_mc_1_0/lightgbm_vs_random_forest_backtest_metrics.csv"
+    "src/outputs/model-comparison/mc_1_0/lightgbm_vs_random_forest_backtest_metrics.csv"
 )
 RF_REPORT = Path("src/reports/random_forest_model_report.html")
 COMPARISON_REPORT = Path("src/reports/lightgbm_vs_random_forest_comparison_report.html")
@@ -392,8 +392,8 @@ def build_rf_report():
     <div class="sources">
       training metrics: {RF_TRAINING_METRICS}<br>
       backtest metrics: {RF_BACKTEST_METRICS}<br>
-      predictions: outputs/random_forest_backtests_mc_1_0/backtest_predictions.csv<br>
-      models: outputs/random_forest_models_mc_1_0/
+      predictions: src/outputs/random-forest/backtests_mc_1_0/backtest_predictions.csv<br>
+      models: src/outputs/random-forest/models_mc_1_0/
     </div>
     """
     RF_REPORT.write_text(
@@ -465,7 +465,7 @@ def build_comparison_report():
     <div class="sources">
       split comparison: {MODEL_COMPARISON_CSV}<br>
       backtest comparison: {BACKTEST_COMPARISON_CSV}<br>
-      LightGBM backtest: outputs/lightgbm_backtests_mc_1_0/backtest_metrics.json<br>
+      LightGBM backtest: src/outputs/lightgbm/backtests_mc_1_0/backtest_metrics.json<br>
       Random Forest backtest: {RF_BACKTEST_METRICS}
     </div>
     """

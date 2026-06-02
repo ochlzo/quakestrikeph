@@ -10,7 +10,7 @@ except ModuleNotFoundError:
 
 
 DEFAULT_INPUT_CSV = Path("dataset/phivolcs_earthquake_2018_2026.csv")
-DEFAULT_OUTPUT_ROOT = Path("outputs")
+DEFAULT_OUTPUT_ROOT = Path("src/outputs")
 DEFAULT_EXE = Path("build/nn_diagnostics.exe")
 CPP_SOURCES = [
     Path("src/zaliapin-ben-zion-clustering/nn_main.cpp"),

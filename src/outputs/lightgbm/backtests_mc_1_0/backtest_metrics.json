@@ -1,0 +1,98 @@
+{
+  "config": {
+    "labeled_csv": "src\\training_set\\training_dataset_mc_1_0.csv",
+    "historical_csv": "dataset\\phivolcs_earthquake_2018_2026.csv",
+    "models_dir": "src\\outputs\\lightgbm\\models_mc_1_0",
+    "feature_columns": "src\\outputs\\lightgbm\\models_mc_1_0\\feature_columns.txt",
+    "test_start_year": 2025,
+    "max_events": 500,
+    "sample_mode": "balanced",
+    "sampled_rows": 500,
+    "candidate_rows": 29720,
+    "minimum_magnitude": 1.0
+  },
+  "metrics": {
+    "classification": {
+      "aftershock_24h": {
+        "count": 500,
+        "positive_rate": 0.5,
+        "predicted_positive_rate_at_0_5": 0.456,
+        "brier": 0.07311369691330398,
+        "precision_at_0_5": 0.9517543859649122,
+        "recall_at_0_5": 0.868,
+        "roc_auc": 0.9719519999999999,
+        "average_precision": 0.9697441268772221
+      },
+      "aftershock_dist_0_10km_24h": {
+        "count": 500,
+        "positive_rate": 0.404,
+        "predicted_positive_rate_at_0_5": 0.214,
+        "brier": 0.14229014915177549,
+        "precision_at_0_5": 0.9532710280373832,
+        "recall_at_0_5": 0.504950495049505,
+        "roc_auc": 0.9517409794670741,
+        "average_precision": 0.9316698975666127
+      },
+      "aftershock_dist_10_25km_24h": {
+        "count": 500,
+        "positive_rate": 0.4,
+        "predicted_positive_rate_at_0_5": 0.35,
+        "brier": 0.08245751490702222,
+        "precision_at_0_5": 0.9257142857142857,
+        "recall_at_0_5": 0.81,
+        "roc_auc": 0.9647083333333334,
+        "average_precision": 0.9362743598936478
+      },
+      "aftershock_dist_25_50km_24h": {
+        "count": 500,
+        "positive_rate": 0.368,
+        "predicted_positive_rate_at_0_5": 0.138,
+        "brier": 0.1464047506075622,
+        "precision_at_0_5": 0.9855072463768116,
+        "recall_at_0_5": 0.3695652173913043,
+        "roc_auc": 0.9616641441937259,
+        "average_precision": 0.9280884818684793
+      },
+      "aftershock_dist_50_100km_24h": {
+        "count": 500,
+        "positive_rate": 0.228,
+        "predicted_positive_rate_at_0_5": 0.128,
+        "brier": 0.1002465176004793,
+        "precision_at_0_5": 0.828125,
+        "recall_at_0_5": 0.4649122807017544,
+        "roc_auc": 0.9177915644032361,
+        "average_precision": 0.7799043561983279
+      },
+      "aftershock_dist_100_200km_24h": {
+        "count": 500,
+        "positive_rate": 0.12,
+        "predicted_positive_rate_at_0_5": 0.088,
+        "brier": 0.07355170563788939,
+        "precision_at_0_5": 0.6363636363636364,
+        "recall_at_0_5": 0.4666666666666667,
+        "roc_auc": 0.9314583333333333,
+        "average_precision": 0.6647877921768692
+      },
+      "aftershock_dist_200_pluskm_24h": {
+        "count": 500,
+        "positive_rate": 0.086,
+        "predicted_positive_rate_at_0_5": 0.028,
+        "brier": 0.05247756500183394,
+        "precision_at_0_5": 0.9285714285714286,
+        "recall_at_0_5": 0.3023255813953488,
+        "roc_auc": 0.9065187522263498,
+        "average_precision": 0.6517158812166746
+      }
+    },
+    "regression": {
+      "max_aftershock_mag_24h": {
+        "count": 250,
+        "mae": 0.8935391411421529,
+        "rmse": 1.0934196425199902,
+        "r2": 0.0933336508459145,
+        "actual_mean": 3.86,
+        "predicted_mean": 3.194384804741882
+      }
+    }
+  }
+}

@@ -6,7 +6,7 @@ import pandas as pd
 
 # INPUT_CSV = "phivolcs_gk_declustered_openquake_style.csv"
 
-INPUT_CSV = "./outputs/clustered_ml_ready_mc_1_0.csv"
+INPUT_CSV = "./src/outputs/clustered_ml_ready_mc_1_0.csv"
 PHIVOLCS_TIME_FORMAT = "%d %B %Y - %I:%M %p"
 
 

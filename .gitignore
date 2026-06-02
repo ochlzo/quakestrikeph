@@ -1,5 +1,24 @@
-graphify-out/
-.codex/
-outputs/random_forest_models_mc_1_0/*.joblib
-.codex/
-outputs/random_forest_models_mc_1_0/*.joblib
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Model weights / Large binary files
+*.joblib
+src/outputs/**/*.joblib
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editor / IDE configuration
+.vscode/
+.idea/
+*.suo
+*.user
+
+# OS-specific files
+.DS_Store
+Thumbs.db
