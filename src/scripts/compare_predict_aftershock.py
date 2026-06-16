@@ -9,6 +9,7 @@ from pathlib import Path
 
 DEFAULT_LIGHTGBM_SCRIPT = Path("src/lightgbm/predict_aftershock.py")
 DEFAULT_RANDOM_FOREST_SCRIPT = Path("src/random_forest/predict_aftershock.py")
+DEFAULT_XGBOOST_SCRIPT = Path("src/xgboost/predict_aftershock.py")
 DEFAULT_HISTORICAL_CSV = Path("dataset/phivolcs_earthquake_2018_2026.csv")
 DEFAULT_SAMPLE_EVENT = {
     "date_time": "26 April 2026 - 03:20 PM",
@@ -22,12 +23,18 @@ DEFAULT_SAMPLE_EVENT = {
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            "Run LightGBM and Random Forest aftershock predictors with the same "
+            "Run aftershock predictors with the same "
             "input event and print a prediction/runtime comparison table."
         )
     )
     parser.add_argument("--lightgbm-script", type=Path, default=DEFAULT_LIGHTGBM_SCRIPT)
     parser.add_argument("--random-forest-script", type=Path, default=DEFAULT_RANDOM_FOREST_SCRIPT)
+    parser.add_argument("--xgboost-script", type=Path, default=DEFAULT_XGBOOST_SCRIPT)
+    parser.add_argument(
+        "--include-xgboost",
+        action="store_true",
+        help="Also run the XGBoost predictor.",
+    )
     parser.add_argument("--historical-csv", type=Path, default=DEFAULT_HISTORICAL_CSV)
     parser.add_argument("--event-csv", type=Path, help="CSV containing one raw event row.")
     parser.add_argument(
@@ -66,6 +73,8 @@ def validate_args(args):
         raise FileNotFoundError(
             f"Random Forest predictor does not exist: {args.random_forest_script}"
         )
+    if args.include_xgboost and not args.xgboost_script.exists():
+        raise FileNotFoundError(f"XGBoost predictor does not exist: {args.xgboost_script}")
     if not args.historical_csv.exists():
         raise FileNotFoundError(f"Historical CSV does not exist: {args.historical_csv}")
     if args.event_csv and not args.event_csv.exists():
@@ -243,9 +252,16 @@ def main():
     args = parse_args()
     validate_args(args)
     predictor_args = shared_predictor_args(args)
+    predictors = [
+        ("LightGBM", args.lightgbm_script),
+        ("Random Forest", args.random_forest_script),
+    ]
+    if args.include_xgboost:
+        predictors.append(("XGBoost", args.xgboost_script))
+
     results = [
-        run_predictor("LightGBM", args.lightgbm_script, predictor_args, args.runs),
-        run_predictor("Random Forest", args.random_forest_script, predictor_args, args.runs),
+        run_predictor(label, script_path, predictor_args, args.runs)
+        for label, script_path in predictors
     ]
     summary = [prediction_summary(result) for result in results]
     print_table(summary)

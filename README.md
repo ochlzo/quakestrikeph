@@ -22,6 +22,7 @@ Install model dependencies as needed:
 ```powershell
 python -m pip install -r requirements-lightgbm.txt
 python -m pip install -r requirements-random-forest.txt
+python -m pip install -r requirements-xgboost.txt
 ```
 
 The clustering runners compile C++ code with `g++`, so make sure `g++` is on
@@ -114,7 +115,7 @@ src\training_set\training_dataset_mc_1_0.features.txt
 src\training_set\training_dataset_mc_1_0.targets.txt
 ```
 
-This dataset is shared by LightGBM and Random Forest.
+This dataset is shared by LightGBM, Random Forest, and XGBoost.
 
 ## Models
 
@@ -224,11 +225,73 @@ Run prediction for one event from a one-row CSV:
 python src\random_forest\predict_aftershock.py --event-csv path\to\one_event.csv --output-json src\outputs\random-forest\prediction.json
 ```
 
+### XGBoost
+
+Train XGBoost classifiers and the magnitude regressor:
+
+```powershell
+python src\xgboost\train_xgboost_aftershock_models.py
+```
+
+Default input:
+
+```powershell
+src\training_set\training_dataset_mc_1_0.csv
+```
+
+Default output:
+
+```powershell
+src\outputs\xgboost\models_mc_1_0\
+```
+
+Run a faster sampled training pass while iterating:
+
+```powershell
+python src\xgboost\train_xgboost_aftershock_models.py --max-train-rows 20000 --max-validation-rows 5000 --max-test-rows 5000
+```
+
+Run the default production-style sampled backtest:
+
+```powershell
+python src\xgboost\backtest_aftershock_predictions.py
+```
+
+Default output:
+
+```powershell
+src\outputs\xgboost\backtests_mc_1_0\
+```
+
+Run the backtest across all matching 2025+ events:
+
+```powershell
+python src\xgboost\backtest_aftershock_predictions.py --max-events 0
+```
+
+Run prediction for one event from command-line fields:
+
+```powershell
+python src\xgboost\predict_aftershock.py --date-time "26 April 2026 - 03:20 PM" --latitude 10.0 --longitude 125.0 --depth 20 --magnitude 4.5
+```
+
+Run prediction for one event from a one-row CSV:
+
+```powershell
+python src\xgboost\predict_aftershock.py --event-csv path\to\one_event.csv --output-json src\outputs\xgboost\prediction.json
+```
+
 Compare LightGBM and Random Forest prediction outputs and runtime using the
 same input event:
 
 ```powershell
 python src\scripts\compare_predict_aftershock.py
+```
+
+Compare LightGBM, Random Forest, and XGBoost prediction outputs and runtime:
+
+```powershell
+python src\scripts\compare_predict_aftershock.py --include-xgboost
 ```
 
 Compare both predictors with a one-row event CSV:
@@ -278,5 +341,5 @@ build\tests\test_magnitude_diagnostics.exe
 Syntax-check the main Python scripts:
 
 ```powershell
-python -m py_compile scripts\run_zaliapin_clustering.py scripts\run_nn_diagnostics_for_mc.py scripts\validate_clustered_dataset.py src\scripts\build_training_dataset.py src\scripts\compare_predict_aftershock.py src\lightgbm\train_lightgbm_aftershock_models.py src\lightgbm\predict_aftershock.py src\lightgbm\backtest_aftershock_predictions.py src\random_forest\train_random_forest_aftershock_models.py src\random_forest\predict_aftershock.py src\random_forest\backtest_aftershock_predictions.py
+python -m py_compile scripts\run_zaliapin_clustering.py scripts\run_nn_diagnostics_for_mc.py scripts\validate_clustered_dataset.py src\scripts\build_training_dataset.py src\scripts\compare_predict_aftershock.py src\lightgbm\train_lightgbm_aftershock_models.py src\lightgbm\predict_aftershock.py src\lightgbm\backtest_aftershock_predictions.py src\random_forest\train_random_forest_aftershock_models.py src\random_forest\predict_aftershock.py src\random_forest\backtest_aftershock_predictions.py src\xgboost\train_xgboost_aftershock_models.py src\xgboost\predict_aftershock.py src\xgboost\backtest_aftershock_predictions.py
 ```
