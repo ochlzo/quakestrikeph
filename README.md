@@ -300,6 +300,34 @@ Compare both predictors with a one-row event CSV:
 python src\scripts\compare_predict_aftershock.py --event-csv path\to\one_event.csv
 ```
 
+### SEIS (Hybrid Multi-Model Ensemble)
+
+SEIS is the unified multi-model predictor that combines the best-in-class models (XGBoost, LightGBM, and Random Forest) according to the recommended configurations in `src/docs/model_recommendations.md`.
+
+Run prediction for one event using command-line fields:
+
+```powershell
+python src\seis\predict.py --date-time "26 April 2026 - 03:20 PM" --latitude 10.0 --longitude 125.0 --depth 20 --magnitude 4.5
+```
+
+Run prediction for one event from a one-row CSV:
+
+```powershell
+python src\seis\predict.py --event-csv path\to\one_event.csv --output-json src\outputs\seis\prediction.json
+```
+
+Run the sampled backtest to calculate combined hybrid metrics:
+
+```powershell
+python src\seis\backtest.py
+```
+
+Default output:
+
+```powershell
+src\outputs\seis\backtests_mc_1_0\
+```
+
 ## Reports
 
 Generate the Random Forest report and LightGBM-vs-Random-Forest comparison
@@ -341,5 +369,5 @@ build\tests\test_magnitude_diagnostics.exe
 Syntax-check the main Python scripts:
 
 ```powershell
-python -m py_compile scripts\run_zaliapin_clustering.py scripts\run_nn_diagnostics_for_mc.py scripts\validate_clustered_dataset.py src\scripts\build_training_dataset.py src\scripts\compare_predict_aftershock.py src\lightgbm\train_lightgbm_aftershock_models.py src\lightgbm\predict_aftershock.py src\lightgbm\backtest_aftershock_predictions.py src\random_forest\train_random_forest_aftershock_models.py src\random_forest\predict_aftershock.py src\random_forest\backtest_aftershock_predictions.py src\xgboost\train_xgboost_aftershock_models.py src\xgboost\predict_aftershock.py src\xgboost\backtest_aftershock_predictions.py
+python -m py_compile scripts\run_zaliapin_clustering.py scripts\run_nn_diagnostics_for_mc.py scripts\validate_clustered_dataset.py src\scripts\build_training_dataset.py src\scripts\compare_predict_aftershock.py src\lightgbm\train_lightgbm_aftershock_models.py src\lightgbm\predict_aftershock.py src\lightgbm\backtest_aftershock_predictions.py src\random_forest\train_random_forest_aftershock_models.py src\random_forest\predict_aftershock.py src\random_forest\backtest_aftershock_predictions.py src\xgboost\train_xgboost_aftershock_models.py src\xgboost\predict_aftershock.py src\xgboost\backtest_aftershock_predictions.py src\seis\predict.py src\seis\backtest.py
 ```
