@@ -22,7 +22,7 @@ from build_training_dataset import (  # noqa: E402
 from train_lightgbm_aftershock_models import (  # noqa: E402
     CLASSIFICATION_TARGETS,
     DEFAULT_OUTPUT_DIR,
-    REGRESSION_TARGET,
+    REGRESSION_TARGETS,
 )
 
 
@@ -344,7 +344,7 @@ def build_prediction_features(history, event, args, feature_columns):
 
 def load_models(models_dir, joblib):
     models = {}
-    for target in [*CLASSIFICATION_TARGETS, REGRESSION_TARGET]:
+    for target in [*CLASSIFICATION_TARGETS, *REGRESSION_TARGETS]:
         model_path = models_dir / f"{target}.joblib"
         if not model_path.exists():
             raise FileNotFoundError(f"Model file does not exist: {model_path}")
@@ -358,11 +358,12 @@ def run_predictions(feature_row, models):
         probability = models[target].predict_proba(feature_row, validate_features=True)[0, 1]
         classification[target] = float(probability)
 
-    max_magnitude = float(models[REGRESSION_TARGET].predict(feature_row)[0])
-    return classification, max_magnitude
+    max_magnitude = float(models["max_aftershock_mag_24h"].predict(feature_row)[0])
+    max_distance = float(models["max_aftershock_distance_km_24h"].predict(feature_row)[0])
+    return classification, max_magnitude, max_distance
 
 
-def build_output(event, feature_row, classification, max_magnitude, history_rows):
+def build_output(event, feature_row, classification, max_magnitude, max_distance, history_rows):
     feature_values = {}
     for column, value in feature_row.iloc[0].items():
         if pd.isna(value):
@@ -397,6 +398,7 @@ def build_output(event, feature_row, classification, max_magnitude, history_rows
             "aftershock_24h_probability": classification["aftershock_24h"],
             "distance_bin_probabilities_24h": distance_bins,
             "estimated_max_aftershock_magnitude_if_aftershock_24h": max_magnitude,
+            "estimated_max_aftershock_distance_km_if_aftershock_24h": max_distance,
         },
     }
 
@@ -423,8 +425,8 @@ def main():
     feature_columns = load_feature_columns(args.feature_columns)
     feature_row = build_prediction_features(history, event, args, feature_columns)
     models = load_models(args.models_dir, joblib)
-    classification, max_magnitude = run_predictions(feature_row, models)
-    output = build_output(event, feature_row, classification, max_magnitude, len(history))
+    classification, max_magnitude, max_distance = run_predictions(feature_row, models)
+    output = build_output(event, feature_row, classification, max_magnitude, max_distance, len(history))
     output_json = json.dumps(output, indent=2, allow_nan=False)
 
     if args.output_json:

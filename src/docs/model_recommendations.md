@@ -22,11 +22,12 @@ Primary selection criteria: ROC-AUC and Average Precision (threshold-independent
 | `aftershock_dist_100_200km_24h` | **XGBoost** | 0.936 | 0.689 | 0.065 | 0.433 | Best on all three metrics, including calibration (Brier 0.065). |
 | `aftershock_dist_200_pluskm_24h` | **LightGBM** | 0.907 | 0.652 | 0.052 | 0.302 | Best Brier score (0.052), ROC-AUC, and AP. |
 | `max_aftershock_mag_24h` (regression) | **Random Forest** | R² = 0.43 | MAE = 0.694 | — | — | Decisively best (XGBoost R² 0.28, LightGBM R² 0.09). |
+| `max_aftershock_distance_km_24h` (regression) | **LightGBM** | R² = 0.43 | MAE = 81.8 km | — | — | Decisively best (XGBoost R² 0.33, Random Forest R² 0.33 on full test). Predicts warning radius from epicenter. |
 
 ## Grouped by Model
 
 - **XGBoost:** `aftershock_24h`, `aftershock_dist_0_10km_24h`, `aftershock_dist_50_100km_24h`, `aftershock_dist_100_200km_24h`
-- **LightGBM:** `aftershock_dist_10_25km_24h`, `aftershock_dist_25_50km_24h`, `aftershock_dist_200_pluskm_24h`
+- **LightGBM:** `aftershock_dist_10_25km_24h`, `aftershock_dist_25_50km_24h`, `aftershock_dist_200_pluskm_24h`, `max_aftershock_distance_km_24h` (regression)
 - **Random Forest:** `max_aftershock_mag_24h` (regression)
 
 ## Caveats

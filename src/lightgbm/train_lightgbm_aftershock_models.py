@@ -18,7 +18,10 @@ CLASSIFICATION_TARGETS = [
     "aftershock_dist_100_200km_24h",
     "aftershock_dist_200_pluskm_24h",
 ]
-REGRESSION_TARGET = "max_aftershock_mag_24h"
+REGRESSION_TARGETS = [
+    "max_aftershock_mag_24h",
+    "max_aftershock_distance_km_24h",
+]
 
 
 def parse_args():
@@ -166,15 +169,15 @@ def train_classifier(target, train, validation, test, feature_columns, output_di
     }
 
 
-def train_regressor(train, validation, test, feature_columns, output_dir, deps):
+def train_regressor(target, train, validation, test, feature_columns, output_dir, deps):
     lgb = deps["lgb"]
     joblib = deps["joblib"]
-    train = train.dropna(subset=[REGRESSION_TARGET])
-    validation = validation.dropna(subset=[REGRESSION_TARGET])
-    test = test.dropna(subset=[REGRESSION_TARGET])
+    train = train.dropna(subset=[target])
+    validation = validation.dropna(subset=[target])
+    test = test.dropna(subset=[target])
 
     if train.empty or validation.empty or test.empty:
-        print(f"Skipping {REGRESSION_TARGET}; one split has no positive aftershock targets.")
+        print(f"Skipping {target}; one split has no positive aftershock targets.")
         return None
 
     model = lgb.LGBMRegressor(
@@ -189,27 +192,27 @@ def train_regressor(train, validation, test, feature_columns, output_dir, deps):
     )
     model.fit(
         train[feature_columns],
-        train[REGRESSION_TARGET],
-        eval_set=[(validation[feature_columns], validation[REGRESSION_TARGET])],
+        train[target],
+        eval_set=[(validation[feature_columns], validation[target])],
         eval_metric="l2",
         callbacks=[lgb.early_stopping(stopping_rounds=100), lgb.log_evaluation(period=0)],
     )
 
     validation_pred = model.predict(validation[feature_columns])
     test_pred = model.predict(test[feature_columns])
-    model_path = output_dir / f"{REGRESSION_TARGET}.joblib"
-    text_model_path = output_dir / f"{REGRESSION_TARGET}.txt"
+    model_path = output_dir / f"{target}.joblib"
+    text_model_path = output_dir / f"{target}.txt"
     joblib.dump(model, model_path)
     model.booster_.save_model(text_model_path, num_iteration=model.best_iteration_)
 
     return {
-        "target": REGRESSION_TARGET,
+        "target": target,
         "task": "regression_positive_cases_only",
         "model_path": str(model_path),
         "text_model_path": str(text_model_path),
         "best_iteration": int(model.best_iteration_ or model.n_estimators),
-        "validation": regression_metrics(validation[REGRESSION_TARGET].to_numpy(), validation_pred, deps),
-        "test": regression_metrics(test[REGRESSION_TARGET].to_numpy(), test_pred, deps),
+        "validation": regression_metrics(validation[target].to_numpy(), validation_pred, deps),
+        "test": regression_metrics(test[target].to_numpy(), test_pred, deps),
     }
 
 
@@ -224,7 +227,7 @@ def main():
     deps = require_training_dependencies()
     feature_columns = load_feature_columns(args.input_csv)
     df = pd.read_csv(args.input_csv, low_memory=False)
-    missing_columns = sorted(set(feature_columns + CLASSIFICATION_TARGETS + [REGRESSION_TARGET]) - set(df.columns))
+    missing_columns = sorted(set(feature_columns + CLASSIFICATION_TARGETS + REGRESSION_TARGETS) - set(df.columns))
     if missing_columns:
         raise ValueError(f"Training CSV is missing columns: {missing_columns}")
 
@@ -250,9 +253,10 @@ def main():
         if result is not None:
             metrics["models"].append(result)
 
-    regression_result = train_regressor(train, validation, test, feature_columns, args.output_dir, deps)
-    if regression_result is not None:
-        metrics["models"].append(regression_result)
+    for target in REGRESSION_TARGETS:
+        regression_result = train_regressor(target, train, validation, test, feature_columns, args.output_dir, deps)
+        if regression_result is not None:
+            metrics["models"].append(regression_result)
 
     metrics_path = args.output_dir / "metrics.json"
     metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")

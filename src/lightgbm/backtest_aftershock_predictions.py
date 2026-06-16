@@ -22,7 +22,7 @@ from train_lightgbm_aftershock_models import (
     CLASSIFICATION_TARGETS,
     DEFAULT_INPUT_CSV,
     DEFAULT_OUTPUT_DIR as DEFAULT_MODELS_DIR,
-    REGRESSION_TARGET,
+    REGRESSION_TARGETS,
 )
 
 
@@ -113,7 +113,7 @@ def load_labeled_events(path, test_start_year, minimum_magnitude):
         "depth_km",
         "magnitude",
         "event_year",
-        REGRESSION_TARGET,
+        *REGRESSION_TARGETS,
         *CLASSIFICATION_TARGETS,
     }
     missing = sorted(required - set(df.columns))
@@ -180,7 +180,7 @@ def probability_for_target(target, classification):
     return classification[target]
 
 
-def build_prediction_record(row, classification, max_magnitude, history_rows):
+def build_prediction_record(row, classification, max_magnitude, max_distance, history_rows):
     record = {
         "event_id": row["event_id"],
         "origin_time": row["origin_time"],
@@ -191,7 +191,11 @@ def build_prediction_record(row, classification, max_magnitude, history_rows):
         "history_rows_used": int(history_rows),
         "predicted_max_aftershock_mag_24h": float(max_magnitude),
         "actual_max_aftershock_mag_24h": (
-            None if pd.isna(row[REGRESSION_TARGET]) else float(row[REGRESSION_TARGET])
+            None if pd.isna(row["max_aftershock_mag_24h"]) else float(row["max_aftershock_mag_24h"])
+        ),
+        "predicted_max_aftershock_distance_km_24h": float(max_distance),
+        "actual_max_aftershock_distance_km_24h": (
+            None if pd.isna(row["max_aftershock_distance_km_24h"]) else float(row["max_aftershock_distance_km_24h"])
         ),
     }
     for target in CLASSIFICATION_TARGETS:
@@ -225,14 +229,14 @@ def classification_metrics(y_true, y_probability, metrics):
     return result
 
 
-def regression_metrics(records, metrics):
+def regression_metrics(records, actual_key, predicted_key, metrics):
     pairs = [
         (
-            record["actual_max_aftershock_mag_24h"],
-            record["predicted_max_aftershock_mag_24h"],
+            record[actual_key],
+            record[predicted_key],
         )
         for record in records
-        if record["actual_max_aftershock_mag_24h"] is not None
+        if record[actual_key] is not None
     ]
     if not pairs:
         return {"count": 0}
@@ -263,7 +267,12 @@ def summarize_records(records, metrics):
             metrics,
         )
     summary["regression"] = {
-        REGRESSION_TARGET: regression_metrics(records, metrics)
+        "max_aftershock_mag_24h": regression_metrics(
+            records, "actual_max_aftershock_mag_24h", "predicted_max_aftershock_mag_24h", metrics
+        ),
+        "max_aftershock_distance_km_24h": regression_metrics(
+            records, "actual_max_aftershock_distance_km_24h", "predicted_max_aftershock_distance_km_24h", metrics
+        ),
     }
     return summary
 
@@ -302,12 +311,13 @@ def main():
             args,
             feature_columns,
         )
-        classification, max_magnitude = run_predictions(feature_row, models)
+        classification, max_magnitude, max_distance = run_predictions(feature_row, models)
         records.append(
             build_prediction_record(
                 row,
                 classification,
                 max_magnitude,
+                max_distance,
                 len(prediction_history),
             )
         )
