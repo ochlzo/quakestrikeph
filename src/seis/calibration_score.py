@@ -1,4 +1,4 @@
-"""Score all three model families over the full deployment pool.
+"""Score all model families over the full deployment pool.
 
 Runs the *production* feature path (rebuilding features from the raw catalog
 per event, exactly as ``predict.py`` does at inference time) over every event
@@ -43,6 +43,7 @@ from predict_aftershock import (  # noqa: E402
 )
 from predict import (  # noqa: E402
     CLASSIFICATION_TARGETS,
+    DEFAULT_CB_DIR,
     DEFAULT_LGB_DIR,
     DEFAULT_RF_DIR,
     DEFAULT_XGB_DIR,
@@ -59,6 +60,7 @@ FAMILY_DIRS = {
     "xgboost": DEFAULT_XGB_DIR,
     "lightgbm": DEFAULT_LGB_DIR,
     "random_forest": DEFAULT_RF_DIR,
+    "catboost": DEFAULT_CB_DIR,
 }
 
 
@@ -207,7 +209,7 @@ def main():
     print(f"Pool: {len(pool)} events (test_start_year={args.test_start_year}, "
           f"mc>={args.minimum_magnitude})", flush=True)
 
-    print("Loading models for all three families...", flush=True)
+    print(f"Loading models for all {len(FAMILY_DIRS)} families...", flush=True)
     models = load_all_family_models(args, deps)
 
     print("Building production features per event...", flush=True)

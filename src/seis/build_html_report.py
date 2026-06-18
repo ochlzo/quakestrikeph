@@ -10,9 +10,11 @@ import argparse
 import json
 from pathlib import Path
 
-FAMILIES = ["xgboost", "lightgbm", "random_forest"]
-LABEL = {"xgboost": "XGBoost", "lightgbm": "LightGBM", "random_forest": "Random Forest"}
-COLOR = {"xgboost": "#2563eb", "lightgbm": "#16a34a", "random_forest": "#d97706"}
+FAMILIES = ["xgboost", "lightgbm", "random_forest", "catboost"]
+LABEL = {"xgboost": "XGBoost", "lightgbm": "LightGBM", "random_forest": "Random Forest", "catboost": "CatBoost"}
+COLOR = {"xgboost": "#2563eb", "lightgbm": "#16a34a", "random_forest": "#d97706", "catboost": "#9333ea"}
+
+FAMILY_TH = "".join(f"<th>{LABEL[f]}</th>" for f in FAMILIES)
 
 TARGET_LABEL = {
     "aftershock_24h": "Any aftershock (24h)",
@@ -167,13 +169,13 @@ footer{{text-align:center;color:#94a3b8;font-size:12px;padding:20px}}
 <body>
 <header>
 <h1>SEIS Aftershock Models — Evaluation Report</h1>
-<p>Three model families (XGBoost · LightGBM · Random Forest) across 9 prediction targets · evaluated on {eval_label} ({n:,} events) at real-world prevalence</p>
+<p>{len(FAMILIES)} model families ({" · ".join(LABEL[f] for f in FAMILIES)}) across 9 prediction targets · evaluated on {eval_label} ({n:,} events) at real-world prevalence</p>
 </header>
 <div class="wrap">
 
 <div class="card">
 <h2>How to read this report</h2>
-<p class="lead">Each target is predicted by all three model families.</p>
+<p class="lead">Each target is predicted by all {len(FAMILIES)} model families.</p>
 <ul style="font-size:13.5px;margin:0;padding-left:20px">
 <li><b>Calibrated Brier</b> — accuracy of the predicted probability (lower is better). The primary score, because the product outputs probabilities.</li>
 <li><b>ECE</b> — calibration error: how closely "70% chance" matches reality (lower is better).</li>
@@ -188,7 +190,7 @@ footer{{text-align:center;color:#94a3b8;font-size:12px;padding:20px}}
 <h2>Classification — calibrated metrics by target &amp; model</h2>
 <p class="lead">Bold = calibrated Brier (primary). Smaller line = ECE · AUC · AP. Green = best.</p>
 <table>
-<thead><tr><th>Target</th><th>XGBoost</th><th>LightGBM</th><th>Random Forest</th><th>{pick_col_label}</th></tr></thead>
+<thead><tr><th>Target</th>{FAMILY_TH}<th>{pick_col_label}</th></tr></thead>
 <tbody>
 {cls_table(rp, badge_label)}
 </tbody></table>
@@ -202,14 +204,14 @@ footer{{text-align:center;color:#94a3b8;font-size:12px;padding:20px}}
 <div class="grid">
 <div class="card"><h2>Average Precision (higher better)</h2><div class="chart-box"><canvas id="apChart"></canvas></div></div>
 <div class="card"><h2>Regression R² (higher better)</h2><div class="chart-box"><canvas id="regChart"></canvas></div>
-<div class="legend">All three families train both regressors.</div></div>
+<div class="legend">All {len(FAMILIES)} families train both regressors.</div></div>
 </div>
 
 <div class="card">
 <h2>Regression — magnitude &amp; distance</h2>
 <p class="lead">Predicting the largest aftershock’s size and how far it reaches.</p>
 <table>
-<thead><tr><th>Target</th><th>XGBoost</th><th>LightGBM</th><th>Random Forest</th><th>{pick_col_label}</th></tr></thead>
+<thead><tr><th>Target</th>{FAMILY_TH}<th>{pick_col_label}</th></tr></thead>
 <tbody>
 {reg_table(rp, badge_label)}
 </tbody></table>

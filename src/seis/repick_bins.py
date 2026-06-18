@@ -24,7 +24,7 @@ SEIS_DIR = Path(__file__).resolve().parent
 if str(SEIS_DIR) not in sys.path:
     sys.path.insert(0, str(SEIS_DIR))
 
-FAMILIES = ["xgboost", "lightgbm", "random_forest"]
+FAMILIES = ["xgboost", "lightgbm", "random_forest", "catboost"]
 CLASSIFICATION_TARGETS = [
     "aftershock_24h",
     "aftershock_dist_0_10km_24h",
@@ -43,6 +43,7 @@ DEFAULT_FAMILY_METRICS = {
     "xgboost": Path("src/outputs/xgboost/models_mc_1_0/metrics.json"),
     "lightgbm": Path("src/outputs/lightgbm/models_mc_1_0/metrics.json"),
     "random_forest": Path("src/outputs/random-forest/models_mc_1_0/metrics.json"),
+    "catboost": Path("src/outputs/catboost/models_mc_1_0/metrics.json"),
 }
 DEFAULT_OUTPUT = Path("src/outputs/seis/calibration/repick_report.json")
 

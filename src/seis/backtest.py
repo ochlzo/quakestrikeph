@@ -1,7 +1,7 @@
 """Honest per-family backtest of the SEIS base models on the 2025+ holdout.
 
 This produces an honest out-of-sample evaluation of each base family (XGBoost,
-LightGBM, Random Forest) -- it does NOT select a per-target winner. Model
+LightGBM, Random Forest, CatBoost) -- it does NOT select a per-target winner. Model
 selection is done separately and honestly on 2024 by ``repick_bins.py``; this
 script only measures how each family performs on data it never saw.
 
@@ -59,7 +59,7 @@ from backtest_aftershock_predictions import (
 DEFAULT_FEATURE_COLUMNS = Path("src/outputs/lightgbm/models_mc_1_0/feature_columns.txt")
 DEFAULT_BACKTEST_OUTPUT_DIR = Path("src/outputs/seis/backtests_mc_1_0")
 
-FAMILIES = ["xgboost", "lightgbm", "random_forest"]
+FAMILIES = ["xgboost", "lightgbm", "random_forest", "catboost"]
 
 CLASSIFICATION_TARGETS = [
     "aftershock_24h",
@@ -90,6 +90,7 @@ def parse_args():
     parser.add_argument("--xgb-models-dir", type=Path, default=Path("src/outputs/xgboost/models_mc_1_0"))
     parser.add_argument("--lgb-models-dir", type=Path, default=Path("src/outputs/lightgbm/models_mc_1_0"))
     parser.add_argument("--rf-models-dir", type=Path, default=Path("src/outputs/random-forest/models_mc_1_0"))
+    parser.add_argument("--cb-models-dir", type=Path, default=Path("src/outputs/catboost/models_mc_1_0"))
     parser.add_argument("--calibrators-dir", type=Path, default=DEFAULT_CALIBRATORS_DIR)
     parser.add_argument("--feature-columns", type=Path, default=DEFAULT_FEATURE_COLUMNS)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_BACKTEST_OUTPUT_DIR)
@@ -144,6 +145,7 @@ def family_dir(args, family):
         "xgboost": args.xgb_models_dir,
         "lightgbm": args.lgb_models_dir,
         "random_forest": args.rf_models_dir,
+        "catboost": args.cb_models_dir,
     }[family]
 
 
@@ -224,7 +226,7 @@ def main():
     metric_deps = require_metric_dependencies()
     feature_columns = load_feature_columns(args.feature_columns)
 
-    print("Loading models (all three families)...", flush=True)
+    print(f"Loading models (all {len(FAMILIES)} families)...", flush=True)
     honest = load_honest_models(args, deps)
 
     print("Loading catalog + labeled pool...", flush=True)

@@ -23,6 +23,7 @@ Install model dependencies as needed:
 python -m pip install -r requirements-lightgbm.txt
 python -m pip install -r requirements-random-forest.txt
 python -m pip install -r requirements-xgboost.txt
+python -m pip install -r requirements-catboost.txt
 ```
 
 The clustering runners compile C++ code with `g++`, so make sure `g++` is on
@@ -115,7 +116,7 @@ src\training_set\training_dataset_mc_1_0.features.txt
 src\training_set\training_dataset_mc_1_0.targets.txt
 ```
 
-This dataset is shared by LightGBM, Random Forest, and XGBoost.
+This dataset is shared by LightGBM, Random Forest, XGBoost, and CatBoost.
 
 ## Models
 
@@ -300,9 +301,34 @@ Compare both predictors with a one-row event CSV:
 python src\scripts\compare_predict_aftershock.py --event-csv path\to\one_event.csv
 ```
 
+### CatBoost
+
+Train CatBoost classifiers and the regressors (train -> validate -> test split,
+mirroring the other families' hyperparameters):
+
+```powershell
+python src\catboost\train_catboost_aftershock_models.py
+```
+
+Default input:
+
+```powershell
+src\training_set\training_dataset_mc_1_0.csv
+```
+
+Default output:
+
+```powershell
+src\outputs\catboost\models_mc_1_0\
+```
+
+CatBoost is evaluated as a fourth family by the SEIS selection pipeline
+(walk-forward folds and the validation-based re-pick) and is served directly by
+SEIS where it wins; it does not ship a standalone `predict`/`backtest` CLI.
+
 ### SEIS (Hybrid Multi-Model Ensemble)
 
-SEIS is the unified multi-model predictor that combines the best-in-class models (XGBoost, LightGBM, and Random Forest) according to the recommended configurations in `src/docs/model_recommendations.md`.
+SEIS is the unified multi-model predictor that combines the best-in-class models (XGBoost, LightGBM, Random Forest, and CatBoost). Each target's deployed family is chosen honestly on the 2024 validation year by `src/seis/repick_bins.py` (written to `src/outputs/seis/calibration/repick_report.json`); the 2025+ holdout is reserved for the backtest and never used for selection.
 
 Run prediction for one event using command-line fields:
 
@@ -369,5 +395,5 @@ build\tests\test_magnitude_diagnostics.exe
 Syntax-check the main Python scripts:
 
 ```powershell
-python -m py_compile scripts\run_zaliapin_clustering.py scripts\run_nn_diagnostics_for_mc.py scripts\validate_clustered_dataset.py src\scripts\build_training_dataset.py src\scripts\compare_predict_aftershock.py src\lightgbm\train_lightgbm_aftershock_models.py src\lightgbm\predict_aftershock.py src\lightgbm\backtest_aftershock_predictions.py src\random_forest\train_random_forest_aftershock_models.py src\random_forest\predict_aftershock.py src\random_forest\backtest_aftershock_predictions.py src\xgboost\train_xgboost_aftershock_models.py src\xgboost\predict_aftershock.py src\xgboost\backtest_aftershock_predictions.py src\seis\predict.py src\seis\backtest.py
+python -m py_compile scripts\run_zaliapin_clustering.py scripts\run_nn_diagnostics_for_mc.py scripts\validate_clustered_dataset.py src\scripts\build_training_dataset.py src\scripts\compare_predict_aftershock.py src\lightgbm\train_lightgbm_aftershock_models.py src\lightgbm\predict_aftershock.py src\lightgbm\backtest_aftershock_predictions.py src\random_forest\train_random_forest_aftershock_models.py src\random_forest\predict_aftershock.py src\random_forest\backtest_aftershock_predictions.py src\xgboost\train_xgboost_aftershock_models.py src\xgboost\predict_aftershock.py src\xgboost\backtest_aftershock_predictions.py src\catboost\train_catboost_aftershock_models.py src\seis\predict.py src\seis\backtest.py src\seis\fit_calibrators.py src\seis\calibration_score.py src\seis\repick_bins.py src\seis\pick_on_test.py src\seis\calibration_analysis.py src\seis\significance_check.py src\seis\walk_forward_pick.py src\seis\build_html_report.py src\seis\build_findings_report.py
 ```

@@ -27,6 +27,7 @@ from predict_aftershock import (  # noqa: E402
 DEFAULT_XGB_DIR = Path("src/outputs/xgboost/models_mc_1_0")
 DEFAULT_LGB_DIR = Path("src/outputs/lightgbm/models_mc_1_0")
 DEFAULT_RF_DIR = Path("src/outputs/random-forest/models_mc_1_0")
+DEFAULT_CB_DIR = Path("src/outputs/catboost/models_mc_1_0")
 DEFAULT_FEATURE_COLUMNS = DEFAULT_LGB_DIR / "feature_columns.txt"
 
 # Isotonic probability calibrators, fit on the 2024 validation year via the
@@ -55,15 +56,15 @@ CLASSIFICATION_TARGETS = [
 HYBRID_MODEL_MAPPING = {
     # Classification
     "aftershock_24h": ("xgboost", DEFAULT_XGB_DIR),
-    "aftershock_dist_0_10km_24h": ("xgboost", DEFAULT_XGB_DIR),
-    "aftershock_dist_10_25km_24h": ("xgboost", DEFAULT_XGB_DIR),
-    "aftershock_dist_25_50km_24h": ("xgboost", DEFAULT_XGB_DIR),
-    "aftershock_dist_50_100km_24h": ("random_forest", DEFAULT_RF_DIR),
+    "aftershock_dist_0_10km_24h": ("catboost", DEFAULT_CB_DIR),
+    "aftershock_dist_10_25km_24h": ("catboost", DEFAULT_CB_DIR),
+    "aftershock_dist_25_50km_24h": ("catboost", DEFAULT_CB_DIR),
+    "aftershock_dist_50_100km_24h": ("catboost", DEFAULT_CB_DIR),
     "aftershock_dist_100_200km_24h": ("random_forest", DEFAULT_RF_DIR),
-    "aftershock_dist_200_pluskm_24h": ("random_forest", DEFAULT_RF_DIR),
+    "aftershock_dist_200_pluskm_24h": ("catboost", DEFAULT_CB_DIR),
     # Regression
     "max_aftershock_mag_24h": ("xgboost", DEFAULT_XGB_DIR),
-    "max_aftershock_distance_km_24h": ("random_forest", DEFAULT_RF_DIR),
+    "max_aftershock_distance_km_24h": ("catboost", DEFAULT_CB_DIR),
 }
 
 
@@ -75,6 +76,7 @@ def parse_args():
     parser.add_argument("--xgb-models-dir", type=Path, default=DEFAULT_XGB_DIR)
     parser.add_argument("--lgb-models-dir", type=Path, default=DEFAULT_LGB_DIR)
     parser.add_argument("--rf-models-dir", type=Path, default=DEFAULT_RF_DIR)
+    parser.add_argument("--cb-models-dir", type=Path, default=DEFAULT_CB_DIR)
     parser.add_argument("--calibrators-dir", type=Path, default=DEFAULT_CALIBRATORS_DIR)
     parser.add_argument("--feature-columns", type=Path, default=DEFAULT_FEATURE_COLUMNS)
     parser.add_argument("--event-csv", type=Path, help="CSV containing one raw event row.")
@@ -96,13 +98,14 @@ def require_dependencies():
         import joblib
         import xgboost as xgb
         import lightgbm as lgb
+        import catboost as cb
         import sklearn
     except ModuleNotFoundError as error:
         raise ModuleNotFoundError(
-            "SEIS predictor requires joblib, xgboost, lightgbm, and scikit-learn. "
+            "SEIS predictor requires joblib, xgboost, lightgbm, catboost, and scikit-learn. "
             "Please ensure all model dependencies are installed."
         ) from error
-    return {"joblib": joblib, "xgb": xgb, "lgb": lgb}
+    return {"joblib": joblib, "xgb": xgb, "lgb": lgb, "cb": cb}
 
 
 def load_hybrid_model(target, family, models_dir, deps):
@@ -131,7 +134,18 @@ def load_hybrid_model(target, family, models_dir, deps):
         if not joblib_path.exists():
             raise FileNotFoundError(f"Random Forest model file not found: {joblib_path}")
         return joblib.load(joblib_path)
-        
+
+    elif family == "catboost":
+        # Load CatBoost (joblib pickle, or native .cbm fallback)
+        if joblib_path.exists():
+            return joblib.load(joblib_path)
+        cbm_path = models_dir / f"{target}.cbm"
+        if not cbm_path.exists():
+            raise FileNotFoundError(f"CatBoost model file not found: {joblib_path} or {cbm_path}")
+        model = deps["cb"].CatBoostClassifier()
+        model.load_model(cbm_path)
+        return model
+
     else:
         raise ValueError(f"Unknown model family: {family}")
 
@@ -144,6 +158,8 @@ def load_all_hybrid_models(args, deps):
             models_dir = args.xgb_models_dir
         elif family == "lightgbm":
             models_dir = args.lgb_models_dir
+        elif family == "catboost":
+            models_dir = args.cb_models_dir
         else:
             models_dir = args.rf_models_dir
             

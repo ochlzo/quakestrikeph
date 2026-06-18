@@ -2,13 +2,13 @@
 
 Consumes the wide predictions CSV from ``calibration_score.py`` (full pool,
 natural prevalence, production features) and, per classification target, for
-each of the three model families, computes:
+each model family, computes:
 
   * Brier, ECE (10 equal-width bins), ROC-AUC, average precision,
     recall/precision @ 0.5 -- all at the natural pool prevalence.
   * No-skill Brier at pool prevalence and the model's edge over it.
   * Isotonic-calibrated Brier/ECE using a 2-fold cross-fit, applied EQUALLY
-    to all three families (removes the unequal-preprocessing confound that
+    to all families (removes the unequal-preprocessing confound that
     favored the boosting models in the original comparison).
   * Bootstrap 95% CIs on each family's Brier and on the Brier *difference*
     between the top-2 families, so "best" is only claimed when the gap clears
@@ -35,7 +35,7 @@ CLASSIFICATION_TARGETS = [
     "aftershock_dist_100_200km_24h",
     "aftershock_dist_200_pluskm_24h",
 ]
-FAMILIES = ["xgboost", "lightgbm", "random_forest"]
+FAMILIES = ["xgboost", "lightgbm", "random_forest", "catboost"]
 
 # Current per-bin pick from src/docs/model_recommendations.md (Brier-first on balanced 500).
 CURRENT_PICK = {

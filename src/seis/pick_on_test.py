@@ -14,7 +14,7 @@ import argparse
 import json
 from pathlib import Path
 
-FAMILIES = ["xgboost", "lightgbm", "random_forest"]
+FAMILIES = ["xgboost", "lightgbm", "random_forest", "catboost"]
 CLASSIFICATION_TARGETS = [
     "aftershock_24h",
     "aftershock_dist_0_10km_24h",

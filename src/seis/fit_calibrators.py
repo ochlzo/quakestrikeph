@@ -13,7 +13,7 @@ Crucially, features for 2024 are rebuilt with the *production* feature path
 (same as ``calibration_score.py``), so the calibrators see the exact distribution
 the deployed model produces -- fixing, not inheriting, the train/serve skew.
 
-Calibration is applied EQUALLY to all three families, removing the
+Calibration is applied EQUALLY to all families, removing the
 unequal-preprocessing confound that previously favored the boosting models.
 """
 
@@ -88,7 +88,7 @@ def main():
     val = load_validation(args.labeled_csv, args.validation_year, args.minimum_magnitude)
     print(f"Validation pool: {len(val)} events (year={args.validation_year})", flush=True)
 
-    print("Loading models for all three families...", flush=True)
+    print(f"Loading models for all {len(FAMILY_DIRS)} families...", flush=True)
     models = load_all_family_models(args, deps)
 
     print("Building production features for validation year...", flush=True)

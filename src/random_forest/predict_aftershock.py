@@ -121,7 +121,7 @@ def main():
     feature_row = build_prediction_features(history, event, args, feature_columns)
     models = load_models(args.models_dir, joblib)
     classification, max_magnitude = run_predictions(feature_row, models)
-    output = build_output(event, feature_row, classification, max_magnitude, len(history))
+    output = build_output(event, feature_row, classification, max_magnitude, None, len(history))
     output_json = json.dumps(output, indent=2, allow_nan=False)
 
     if args.output_json:
