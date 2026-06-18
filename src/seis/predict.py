@@ -46,22 +46,24 @@ CLASSIFICATION_TARGETS = [
     "aftershock_dist_200_pluskm_24h",
 ]
 
-# Model selection mapping from src/docs/model_recommendations.md.
-# Classification picks are the per-bin winners on calibrated Brier at deployment
-# prevalence (full 2025+ pool, isotonic calibrators fit out-of-sample on 2024);
-# see src/seis/repick_bins.py and src/outputs/seis/calibration/repick_report.json.
+# Model selection mapping -- re-picked HONESTLY on 2024 (the data available at
+# decision time), NOT on the 2025+ holdout. Classification picks minimize 5-fold
+# out-of-fold calibrated Brier on 2024; regression picks maximize 2024 validation
+# R^2. The 2025+ pool is used only to confirm performance out-of-sample, never to
+# select. See src/seis/repick_bins.py and
+# src/outputs/seis/calibration/repick_report.json.
 HYBRID_MODEL_MAPPING = {
     # Classification
     "aftershock_24h": ("xgboost", DEFAULT_XGB_DIR),
     "aftershock_dist_0_10km_24h": ("xgboost", DEFAULT_XGB_DIR),
-    "aftershock_dist_10_25km_24h": ("lightgbm", DEFAULT_LGB_DIR),
-    "aftershock_dist_25_50km_24h": ("random_forest", DEFAULT_RF_DIR),
-    "aftershock_dist_50_100km_24h": ("lightgbm", DEFAULT_LGB_DIR),
-    "aftershock_dist_100_200km_24h": ("xgboost", DEFAULT_XGB_DIR),
-    "aftershock_dist_200_pluskm_24h": ("lightgbm", DEFAULT_LGB_DIR),
+    "aftershock_dist_10_25km_24h": ("xgboost", DEFAULT_XGB_DIR),
+    "aftershock_dist_25_50km_24h": ("xgboost", DEFAULT_XGB_DIR),
+    "aftershock_dist_50_100km_24h": ("random_forest", DEFAULT_RF_DIR),
+    "aftershock_dist_100_200km_24h": ("random_forest", DEFAULT_RF_DIR),
+    "aftershock_dist_200_pluskm_24h": ("random_forest", DEFAULT_RF_DIR),
     # Regression
     "max_aftershock_mag_24h": ("xgboost", DEFAULT_XGB_DIR),
-    "max_aftershock_distance_km_24h": ("xgboost", DEFAULT_XGB_DIR),
+    "max_aftershock_distance_km_24h": ("random_forest", DEFAULT_RF_DIR),
 }
 
 

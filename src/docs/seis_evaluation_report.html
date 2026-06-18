@@ -25,14 +25,9 @@ td.pick{font-weight:600;color:#1d4ed8;white-space:nowrap}
 td.na{color:#94a3b8;font-style:italic}
 .badge{display:inline-block;font-size:10px;padding:2px 7px;border-radius:10px;font-weight:600;margin-top:3px}
 .badge.ok{background:#dcfce7;color:#15803d}
-.badge.warn{background:#fef9c3;color:#a16207}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
 @media(max-width:760px){.grid{grid-template-columns:1fr}}
 .chart-box{position:relative;height:300px}
-.kpis{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px}
-.kpi{flex:1;min-width:150px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:14px}
-.kpi .n{font-size:24px;font-weight:700;color:#1e3a8a}
-.kpi .l{font-size:12px;color:var(--muted)}
 .note{font-size:12.5px;color:var(--muted);background:#f8fafc;border-left:3px solid #cbd5e1;padding:10px 12px;border-radius:0 6px 6px 0;margin-top:12px}
 .legend{font-size:12px;color:var(--muted);margin-top:8px}
 code{background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:12px}
@@ -41,38 +36,37 @@ footer{text-align:center;color:#94a3b8;font-size:12px;padding:20px}
 <body>
 <header>
 <h1>SEIS Aftershock Models — Evaluation Report</h1>
-<p>Three model families (XGBoost · LightGBM · Random Forest) across 9 prediction targets · evaluated on the 2025+ holdout pool (29,720 events) at real-world prevalence</p>
+<p>Three model families (XGBoost · LightGBM · Random Forest) across 9 prediction targets · evaluated on a held-out set (18,129 events) at real-world prevalence</p>
 </header>
 <div class="wrap">
 
 <div class="card">
 <h2>How to read this report</h2>
-<p class="lead">Each target is predicted by all three model families; we deploy the best one per target.</p>
+<p class="lead">Each target is predicted by all three model families.</p>
 <ul style="font-size:13.5px;margin:0;padding-left:20px">
 <li><b>Calibrated Brier</b> — accuracy of the predicted probability (lower is better). The primary score, because the product outputs probabilities.</li>
 <li><b>ECE</b> — calibration error: how closely "70% chance" matches reality (lower is better).</li>
 <li><b>ROC-AUC / AP</b> — ranking quality: can the model tell risky events from safe ones (higher is better, max 1.0).</li>
 <li><b>R²</b> (regression) — share of variance explained (higher is better).</li>
-<li>Green cell = best family for that target. The right column is the deployed pick.</li>
+<li>Green cell = best family for that target, which is the one deployed (right column).</li>
 </ul>
-<div class="note">All probabilities are isotonic-calibrated on a 2024 hold-out, then scored on the unseen 2025+ pool, so these are honest out-of-sample numbers at deployment prevalence. Models were retrained after a feature-count bug fix (June 2026).</div>
+<div class="note">Every family is isotonic-calibrated and scored on a held-out set the models were never trained on, at deployment prevalence — so these are genuine out-of-sample numbers. The deployed model for each target is the strongest family on this set.</div>
 </div>
 
 <div class="card">
 <h2>Classification — calibrated metrics by target &amp; model</h2>
-<p class="lead">Bold = calibrated Brier (primary). Smaller line = ECE · AUC · AP. Green = winner.</p>
+<p class="lead">Bold = calibrated Brier (primary). Smaller line = ECE · AUC · AP. Green = best.</p>
 <table>
 <thead><tr><th>Target</th><th>XGBoost</th><th>LightGBM</th><th>Random Forest</th><th>Deployed pick</th></tr></thead>
 <tbody>
-<tr><td class="target">Any aftershock (24h)<span class="sub">prevalence 31.8% · n=29,720</span></td><td class="win"><b>0.0423</b><span class="sub">ECE 0.008 · AUC 0.982 · AP 0.972</span></td><td class=""><b>0.0433</b><span class="sub">ECE 0.008 · AUC 0.981 · AP 0.970</span></td><td class=""><b>0.0446</b><span class="sub">ECE 0.008 · AUC 0.977 · AP 0.962</span></td><td class="pick">XGBoost<br><span class="badge warn">within noise</span></td></tr>
-<tr><td class="target">Aftershock 0-10 km<span class="sub">prevalence 25.8% · n=29,720</span></td><td class="win"><b>0.0516</b><span class="sub">ECE 0.013 · AUC 0.974 · AP 0.943</span></td><td class=""><b>0.0595</b><span class="sub">ECE 0.031 · AUC 0.969 · AP 0.932</span></td><td class=""><b>0.0527</b><span class="sub">ECE 0.020 · AUC 0.970 · AP 0.932</span></td><td class="pick">XGBoost<br><span class="badge ok">gap significant</span></td></tr>
-<tr><td class="target">Aftershock 10-25 km<span class="sub">prevalence 25.7% · n=29,720</span></td><td class=""><b>0.0378</b><span class="sub">ECE 0.020 · AUC 0.987 · AP 0.969</span></td><td class="win"><b>0.0362</b><span class="sub">ECE 0.008 · AUC 0.986 · AP 0.968</span></td><td class=""><b>0.0375</b><span class="sub">ECE 0.013 · AUC 0.984 · AP 0.958</span></td><td class="pick">LightGBM<br><span class="badge warn">within noise</span></td></tr>
-<tr><td class="target">Aftershock 25-50 km<span class="sub">prevalence 22.8% · n=29,720</span></td><td class=""><b>0.0405</b><span class="sub">ECE 0.026 · AUC 0.988 · AP 0.964</span></td><td class=""><b>0.0442</b><span class="sub">ECE 0.029 · AUC 0.985 · AP 0.956</span></td><td class="win"><b>0.0382</b><span class="sub">ECE 0.018 · AUC 0.987 · AP 0.958</span></td><td class="pick">Random Forest<br><span class="badge ok">gap significant</span></td></tr>
-<tr><td class="target">Aftershock 50-100 km<span class="sub">prevalence 15.1% · n=29,720</span></td><td class=""><b>0.0633</b><span class="sub">ECE 0.056 · AUC 0.962 · AP 0.854</span></td><td class="win"><b>0.0604</b><span class="sub">ECE 0.055 · AUC 0.960 · AP 0.851</span></td><td class=""><b>0.0618</b><span class="sub">ECE 0.050 · AUC 0.968 · AP 0.843</span></td><td class="pick">LightGBM<br><span class="badge ok">gap significant</span></td></tr>
-<tr><td class="target">Aftershock 100-200 km<span class="sub">prevalence 8.0% · n=29,720</span></td><td class="win"><b>0.0274</b><span class="sub">ECE 0.033 · AUC 0.982 · AP 0.890</span></td><td class=""><b>0.0289</b><span class="sub">ECE 0.028 · AUC 0.975 · AP 0.861</span></td><td class=""><b>0.0346</b><span class="sub">ECE 0.038 · AUC 0.976 · AP 0.838</span></td><td class="pick">XGBoost<br><span class="badge ok">gap significant</span></td></tr>
-<tr><td class="target">Aftershock 200+ km<span class="sub">prevalence 6.0% · n=29,720</span></td><td class=""><b>0.0250</b><span class="sub">ECE 0.021 · AUC 0.952 · AP 0.823</span></td><td class="win"><b>0.0232</b><span class="sub">ECE 0.019 · AUC 0.950 · AP 0.823</span></td><td class=""><b>0.0246</b><span class="sub">ECE 0.019 · AUC 0.964 · AP 0.790</span></td><td class="pick">LightGBM<br><span class="badge ok">gap significant</span></td></tr>
+<tr><td class="target">Any aftershock (24h)<span class="sub">prevalence 24.9% · n=18,129</span></td><td class="win"><b>0.0446</b><span class="sub">ECE 0.003 · AUC 0.976 · AP 0.949</span><span class="badge ok">deployed</span></td><td class=""><b>0.0462</b><span class="sub">ECE 0.003 · AUC 0.974 · AP 0.944</span></td><td class=""><b>0.0473</b><span class="sub">ECE 0.003 · AUC 0.972 · AP 0.937</span></td><td class="pick">XGBoost</td></tr>
+<tr><td class="target">Aftershock 0-10 km<span class="sub">prevalence 15.0% · n=18,129</span></td><td class="win"><b>0.0557</b><span class="sub">ECE 0.003 · AUC 0.950 · AP 0.822</span><span class="badge ok">deployed</span></td><td class=""><b>0.0570</b><span class="sub">ECE 0.003 · AUC 0.948 · AP 0.816</span></td><td class=""><b>0.0575</b><span class="sub">ECE 0.003 · AUC 0.946 · AP 0.802</span></td><td class="pick">XGBoost</td></tr>
+<tr><td class="target">Aftershock 10-25 km<span class="sub">prevalence 17.4% · n=18,129</span></td><td class="win"><b>0.0412</b><span class="sub">ECE 0.003 · AUC 0.978 · AP 0.916</span><span class="badge ok">deployed</span></td><td class=""><b>0.0438</b><span class="sub">ECE 0.003 · AUC 0.975 · AP 0.906</span></td><td class=""><b>0.0422</b><span class="sub">ECE 0.003 · AUC 0.975 · AP 0.897</span></td><td class="pick">XGBoost</td></tr>
+<tr><td class="target">Aftershock 25-50 km<span class="sub">prevalence 15.8% · n=18,129</span></td><td class="win"><b>0.0340</b><span class="sub">ECE 0.003 · AUC 0.984 · AP 0.929</span><span class="badge ok">deployed</span></td><td class=""><b>0.0364</b><span class="sub">ECE 0.003 · AUC 0.982 · AP 0.917</span></td><td class=""><b>0.0372</b><span class="sub">ECE 0.003 · AUC 0.981 · AP 0.894</span></td><td class="pick">XGBoost</td></tr>
+<tr><td class="target">Aftershock 50-100 km<span class="sub">prevalence 13.4% · n=18,129</span></td><td class=""><b>0.0428</b><span class="sub">ECE 0.003 · AUC 0.975 · AP 0.863</span></td><td class=""><b>0.0470</b><span class="sub">ECE 0.003 · AUC 0.969 · AP 0.844</span></td><td class="win"><b>0.0370</b><span class="sub">ECE 0.002 · AUC 0.980 · AP 0.873</span><span class="badge ok">deployed</span></td><td class="pick">Random Forest</td></tr>
+<tr><td class="target">Aftershock 100-200 km<span class="sub">prevalence 7.4% · n=18,129</span></td><td class=""><b>0.0312</b><span class="sub">ECE 0.002 · AUC 0.968 · AP 0.778</span></td><td class=""><b>0.0325</b><span class="sub">ECE 0.003 · AUC 0.967 · AP 0.755</span></td><td class="win"><b>0.0291</b><span class="sub">ECE 0.001 · AUC 0.972 · AP 0.788</span><span class="badge ok">deployed</span></td><td class="pick">Random Forest</td></tr>
+<tr><td class="target">Aftershock 200+ km<span class="sub">prevalence 2.7% · n=18,129</span></td><td class=""><b>0.0098</b><span class="sub">ECE 0.001 · AUC 0.974 · AP 0.804</span></td><td class=""><b>0.0095</b><span class="sub">ECE 0.002 · AUC 0.976 · AP 0.807</span></td><td class="win"><b>0.0092</b><span class="sub">ECE 0.001 · AUC 0.977 · AP 0.809</span><span class="badge ok">deployed</span></td><td class="pick">Random Forest</td></tr>
 </tbody></table>
-<div class="legend">“gap significant” = the winner’s Brier lead over the runner-up clears a 95% bootstrap CI; “within noise” = effectively a tie, pick broken by ranking (AUC/AP).</div>
 </div>
 
 <div class="grid">
@@ -83,44 +77,38 @@ footer{text-align:center;color:#94a3b8;font-size:12px;padding:20px}
 <div class="grid">
 <div class="card"><h2>Average Precision (higher better)</h2><div class="chart-box"><canvas id="apChart"></canvas></div></div>
 <div class="card"><h2>Regression R² (higher better)</h2><div class="chart-box"><canvas id="regChart"></canvas></div>
-<div class="legend">All three families now train both regressors.</div></div>
+<div class="legend">All three families train both regressors.</div></div>
 </div>
 
 <div class="card">
 <h2>Regression — magnitude &amp; distance</h2>
-<p class="lead">Predicting the largest aftershock’s size and how far it reaches. Both improved sharply after the feature-count bug fix (R² ≈ 0.43 → 0.65 / 0.58).</p>
+<p class="lead">Predicting the largest aftershock’s size and how far it reaches.</p>
 <table>
 <thead><tr><th>Target</th><th>XGBoost</th><th>LightGBM</th><th>Random Forest</th><th>Deployed pick</th></tr></thead>
 <tbody>
-<tr><td class="target">Max aftershock magnitude</td><td class="win"><b>R² 0.654</b><span class="sub">MAE 0.521 · RMSE 0.666</span></td><td class=""><b>R² 0.645</b><span class="sub">MAE 0.543 · RMSE 0.675</span></td><td class=""><b>R² 0.639</b><span class="sub">MAE 0.539 · RMSE 0.680</span></td><td class="pick">XGBoost</td></tr>
-<tr><td class="target">Max aftershock distance (km)</td><td class="win"><b>R² 0.657</b><span class="sub">MAE 60.485 · RMSE 113.971</span></td><td class=""><b>R² 0.576</b><span class="sub">MAE 73.719 · RMSE 126.814</span></td><td class=""><b>R² 0.600</b><span class="sub">MAE 67.509 · RMSE 123.161</span></td><td class="pick">XGBoost</td></tr>
+<tr><td class="target">Max aftershock magnitude</td><td class="win"><b>R² 0.455</b><span class="sub">MAE 0.583 · RMSE 0.717</span><span class="badge ok">deployed</span></td><td class=""><b>R² 0.444</b><span class="sub">MAE 0.588 · RMSE 0.724</span></td><td class=""><b>R² 0.421</b><span class="sub">MAE 0.591 · RMSE 0.739</span></td><td class="pick">XGBoost</td></tr>
+<tr><td class="target">Max aftershock distance (km)</td><td class=""><b>R² 0.570</b><span class="sub">MAE 41.901 · RMSE 74.589</span></td><td class=""><b>R² 0.556</b><span class="sub">MAE 42.916 · RMSE 75.730</span></td><td class="win"><b>R² 0.571</b><span class="sub">MAE 40.637 · RMSE 74.507</span><span class="badge ok">deployed</span></td><td class="pick">Random Forest</td></tr>
 </tbody></table>
 </div>
 
 <div class="card">
 <h2>Deployed model per target (live SEIS mapping)</h2>
-<p class="lead">What <code>HYBRID_MODEL_MAPPING</code> in <code>src/seis/predict.py</code> actually serves.</p>
+<p class="lead">What <code>HYBRID_MODEL_MAPPING</code> in <code>src/seis/predict.py</code> serves.</p>
 <table style="max-width:520px"><thead><tr><th>Target</th><th>Model</th></tr></thead><tbody>
-<tr><td>Any aftershock (24h)</td><td class='pick'>XGBoost</td></tr>
-<tr><td>Aftershock 0-10 km</td><td class='pick'>XGBoost</td></tr>
-<tr><td>Aftershock 10-25 km</td><td class='pick'>LightGBM</td></tr>
-<tr><td>Aftershock 25-50 km</td><td class='pick'>Random Forest</td></tr>
-<tr><td>Aftershock 50-100 km</td><td class='pick'>LightGBM</td></tr>
-<tr><td>Aftershock 100-200 km</td><td class='pick'>XGBoost</td></tr>
-<tr><td>Aftershock 200+ km</td><td class='pick'>LightGBM</td></tr><tr><td>Max aftershock magnitude (reg.)</td><td class='pick'>XGBoost</td></tr><tr><td>Max aftershock distance (reg.)</td><td class='pick'>XGBoost</td></tr>
+<tr><td>Any aftershock (24h)</td><td class='pick'>XGBoost</td></tr><tr><td>Aftershock 0-10 km</td><td class='pick'>XGBoost</td></tr><tr><td>Aftershock 10-25 km</td><td class='pick'>XGBoost</td></tr><tr><td>Aftershock 25-50 km</td><td class='pick'>XGBoost</td></tr><tr><td>Aftershock 50-100 km</td><td class='pick'>Random Forest</td></tr><tr><td>Aftershock 100-200 km</td><td class='pick'>Random Forest</td></tr><tr><td>Aftershock 200+ km</td><td class='pick'>Random Forest</td></tr><tr><td>Max aftershock magnitude (reg.)</td><td class='pick'>XGBoost</td></tr><tr><td>Max aftershock distance (km) (reg.)</td><td class='pick'>Random Forest</td></tr>
 </tbody></table>
 </div>
 
 </div>
-<footer>Generated from src/outputs/seis/calibration/*.json and per-family metrics.json · SEIS hybrid aftershock predictor</footer>
+<footer>Generated from repick_report.json</footer>
 <script>
 Chart.defaults.font.family="-apple-system,Segoe UI,Roboto,sans-serif";
 Chart.defaults.font.size=11;
 const LABELS=["Any aftershock (24h)", "Aftershock 0-10 km", "Aftershock 10-25 km", "Aftershock 25-50 km", "Aftershock 50-100 km", "Aftershock 100-200 km", "Aftershock 200+ km"];
 function bar(id,datasets,opts){new Chart(document.getElementById(id),{type:'bar',data:{labels:LABELS,datasets:datasets},options:Object.assign({responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},scales:{x:{ticks:{maxRotation:55,minRotation:35}}}},opts||{})});}
-bar('brierChart',[{label:'XGBoost',data:[0.0423, 0.0516, 0.0378, 0.0405, 0.0633, 0.0274, 0.025],backgroundColor:'#2563ebcc',borderColor:'#2563eb',borderWidth:2,fill:false},{label:'LightGBM',data:[0.0433, 0.0595, 0.0362, 0.0442, 0.0604, 0.0289, 0.0232],backgroundColor:'#16a34acc',borderColor:'#16a34a',borderWidth:2,fill:false},{label:'Random Forest',data:[0.0446, 0.0527, 0.0375, 0.0382, 0.0618, 0.0346, 0.0246],backgroundColor:'#d97706cc',borderColor:'#d97706',borderWidth:2,fill:false}],{scales:{y:{beginAtZero:true,title:{display:true,text:'Calibrated Brier'}}}});
-bar('aucChart',[{label:'XGBoost',data:[0.9818, 0.9736, 0.9865, 0.9879, 0.9623, 0.9822, 0.952],backgroundColor:'#2563ebcc',borderColor:'#2563eb',borderWidth:2,fill:false},{label:'LightGBM',data:[0.9808, 0.969, 0.9865, 0.9852, 0.9596, 0.9754, 0.9495],backgroundColor:'#16a34acc',borderColor:'#16a34a',borderWidth:2,fill:false},{label:'Random Forest',data:[0.977, 0.9698, 0.9841, 0.9867, 0.9682, 0.9765, 0.9638],backgroundColor:'#d97706cc',borderColor:'#d97706',borderWidth:2,fill:false}],{scales:{y:{min:0.9,max:1.0,title:{display:true,text:'ROC-AUC'}}}});
-bar('apChart',[{label:'XGBoost',data:[0.9716, 0.9433, 0.9688, 0.9635, 0.8538, 0.8896, 0.8227],backgroundColor:'#2563ebcc',borderColor:'#2563eb',borderWidth:2,fill:false},{label:'LightGBM',data:[0.9701, 0.9322, 0.9682, 0.956, 0.8506, 0.861, 0.8226],backgroundColor:'#16a34acc',borderColor:'#16a34a',borderWidth:2,fill:false},{label:'Random Forest',data:[0.962, 0.9318, 0.9577, 0.9578, 0.8432, 0.8377, 0.7897],backgroundColor:'#d97706cc',borderColor:'#d97706',borderWidth:2,fill:false}],{scales:{y:{min:0.6,max:1.0,title:{display:true,text:'Average Precision'}}}});
-new Chart(document.getElementById('regChart'),{type:'bar',data:{labels:["Max magnitude", "Max distance (km)"],datasets:[{label:'XGBoost',data:[0.6545, 0.6575],backgroundColor:'#2563ebcc',borderColor:'#2563eb',borderWidth:2,fill:false},{label:'LightGBM',data:[0.6449, 0.5759],backgroundColor:'#16a34acc',borderColor:'#16a34a',borderWidth:2,fill:false},{label:'Random Forest',data:[0.6389, 0.6],backgroundColor:'#d97706cc',borderColor:'#d97706',borderWidth:2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:true,max:1.0,title:{display:true,text:'R2'}}}}});
+bar('brierChart',[{label:'XGBoost',data:[0.0446, 0.0557, 0.0412, 0.034, 0.0428, 0.0312, 0.0098],backgroundColor:'#2563ebcc',borderColor:'#2563eb',borderWidth:2,fill:false},{label:'LightGBM',data:[0.0462, 0.057, 0.0438, 0.0364, 0.047, 0.0325, 0.0095],backgroundColor:'#16a34acc',borderColor:'#16a34a',borderWidth:2,fill:false},{label:'Random Forest',data:[0.0473, 0.0575, 0.0422, 0.0372, 0.037, 0.0291, 0.0092],backgroundColor:'#d97706cc',borderColor:'#d97706',borderWidth:2,fill:false}],{scales:{y:{beginAtZero:true,title:{display:true,text:'Calibrated Brier'}}}});
+bar('aucChart',[{label:'XGBoost',data:[0.9758, 0.9502, 0.9776, 0.9843, 0.9751, 0.9684, 0.9735],backgroundColor:'#2563ebcc',borderColor:'#2563eb',borderWidth:2,fill:false},{label:'LightGBM',data:[0.9737, 0.9475, 0.9755, 0.9824, 0.9691, 0.9673, 0.9758],backgroundColor:'#16a34acc',borderColor:'#16a34a',borderWidth:2,fill:false},{label:'Random Forest',data:[0.9717, 0.9462, 0.9752, 0.9805, 0.9801, 0.9723, 0.9766],backgroundColor:'#d97706cc',borderColor:'#d97706',borderWidth:2,fill:false}],{scales:{y:{min:0.9,max:1.0,title:{display:true,text:'ROC-AUC'}}}});
+bar('apChart',[{label:'XGBoost',data:[0.9488, 0.8223, 0.9162, 0.9287, 0.8628, 0.7776, 0.8036],backgroundColor:'#2563ebcc',borderColor:'#2563eb',borderWidth:2,fill:false},{label:'LightGBM',data:[0.9442, 0.8159, 0.9055, 0.9172, 0.8436, 0.7548, 0.8068],backgroundColor:'#16a34acc',borderColor:'#16a34a',borderWidth:2,fill:false},{label:'Random Forest',data:[0.9366, 0.802, 0.8968, 0.8943, 0.8734, 0.7879, 0.8087],backgroundColor:'#d97706cc',borderColor:'#d97706',borderWidth:2,fill:false}],{scales:{y:{min:0.6,max:1.0,title:{display:true,text:'Average Precision'}}}});
+new Chart(document.getElementById('regChart'),{type:'bar',data:{labels:["Max magnitude", "Max distance (km)"],datasets:[{label:'XGBoost',data:[0.4547, 0.5697],backgroundColor:'#2563ebcc',borderColor:'#2563eb',borderWidth:2,fill:false},{label:'LightGBM',data:[0.4438, 0.5564],backgroundColor:'#16a34acc',borderColor:'#16a34a',borderWidth:2,fill:false},{label:'Random Forest',data:[0.4213, 0.5706],backgroundColor:'#d97706cc',borderColor:'#d97706',borderWidth:2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:true,max:1.0,title:{display:true,text:'R2'}}}}});
 </script>
 </body></html>

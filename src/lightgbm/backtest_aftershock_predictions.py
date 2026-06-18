@@ -59,8 +59,10 @@ def parse_args():
     parser.add_argument(
         "--sample-mode",
         choices=["balanced", "chronological"],
-        default="balanced",
-        help="How to choose rows when --max-events limits the backtest.",
+        default="chronological",
+        help="How to choose rows when --max-events limits the backtest. "
+        "chronological keeps the natural deployment prevalence; balanced "
+        "oversamples positives and distorts Brier/precision.",
     )
     parser.add_argument("--random-seed", type=int, default=42)
     parser.add_argument("--minimum-magnitude", type=float, default=DEFAULT_MIN_MAGNITUDE)

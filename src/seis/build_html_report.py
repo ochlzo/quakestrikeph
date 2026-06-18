@@ -1,26 +1,18 @@
-"""Generate a self-contained HTML evaluation report from the calibration artifacts.
+"""Generate a self-contained HTML evaluation report from a pick report.
 
-Reads the per-family metrics (repick_report.json, calibration_report.json) and the
-per-family regression metrics from each model's metrics.json, and emits a single
-standalone HTML file (Chart.js via CDN) with tables and charts a non-author
-teammate can read. All numbers come straight from the JSON -- nothing hand-typed.
+Renders any report shaped like repick_report.json / test_pick_report.json:
+each family's metrics per target plus the highlighted (best) family. Used for
+both the deployment report (validation-selected picks) and the descriptive
+test-set report, via CLI flags.
 """
 
+import argparse
 import json
 from pathlib import Path
 
-REPICK = Path("src/outputs/seis/calibration/repick_report.json")
-CALIB = Path("src/outputs/seis/calibration/calibration_report.json")
-FAMILY_METRICS = {
-    "xgboost": Path("src/outputs/xgboost/models_mc_1_0/metrics.json"),
-    "lightgbm": Path("src/outputs/lightgbm/models_mc_1_0/metrics.json"),
-    "random_forest": Path("src/outputs/random-forest/models_mc_1_0/metrics.json"),
-}
-OUT = Path("src/docs/seis_evaluation_report.html")
-
 FAMILIES = ["xgboost", "lightgbm", "random_forest"]
-FAM_LABEL = {"xgboost": "XGBoost", "lightgbm": "LightGBM", "random_forest": "Random Forest"}
-FAM_COLOR = {"xgboost": "#2563eb", "lightgbm": "#16a34a", "random_forest": "#d97706"}
+LABEL = {"xgboost": "XGBoost", "lightgbm": "LightGBM", "random_forest": "Random Forest"}
+COLOR = {"xgboost": "#2563eb", "lightgbm": "#16a34a", "random_forest": "#d97706"}
 
 TARGET_LABEL = {
     "aftershock_24h": "Any aftershock (24h)",
@@ -31,130 +23,111 @@ TARGET_LABEL = {
     "aftershock_dist_100_200km_24h": "Aftershock 100-200 km",
     "aftershock_dist_200_pluskm_24h": "Aftershock 200+ km",
 }
-
-
-def load():
-    repick = json.loads(REPICK.read_text())
-    calib = json.loads(CALIB.read_text())
-    regression = {}
-    for fam, path in FAMILY_METRICS.items():
-        m = json.loads(path.read_text())
-        for d in (m["models"] if isinstance(m.get("models"), list) else []):
-            t = d.get("target")
-            test = d.get("test", {})
-            if t in ("max_aftershock_mag_24h", "max_aftershock_distance_km_24h") and "r2" in test:
-                regression.setdefault(t, {})[fam] = test
-    return repick, calib, regression
+REG_LABEL = {
+    "max_aftershock_mag_24h": "Max aftershock magnitude",
+    "max_aftershock_distance_km_24h": "Max aftershock distance (km)",
+}
+CLS_TARGETS = list(TARGET_LABEL)
+REG_TARGETS = list(REG_LABEL)
 
 
 def fmt(x, p=4):
     return f"{x:.{p}f}" if isinstance(x, (int, float)) else "—"
 
 
-def cls_table(repick, calib):
-    """Per-target, per-family calibrated-Brier / ECE / AUC / AP table with winner highlight."""
+def cls_table(rp, badge_label):
     rows = []
-    for t, d in repick.items():
-        pick = d["pick_calibrated"]
-        prev = d["prevalence"]
-        sig = calib[t]["brier_winner_significant"]
+    for t in CLS_TARGETS:
+        node = rp["classification"][t]
+        pick = node["pick"]
         cells = [
-            f'<td class="target">{TARGET_LABEL[t]}<span class="sub">prevalence {prev*100:.1f}% · n={calib[t]["count"]:,}</span></td>'
+            f'<td class="target">{TARGET_LABEL[t]}'
+            f'<span class="sub">prevalence {node["prevalence"]*100:.1f}% · n={node["count"]:,}</span></td>'
         ]
         for fam in FAMILIES:
-            f = d["families"][fam]
-            win = " win" if fam == pick else ""
+            m = node["families"][fam]
+            best = fam == pick
+            note = f'<span class="badge ok">{badge_label}</span>' if best else ""
             cells.append(
-                f'<td class="{win.strip()}">'
-                f'<b>{fmt(f["calibrated_brier"])}</b>'
-                f'<span class="sub">ECE {fmt(f["calibrated_ece"],3)} · AUC {fmt(f["roc_auc"],3)} · AP {fmt(f["average_precision"],3)}</span>'
-                f"</td>"
+                f'<td class="{"win" if best else ""}"><b>{fmt(m["brier"])}</b>'
+                f'<span class="sub">ECE {fmt(m.get("ece"),3)} · AUC {fmt(m.get("roc_auc"),3)} · AP {fmt(m.get("average_precision"),3)}</span>'
+                f"{note}</td>"
             )
-        sig_badge = (
-            '<span class="badge ok">gap significant</span>'
-            if sig
-            else '<span class="badge warn">within noise</span>'
-        )
-        cells.append(f'<td class="pick">{FAM_LABEL[pick]}<br>{sig_badge}</td>')
+        cells.append(f'<td class="pick">{LABEL[pick]}</td>')
         rows.append("<tr>" + "".join(cells) + "</tr>")
     return "\n".join(rows)
 
 
-def reg_table(regression):
+def reg_table(rp, badge_label):
     rows = []
-    label = {
-        "max_aftershock_mag_24h": "Max aftershock magnitude",
-        "max_aftershock_distance_km_24h": "Max aftershock distance (km)",
-    }
-    for t, fams in regression.items():
-        best = max(fams, key=lambda f: fams[f]["r2"])
-        cells = [f'<td class="target">{label[t]}</td>']
+    for t in REG_TARGETS:
+        node = rp["regression"][t]
+        pick = node["pick"]
+        cells = [f'<td class="target">{REG_LABEL[t]}</td>']
         for fam in FAMILIES:
-            if fam in fams:
-                m = fams[fam]
-                win = " win" if fam == best else ""
-                cells.append(
-                    f'<td class="{win.strip()}"><b>R² {fmt(m["r2"],3)}</b>'
-                    f'<span class="sub">MAE {fmt(m.get("mae",0),3)} · RMSE {fmt(m.get("rmse",0),3)}</span></td>'
-                )
-            else:
-                cells.append('<td class="na">not trained</td>')
-        cells.append(f'<td class="pick">{FAM_LABEL[best]}</td>')
+            m = node["families"].get(fam, {})
+            best = fam == pick
+            note = f'<span class="badge ok">{badge_label}</span>' if best else ""
+            cells.append(
+                f'<td class="{"win" if best else ""}"><b>R² {fmt(m.get("r2"),3)}</b>'
+                f'<span class="sub">MAE {fmt(m.get("mae"),3)} · RMSE {fmt(m.get("rmse"),3)}</span>{note}</td>'
+            )
+        cells.append(f'<td class="pick">{LABEL[pick]}</td>')
         rows.append("<tr>" + "".join(cells) + "</tr>")
     return "\n".join(rows)
 
 
-def chart_data(repick, regression):
-    labels = [TARGET_LABEL[t] for t in repick]
-    cal_brier = {fam: [repick[t]["families"][fam]["calibrated_brier"] for t in repick] for fam in FAMILIES}
-    auc = {fam: [repick[t]["families"][fam]["roc_auc"] for t in repick] for fam in FAMILIES}
-    ap = {fam: [repick[t]["families"][fam]["average_precision"] for t in repick] for fam in FAMILIES}
-    # regression R2
-    reg_labels = ["Max magnitude", "Max distance (km)"]
-    reg_r2 = {fam: [] for fam in FAMILIES}
-    for t in ("max_aftershock_mag_24h", "max_aftershock_distance_km_24h"):
-        for fam in FAMILIES:
-            reg_r2[fam].append(regression.get(t, {}).get(fam, {}).get("r2"))
-    return {
-        "labels": labels,
-        "cal_brier": cal_brier,
-        "auc": auc,
-        "ap": ap,
-        "reg_labels": reg_labels,
-        "reg_r2": reg_r2,
-    }
+def cls_series(rp, key):
+    return {fam: [rp["classification"][t]["families"][fam][key] for t in CLS_TARGETS] for fam in FAMILIES}
 
 
-def datasets_js(per_fam, fill=False):
+def reg_series(rp):
+    return {fam: [rp["regression"][t]["families"].get(fam, {}).get("r2") for t in REG_TARGETS] for fam in FAMILIES}
+
+
+def datasets_js(per_fam_series):
     out = []
     for fam in FAMILIES:
         out.append(
-            "{label:%r,data:%s,backgroundColor:%r,borderColor:%r,borderWidth:2,fill:%s}"
+            "{label:%r,data:%s,backgroundColor:%r,borderColor:%r,borderWidth:2,fill:false}"
             % (
-                FAM_LABEL[fam],
-                json.dumps([None if v is None else round(v, 4) for v in per_fam[fam]]),
-                FAM_COLOR[fam] + ("33" if fill else "cc"),
-                FAM_COLOR[fam],
-                "true" if fill else "false",
+                LABEL[fam],
+                json.dumps([None if v is None else round(v, 4) for v in per_fam_series[fam]]),
+                COLOR[fam] + "cc",
+                COLOR[fam],
             )
         )
     return "[" + ",".join(out) + "]"
 
 
-def build():
-    repick, calib, regression = load()
-    cd = chart_data(repick, regression)
+def build(source_path, out_path, eval_label, pick_col_label, badge_label, deployment):
+    rp = json.loads(Path(source_path).read_text())
+    n = rp.get("evaluation_rows", rp["classification"]["aftershock_24h"]["count"])
 
-    # Deployment mapping (the live picks).
-    mapping_rows = "\n".join(
-        f"<tr><td>{TARGET_LABEL[t]}</td><td class='pick'>{FAM_LABEL[repick[t]['pick_calibrated']]}</td></tr>"
-        for t in repick
+    cd_labels = [TARGET_LABEL[t] for t in CLS_TARGETS]
+    reg_chart_labels = ["Max magnitude", "Max distance (km)"]
+    mapping_rows = "".join(
+        f"<tr><td>{TARGET_LABEL[t]}</td><td class='pick'>{LABEL[rp['classification'][t]['pick']]}</td></tr>"
+        for t in CLS_TARGETS
+    ) + "".join(
+        f"<tr><td>{REG_LABEL[t]} (reg.)</td><td class='pick'>{LABEL[rp['regression'][t]['pick']]}</td></tr>"
+        for t in REG_TARGETS
     )
-    reg_best = {t: max(f, key=lambda x: f[x]["r2"]) for t, f in regression.items()}
-    mapping_rows += (
-        f"<tr><td>Max aftershock magnitude (reg.)</td><td class='pick'>{FAM_LABEL[reg_best['max_aftershock_mag_24h']]}</td></tr>"
-        f"<tr><td>Max aftershock distance (reg.)</td><td class='pick'>{FAM_LABEL[reg_best['max_aftershock_distance_km_24h']]}</td></tr>"
-    )
+
+    if deployment:
+        note = ('Every family is isotonic-calibrated and scored on ' + eval_label +
+                ' the models were never trained on, at deployment prevalence — so these are genuine '
+                'out-of-sample numbers. The deployed model for each target is the strongest family on this set.')
+        green_bullet = "Green cell = best family for that target, which is the one deployed (right column)."
+        mapping_title = "Deployed model per target (live SEIS mapping)"
+        mapping_lead = 'What <code>HYBRID_MODEL_MAPPING</code> in <code>src/seis/predict.py</code> serves.'
+    else:
+        note = ('Each family is isotonic-calibrated and scored on ' + eval_label +
+                '. The highlighted family per target is the one that performed best here. This is a '
+                'descriptive view of test-set performance — it is NOT the deployed selection.')
+        green_bullet = "Green cell = best-performing family for that target on this set (right column)."
+        mapping_title = "Best-performing model per target (" + eval_label + ")"
+        mapping_lead = "Strongest family per target on this set — descriptive, not the deployed mapping."
 
     html = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -183,14 +156,9 @@ td.pick{{font-weight:600;color:#1d4ed8;white-space:nowrap}}
 td.na{{color:#94a3b8;font-style:italic}}
 .badge{{display:inline-block;font-size:10px;padding:2px 7px;border-radius:10px;font-weight:600;margin-top:3px}}
 .badge.ok{{background:#dcfce7;color:#15803d}}
-.badge.warn{{background:#fef9c3;color:#a16207}}
 .grid{{display:grid;grid-template-columns:1fr 1fr;gap:18px}}
 @media(max-width:760px){{.grid{{grid-template-columns:1fr}}}}
 .chart-box{{position:relative;height:300px}}
-.kpis{{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px}}
-.kpi{{flex:1;min-width:150px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:14px}}
-.kpi .n{{font-size:24px;font-weight:700;color:#1e3a8a}}
-.kpi .l{{font-size:12px;color:var(--muted)}}
 .note{{font-size:12.5px;color:var(--muted);background:#f8fafc;border-left:3px solid #cbd5e1;padding:10px 12px;border-radius:0 6px 6px 0;margin-top:12px}}
 .legend{{font-size:12px;color:var(--muted);margin-top:8px}}
 code{{background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:12px}}
@@ -199,32 +167,31 @@ footer{{text-align:center;color:#94a3b8;font-size:12px;padding:20px}}
 <body>
 <header>
 <h1>SEIS Aftershock Models — Evaluation Report</h1>
-<p>Three model families (XGBoost · LightGBM · Random Forest) across 9 prediction targets · evaluated on the 2025+ holdout pool (29,720 events) at real-world prevalence</p>
+<p>Three model families (XGBoost · LightGBM · Random Forest) across 9 prediction targets · evaluated on {eval_label} ({n:,} events) at real-world prevalence</p>
 </header>
 <div class="wrap">
 
 <div class="card">
 <h2>How to read this report</h2>
-<p class="lead">Each target is predicted by all three model families; we deploy the best one per target.</p>
+<p class="lead">Each target is predicted by all three model families.</p>
 <ul style="font-size:13.5px;margin:0;padding-left:20px">
 <li><b>Calibrated Brier</b> — accuracy of the predicted probability (lower is better). The primary score, because the product outputs probabilities.</li>
 <li><b>ECE</b> — calibration error: how closely "70% chance" matches reality (lower is better).</li>
 <li><b>ROC-AUC / AP</b> — ranking quality: can the model tell risky events from safe ones (higher is better, max 1.0).</li>
 <li><b>R²</b> (regression) — share of variance explained (higher is better).</li>
-<li>Green cell = best family for that target. The right column is the deployed pick.</li>
+<li>{green_bullet}</li>
 </ul>
-<div class="note">All probabilities are isotonic-calibrated on a 2024 hold-out, then scored on the unseen 2025+ pool, so these are honest out-of-sample numbers at deployment prevalence. Models were retrained after a feature-count bug fix (June 2026).</div>
+<div class="note">{note}</div>
 </div>
 
 <div class="card">
 <h2>Classification — calibrated metrics by target &amp; model</h2>
-<p class="lead">Bold = calibrated Brier (primary). Smaller line = ECE · AUC · AP. Green = winner.</p>
+<p class="lead">Bold = calibrated Brier (primary). Smaller line = ECE · AUC · AP. Green = best.</p>
 <table>
-<thead><tr><th>Target</th><th>XGBoost</th><th>LightGBM</th><th>Random Forest</th><th>Deployed pick</th></tr></thead>
+<thead><tr><th>Target</th><th>XGBoost</th><th>LightGBM</th><th>Random Forest</th><th>{pick_col_label}</th></tr></thead>
 <tbody>
-{cls_table(repick, calib)}
+{cls_table(rp, badge_label)}
 </tbody></table>
-<div class="legend">“gap significant” = the winner’s Brier lead over the runner-up clears a 95% bootstrap CI; “within noise” = effectively a tie, pick broken by ranking (AUC/AP).</div>
 </div>
 
 <div class="grid">
@@ -235,33 +202,32 @@ footer{{text-align:center;color:#94a3b8;font-size:12px;padding:20px}}
 <div class="grid">
 <div class="card"><h2>Average Precision (higher better)</h2><div class="chart-box"><canvas id="apChart"></canvas></div></div>
 <div class="card"><h2>Regression R² (higher better)</h2><div class="chart-box"><canvas id="regChart"></canvas></div>
-<div class="legend">All three families now train both regressors.</div></div>
+<div class="legend">All three families train both regressors.</div></div>
 </div>
 
 <div class="card">
 <h2>Regression — magnitude &amp; distance</h2>
-<p class="lead">Predicting the largest aftershock’s size and how far it reaches. Both improved sharply after the feature-count bug fix (R² ≈ 0.43 → 0.65 / 0.58).</p>
+<p class="lead">Predicting the largest aftershock’s size and how far it reaches.</p>
 <table>
-<thead><tr><th>Target</th><th>XGBoost</th><th>LightGBM</th><th>Random Forest</th><th>Deployed pick</th></tr></thead>
+<thead><tr><th>Target</th><th>XGBoost</th><th>LightGBM</th><th>Random Forest</th><th>{pick_col_label}</th></tr></thead>
 <tbody>
-{reg_table(regression)}
+{reg_table(rp, badge_label)}
 </tbody></table>
 </div>
 
 <div class="card">
-<h2>Deployed model per target (live SEIS mapping)</h2>
-<p class="lead">What <code>HYBRID_MODEL_MAPPING</code> in <code>src/seis/predict.py</code> actually serves.</p>
+<h2>{mapping_title}</h2>
+<p class="lead">{mapping_lead}</p>
 <table style="max-width:520px"><thead><tr><th>Target</th><th>Model</th></tr></thead><tbody>
 {mapping_rows}
 </tbody></table>
 </div>
 
 </div>
-<footer>Generated from src/outputs/seis/calibration/*.json and per-family metrics.json · SEIS hybrid aftershock predictor</footer>
+<footer>Generated from {Path(source_path).name}</footer>
 __SCRIPT__
 </body></html>"""
 
-    # Build the <script> separately to avoid brace-escaping in the f-string.
     script = """<script>
 Chart.defaults.font.family="-apple-system,Segoe UI,Roboto,sans-serif";
 Chart.defaults.font.size=11;
@@ -273,17 +239,30 @@ bar('apChart',__AP__,{scales:{y:{min:0.6,max:1.0,title:{display:true,text:'Avera
 new Chart(document.getElementById('regChart'),{type:'bar',data:{labels:__REGLABELS__,datasets:__REGR2__},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:true,max:1.0,title:{display:true,text:'R2'}}}}});
 </script>"""
     script = (
-        script.replace("__LABELS__", json.dumps(cd["labels"]))
-        .replace("__BRIER__", datasets_js(cd["cal_brier"]))
-        .replace("__AUC__", datasets_js(cd["auc"]))
-        .replace("__AP__", datasets_js(cd["ap"]))
-        .replace("__REGLABELS__", json.dumps(cd["reg_labels"]))
-        .replace("__REGR2__", datasets_js(cd["reg_r2"]))
+        script.replace("__LABELS__", json.dumps(cd_labels))
+        .replace("__BRIER__", datasets_js(cls_series(rp, "brier")))
+        .replace("__AUC__", datasets_js(cls_series(rp, "roc_auc")))
+        .replace("__AP__", datasets_js(cls_series(rp, "average_precision")))
+        .replace("__REGLABELS__", json.dumps(reg_chart_labels))
+        .replace("__REGR2__", datasets_js(reg_series(rp)))
     )
     html = html.replace("__SCRIPT__", script)
-    OUT.write_text(html, encoding="utf-8")
-    print(f"Wrote {OUT} ({len(html):,} bytes)")
+    Path(out_path).write_text(html, encoding="utf-8")
+    print(f"Wrote {out_path} ({len(html):,} bytes)")
+
+
+def parse_args():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--source", default="src/outputs/seis/calibration/repick_report.json")
+    p.add_argument("--output", default="src/docs/seis_evaluation_report.html")
+    p.add_argument("--eval-label", default="a held-out set")
+    p.add_argument("--pick-label", default="Deployed pick")
+    p.add_argument("--badge-label", default="deployed")
+    p.add_argument("--test", action="store_true",
+                   help="Descriptive test-set report (not the deployment mapping).")
+    return p.parse_args()
 
 
 if __name__ == "__main__":
-    build()
+    a = parse_args()
+    build(a.source, a.output, a.eval_label, a.pick_label, a.badge_label, deployment=not a.test)

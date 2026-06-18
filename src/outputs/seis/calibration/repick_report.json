@@ -1,212 +1,234 @@
 {
-  "aftershock_24h": {
-    "prevalence": 0.3184051144010767,
-    "pick_calibrated": "xgboost",
-    "families": {
-      "xgboost": {
-        "raw_brier": 0.04555213472416148,
-        "calibrated_brier": 0.042323957845883727,
-        "raw_ece": 0.030746274710385584,
-        "calibrated_ece": 0.008169463159222123,
-        "roc_auc": 0.9818447866191762,
-        "average_precision": 0.9715721739146672
-      },
-      "lightgbm": {
-        "raw_brier": 0.04394966616826324,
-        "calibrated_brier": 0.04327896422846416,
-        "raw_ece": 0.013398436941057596,
-        "calibrated_ece": 0.008030053483217735,
-        "roc_auc": 0.9808086139602984,
-        "average_precision": 0.9700872168562448
-      },
-      "random_forest": {
-        "raw_brier": 0.04455393426556379,
-        "calibrated_brier": 0.04456289684023631,
-        "raw_ece": 0.007969194285400138,
-        "calibrated_ece": 0.008006155876542626,
-        "roc_auc": 0.9770096367771568,
-        "average_precision": 0.9619839853788206
+  "selection_basis": "Held-out evaluation set -- classification: 5-fold OOF isotonic-calibrated Brier; regression: validation R^2 from metrics.json",
+  "evaluation_rows": 18129,
+  "classification": {
+    "aftershock_24h": {
+      "prevalence": 0.24888300512990236,
+      "count": 18129,
+      "pick": "xgboost",
+      "families": {
+        "xgboost": {
+          "brier": 0.04461143595585777,
+          "ece": 0.002884002050684706,
+          "roc_auc": 0.9758168323309879,
+          "average_precision": 0.9488372182370074
+        },
+        "lightgbm": {
+          "brier": 0.04623393047441937,
+          "ece": 0.003191722192522347,
+          "roc_auc": 0.9736736730578226,
+          "average_precision": 0.9441760661341475
+        },
+        "random_forest": {
+          "brier": 0.047278056704061044,
+          "ece": 0.0031212844505120393,
+          "roc_auc": 0.9717199265155103,
+          "average_precision": 0.9365609560683443
+        }
+      }
+    },
+    "aftershock_dist_0_10km_24h": {
+      "prevalence": 0.14959457223233494,
+      "count": 18129,
+      "pick": "xgboost",
+      "families": {
+        "xgboost": {
+          "brier": 0.055689625320627774,
+          "ece": 0.0033359633020139195,
+          "roc_auc": 0.9501984338822236,
+          "average_precision": 0.8222532725438718
+        },
+        "lightgbm": {
+          "brier": 0.056982457993418924,
+          "ece": 0.0031431855102145023,
+          "roc_auc": 0.9475263199284092,
+          "average_precision": 0.8158781982166514
+        },
+        "random_forest": {
+          "brier": 0.0574798254030441,
+          "ece": 0.0028367879578638264,
+          "roc_auc": 0.9461895274974202,
+          "average_precision": 0.802003520604074
+        }
+      }
+    },
+    "aftershock_dist_10_25km_24h": {
+      "prevalence": 0.17358927684924708,
+      "count": 18129,
+      "pick": "xgboost",
+      "families": {
+        "xgboost": {
+          "brier": 0.04115396791165225,
+          "ece": 0.0028365060372281935,
+          "roc_auc": 0.9776337897183006,
+          "average_precision": 0.9162252963176877
+        },
+        "lightgbm": {
+          "brier": 0.04383512103873435,
+          "ece": 0.0027638250905569852,
+          "roc_auc": 0.9754862067931365,
+          "average_precision": 0.9055298644914874
+        },
+        "random_forest": {
+          "brier": 0.04222225430467472,
+          "ece": 0.0025021942555680616,
+          "roc_auc": 0.9752333453676877,
+          "average_precision": 0.8968120206522945
+        }
+      }
+    },
+    "aftershock_dist_25_50km_24h": {
+      "prevalence": 0.15847537095261735,
+      "count": 18129,
+      "pick": "xgboost",
+      "families": {
+        "xgboost": {
+          "brier": 0.03396941839135308,
+          "ece": 0.0031748579231745456,
+          "roc_auc": 0.9843478356891668,
+          "average_precision": 0.9286732384728508
+        },
+        "lightgbm": {
+          "brier": 0.03639196313222255,
+          "ece": 0.002767520424722646,
+          "roc_auc": 0.98237541868117,
+          "average_precision": 0.9171797332293367
+        },
+        "random_forest": {
+          "brier": 0.037179744974649355,
+          "ece": 0.00276918336497655,
+          "roc_auc": 0.9805224618991237,
+          "average_precision": 0.8943452535869792
+        }
+      }
+    },
+    "aftershock_dist_50_100km_24h": {
+      "prevalence": 0.13414970489271333,
+      "count": 18129,
+      "pick": "random_forest",
+      "families": {
+        "xgboost": {
+          "brier": 0.042783790234726234,
+          "ece": 0.003363791363269325,
+          "roc_auc": 0.9750968589371753,
+          "average_precision": 0.8627525156869044
+        },
+        "lightgbm": {
+          "brier": 0.04701683008183103,
+          "ece": 0.003176052425850123,
+          "roc_auc": 0.9690542427860838,
+          "average_precision": 0.8436296210695176
+        },
+        "random_forest": {
+          "brier": 0.03702117782993253,
+          "ece": 0.002164774293007909,
+          "roc_auc": 0.9801396611781332,
+          "average_precision": 0.8733960159771836
+        }
+      }
+    },
+    "aftershock_dist_100_200km_24h": {
+      "prevalence": 0.07446632467317557,
+      "count": 18129,
+      "pick": "random_forest",
+      "families": {
+        "xgboost": {
+          "brier": 0.03116296186428396,
+          "ece": 0.0016703132662422957,
+          "roc_auc": 0.968400933265347,
+          "average_precision": 0.7775727239855774
+        },
+        "lightgbm": {
+          "brier": 0.03248563423136131,
+          "ece": 0.0031718894394763748,
+          "roc_auc": 0.9673074809119866,
+          "average_precision": 0.7548097759968083
+        },
+        "random_forest": {
+          "brier": 0.029128145243166696,
+          "ece": 0.0013038108350861266,
+          "roc_auc": 0.972326475113292,
+          "average_precision": 0.78794550904011
+        }
+      }
+    },
+    "aftershock_dist_200_pluskm_24h": {
+      "prevalence": 0.027304319046831043,
+      "count": 18129,
+      "pick": "random_forest",
+      "families": {
+        "xgboost": {
+          "brier": 0.009771841995162468,
+          "ece": 0.0012039051706196507,
+          "roc_auc": 0.9735106537760502,
+          "average_precision": 0.8036330624243928
+        },
+        "lightgbm": {
+          "brier": 0.009466932410084426,
+          "ece": 0.0022522743216720703,
+          "roc_auc": 0.9758122222565911,
+          "average_precision": 0.806818370720737
+        },
+        "random_forest": {
+          "brier": 0.009208873394812746,
+          "ece": 0.0011353000227401911,
+          "roc_auc": 0.9766330080892858,
+          "average_precision": 0.808718663244488
+        }
       }
     }
   },
-  "aftershock_dist_0_10km_24h": {
-    "prevalence": 0.2582772543741588,
-    "pick_calibrated": "xgboost",
-    "families": {
-      "xgboost": {
-        "raw_brier": 0.05779708340261879,
-        "calibrated_brier": 0.05159718275960894,
-        "raw_ece": 0.049228920828660136,
-        "calibrated_ece": 0.013011862446326542,
-        "roc_auc": 0.9736014907037507,
-        "average_precision": 0.9433172959780253
-      },
-      "lightgbm": {
-        "raw_brier": 0.0563528559328396,
-        "calibrated_brier": 0.0595250667751744,
-        "raw_ece": 0.006312605996856533,
-        "calibrated_ece": 0.031171063534181306,
-        "roc_auc": 0.9690052542127833,
-        "average_precision": 0.9322213576618718
-      },
-      "random_forest": {
-        "raw_brier": 0.05270449639944479,
-        "calibrated_brier": 0.05270515720741899,
-        "raw_ece": 0.02005126283283932,
-        "calibrated_ece": 0.020055769135633332,
-        "roc_auc": 0.9697781145511337,
-        "average_precision": 0.931833033862355
+  "regression": {
+    "max_aftershock_mag_24h": {
+      "pick": "xgboost",
+      "families": {
+        "xgboost": {
+          "r2": 0.4547242893414063,
+          "mae": 0.5834537548904724,
+          "rmse": 0.7171760242734763
+        },
+        "lightgbm": {
+          "r2": 0.44375460178821324,
+          "mae": 0.587600751906139,
+          "rmse": 0.7243540650016456
+        },
+        "random_forest": {
+          "r2": 0.42133096152660143,
+          "mae": 0.591293731878453,
+          "rmse": 0.7388100750376291
+        }
+      }
+    },
+    "max_aftershock_distance_km_24h": {
+      "pick": "random_forest",
+      "families": {
+        "xgboost": {
+          "r2": 0.5696978204798837,
+          "mae": 41.90145572664721,
+          "rmse": 74.58910326250326
+        },
+        "lightgbm": {
+          "r2": 0.5564311035503013,
+          "mae": 42.91572165768168,
+          "rmse": 75.73020905124592
+        },
+        "random_forest": {
+          "r2": 0.5706412851574103,
+          "mae": 40.636513379489976,
+          "rmse": 74.50728773400137
+        }
       }
     }
   },
-  "aftershock_dist_10_25km_24h": {
-    "prevalence": 0.25740242261103635,
-    "pick_calibrated": "lightgbm",
-    "families": {
-      "xgboost": {
-        "raw_brier": 0.03951700758398812,
-        "calibrated_brier": 0.037828250713024814,
-        "raw_ece": 0.0305100342181265,
-        "calibrated_ece": 0.019678414562847565,
-        "roc_auc": 0.9865030843631818,
-        "average_precision": 0.9687718005945603
-      },
-      "lightgbm": {
-        "raw_brier": 0.03692579937811357,
-        "calibrated_brier": 0.036236204294813244,
-        "raw_ece": 0.015722430952031772,
-        "calibrated_ece": 0.008447157740392307,
-        "roc_auc": 0.9864508293575698,
-        "average_precision": 0.9682311930288763
-      },
-      "random_forest": {
-        "raw_brier": 0.03754041621787952,
-        "calibrated_brier": 0.03753243852600667,
-        "raw_ece": 0.013432620202350474,
-        "calibrated_ece": 0.013451131480997996,
-        "roc_auc": 0.9841337248386743,
-        "average_precision": 0.9576529388053212
-      }
-    }
-  },
-  "aftershock_dist_25_50km_24h": {
-    "prevalence": 0.2284320323014805,
-    "pick_calibrated": "random_forest",
-    "families": {
-      "xgboost": {
-        "raw_brier": 0.03656464643136085,
-        "calibrated_brier": 0.04050333381581636,
-        "raw_ece": 0.008934522841470461,
-        "calibrated_ece": 0.02579899413247855,
-        "roc_auc": 0.9878705519107484,
-        "average_precision": 0.9635164287514676
-      },
-      "lightgbm": {
-        "raw_brier": 0.0432735928517385,
-        "calibrated_brier": 0.04416869104091624,
-        "raw_ece": 0.022037460776864963,
-        "calibrated_ece": 0.028743372499130535,
-        "roc_auc": 0.9851851403634846,
-        "average_precision": 0.9560352935175708
-      },
-      "random_forest": {
-        "raw_brier": 0.03818206684992326,
-        "calibrated_brier": 0.03822299324866877,
-        "raw_ece": 0.018455271321450577,
-        "calibrated_ece": 0.018483678726349047,
-        "roc_auc": 0.9866512895973041,
-        "average_precision": 0.9578357074626268
-      }
-    }
-  },
-  "aftershock_dist_50_100km_24h": {
-    "prevalence": 0.15080753701211305,
-    "pick_calibrated": "lightgbm",
-    "families": {
-      "xgboost": {
-        "raw_brier": 0.06755541234116705,
-        "calibrated_brier": 0.06325701796633887,
-        "raw_ece": 0.05482397036304746,
-        "calibrated_ece": 0.055692845916318005,
-        "roc_auc": 0.9623095935705912,
-        "average_precision": 0.8537778368271794
-      },
-      "lightgbm": {
-        "raw_brier": 0.06406988801121141,
-        "calibrated_brier": 0.06035966074068807,
-        "raw_ece": 0.05572110204433545,
-        "calibrated_ece": 0.0554655108283078,
-        "roc_auc": 0.9595543465034823,
-        "average_precision": 0.8506384394164053
-      },
-      "random_forest": {
-        "raw_brier": 0.06179055225190557,
-        "calibrated_brier": 0.06176216006760025,
-        "raw_ece": 0.0498566782726293,
-        "calibrated_ece": 0.04973781267573692,
-        "roc_auc": 0.9682236443285712,
-        "average_precision": 0.8432044829987895
-      }
-    }
-  },
-  "aftershock_dist_100_200km_24h": {
-    "prevalence": 0.0797442799461642,
-    "pick_calibrated": "xgboost",
-    "families": {
-      "xgboost": {
-        "raw_brier": 0.03457717789590752,
-        "calibrated_brier": 0.027366118623226972,
-        "raw_ece": 0.045096967355744276,
-        "calibrated_ece": 0.03298268057268488,
-        "roc_auc": 0.982183270466449,
-        "average_precision": 0.8896403847960442
-      },
-      "lightgbm": {
-        "raw_brier": 0.029103645834632944,
-        "calibrated_brier": 0.028924135082741317,
-        "raw_ece": 0.02524400377698604,
-        "calibrated_ece": 0.028476226103428932,
-        "roc_auc": 0.9753501492606391,
-        "average_precision": 0.8610299089159122
-      },
-      "random_forest": {
-        "raw_brier": 0.03465626142549861,
-        "calibrated_brier": 0.03464851820789866,
-        "raw_ece": 0.03791532200040661,
-        "calibrated_ece": 0.03789760165017413,
-        "roc_auc": 0.976478814245713,
-        "average_precision": 0.8377466722462117
-      }
-    }
-  },
-  "aftershock_dist_200_pluskm_24h": {
-    "prevalence": 0.06032974427994616,
-    "pick_calibrated": "lightgbm",
-    "families": {
-      "xgboost": {
-        "raw_brier": 0.022781990551511255,
-        "calibrated_brier": 0.025010543986907476,
-        "raw_ece": 0.012222498427789344,
-        "calibrated_ece": 0.021481228969783488,
-        "roc_auc": 0.9520071860524102,
-        "average_precision": 0.8226680599789541
-      },
-      "lightgbm": {
-        "raw_brier": 0.021319571367241857,
-        "calibrated_brier": 0.023157670088642127,
-        "raw_ece": 0.013844901446155902,
-        "calibrated_ece": 0.018768521558539187,
-        "roc_auc": 0.9495339924056245,
-        "average_precision": 0.8225688403763205
-      },
-      "random_forest": {
-        "raw_brier": 0.024589167615257587,
-        "calibrated_brier": 0.024610610312830534,
-        "raw_ece": 0.019472341893342703,
-        "calibrated_ece": 0.019454791943716618,
-        "roc_auc": 0.9637592819028161,
-        "average_precision": 0.7896920056260667
-      }
-    }
+  "hybrid_model_mapping": {
+    "aftershock_24h": "xgboost",
+    "aftershock_dist_0_10km_24h": "xgboost",
+    "aftershock_dist_10_25km_24h": "xgboost",
+    "aftershock_dist_25_50km_24h": "xgboost",
+    "aftershock_dist_50_100km_24h": "random_forest",
+    "aftershock_dist_100_200km_24h": "random_forest",
+    "aftershock_dist_200_pluskm_24h": "random_forest",
+    "max_aftershock_mag_24h": "xgboost",
+    "max_aftershock_distance_km_24h": "random_forest"
   }
 }
