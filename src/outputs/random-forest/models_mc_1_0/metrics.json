@@ -90,11 +90,11 @@
       "validation": {
         "positive_rate": 0.24888300512990236,
         "predicted_positive_rate_at_0_5": 0.23796127751116994,
-        "brier": 0.04664335571013673,
+        "brier": 0.04664335571013674,
         "precision_at_0_5": 0.8901251738525731,
         "recall_at_0_5": 0.851063829787234,
-        "roc_auc": 0.9717428025278165,
-        "average_precision": 0.9366297121090343
+        "roc_auc": 0.9717376267384792,
+        "average_precision": 0.9366315457751218
       },
       "test": {
         "positive_rate": 0.3184051144010767,
@@ -114,11 +114,11 @@
       "validation": {
         "positive_rate": 0.14959457223233494,
         "predicted_positive_rate_at_0_5": 0.10684538584588228,
-        "brier": 0.05696101023838542,
+        "brier": 0.056961010238385464,
         "precision_at_0_5": 0.8234383066597831,
         "recall_at_0_5": 0.5881268436578171,
-        "roc_auc": 0.946180355248956,
-        "average_precision": 0.8020029183986296
+        "roc_auc": 0.9461810847237362,
+        "average_precision": 0.8020034780111102
       },
       "test": {
         "positive_rate": 0.2582772543741588,
@@ -138,16 +138,16 @@
       "validation": {
         "positive_rate": 0.17358927684924708,
         "predicted_positive_rate_at_0_5": 0.18291135749351867,
-        "brier": 0.04184413451623478,
+        "brier": 0.041844134516234796,
         "precision_at_0_5": 0.8172496984318456,
         "recall_at_0_5": 0.8611375913568478,
-        "roc_auc": 0.9752463680916623,
-        "average_precision": 0.8969208133641737
+        "roc_auc": 0.9752444380136791,
+        "average_precision": 0.8969189520061802
       },
       "test": {
         "positive_rate": 0.25740242261103635,
         "predicted_positive_rate_at_0_5": 0.2514804845222073,
-        "brier": 0.03754569636735828,
+        "brier": 0.03754569636735827,
         "precision_at_0_5": 0.9182499331014182,
         "recall_at_0_5": 0.897124183006536,
         "roc_auc": 0.9841274228464986,
@@ -162,11 +162,11 @@
       "validation": {
         "positive_rate": 0.15847537095261735,
         "predicted_positive_rate_at_0_5": 0.16812841303988085,
-        "brier": 0.03674417995385819,
+        "brier": 0.03674417995385817,
         "precision_at_0_5": 0.8251312335958005,
         "recall_at_0_5": 0.8753915767490428,
-        "roc_auc": 0.9805362650764919,
-        "average_precision": 0.8944269365943969
+        "roc_auc": 0.9805421627977311,
+        "average_precision": 0.8944282837224149
       },
       "test": {
         "positive_rate": 0.2284320323014805,
@@ -186,11 +186,11 @@
       "validation": {
         "positive_rate": 0.13414970489271333,
         "predicted_positive_rate_at_0_5": 0.14838104694136467,
-        "brier": 0.036584102232870216,
+        "brier": 0.03658410223287024,
         "precision_at_0_5": 0.7724907063197026,
         "recall_at_0_5": 0.8544407894736842,
-        "roc_auc": 0.9801776440478067,
-        "average_precision": 0.8736240728839849
+        "roc_auc": 0.9801780762666683,
+        "average_precision": 0.8736213284085216
       },
       "test": {
         "positive_rate": 0.15080753701211305,
@@ -213,7 +213,7 @@
         "brier": 0.028831130538294752,
         "precision_at_0_5": 0.8760736196319019,
         "recall_at_0_5": 0.5288888888888889,
-        "roc_auc": 0.9723388803906117,
+        "roc_auc": 0.9723388583171645,
         "average_precision": 0.7879350937176501
       },
       "test": {
@@ -237,7 +237,7 @@
         "brier": 0.008978937147977638,
         "precision_at_0_5": 0.8177777777777778,
         "recall_at_0_5": 0.7434343434343434,
-        "roc_auc": 0.9766230411177671,
+        "roc_auc": 0.9766254469384785,
         "average_precision": 0.808693834924982
       },
       "test": {
@@ -256,16 +256,34 @@
       "model_path": "src\\outputs\\random-forest\\models_mc_1_0\\max_aftershock_mag_24h.joblib",
       "feature_importances_path": "src\\outputs\\random-forest\\models_mc_1_0\\max_aftershock_mag_24h_feature_importances.csv",
       "validation": {
-        "mae": 0.5912937318784529,
+        "mae": 0.591293731878453,
         "rmse": 0.7388100750376291,
         "r2": 0.42133096152660143,
         "target_mean": 3.465979609929078
       },
       "test": {
-        "mae": 0.5385909182732045,
+        "mae": 0.5385909182732046,
         "rmse": 0.6804491201756118,
         "r2": 0.6388769607896174,
         "target_mean": 3.8735496142872234
+      }
+    },
+    {
+      "target": "max_aftershock_distance_km_24h",
+      "task": "regression_positive_cases_only",
+      "model_path": "src\\outputs\\random-forest\\models_mc_1_0\\max_aftershock_distance_km_24h.joblib",
+      "feature_importances_path": "src\\outputs\\random-forest\\models_mc_1_0\\max_aftershock_distance_km_24h_feature_importances.csv",
+      "validation": {
+        "mae": 40.636513379489976,
+        "rmse": 74.50728773400137,
+        "r2": 0.5706412851574103,
+        "target_mean": 94.0551548111415
+      },
+      "test": {
+        "mae": 67.50851210463578,
+        "rmse": 123.16070283067164,
+        "r2": 0.5999840083977532,
+        "target_mean": 125.70015025983334
       }
     }
   ]

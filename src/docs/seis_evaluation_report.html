@@ -83,7 +83,7 @@ footer{text-align:center;color:#94a3b8;font-size:12px;padding:20px}
 <div class="grid">
 <div class="card"><h2>Average Precision (higher better)</h2><div class="chart-box"><canvas id="apChart"></canvas></div></div>
 <div class="card"><h2>Regression R² (higher better)</h2><div class="chart-box"><canvas id="regChart"></canvas></div>
-<div class="legend">Only LightGBM trains the distance regressor.</div></div>
+<div class="legend">All three families now train both regressors.</div></div>
 </div>
 
 <div class="card">
@@ -93,7 +93,7 @@ footer{text-align:center;color:#94a3b8;font-size:12px;padding:20px}
 <thead><tr><th>Target</th><th>XGBoost</th><th>LightGBM</th><th>Random Forest</th><th>Deployed pick</th></tr></thead>
 <tbody>
 <tr><td class="target">Max aftershock magnitude</td><td class="win"><b>R² 0.654</b><span class="sub">MAE 0.521 · RMSE 0.666</span></td><td class=""><b>R² 0.645</b><span class="sub">MAE 0.543 · RMSE 0.675</span></td><td class=""><b>R² 0.639</b><span class="sub">MAE 0.539 · RMSE 0.680</span></td><td class="pick">XGBoost</td></tr>
-<tr><td class="target">Max aftershock distance (km)</td><td class="na">not trained</td><td class="win"><b>R² 0.576</b><span class="sub">MAE 73.719 · RMSE 126.814</span></td><td class="na">not trained</td><td class="pick">LightGBM</td></tr>
+<tr><td class="target">Max aftershock distance (km)</td><td class="win"><b>R² 0.657</b><span class="sub">MAE 60.485 · RMSE 113.971</span></td><td class=""><b>R² 0.576</b><span class="sub">MAE 73.719 · RMSE 126.814</span></td><td class=""><b>R² 0.600</b><span class="sub">MAE 67.509 · RMSE 123.161</span></td><td class="pick">XGBoost</td></tr>
 </tbody></table>
 </div>
 
@@ -107,7 +107,7 @@ footer{text-align:center;color:#94a3b8;font-size:12px;padding:20px}
 <tr><td>Aftershock 25-50 km</td><td class='pick'>Random Forest</td></tr>
 <tr><td>Aftershock 50-100 km</td><td class='pick'>LightGBM</td></tr>
 <tr><td>Aftershock 100-200 km</td><td class='pick'>XGBoost</td></tr>
-<tr><td>Aftershock 200+ km</td><td class='pick'>LightGBM</td></tr><tr><td>Max aftershock magnitude (reg.)</td><td class='pick'>XGBoost</td></tr><tr><td>Max aftershock distance (reg.)</td><td class='pick'>LightGBM</td></tr>
+<tr><td>Aftershock 200+ km</td><td class='pick'>LightGBM</td></tr><tr><td>Max aftershock magnitude (reg.)</td><td class='pick'>XGBoost</td></tr><tr><td>Max aftershock distance (reg.)</td><td class='pick'>XGBoost</td></tr>
 </tbody></table>
 </div>
 
@@ -121,6 +121,6 @@ function bar(id,datasets,opts){new Chart(document.getElementById(id),{type:'bar'
 bar('brierChart',[{label:'XGBoost',data:[0.0423, 0.0516, 0.0378, 0.0405, 0.0633, 0.0274, 0.025],backgroundColor:'#2563ebcc',borderColor:'#2563eb',borderWidth:2,fill:false},{label:'LightGBM',data:[0.0433, 0.0595, 0.0362, 0.0442, 0.0604, 0.0289, 0.0232],backgroundColor:'#16a34acc',borderColor:'#16a34a',borderWidth:2,fill:false},{label:'Random Forest',data:[0.0446, 0.0527, 0.0375, 0.0382, 0.0618, 0.0346, 0.0246],backgroundColor:'#d97706cc',borderColor:'#d97706',borderWidth:2,fill:false}],{scales:{y:{beginAtZero:true,title:{display:true,text:'Calibrated Brier'}}}});
 bar('aucChart',[{label:'XGBoost',data:[0.9818, 0.9736, 0.9865, 0.9879, 0.9623, 0.9822, 0.952],backgroundColor:'#2563ebcc',borderColor:'#2563eb',borderWidth:2,fill:false},{label:'LightGBM',data:[0.9808, 0.969, 0.9865, 0.9852, 0.9596, 0.9754, 0.9495],backgroundColor:'#16a34acc',borderColor:'#16a34a',borderWidth:2,fill:false},{label:'Random Forest',data:[0.977, 0.9698, 0.9841, 0.9867, 0.9682, 0.9765, 0.9638],backgroundColor:'#d97706cc',borderColor:'#d97706',borderWidth:2,fill:false}],{scales:{y:{min:0.9,max:1.0,title:{display:true,text:'ROC-AUC'}}}});
 bar('apChart',[{label:'XGBoost',data:[0.9716, 0.9433, 0.9688, 0.9635, 0.8538, 0.8896, 0.8227],backgroundColor:'#2563ebcc',borderColor:'#2563eb',borderWidth:2,fill:false},{label:'LightGBM',data:[0.9701, 0.9322, 0.9682, 0.956, 0.8506, 0.861, 0.8226],backgroundColor:'#16a34acc',borderColor:'#16a34a',borderWidth:2,fill:false},{label:'Random Forest',data:[0.962, 0.9318, 0.9577, 0.9578, 0.8432, 0.8377, 0.7897],backgroundColor:'#d97706cc',borderColor:'#d97706',borderWidth:2,fill:false}],{scales:{y:{min:0.6,max:1.0,title:{display:true,text:'Average Precision'}}}});
-new Chart(document.getElementById('regChart'),{type:'bar',data:{labels:["Max magnitude", "Max distance (km)"],datasets:[{label:'XGBoost',data:[0.6545, null],backgroundColor:'#2563ebcc',borderColor:'#2563eb',borderWidth:2,fill:false},{label:'LightGBM',data:[0.6449, 0.5759],backgroundColor:'#16a34acc',borderColor:'#16a34a',borderWidth:2,fill:false},{label:'Random Forest',data:[0.6389, null],backgroundColor:'#d97706cc',borderColor:'#d97706',borderWidth:2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:true,max:1.0,title:{display:true,text:'R2'}}}}});
+new Chart(document.getElementById('regChart'),{type:'bar',data:{labels:["Max magnitude", "Max distance (km)"],datasets:[{label:'XGBoost',data:[0.6545, 0.6575],backgroundColor:'#2563ebcc',borderColor:'#2563eb',borderWidth:2,fill:false},{label:'LightGBM',data:[0.6449, 0.5759],backgroundColor:'#16a34acc',borderColor:'#16a34a',borderWidth:2,fill:false},{label:'Random Forest',data:[0.6389, 0.6],backgroundColor:'#d97706cc',borderColor:'#d97706',borderWidth:2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:true,max:1.0,title:{display:true,text:'R2'}}}}});
 </script>
 </body></html>

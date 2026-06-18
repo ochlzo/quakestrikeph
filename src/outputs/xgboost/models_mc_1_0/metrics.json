@@ -287,6 +287,26 @@
         "r2": 0.6544654321125778,
         "target_mean": 3.8735496142872234
       }
+    },
+    {
+      "target": "max_aftershock_distance_km_24h",
+      "task": "regression_positive_cases_only",
+      "model_path": "src\\outputs\\xgboost\\models_mc_1_0\\max_aftershock_distance_km_24h.joblib",
+      "json_model_path": "src\\outputs\\xgboost\\models_mc_1_0\\max_aftershock_distance_km_24h.json",
+      "feature_importances_path": "src\\outputs\\xgboost\\models_mc_1_0\\max_aftershock_distance_km_24h_feature_importances.csv",
+      "best_iteration": 264,
+      "validation": {
+        "mae": 41.90145572664721,
+        "rmse": 74.58910326250326,
+        "r2": 0.5696978204798837,
+        "target_mean": 94.0551548111415
+      },
+      "test": {
+        "mae": 60.485402080027846,
+        "rmse": 113.97105011310998,
+        "r2": 0.6574514479462223,
+        "target_mean": 125.70015025983334
+      }
     }
   ]
 }

@@ -18,7 +18,13 @@ CLASSIFICATION_TARGETS = [
     "aftershock_dist_100_200km_24h",
     "aftershock_dist_200_pluskm_24h",
 ]
-REGRESSION_TARGET = "max_aftershock_mag_24h"
+REGRESSION_TARGETS = [
+    "max_aftershock_mag_24h",
+    "max_aftershock_distance_km_24h",
+]
+# Backward-compatible alias: the single-target predict / backtest helpers import
+# this and only use the magnitude regressor (distance routing lives in src/seis).
+REGRESSION_TARGET = REGRESSION_TARGETS[0]
 
 
 def parse_args():
@@ -227,15 +233,15 @@ def train_classifier(target, train, validation, test, feature_columns, output_di
     }
 
 
-def train_regressor(train, validation, test, feature_columns, output_dir, args, deps):
+def train_regressor(target, train, validation, test, feature_columns, output_dir, args, deps):
     xgb = deps["xgb"]
     joblib = deps["joblib"]
-    train = train.dropna(subset=[REGRESSION_TARGET])
-    validation = validation.dropna(subset=[REGRESSION_TARGET])
-    test = test.dropna(subset=[REGRESSION_TARGET])
+    train = train.dropna(subset=[target])
+    validation = validation.dropna(subset=[target])
+    test = test.dropna(subset=[target])
 
     if train.empty or validation.empty or test.empty:
-        print(f"Skipping {REGRESSION_TARGET}; one split has no positive aftershock targets.")
+        print(f"Skipping {target}; one split has no positive aftershock targets.")
         return None
 
     model = xgb.XGBRegressor(
@@ -255,29 +261,29 @@ def train_regressor(train, validation, test, feature_columns, output_dir, args, 
     )
     model.fit(
         train[feature_columns],
-        train[REGRESSION_TARGET],
-        eval_set=[(validation[feature_columns], validation[REGRESSION_TARGET])],
+        train[target],
+        eval_set=[(validation[feature_columns], validation[target])],
         verbose=False,
     )
 
     validation_pred = model.predict(validation[feature_columns])
     test_pred = model.predict(test[feature_columns])
-    model_path = output_dir / f"{REGRESSION_TARGET}.joblib"
-    json_model_path = output_dir / f"{REGRESSION_TARGET}.json"
-    importance_path = output_dir / f"{REGRESSION_TARGET}_feature_importances.csv"
+    model_path = output_dir / f"{target}.joblib"
+    json_model_path = output_dir / f"{target}.json"
+    importance_path = output_dir / f"{target}_feature_importances.csv"
     joblib.dump(model, model_path)
     model.save_model(json_model_path)
     write_feature_importances(model, feature_columns, importance_path)
 
     return {
-        "target": REGRESSION_TARGET,
+        "target": target,
         "task": "regression_positive_cases_only",
         "model_path": str(model_path),
         "json_model_path": str(json_model_path),
         "feature_importances_path": str(importance_path),
         "best_iteration": best_iteration(model),
-        "validation": regression_metrics(validation[REGRESSION_TARGET].to_numpy(), validation_pred, deps),
-        "test": regression_metrics(test[REGRESSION_TARGET].to_numpy(), test_pred, deps),
+        "validation": regression_metrics(validation[target].to_numpy(), validation_pred, deps),
+        "test": regression_metrics(test[target].to_numpy(), test_pred, deps),
     }
 
 
@@ -292,7 +298,7 @@ def main():
     deps = require_training_dependencies()
     feature_columns = load_feature_columns(args.input_csv)
     df = pd.read_csv(args.input_csv, low_memory=False)
-    missing_columns = sorted(set(feature_columns + CLASSIFICATION_TARGETS + [REGRESSION_TARGET]) - set(df.columns))
+    missing_columns = sorted(set(feature_columns + CLASSIFICATION_TARGETS + REGRESSION_TARGETS) - set(df.columns))
     if missing_columns:
         raise ValueError(f"Training CSV is missing columns: {missing_columns}")
 
@@ -337,9 +343,12 @@ def main():
         if result is not None:
             metrics["models"].append(result)
 
-    regression_result = train_regressor(train, validation, test, feature_columns, args.output_dir, args, deps)
-    if regression_result is not None:
-        metrics["models"].append(regression_result)
+    for regression_target in REGRESSION_TARGETS:
+        regression_result = train_regressor(
+            regression_target, train, validation, test, feature_columns, args.output_dir, args, deps
+        )
+        if regression_result is not None:
+            metrics["models"].append(regression_result)
 
     metrics_path = args.output_dir / "metrics.json"
     metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")

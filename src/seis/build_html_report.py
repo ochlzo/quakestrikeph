@@ -153,7 +153,7 @@ def build():
     reg_best = {t: max(f, key=lambda x: f[x]["r2"]) for t, f in regression.items()}
     mapping_rows += (
         f"<tr><td>Max aftershock magnitude (reg.)</td><td class='pick'>{FAM_LABEL[reg_best['max_aftershock_mag_24h']]}</td></tr>"
-        f"<tr><td>Max aftershock distance (reg.)</td><td class='pick'>{FAM_LABEL['lightgbm']}</td></tr>"
+        f"<tr><td>Max aftershock distance (reg.)</td><td class='pick'>{FAM_LABEL[reg_best['max_aftershock_distance_km_24h']]}</td></tr>"
     )
 
     html = f"""<!DOCTYPE html>
@@ -235,7 +235,7 @@ footer{{text-align:center;color:#94a3b8;font-size:12px;padding:20px}}
 <div class="grid">
 <div class="card"><h2>Average Precision (higher better)</h2><div class="chart-box"><canvas id="apChart"></canvas></div></div>
 <div class="card"><h2>Regression R² (higher better)</h2><div class="chart-box"><canvas id="regChart"></canvas></div>
-<div class="legend">Only LightGBM trains the distance regressor.</div></div>
+<div class="legend">All three families now train both regressors.</div></div>
 </div>
 
 <div class="card">

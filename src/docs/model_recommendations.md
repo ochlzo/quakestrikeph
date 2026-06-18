@@ -70,7 +70,7 @@ quality + ranking.
 | Target | Recommended Model | Metric | Notes |
 |---|---|---|---|
 | `max_aftershock_mag_24h` | **XGBoost** | R² = 0.65, MAE = 0.521 | Best of the three (LightGBM 0.645, RF 0.639) — all now close after the feature fix lifted R² from ~0.43. |
-| `max_aftershock_distance_km_24h` | **LightGBM** | R² = 0.58, MAE = 73.7 km | Only family trained for this target; predicts warning radius from epicenter (up from R² 0.43). |
+| `max_aftershock_distance_km_24h` | **XGBoost** | R² = 0.66, MAE = 60.5 km | All three families now trained for this target: XGBoost 0.657 / RF 0.600 / LightGBM 0.576. XGBoost best on R², MAE, and RMSE — a 13 km MAE improvement over the former LightGBM pick. Predicts warning radius from epicenter. |
 
 ## Changes from the previous recommendation
 
@@ -82,6 +82,7 @@ retrain, selecting on calibrated metrics at deployment prevalence gives:
 | `aftershock_24h` | LightGBM | XGBoost | Best calibrated Brier (0.042) + best AUC/AP. Tight vs LightGBM (0.043). |
 | `aftershock_dist_100_200km_24h` | Random Forest | XGBoost | Best calibrated Brier (0.027) + best AUC/AP after retrain. |
 | `max_aftershock_mag_24h` (reg.) | Random Forest | XGBoost | Corrected features lifted all three to R² ~0.64; XGBoost now narrowly best. |
+| `max_aftershock_distance_km_24h` (reg.) | LightGBM | XGBoost | XGBoost and RF were added as candidates for this target; XGBoost wins R²/MAE/RMSE (R² 0.66 vs LightGBM 0.58). |
 
 The other four classification bins keep their family. `aftershock_dist_0_10km_24h`
 (XGBoost) and `aftershock_24h` (XGBoost) are near-ties with the runner-up on
@@ -90,9 +91,10 @@ calibrated Brier; picks break toward the family that also leads AUC/AP.
 ## Grouped by Model
 
 - **XGBoost:** `aftershock_24h`, `aftershock_dist_0_10km_24h`,
-  `aftershock_dist_100_200km_24h`, `max_aftershock_mag_24h` (regression)
+  `aftershock_dist_100_200km_24h`, `max_aftershock_mag_24h` (regression),
+  `max_aftershock_distance_km_24h` (regression)
 - **LightGBM:** `aftershock_dist_10_25km_24h`, `aftershock_dist_50_100km_24h`,
-  `aftershock_dist_200_pluskm_24h`, `max_aftershock_distance_km_24h` (regression)
+  `aftershock_dist_200_pluskm_24h`
 - **Random Forest:** `aftershock_dist_25_50km_24h`
 
 ## Deployment

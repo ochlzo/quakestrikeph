@@ -61,7 +61,7 @@ HYBRID_MODEL_MAPPING = {
     "aftershock_dist_200_pluskm_24h": ("lightgbm", DEFAULT_LGB_DIR),
     # Regression
     "max_aftershock_mag_24h": ("xgboost", DEFAULT_XGB_DIR),
-    "max_aftershock_distance_km_24h": ("lightgbm", DEFAULT_LGB_DIR),
+    "max_aftershock_distance_km_24h": ("xgboost", DEFAULT_XGB_DIR),
 }
 
 
