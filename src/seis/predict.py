@@ -1,6 +1,5 @@
 import argparse
 import json
-import math
 import sys
 from pathlib import Path
 import pandas as pd
@@ -30,6 +29,12 @@ DEFAULT_LGB_DIR = Path("src/outputs/lightgbm/models_mc_1_0")
 DEFAULT_RF_DIR = Path("src/outputs/random-forest/models_mc_1_0")
 DEFAULT_FEATURE_COLUMNS = DEFAULT_LGB_DIR / "feature_columns.txt"
 
+# Isotonic probability calibrators, fit on the 2024 validation year via the
+# production feature path (see src/seis/fit_calibrators.py). Every classification
+# probability is passed through its calibrator before being reported, so the
+# percentages shown are honest at deployment prevalence.
+DEFAULT_CALIBRATORS_DIR = Path("src/outputs/seis/calibration/calibrators")
+
 # Classification targets
 CLASSIFICATION_TARGETS = [
     "aftershock_24h",
@@ -41,15 +46,18 @@ CLASSIFICATION_TARGETS = [
     "aftershock_dist_200_pluskm_24h",
 ]
 
-# Model selection mapping from src/docs/model_recommendations.md
+# Model selection mapping from src/docs/model_recommendations.md.
+# Classification picks are the per-bin winners on calibrated Brier at deployment
+# prevalence (full 2025+ pool, isotonic calibrators fit out-of-sample on 2024);
+# see src/seis/repick_bins.py and src/outputs/seis/calibration/repick_report.json.
 HYBRID_MODEL_MAPPING = {
     # Classification
-    "aftershock_24h": ("xgboost", DEFAULT_XGB_DIR),
+    "aftershock_24h": ("lightgbm", DEFAULT_LGB_DIR),
     "aftershock_dist_0_10km_24h": ("xgboost", DEFAULT_XGB_DIR),
     "aftershock_dist_10_25km_24h": ("lightgbm", DEFAULT_LGB_DIR),
-    "aftershock_dist_25_50km_24h": ("lightgbm", DEFAULT_LGB_DIR),
-    "aftershock_dist_50_100km_24h": ("xgboost", DEFAULT_XGB_DIR),
-    "aftershock_dist_100_200km_24h": ("xgboost", DEFAULT_XGB_DIR),
+    "aftershock_dist_25_50km_24h": ("random_forest", DEFAULT_RF_DIR),
+    "aftershock_dist_50_100km_24h": ("lightgbm", DEFAULT_LGB_DIR),
+    "aftershock_dist_100_200km_24h": ("random_forest", DEFAULT_RF_DIR),
     "aftershock_dist_200_pluskm_24h": ("lightgbm", DEFAULT_LGB_DIR),
     # Regression
     "max_aftershock_mag_24h": ("random_forest", DEFAULT_RF_DIR),
@@ -65,6 +73,7 @@ def parse_args():
     parser.add_argument("--xgb-models-dir", type=Path, default=DEFAULT_XGB_DIR)
     parser.add_argument("--lgb-models-dir", type=Path, default=DEFAULT_LGB_DIR)
     parser.add_argument("--rf-models-dir", type=Path, default=DEFAULT_RF_DIR)
+    parser.add_argument("--calibrators-dir", type=Path, default=DEFAULT_CALIBRATORS_DIR)
     parser.add_argument("--feature-columns", type=Path, default=DEFAULT_FEATURE_COLUMNS)
     parser.add_argument("--event-csv", type=Path, help="CSV containing one raw event row.")
     parser.add_argument("--date-time", help="Event Date-Time, e.g. '26 April 2026 - 03:20 PM'.")
@@ -148,6 +157,32 @@ def load_all_hybrid_models(args, deps):
     return models
 
 
+def load_calibrators(calibrators_dir, deps):
+    """Load the isotonic calibrator for each classification target's chosen family.
+
+    Errors out if any required calibrator is missing -- the deployed predictor
+    reports calibrated probabilities, so an absent calibrator is a hard failure
+    rather than a silent fall back to raw (uncalibrated) scores.
+    """
+    joblib = deps["joblib"]
+    if not calibrators_dir.exists():
+        raise FileNotFoundError(
+            f"Calibrators directory not found: {calibrators_dir}. "
+            "Fit calibrators first with src/seis/fit_calibrators.py."
+        )
+    calibrators = {}
+    for target in CLASSIFICATION_TARGETS:
+        family, _ = HYBRID_MODEL_MAPPING[target]
+        calibrator_path = calibrators_dir / f"{family}__{target}.joblib"
+        if not calibrator_path.exists():
+            raise FileNotFoundError(
+                f"Calibrator file not found: {calibrator_path}. "
+                "Re-run src/seis/fit_calibrators.py to regenerate calibrators."
+            )
+        calibrators[target] = joblib.load(calibrator_path)
+    return calibrators
+
+
 def positive_class_probability(model, feature_row):
     # Determine the probability of the positive class (label 1)
     if hasattr(model, "predict_proba"):
@@ -162,16 +197,20 @@ def positive_class_probability(model, feature_row):
         raise AttributeError("Model does not support predict_proba")
 
 
-def run_hybrid_predictions(feature_row, models):
+def run_hybrid_predictions(feature_row, models, calibrators):
     classification = {}
-    # Run classification targets
+    # Run classification targets, then map each raw probability through its
+    # isotonic calibrator so the reported percentage is honest at deployment
+    # prevalence. IsotonicRegression.predict expects a 1-D array of scores.
     for target in CLASSIFICATION_TARGETS:
-        classification[target] = positive_class_probability(models[target], feature_row)
-        
+        raw_probability = positive_class_probability(models[target], feature_row)
+        calibrated = float(calibrators[target].predict([raw_probability])[0])
+        classification[target] = calibrated
+
     # Run regression targets
     max_magnitude = float(models["max_aftershock_mag_24h"].predict(feature_row)[0])
-    max_distance = float(models["max_aftershock_distance_km_24h"].predict(feature_row)[0])
-    
+    max_distance = max(0.0, float(models["max_aftershock_distance_km_24h"].predict(feature_row)[0]))
+
     return classification, max_magnitude, max_distance
 
 
@@ -237,11 +276,14 @@ def main():
     feature_columns = load_feature_columns(args.feature_columns)
     feature_row = build_prediction_features(history, event, args, feature_columns)
     
-    # Load all hybrid models
+    # Load all hybrid models and their probability calibrators
     models = load_all_hybrid_models(args, deps)
-    
+    calibrators = load_calibrators(args.calibrators_dir, deps)
+
     # Execute predictions
-    classification, max_magnitude, max_distance = run_hybrid_predictions(feature_row, models)
+    classification, max_magnitude, max_distance = run_hybrid_predictions(
+        feature_row, models, calibrators
+    )
     output = build_output(event, feature_row, classification, max_magnitude, max_distance, len(history))
     output_json = json.dumps(output, indent=2, allow_nan=False)
 

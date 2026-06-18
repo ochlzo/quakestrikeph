@@ -2,7 +2,6 @@ import argparse
 import json
 import sys
 from pathlib import Path
-import numpy as np
 import pandas as pd
 
 # Add prediction script to sys.path
@@ -12,6 +11,7 @@ if str(SEIS_DIR) not in sys.path:
 
 from predict import (
     DEFAULT_B_VALUE,
+    DEFAULT_CALIBRATORS_DIR,
     DEFAULT_FRACTAL_DIMENSION,
     DEFAULT_HISTORICAL_CSV,
     DEFAULT_LOG10_ETA0,
@@ -19,12 +19,12 @@ from predict import (
     HYBRID_MODEL_MAPPING,
     build_prediction_features,
     filter_history_for_prediction,
+    load_calibrators,
     load_feature_columns,
     load_all_hybrid_models,
     normalize_raw_catalog,
     require_dependencies,
     run_hybrid_predictions,
-    load_feature_columns,
 )
 
 # Reference LightGBM backtest helper imports
@@ -55,6 +55,16 @@ CLASSIFICATION_TARGETS = [
 ]
 
 
+def sanitize_json_value(value):
+    if isinstance(value, float) and not pd.notna(value):
+        return None
+    if isinstance(value, dict):
+        return {key: sanitize_json_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [sanitize_json_value(item) for item in value]
+    return value
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Backtest the SEIS Hybrid Multi-Model inference path against historical holdout events."
@@ -64,6 +74,7 @@ def parse_args():
     parser.add_argument("--xgb-models-dir", type=Path, default=Path("src/outputs/xgboost/models_mc_1_0"))
     parser.add_argument("--lgb-models-dir", type=Path, default=Path("src/outputs/lightgbm/models_mc_1_0"))
     parser.add_argument("--rf-models-dir", type=Path, default=Path("src/outputs/random-forest/models_mc_1_0"))
+    parser.add_argument("--calibrators-dir", type=Path, default=DEFAULT_CALIBRATORS_DIR)
     parser.add_argument("--feature-columns", type=Path, default=DEFAULT_FEATURE_COLUMNS)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_BACKTEST_OUTPUT_DIR)
     parser.add_argument("--test-start-year", type=int, default=2025)
@@ -169,8 +180,9 @@ def main():
     metric_deps = require_metric_dependencies()
     feature_columns = load_feature_columns(args.feature_columns)
     
-    # Load all models
+    # Load all models and their probability calibrators
     models = load_all_hybrid_models(args, deps)
+    calibrators = load_calibrators(args.calibrators_dir, deps)
 
     history = normalize_raw_catalog(pd.read_csv(args.historical_csv, low_memory=False))
     labeled = load_labeled_events(
@@ -205,7 +217,7 @@ def main():
             args,
             feature_columns,
         )
-        classification, max_magnitude, max_distance = run_hybrid_predictions(feature_row, models)
+        classification, max_magnitude, max_distance = run_hybrid_predictions(feature_row, models, calibrators)
         records.append(
             build_prediction_record(
                 row,
@@ -226,6 +238,7 @@ def main():
             "xgb_models_dir": str(args.xgb_models_dir),
             "lgb_models_dir": str(args.lgb_models_dir),
             "rf_models_dir": str(args.rf_models_dir),
+            "calibrators_dir": str(args.calibrators_dir),
             "feature_columns": str(args.feature_columns),
             "test_start_year": args.test_start_year,
             "max_events": args.max_events,
@@ -241,7 +254,10 @@ def main():
     predictions_path = args.output_dir / "backtest_predictions.csv"
     metrics_path = args.output_dir / "backtest_metrics.json"
     pd.DataFrame(records).to_csv(predictions_path, index=False)
-    metrics_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    metrics_path.write_text(
+        json.dumps(sanitize_json_value(summary), indent=2, allow_nan=False),
+        encoding="utf-8",
+    )
     print(f"Wrote {predictions_path}")
     print(f"Wrote {metrics_path}")
 

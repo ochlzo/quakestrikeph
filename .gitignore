@@ -8,6 +8,11 @@ __pycache__/
 *.joblib
 src/outputs/**/*.joblib
 
+# Reproducible calibration intermediates (regenerate via src/seis/*.py)
+src/outputs/seis/calibration/full_pool_predictions.csv
+src/outputs/seis/calibration/calibrators/validation_raw_predictions.csv
+src/outputs/seis/calibration/*.log
+
 # Virtual environments
 .venv/
 venv/
