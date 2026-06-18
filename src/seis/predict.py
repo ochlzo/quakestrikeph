@@ -52,15 +52,15 @@ CLASSIFICATION_TARGETS = [
 # see src/seis/repick_bins.py and src/outputs/seis/calibration/repick_report.json.
 HYBRID_MODEL_MAPPING = {
     # Classification
-    "aftershock_24h": ("lightgbm", DEFAULT_LGB_DIR),
+    "aftershock_24h": ("xgboost", DEFAULT_XGB_DIR),
     "aftershock_dist_0_10km_24h": ("xgboost", DEFAULT_XGB_DIR),
     "aftershock_dist_10_25km_24h": ("lightgbm", DEFAULT_LGB_DIR),
     "aftershock_dist_25_50km_24h": ("random_forest", DEFAULT_RF_DIR),
     "aftershock_dist_50_100km_24h": ("lightgbm", DEFAULT_LGB_DIR),
-    "aftershock_dist_100_200km_24h": ("random_forest", DEFAULT_RF_DIR),
+    "aftershock_dist_100_200km_24h": ("xgboost", DEFAULT_XGB_DIR),
     "aftershock_dist_200_pluskm_24h": ("lightgbm", DEFAULT_LGB_DIR),
     # Regression
-    "max_aftershock_mag_24h": ("random_forest", DEFAULT_RF_DIR),
+    "max_aftershock_mag_24h": ("xgboost", DEFAULT_XGB_DIR),
     "max_aftershock_distance_km_24h": ("lightgbm", DEFAULT_LGB_DIR),
 }
 

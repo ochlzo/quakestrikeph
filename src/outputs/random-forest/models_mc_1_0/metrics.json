@@ -89,21 +89,21 @@
       "feature_importances_path": "src\\outputs\\random-forest\\models_mc_1_0\\aftershock_24h_feature_importances.csv",
       "validation": {
         "positive_rate": 0.24888300512990236,
-        "predicted_positive_rate_at_0_5": 0.2460698328644713,
-        "brier": 0.0592936795800263,
-        "precision_at_0_5": 0.8542927594709706,
-        "recall_at_0_5": 0.844636524822695,
-        "roc_auc": 0.9561625942644703,
-        "average_precision": 0.8783633247969719
+        "predicted_positive_rate_at_0_5": 0.23796127751116994,
+        "brier": 0.04664335571013673,
+        "precision_at_0_5": 0.8901251738525731,
+        "recall_at_0_5": 0.851063829787234,
+        "roc_auc": 0.9717428025278165,
+        "average_precision": 0.9366297121090343
       },
       "test": {
         "positive_rate": 0.3184051144010767,
-        "predicted_positive_rate_at_0_5": 0.2883243606998654,
-        "brier": 0.06480527238822349,
-        "precision_at_0_5": 0.9016221262691095,
-        "recall_at_0_5": 0.8164429884814541,
-        "roc_auc": 0.9615255991576612,
-        "average_precision": 0.9272895148639313
+        "predicted_positive_rate_at_0_5": 0.3009757738896366,
+        "brier": 0.04453528029196141,
+        "precision_at_0_5": 0.9306875349357183,
+        "recall_at_0_5": 0.879742153651062,
+        "roc_auc": 0.9770099523876301,
+        "average_precision": 0.961993345995567
       }
     },
     {
@@ -113,21 +113,21 @@
       "feature_importances_path": "src\\outputs\\random-forest\\models_mc_1_0\\aftershock_dist_0_10km_24h_feature_importances.csv",
       "validation": {
         "positive_rate": 0.14959457223233494,
-        "predicted_positive_rate_at_0_5": 0.11175464725026202,
-        "brier": 0.06644333809827555,
-        "precision_at_0_5": 0.7556762092793682,
-        "recall_at_0_5": 0.56452802359882,
-        "roc_auc": 0.9310489675133548,
-        "average_precision": 0.723896095142081
+        "predicted_positive_rate_at_0_5": 0.10684538584588228,
+        "brier": 0.05696101023838542,
+        "precision_at_0_5": 0.8234383066597831,
+        "recall_at_0_5": 0.5881268436578171,
+        "roc_auc": 0.946180355248956,
+        "average_precision": 0.8020029183986296
       },
       "test": {
         "positive_rate": 0.2582772543741588,
-        "predicted_positive_rate_at_0_5": 0.17358681022880215,
-        "brier": 0.0818200182781453,
-        "precision_at_0_5": 0.8918395037798023,
-        "recall_at_0_5": 0.5994007295466389,
-        "roc_auc": 0.9489368856914054,
-        "average_precision": 0.868425665288313
+        "predicted_positive_rate_at_0_5": 0.227557200538358,
+        "brier": 0.05269427173534309,
+        "precision_at_0_5": 0.9170486470501257,
+        "recall_at_0_5": 0.8079729025534133,
+        "roc_auc": 0.9697761583990102,
+        "average_precision": 0.9318595196544307
       }
     },
     {
@@ -137,21 +137,21 @@
       "feature_importances_path": "src\\outputs\\random-forest\\models_mc_1_0\\aftershock_dist_10_25km_24h_feature_importances.csv",
       "validation": {
         "positive_rate": 0.17358927684924708,
-        "predicted_positive_rate_at_0_5": 0.1953224116057146,
-        "brier": 0.05635453925380506,
-        "precision_at_0_5": 0.7455521039254448,
-        "recall_at_0_5": 0.8388941849380362,
-        "roc_auc": 0.9575819338253039,
-        "average_precision": 0.8172962097297171
+        "predicted_positive_rate_at_0_5": 0.18291135749351867,
+        "brier": 0.04184413451623478,
+        "precision_at_0_5": 0.8172496984318456,
+        "recall_at_0_5": 0.8611375913568478,
+        "roc_auc": 0.9752463680916623,
+        "average_precision": 0.8969208133641737
       },
       "test": {
         "positive_rate": 0.25740242261103635,
-        "predicted_positive_rate_at_0_5": 0.20228802153432032,
-        "brier": 0.0796943994216878,
-        "precision_at_0_5": 0.8612774451097804,
-        "recall_at_0_5": 0.6768627450980392,
-        "roc_auc": 0.9572580085349349,
-        "average_precision": 0.877313633781664
+        "predicted_positive_rate_at_0_5": 0.2514804845222073,
+        "brier": 0.03754569636735828,
+        "precision_at_0_5": 0.9182499331014182,
+        "recall_at_0_5": 0.897124183006536,
+        "roc_auc": 0.9841274228464986,
+        "average_precision": 0.9576443262746194
       }
     },
     {
@@ -161,21 +161,21 @@
       "feature_importances_path": "src\\outputs\\random-forest\\models_mc_1_0\\aftershock_dist_25_50km_24h_feature_importances.csv",
       "validation": {
         "positive_rate": 0.15847537095261735,
-        "predicted_positive_rate_at_0_5": 0.18754481769540515,
-        "brier": 0.04717330471003781,
-        "precision_at_0_5": 0.7508823529411764,
-        "recall_at_0_5": 0.8886181691611555,
-        "roc_auc": 0.9676982149959179,
-        "average_precision": 0.8101813325932475
+        "predicted_positive_rate_at_0_5": 0.16812841303988085,
+        "brier": 0.03674417995385819,
+        "precision_at_0_5": 0.8251312335958005,
+        "recall_at_0_5": 0.8753915767490428,
+        "roc_auc": 0.9805362650764919,
+        "average_precision": 0.8944269365943969
       },
       "test": {
         "positive_rate": 0.2284320323014805,
-        "predicted_positive_rate_at_0_5": 0.23341184387617767,
-        "brier": 0.0556885881401925,
-        "precision_at_0_5": 0.8575753207438374,
-        "recall_at_0_5": 0.8762704374723818,
-        "roc_auc": 0.9716125006013192,
-        "average_precision": 0.8759806482996513
+        "predicted_positive_rate_at_0_5": 0.20740242261103634,
+        "brier": 0.03817239509895816,
+        "precision_at_0_5": 0.9146658014276444,
+        "recall_at_0_5": 0.8304610399175136,
+        "roc_auc": 0.9866524618846195,
+        "average_precision": 0.9578366350468274
       }
     },
     {
@@ -185,21 +185,21 @@
       "feature_importances_path": "src\\outputs\\random-forest\\models_mc_1_0\\aftershock_dist_50_100km_24h_feature_importances.csv",
       "validation": {
         "positive_rate": 0.13414970489271333,
-        "predicted_positive_rate_at_0_5": 0.156489602294666,
-        "brier": 0.046487267622505844,
-        "precision_at_0_5": 0.7166020444131125,
-        "recall_at_0_5": 0.8359375,
-        "roc_auc": 0.9673417261679235,
-        "average_precision": 0.7451601740960347
+        "predicted_positive_rate_at_0_5": 0.14838104694136467,
+        "brier": 0.036584102232870216,
+        "precision_at_0_5": 0.7724907063197026,
+        "recall_at_0_5": 0.8544407894736842,
+        "roc_auc": 0.9801776440478067,
+        "average_precision": 0.8736240728839849
       },
       "test": {
         "positive_rate": 0.15080753701211305,
-        "predicted_positive_rate_at_0_5": 0.14713997308209958,
-        "brier": 0.05560539567555782,
-        "precision_at_0_5": 0.7260461925451634,
-        "recall_at_0_5": 0.7083891120035698,
-        "roc_auc": 0.9607929388614853,
-        "average_precision": 0.762559413038287
+        "predicted_positive_rate_at_0_5": 0.1828734858681023,
+        "brier": 0.0618015355832071,
+        "precision_at_0_5": 0.6925482980680773,
+        "recall_at_0_5": 0.8398036590807675,
+        "roc_auc": 0.9682267826799357,
+        "average_precision": 0.8431947068704102
       }
     },
     {
@@ -209,21 +209,21 @@
       "feature_importances_path": "src\\outputs\\random-forest\\models_mc_1_0\\aftershock_dist_100_200km_24h_feature_importances.csv",
       "validation": {
         "positive_rate": 0.07446632467317557,
-        "predicted_positive_rate_at_0_5": 0.035357714159633735,
-        "brier": 0.04149230533691039,
-        "precision_at_0_5": 0.5834633385335414,
-        "recall_at_0_5": 0.277037037037037,
-        "roc_auc": 0.9513488200638806,
-        "average_precision": 0.523533163336952
+        "predicted_positive_rate_at_0_5": 0.04495559600639859,
+        "brier": 0.028831130538294752,
+        "precision_at_0_5": 0.8760736196319019,
+        "recall_at_0_5": 0.5288888888888889,
+        "roc_auc": 0.9723388803906117,
+        "average_precision": 0.7879350937176501
       },
       "test": {
         "positive_rate": 0.0797442799461642,
-        "predicted_positive_rate_at_0_5": 0.02654777927321669,
-        "brier": 0.041113076366992955,
-        "precision_at_0_5": 0.7959442332065906,
-        "recall_at_0_5": 0.2649789029535865,
-        "roc_auc": 0.9611390862317668,
-        "average_precision": 0.6265836475298666
+        "predicted_positive_rate_at_0_5": 0.07584118438761776,
+        "brier": 0.0346478607797172,
+        "precision_at_0_5": 0.7897071872227152,
+        "recall_at_0_5": 0.7510548523206751,
+        "roc_auc": 0.9764767546803044,
+        "average_precision": 0.8376751241177584
       }
     },
     {
@@ -233,21 +233,21 @@
       "feature_importances_path": "src\\outputs\\random-forest\\models_mc_1_0\\aftershock_dist_200_pluskm_24h_feature_importances.csv",
       "validation": {
         "positive_rate": 0.027304319046831043,
-        "predicted_positive_rate_at_0_5": 0.004412819239891886,
-        "brier": 0.022514585024255754,
-        "precision_at_0_5": 0.725,
-        "recall_at_0_5": 0.11717171717171718,
-        "roc_auc": 0.8822923576241031,
-        "average_precision": 0.2521693897626475
+        "predicted_positive_rate_at_0_5": 0.024822108224391858,
+        "brier": 0.008978937147977638,
+        "precision_at_0_5": 0.8177777777777778,
+        "recall_at_0_5": 0.7434343434343434,
+        "roc_auc": 0.9766230411177671,
+        "average_precision": 0.808693834924982
       },
       "test": {
         "positive_rate": 0.06032974427994616,
-        "predicted_positive_rate_at_0_5": 0.006594885598923284,
-        "brier": 0.046611736579186325,
-        "precision_at_0_5": 0.7806122448979592,
-        "recall_at_0_5": 0.08533184606804238,
-        "roc_auc": 0.8987994175157201,
-        "average_precision": 0.3520659237640222
+        "predicted_positive_rate_at_0_5": 0.041554508748317634,
+        "brier": 0.02458025595325367,
+        "precision_at_0_5": 0.9076923076923077,
+        "recall_at_0_5": 0.6252091466815394,
+        "roc_auc": 0.9637789231829434,
+        "average_precision": 0.789831698334787
       }
     },
     {
@@ -256,15 +256,15 @@
       "model_path": "src\\outputs\\random-forest\\models_mc_1_0\\max_aftershock_mag_24h.joblib",
       "feature_importances_path": "src\\outputs\\random-forest\\models_mc_1_0\\max_aftershock_mag_24h_feature_importances.csv",
       "validation": {
-        "mae": 0.7906529065121367,
-        "rmse": 0.9965199353895645,
-        "r2": -0.052777537610105174,
+        "mae": 0.5912937318784529,
+        "rmse": 0.7388100750376291,
+        "r2": 0.42133096152660143,
         "target_mean": 3.465979609929078
       },
       "test": {
-        "mae": 0.7427986177786619,
-        "rmse": 0.9085293501595575,
-        "r2": 0.3562135871196769,
+        "mae": 0.5385909182732045,
+        "rmse": 0.6804491201756118,
+        "r2": 0.6388769607896174,
         "target_mean": 3.8735496142872234
       }
     }

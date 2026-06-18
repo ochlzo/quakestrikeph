@@ -75,24 +75,24 @@
       "task": "classification",
       "model_path": "src\\outputs\\lightgbm\\models_mc_1_0\\aftershock_24h.joblib",
       "text_model_path": "src\\outputs\\lightgbm\\models_mc_1_0\\aftershock_24h.txt",
-      "best_iteration": 115,
+      "best_iteration": 1561,
       "validation": {
         "positive_rate": 0.24888300512990236,
-        "predicted_positive_rate_at_0_5": 0.2905841469468807,
-        "brier": 0.06047768497198703,
-        "precision_at_0_5": 0.7919514047076689,
-        "recall_at_0_5": 0.924645390070922,
-        "roc_auc": 0.9688257406782407,
-        "average_precision": 0.9195886006690686
+        "predicted_positive_rate_at_0_5": 0.25919797010314966,
+        "brier": 0.04773227290922225,
+        "precision_at_0_5": 0.8576292828261333,
+        "recall_at_0_5": 0.8931737588652482,
+        "roc_auc": 0.9737778724393841,
+        "average_precision": 0.9445314742062381
       },
       "test": {
         "positive_rate": 0.3184051144010767,
-        "predicted_positive_rate_at_0_5": 0.3493270524899058,
-        "brier": 0.05360567771915569,
-        "precision_at_0_5": 0.8514737044885379,
-        "recall_at_0_5": 0.9341646412342809,
-        "roc_auc": 0.9777391612568727,
-        "average_precision": 0.9628003562257369
+        "predicted_positive_rate_at_0_5": 0.3192462987886945,
+        "brier": 0.043899538757244685,
+        "precision_at_0_5": 0.9080944350758853,
+        "recall_at_0_5": 0.9104935010039099,
+        "roc_auc": 0.9808260533952096,
+        "average_precision": 0.9701245275898424
       }
     },
     {
@@ -100,24 +100,24 @@
       "task": "classification",
       "model_path": "src\\outputs\\lightgbm\\models_mc_1_0\\aftershock_dist_0_10km_24h.joblib",
       "text_model_path": "src\\outputs\\lightgbm\\models_mc_1_0\\aftershock_dist_0_10km_24h.txt",
-      "best_iteration": 898,
+      "best_iteration": 1985,
       "validation": {
         "positive_rate": 0.14959457223233494,
-        "predicted_positive_rate_at_0_5": 0.1802085057090849,
-        "brier": 0.07169711113023987,
-        "precision_at_0_5": 0.6238138965411693,
-        "recall_at_0_5": 0.7514749262536873,
-        "roc_auc": 0.9360146578031414,
-        "average_precision": 0.7423249332895065
+        "predicted_positive_rate_at_0_5": 0.16691488774891058,
+        "brier": 0.06125469907942777,
+        "precision_at_0_5": 0.6880370125578321,
+        "recall_at_0_5": 0.7676991150442478,
+        "roc_auc": 0.9475332320009154,
+        "average_precision": 0.8158882842196421
       },
       "test": {
         "positive_rate": 0.2582772543741588,
-        "predicted_positive_rate_at_0_5": 0.247207267833109,
-        "brier": 0.06384673969942603,
-        "precision_at_0_5": 0.8418402068871649,
-        "recall_at_0_5": 0.8057582073996873,
-        "roc_auc": 0.9627553481790032,
-        "average_precision": 0.9098407925542847
+        "predicted_positive_rate_at_0_5": 0.25168236877523553,
+        "brier": 0.05634296314283423,
+        "precision_at_0_5": 0.8570855614973262,
+        "recall_at_0_5": 0.8352006253256905,
+        "roc_auc": 0.969015826889969,
+        "average_precision": 0.9322495325053681
       }
     },
     {
@@ -125,24 +125,24 @@
       "task": "classification",
       "model_path": "src\\outputs\\lightgbm\\models_mc_1_0\\aftershock_dist_10_25km_24h.joblib",
       "text_model_path": "src\\outputs\\lightgbm\\models_mc_1_0\\aftershock_dist_10_25km_24h.txt",
-      "best_iteration": 133,
+      "best_iteration": 1047,
       "validation": {
         "positive_rate": 0.17358927684924708,
-        "predicted_positive_rate_at_0_5": 0.2451872690164929,
-        "brier": 0.06564787649573012,
-        "precision_at_0_5": 0.6677165354330709,
-        "recall_at_0_5": 0.9431204321576104,
-        "roc_auc": 0.9687637663872635,
-        "average_precision": 0.8595186356229502
+        "predicted_positive_rate_at_0_5": 0.20122455733907,
+        "brier": 0.04605279461201302,
+        "precision_at_0_5": 0.7708333333333334,
+        "recall_at_0_5": 0.8935494121385447,
+        "roc_auc": 0.9755052954764868,
+        "average_precision": 0.9055831538858846
       },
       "test": {
         "positive_rate": 0.25740242261103635,
-        "predicted_positive_rate_at_0_5": 0.3062920592193809,
-        "brier": 0.055452343890716564,
-        "precision_at_0_5": 0.7967702955069758,
-        "recall_at_0_5": 0.9481045751633987,
-        "roc_auc": 0.9765846134254941,
-        "average_precision": 0.9351450260671904
+        "predicted_positive_rate_at_0_5": 0.2667900403768506,
+        "brier": 0.03694687223213761,
+        "precision_at_0_5": 0.8898978433598184,
+        "recall_at_0_5": 0.9223529411764706,
+        "roc_auc": 0.9864433605491736,
+        "average_precision": 0.968211936602492
       }
     },
     {
@@ -150,24 +150,24 @@
       "task": "classification",
       "model_path": "src\\outputs\\lightgbm\\models_mc_1_0\\aftershock_dist_25_50km_24h.joblib",
       "text_model_path": "src\\outputs\\lightgbm\\models_mc_1_0\\aftershock_dist_25_50km_24h.txt",
-      "best_iteration": 137,
+      "best_iteration": 1247,
       "validation": {
         "positive_rate": 0.15847537095261735,
-        "predicted_positive_rate_at_0_5": 0.21159468255281594,
-        "brier": 0.05383980583711547,
-        "precision_at_0_5": 0.7030761209593326,
-        "recall_at_0_5": 0.9387399930386355,
-        "roc_auc": 0.9712758388635783,
-        "average_precision": 0.8158286317654557
+        "predicted_positive_rate_at_0_5": 0.16526008053395114,
+        "brier": 0.0362571193599549,
+        "precision_at_0_5": 0.8277703604806409,
+        "recall_at_0_5": 0.8632091890010442,
+        "roc_auc": 0.9824824446399046,
+        "average_precision": 0.917790484378515
       },
       "test": {
         "positive_rate": 0.2284320323014805,
-        "predicted_positive_rate_at_0_5": 0.26137281292059217,
-        "brier": 0.044456841327795656,
-        "precision_at_0_5": 0.8233779608650875,
-        "recall_at_0_5": 0.9421122403888643,
-        "roc_auc": 0.9830054760463193,
-        "average_precision": 0.9263666492289501
+        "predicted_positive_rate_at_0_5": 0.20006729475100943,
+        "brier": 0.04326787884041215,
+        "precision_at_0_5": 0.9211234443323243,
+        "recall_at_0_5": 0.8067462070997201,
+        "roc_auc": 0.9852061644532565,
+        "average_precision": 0.9560706701125967
       }
     },
     {
@@ -175,24 +175,24 @@
       "task": "classification",
       "model_path": "src\\outputs\\lightgbm\\models_mc_1_0\\aftershock_dist_50_100km_24h.joblib",
       "text_model_path": "src\\outputs\\lightgbm\\models_mc_1_0\\aftershock_dist_50_100km_24h.txt",
-      "best_iteration": 128,
+      "best_iteration": 289,
       "validation": {
         "positive_rate": 0.13414970489271333,
-        "predicted_positive_rate_at_0_5": 0.20161067902256055,
-        "brier": 0.05392896057774243,
-        "precision_at_0_5": 0.6350205198358413,
-        "recall_at_0_5": 0.954358552631579,
-        "roc_auc": 0.9681720709916073,
-        "average_precision": 0.755917974920148
+        "predicted_positive_rate_at_0_5": 0.12206961222350929,
+        "brier": 0.0487248612600401,
+        "precision_at_0_5": 0.7681879801174876,
+        "recall_at_0_5": 0.6990131578947368,
+        "roc_auc": 0.9691715443656683,
+        "average_precision": 0.8443526907995494
       },
       "test": {
         "positive_rate": 0.15080753701211305,
-        "predicted_positive_rate_at_0_5": 0.2332436069986541,
-        "brier": 0.061169798438388476,
-        "precision_at_0_5": 0.6204558568955568,
-        "recall_at_0_5": 0.9596162427487729,
-        "roc_auc": 0.9714407152697041,
-        "average_precision": 0.8234397330370217
+        "predicted_positive_rate_at_0_5": 0.17849932705248991,
+        "brier": 0.06405819103415993,
+        "precision_at_0_5": 0.7025447690857681,
+        "recall_at_0_5": 0.8315484158857653,
+        "roc_auc": 0.9595676071430502,
+        "average_precision": 0.850658096185268
       }
     },
     {
@@ -200,24 +200,24 @@
       "task": "classification",
       "model_path": "src\\outputs\\lightgbm\\models_mc_1_0\\aftershock_dist_100_200km_24h.joblib",
       "text_model_path": "src\\outputs\\lightgbm\\models_mc_1_0\\aftershock_dist_100_200km_24h.txt",
-      "best_iteration": 55,
+      "best_iteration": 200,
       "validation": {
         "positive_rate": 0.07446632467317557,
-        "predicted_positive_rate_at_0_5": 0.12830271939985657,
-        "brier": 0.08922848427787478,
-        "precision_at_0_5": 0.3989681857265692,
-        "recall_at_0_5": 0.6874074074074074,
-        "roc_auc": 0.942685919127304,
-        "average_precision": 0.44768650692660417
+        "predicted_positive_rate_at_0_5": 0.053615753764686414,
+        "brier": 0.032979738781025024,
+        "precision_at_0_5": 0.7911522633744856,
+        "recall_at_0_5": 0.5696296296296296,
+        "roc_auc": 0.9673220493871307,
+        "average_precision": 0.754811201493543
       },
       "test": {
         "positive_rate": 0.0797442799461642,
-        "predicted_positive_rate_at_0_5": 0.2386608344549125,
-        "brier": 0.1126698063499295,
-        "precision_at_0_5": 0.3214436768645143,
-        "recall_at_0_5": 0.9620253164556962,
-        "roc_auc": 0.9620309089085847,
-        "average_precision": 0.6614139999687279
+        "predicted_positive_rate_at_0_5": 0.08257065948855989,
+        "brier": 0.029067881669470035,
+        "precision_at_0_5": 0.7583537082314589,
+        "recall_at_0_5": 0.7852320675105485,
+        "roc_auc": 0.9753910937295105,
+        "average_precision": 0.8611804294201056
       }
     },
     {
@@ -225,24 +225,24 @@
       "task": "classification",
       "model_path": "src\\outputs\\lightgbm\\models_mc_1_0\\aftershock_dist_200_pluskm_24h.joblib",
       "text_model_path": "src\\outputs\\lightgbm\\models_mc_1_0\\aftershock_dist_200_pluskm_24h.txt",
-      "best_iteration": 573,
+      "best_iteration": 727,
       "validation": {
         "positive_rate": 0.027304319046831043,
-        "predicted_positive_rate_at_0_5": 0.031165535881736445,
-        "brier": 0.020962228685352743,
-        "precision_at_0_5": 0.4902654867256637,
-        "recall_at_0_5": 0.5595959595959596,
-        "roc_auc": 0.9633108904629829,
-        "average_precision": 0.5459970944359147
+        "predicted_positive_rate_at_0_5": 0.02929008770478239,
+        "brier": 0.01145133162487965,
+        "precision_at_0_5": 0.7419962335216572,
+        "recall_at_0_5": 0.795959595959596,
+        "roc_auc": 0.9758192105929431,
+        "average_precision": 0.8068214913938885
       },
       "test": {
         "positive_rate": 0.06032974427994616,
-        "predicted_positive_rate_at_0_5": 0.07271197846567967,
-        "brier": 0.040307531518201455,
-        "precision_at_0_5": 0.5677926885701065,
-        "recall_at_0_5": 0.6843279419966537,
-        "roc_auc": 0.9417931312476272,
-        "average_precision": 0.6900252806314539
+        "predicted_positive_rate_at_0_5": 0.05080753701211305,
+        "brier": 0.021297767930000638,
+        "precision_at_0_5": 0.8523178807947019,
+        "recall_at_0_5": 0.7177914110429447,
+        "roc_auc": 0.9495639086614771,
+        "average_precision": 0.8227595237662646
       }
     },
     {
@@ -250,17 +250,17 @@
       "task": "regression_positive_cases_only",
       "model_path": "src\\outputs\\lightgbm\\models_mc_1_0\\max_aftershock_mag_24h.joblib",
       "text_model_path": "src\\outputs\\lightgbm\\models_mc_1_0\\max_aftershock_mag_24h.txt",
-      "best_iteration": 763,
+      "best_iteration": 374,
       "validation": {
-        "mae": 0.6990184959971207,
-        "rmse": 0.8815679041551071,
-        "r2": 0.1760968409971181,
+        "mae": 0.587600751906139,
+        "rmse": 0.7243540650016456,
+        "r2": 0.44375460178821324,
         "target_mean": 3.465979609929078
       },
       "test": {
-        "mae": 0.9097940599410785,
-        "rmse": 1.0939245713923083,
-        "r2": 0.06666266663907028,
+        "mae": 0.5433067875244356,
+        "rmse": 0.674758553431608,
+        "r2": 0.6448918170965319,
         "target_mean": 3.8735496142872234
       }
     },
@@ -269,17 +269,17 @@
       "task": "regression_positive_cases_only",
       "model_path": "src\\outputs\\lightgbm\\models_mc_1_0\\max_aftershock_distance_km_24h.joblib",
       "text_model_path": "src\\outputs\\lightgbm\\models_mc_1_0\\max_aftershock_distance_km_24h.txt",
-      "best_iteration": 535,
+      "best_iteration": 69,
       "validation": {
-        "mae": 60.14717061738906,
-        "rmse": 86.00225105580823,
-        "r2": 0.4279389070348507,
+        "mae": 42.91572165768168,
+        "rmse": 75.73020905124592,
+        "r2": 0.5564311035503013,
         "target_mean": 94.0551548111415
       },
       "test": {
-        "mae": 82.43517022398936,
-        "rmse": 151.19673785576688,
-        "r2": 0.39713804334876457,
+        "mae": 73.7189613026667,
+        "rmse": 126.81371853286021,
+        "r2": 0.5759026962470986,
         "target_mean": 125.70015025983334
       }
     }

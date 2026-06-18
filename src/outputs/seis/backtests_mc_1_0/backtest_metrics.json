@@ -20,90 +20,90 @@
       "aftershock_24h": {
         "count": 500,
         "positive_rate": 0.5,
-        "predicted_positive_rate_at_0_5": 0.45,
-        "brier": 0.06848437889690492,
-        "precision_at_0_5": 0.9555555555555556,
-        "recall_at_0_5": 0.86,
-        "roc_auc": 0.9721119999999999,
-        "average_precision": 0.9676334410749934
+        "predicted_positive_rate_at_0_5": 0.452,
+        "brier": 0.05362951340253138,
+        "precision_at_0_5": 0.9690265486725663,
+        "recall_at_0_5": 0.876,
+        "roc_auc": 0.9844320000000001,
+        "average_precision": 0.9849482632367131
       },
       "aftershock_dist_0_10km_24h": {
         "count": 500,
         "positive_rate": 0.404,
-        "predicted_positive_rate_at_0_5": 0.318,
-        "brier": 0.09736723272057415,
-        "precision_at_0_5": 0.9119496855345912,
-        "recall_at_0_5": 0.7178217821782178,
-        "roc_auc": 0.9536597116087446,
-        "average_precision": 0.9283168996170298
+        "predicted_positive_rate_at_0_5": 0.356,
+        "brier": 0.07846928616108827,
+        "precision_at_0_5": 0.9044943820224719,
+        "recall_at_0_5": 0.7970297029702971,
+        "roc_auc": 0.962198484949166,
+        "average_precision": 0.9460244905763961
       },
       "aftershock_dist_10_25km_24h": {
         "count": 500,
         "positive_rate": 0.4,
-        "predicted_positive_rate_at_0_5": 0.366,
-        "brier": 0.07501920536808152,
-        "precision_at_0_5": 0.9180327868852459,
-        "recall_at_0_5": 0.84,
-        "roc_auc": 0.9643916666666668,
-        "average_precision": 0.9301681306905334
+        "predicted_positive_rate_at_0_5": 0.4,
+        "brier": 0.05272320608869872,
+        "precision_at_0_5": 0.915,
+        "recall_at_0_5": 0.915,
+        "roc_auc": 0.9777333333333333,
+        "average_precision": 0.9665300479559321
       },
       "aftershock_dist_25_50km_24h": {
         "count": 500,
         "positive_rate": 0.368,
-        "predicted_positive_rate_at_0_5": 0.374,
-        "brier": 0.049225174164446626,
-        "precision_at_0_5": 0.9144385026737968,
-        "recall_at_0_5": 0.9293478260869565,
-        "roc_auc": 0.9793959823885525,
-        "average_precision": 0.9563773185715879
+        "predicted_positive_rate_at_0_5": 0.344,
+        "brier": 0.04810068018374906,
+        "precision_at_0_5": 0.9244186046511628,
+        "recall_at_0_5": 0.8641304347826086,
+        "roc_auc": 0.987737341772152,
+        "average_precision": 0.9769773234644996
       },
       "aftershock_dist_50_100km_24h": {
         "count": 500,
         "positive_rate": 0.228,
-        "predicted_positive_rate_at_0_5": 0.242,
-        "brier": 0.10199828337533838,
-        "precision_at_0_5": 0.6776859504132231,
-        "recall_at_0_5": 0.7192982456140351,
-        "roc_auc": 0.9150418143805109,
-        "average_precision": 0.762799968907577
+        "predicted_positive_rate_at_0_5": 0.284,
+        "brier": 0.10208884876723386,
+        "precision_at_0_5": 0.6549295774647887,
+        "recall_at_0_5": 0.8157894736842105,
+        "roc_auc": 0.931540314516862,
+        "average_precision": 0.7850519758028727
       },
       "aftershock_dist_100_200km_24h": {
         "count": 500,
         "positive_rate": 0.12,
-        "predicted_positive_rate_at_0_5": 0.126,
-        "brier": 0.06640582832398442,
-        "precision_at_0_5": 0.6825396825396826,
+        "predicted_positive_rate_at_0_5": 0.114,
+        "brier": 0.05035826076346162,
+        "precision_at_0_5": 0.7543859649122807,
         "recall_at_0_5": 0.7166666666666667,
-        "roc_auc": 0.9271780303030304,
-        "average_precision": 0.6284034104811231
+        "roc_auc": 0.9592992424242425,
+        "average_precision": 0.8429024368441588
       },
       "aftershock_dist_200_pluskm_24h": {
         "count": 500,
         "positive_rate": 0.086,
-        "predicted_positive_rate_at_0_5": 0.04,
-        "brier": 0.049015685243825435,
-        "precision_at_0_5": 0.9,
-        "recall_at_0_5": 0.4186046511627907,
-        "roc_auc": 0.9047376723830848,
-        "average_precision": 0.6300148274784014
+        "predicted_positive_rate_at_0_5": 0.048,
+        "brier": 0.04052310308685261,
+        "precision_at_0_5": 0.9166666666666666,
+        "recall_at_0_5": 0.5116279069767442,
+        "roc_auc": 0.888020965854155,
+        "average_precision": 0.6797899530663436
       }
     },
     "regression": {
       "max_aftershock_mag_24h": {
         "count": 250,
-        "mae": 0.6935071001322349,
-        "rmse": 0.8685325375342856,
-        "r2": 0.42793425896700754,
+        "mae": 0.5248452480316161,
+        "rmse": 0.6741138787291391,
+        "r2": 0.6553801481107471,
         "actual_mean": 3.86,
-        "predicted_mean": 3.6136256900361037
+        "predicted_mean": 3.7795060234069826
       },
       "max_aftershock_distance_km_24h": {
         "count": 250,
-        "mae": 80.9492190539566,
-        "rmse": 121.32423446822763,
-        "r2": 0.430918764971724,
+        "mae": 74.54394217471753,
+        "rmse": 115.46110433238404,
+        "r2": 0.48459270642062047,
         "actual_mean": 112.88132314759117,
-        "predicted_mean": 133.41602452158313
+        "predicted_mean": 131.5914549896199
       }
     }
   }

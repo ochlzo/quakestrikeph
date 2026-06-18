@@ -92,24 +92,24 @@
       "model_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_24h.joblib",
       "json_model_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_24h.json",
       "feature_importances_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_24h_feature_importances.csv",
-      "best_iteration": 122,
+      "best_iteration": 1192,
       "validation": {
         "positive_rate": 0.24888300512990236,
-        "predicted_positive_rate_at_0_5": 0.28920514093441446,
-        "brier": 0.062770314514637,
-        "precision_at_0_5": 0.7863818424566088,
-        "recall_at_0_5": 0.9137854609929078,
-        "roc_auc": 0.967865208578451,
-        "average_precision": 0.9214168643604078
+        "predicted_positive_rate_at_0_5": 0.2749186386452645,
+        "brier": 0.05027420446276665,
+        "precision_at_0_5": 0.8280497592295345,
+        "recall_at_0_5": 0.9146719858156028,
+        "roc_auc": 0.9759083689323473,
+        "average_precision": 0.9491555390831246
       },
       "test": {
         "positive_rate": 0.3184051144010767,
-        "predicted_positive_rate_at_0_5": 0.3534656796769852,
-        "brier": 0.05556374043226242,
-        "precision_at_0_5": 0.8451213707758211,
-        "recall_at_0_5": 0.9381802810947902,
-        "roc_auc": 0.9765784841788199,
-        "average_precision": 0.9613263126252117
+        "predicted_positive_rate_at_0_5": 0.3347913862718708,
+        "brier": 0.04550286382436752,
+        "precision_at_0_5": 0.8836180904522613,
+        "recall_at_0_5": 0.9290922540420585,
+        "roc_auc": 0.9818648187549994,
+        "average_precision": 0.9716073700353302
       }
     },
     {
@@ -118,24 +118,24 @@
       "model_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_dist_0_10km_24h.joblib",
       "json_model_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_dist_0_10km_24h.json",
       "feature_importances_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_dist_0_10km_24h_feature_importances.csv",
-      "best_iteration": 1193,
+      "best_iteration": 1197,
       "validation": {
         "positive_rate": 0.14959457223233494,
-        "predicted_positive_rate_at_0_5": 0.21032599702134702,
-        "brier": 0.0771573856472969,
-        "precision_at_0_5": 0.5824809861001836,
-        "recall_at_0_5": 0.818952802359882,
-        "roc_auc": 0.9393256003266517,
-        "average_precision": 0.764446706943726
+        "predicted_positive_rate_at_0_5": 0.2071267030724254,
+        "brier": 0.06966884434223175,
+        "precision_at_0_5": 0.6157123834886817,
+        "recall_at_0_5": 0.8525073746312685,
+        "roc_auc": 0.9502047001901704,
+        "average_precision": 0.8222693926087291
       },
       "test": {
         "positive_rate": 0.2582772543741588,
-        "predicted_positive_rate_at_0_5": 0.28556527590847913,
-        "brier": 0.06306192278862,
-        "precision_at_0_5": 0.796276658418758,
-        "recall_at_0_5": 0.8804064616988014,
-        "roc_auc": 0.965841893242271,
-        "average_precision": 0.9184817259242837
+        "predicted_positive_rate_at_0_5": 0.2923620457604307,
+        "brier": 0.05778856202960014,
+        "precision_at_0_5": 0.8074577051444355,
+        "recall_at_0_5": 0.9140177175612298,
+        "roc_auc": 0.9736093507711944,
+        "average_precision": 0.9433397610017307
       }
     },
     {
@@ -144,24 +144,24 @@
       "model_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_dist_10_25km_24h.joblib",
       "json_model_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_dist_10_25km_24h.json",
       "feature_importances_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_dist_10_25km_24h_feature_importances.csv",
-      "best_iteration": 471,
+      "best_iteration": 1197,
       "validation": {
         "positive_rate": 0.17358927684924708,
-        "predicted_positive_rate_at_0_5": 0.23978156544762536,
-        "brier": 0.06632761657238007,
-        "precision_at_0_5": 0.6777087646652864,
-        "recall_at_0_5": 0.9361296472831268,
-        "roc_auc": 0.9707675266882063,
-        "average_precision": 0.8856085218714236
+        "predicted_positive_rate_at_0_5": 0.2217993270450659,
+        "brier": 0.051973216235637665,
+        "precision_at_0_5": 0.7304153195722457,
+        "recall_at_0_5": 0.9332697807435653,
+        "roc_auc": 0.9776544267059671,
+        "average_precision": 0.9162744615921892
       },
       "test": {
         "positive_rate": 0.25740242261103635,
-        "predicted_positive_rate_at_0_5": 0.29182368775235534,
-        "brier": 0.05421275645494461,
-        "precision_at_0_5": 0.8115992159575695,
-        "recall_at_0_5": 0.9201307189542484,
-        "roc_auc": 0.976115594765319,
-        "average_precision": 0.9374462795411365
+        "predicted_positive_rate_at_0_5": 0.28314266487213996,
+        "brier": 0.03953065350651741,
+        "precision_at_0_5": 0.8585858585858586,
+        "recall_at_0_5": 0.9444444444444444,
+        "roc_auc": 0.9865015562485377,
+        "average_precision": 0.9687663807437309
       }
     },
     {
@@ -170,24 +170,24 @@
       "model_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_dist_25_50km_24h.joblib",
       "json_model_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_dist_25_50km_24h.json",
       "feature_importances_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_dist_25_50km_24h_feature_importances.csv",
-      "best_iteration": 342,
+      "best_iteration": 1198,
       "validation": {
         "positive_rate": 0.15847537095261735,
-        "predicted_positive_rate_at_0_5": 0.21722102708367808,
-        "brier": 0.05574490502476692,
-        "precision_at_0_5": 0.6884205180294566,
-        "recall_at_0_5": 0.943612948137835,
-        "roc_auc": 0.9763719263175898,
-        "average_precision": 0.8794686769210616
+        "predicted_positive_rate_at_0_5": 0.19085443212532407,
+        "brier": 0.03893693909049034,
+        "precision_at_0_5": 0.7748554913294797,
+        "recall_at_0_5": 0.9331709014966934,
+        "roc_auc": 0.9844278028572259,
+        "average_precision": 0.929126654445981
       },
       "test": {
         "positive_rate": 0.2284320323014805,
-        "predicted_positive_rate_at_0_5": 0.25989232839838494,
-        "brier": 0.046796735376119614,
-        "precision_at_0_5": 0.8171931641636457,
-        "recall_at_0_5": 0.9297392841361025,
-        "roc_auc": 0.9820413419936654,
-        "average_precision": 0.9371449147879971
+        "predicted_positive_rate_at_0_5": 0.23095558546433378,
+        "brier": 0.03654250502586365,
+        "precision_at_0_5": 0.8789335664335665,
+        "recall_at_0_5": 0.8886433937251436,
+        "roc_auc": 0.9878882807490528,
+        "average_precision": 0.9635555417904083
       }
     },
     {
@@ -196,24 +196,24 @@
       "model_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_dist_50_100km_24h.joblib",
       "json_model_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_dist_50_100km_24h.json",
       "feature_importances_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_dist_50_100km_24h_feature_importances.csv",
-      "best_iteration": 115,
+      "best_iteration": 358,
       "validation": {
         "positive_rate": 0.13414970489271333,
-        "predicted_positive_rate_at_0_5": 0.19471564896022947,
-        "brier": 0.068672776222229,
-        "precision_at_0_5": 0.6065155807365439,
-        "recall_at_0_5": 0.8803453947368421,
-        "roc_auc": 0.9581365777025781,
-        "average_precision": 0.7322946909329108
+        "predicted_positive_rate_at_0_5": 0.1360251530696674,
+        "brier": 0.044418372213840485,
+        "precision_at_0_5": 0.7412814274128142,
+        "recall_at_0_5": 0.7516447368421053,
+        "roc_auc": 0.9752050446280383,
+        "average_precision": 0.8634363857257503
       },
       "test": {
         "positive_rate": 0.15080753701211305,
-        "predicted_positive_rate_at_0_5": 0.2662180349932705,
-        "brier": 0.08923037350177765,
-        "precision_at_0_5": 0.5533367037411526,
-        "recall_at_0_5": 0.9767960731816153,
-        "roc_auc": 0.9695780197508562,
-        "average_precision": 0.8244571518433407
+        "predicted_positive_rate_at_0_5": 0.18613728129205923,
+        "brier": 0.06753164529800415,
+        "precision_at_0_5": 0.6845625451916124,
+        "recall_at_0_5": 0.8449352967425257,
+        "roc_auc": 0.9623209181567824,
+        "average_precision": 0.8537998867645618
       }
     },
     {
@@ -222,24 +222,24 @@
       "model_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_dist_100_200km_24h.joblib",
       "json_model_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_dist_100_200km_24h.json",
       "feature_importances_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_dist_100_200km_24h_feature_importances.csv",
-      "best_iteration": 333,
+      "best_iteration": 491,
       "validation": {
         "positive_rate": 0.07446632467317557,
-        "predicted_positive_rate_at_0_5": 0.17458216117822273,
-        "brier": 0.0813736841082573,
-        "precision_at_0_5": 0.4066350710900474,
-        "recall_at_0_5": 0.9533333333333334,
-        "roc_auc": 0.962531758172142,
-        "average_precision": 0.6462202148090036
+        "predicted_positive_rate_at_0_5": 0.06332395609244856,
+        "brier": 0.03378112241625786,
+        "precision_at_0_5": 0.7221254355400697,
+        "recall_at_0_5": 0.6140740740740741,
+        "roc_auc": 0.9684184154355202,
+        "average_precision": 0.777610879773382
       },
       "test": {
         "positive_rate": 0.0797442799461642,
-        "predicted_positive_rate_at_0_5": 0.15609017496635263,
-        "brier": 0.06330233067274094,
-        "precision_at_0_5": 0.46281526190989436,
-        "recall_at_0_5": 0.9059071729957806,
-        "roc_auc": 0.9721573214850469,
-        "average_precision": 0.7928415965001777
+        "predicted_positive_rate_at_0_5": 0.11275235531628533,
+        "brier": 0.03454773873090744,
+        "precision_at_0_5": 0.6281706953148314,
+        "recall_at_0_5": 0.8881856540084389,
+        "roc_auc": 0.9822175194193106,
+        "average_precision": 0.8897265274323074
       }
     },
     {
@@ -248,24 +248,24 @@
       "model_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_dist_200_pluskm_24h.joblib",
       "json_model_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_dist_200_pluskm_24h.json",
       "feature_importances_path": "src\\outputs\\xgboost\\models_mc_1_0\\aftershock_dist_200_pluskm_24h_feature_importances.csv",
-      "best_iteration": 578,
+      "best_iteration": 1199,
       "validation": {
         "positive_rate": 0.027304319046831043,
-        "predicted_positive_rate_at_0_5": 0.025373710629378345,
-        "brier": 0.01935853436589241,
-        "precision_at_0_5": 0.5717391304347826,
-        "recall_at_0_5": 0.5313131313131313,
-        "roc_auc": 0.9534887264387095,
-        "average_precision": 0.5332695635400856
+        "predicted_positive_rate_at_0_5": 0.03508191295714049,
+        "brier": 0.014806249178946018,
+        "precision_at_0_5": 0.639937106918239,
+        "recall_at_0_5": 0.8222222222222222,
+        "roc_auc": 0.973522453753825,
+        "average_precision": 0.8036564441132875
       },
       "test": {
         "positive_rate": 0.06032974427994616,
-        "predicted_positive_rate_at_0_5": 0.06100269179004038,
-        "brier": 0.03880536928772926,
-        "precision_at_0_5": 0.6050744622173193,
-        "recall_at_0_5": 0.6118237590630229,
-        "roc_auc": 0.932881112579564,
-        "average_precision": 0.6583023630838606
+        "predicted_positive_rate_at_0_5": 0.056729475100942124,
+        "brier": 0.022758275270462036,
+        "precision_at_0_5": 0.7769869513641756,
+        "recall_at_0_5": 0.7306190741773564,
+        "roc_auc": 0.9520223239175212,
+        "average_precision": 0.822859469457689
       }
     },
     {
@@ -274,17 +274,17 @@
       "model_path": "src\\outputs\\xgboost\\models_mc_1_0\\max_aftershock_mag_24h.joblib",
       "json_model_path": "src\\outputs\\xgboost\\models_mc_1_0\\max_aftershock_mag_24h.json",
       "feature_importances_path": "src\\outputs\\xgboost\\models_mc_1_0\\max_aftershock_mag_24h_feature_importances.csv",
-      "best_iteration": 513,
+      "best_iteration": 676,
       "validation": {
-        "mae": 0.7018786327794512,
-        "rmse": 0.8833740083432883,
-        "r2": 0.17271745465921573,
+        "mae": 0.5834537548904724,
+        "rmse": 0.7171760242734763,
+        "r2": 0.4547242893414063,
         "target_mean": 3.465979609929078
       },
       "test": {
-        "mae": 0.8842427994224091,
-        "rmse": 1.0526543295529784,
-        "r2": 0.135757846732799,
+        "mae": 0.5207502141205942,
+        "rmse": 0.66560076007018,
+        "r2": 0.6544654321125778,
         "target_mean": 3.8735496142872234
       }
     }

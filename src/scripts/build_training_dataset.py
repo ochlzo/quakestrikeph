@@ -123,7 +123,11 @@ def add_parent_features(df):
 
 
 def add_recent_global_features(df):
-    time_ns = df["event_time"].astype("int64").to_numpy()
+    # Cast to ns before int64 so the hardcoded nanosecond windows below are
+    # correct regardless of the column's datetime resolution. Pandas 3.0 parses
+    # to datetime64[us]; a bare astype("int64") would yield microseconds and make
+    # the window subtraction underflow, inflating counts to the row index.
+    time_ns = df["event_time"].astype("datetime64[ns]").astype("int64").to_numpy()
     order = np.arange(len(df))
 
     for days in RECENT_WINDOWS_DAYS:
@@ -135,7 +139,8 @@ def add_recent_global_features(df):
 
 
 def add_recent_local_features(df):
-    time_ns = df["event_time"].astype("int64").to_numpy()
+    # See add_recent_global_features: cast to ns first so nanosecond windows match.
+    time_ns = df["event_time"].astype("datetime64[ns]").astype("int64").to_numpy()
     lat = df["latitude"].to_numpy(dtype=float)
     lon = df["longitude"].to_numpy(dtype=float)
     magnitude = df["magnitude"].to_numpy(dtype=float)
