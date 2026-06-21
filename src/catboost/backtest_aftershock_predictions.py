@@ -6,12 +6,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# Feature helpers come straight from the shared module so the backtest rebuilds
+# each event's features through the exact same code the serving path uses.
+SHARED_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "scripts"
+if str(SHARED_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SHARED_SCRIPT_DIR))
 
-LIGHTGBM_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "lightgbm"
-if str(LIGHTGBM_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(LIGHTGBM_SCRIPT_DIR))
-
-from predict_aftershock import (  # noqa: E402
+from feature_engineering import (  # noqa: E402
     DEFAULT_HISTORICAL_CSV,
     DEFAULT_MIN_MAGNITUDE,
     build_prediction_features,
@@ -19,7 +20,7 @@ from predict_aftershock import (  # noqa: E402
     load_feature_columns,
     normalize_raw_catalog,
 )
-from train_xgboost_aftershock_models import (  # noqa: E402
+from train_catboost_aftershock_models import (  # noqa: E402
     CLASSIFICATION_TARGETS,
     DEFAULT_INPUT_CSV,
     DEFAULT_OUTPUT_DIR as DEFAULT_MODELS_DIR,
@@ -29,13 +30,13 @@ from train_xgboost_aftershock_models import (  # noqa: E402
 
 
 DEFAULT_FEATURE_COLUMNS = DEFAULT_MODELS_DIR / "feature_columns.txt"
-DEFAULT_BACKTEST_OUTPUT_DIR = Path("src/outputs/xgboost/backtests_mc_1_0")
+DEFAULT_BACKTEST_OUTPUT_DIR = Path("src/outputs/catboost/backtests_mc_1_0")
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            "Backtest the production-style XGBoost inference path "
+            "Backtest the production-style CatBoost inference path "
             "against historical labeled events."
         )
     )
@@ -77,7 +78,7 @@ def parse_args():
 def require_backtest_dependencies():
     try:
         import joblib
-        import xgboost as xgb
+        import catboost  # noqa: F401  (needed to unpickle the saved models)
         from sklearn.metrics import (
             average_precision_score,
             brier_score_loss,
@@ -90,13 +91,12 @@ def require_backtest_dependencies():
         )
     except ModuleNotFoundError as error:
         raise ModuleNotFoundError(
-            "XGBoost backtesting requires xgboost, scikit-learn, and joblib. "
-            "Install them with `python -m pip install -r requirements-xgboost.txt`."
+            "CatBoost backtesting requires catboost, scikit-learn, and joblib. "
+            "Install them in your Python environment before running this script."
         ) from error
 
     return {
         "joblib": joblib,
-        "xgb": xgb,
         "average_precision_score": average_precision_score,
         "brier_score_loss": brier_score_loss,
         "mean_absolute_error": mean_absolute_error,
@@ -108,31 +108,20 @@ def require_backtest_dependencies():
     }
 
 
-def load_model(target, models_dir, deps):
-    joblib_path = models_dir / f"{target}.joblib"
-    if joblib_path.exists():
-        return deps["joblib"].load(joblib_path)
-
-    json_path = models_dir / f"{target}.json"
-    if not json_path.exists():
-        raise FileNotFoundError(
-            f"Model file does not exist: {joblib_path} or {json_path}"
-        )
-
-    if target in REGRESSION_TARGETS:
-        model = deps["xgb"].XGBRegressor()
-    else:
-        model = deps["xgb"].XGBClassifier()
-    model.load_model(json_path)
-    return model
-
-
 def load_models(models_dir, deps):
     models = {}
     for target in [*CLASSIFICATION_TARGETS, *REGRESSION_TARGETS]:
-        model = load_model(target, models_dir, deps)
+        joblib_path = models_dir / f"{target}.joblib"
+        if not joblib_path.exists():
+            raise FileNotFoundError(f"Model file does not exist: {joblib_path}")
+        model = deps["joblib"].load(joblib_path)
+        # CatBoost uses thread_count (not n_jobs); pin to 1 so per-event scoring
+        # doesn't spin up the full thread pool for a single-row predict.
         if hasattr(model, "set_params"):
-            model.set_params(n_jobs=1)
+            try:
+                model.set_params(thread_count=1)
+            except Exception:
+                pass
         models[target] = model
     return models
 
@@ -383,7 +372,7 @@ def main():
 
     summary = {
         "config": {
-            "model_family": "xgboost",
+            "model_family": "catboost",
             "labeled_csv": str(args.labeled_csv),
             "historical_csv": str(args.historical_csv),
             "models_dir": str(args.models_dir),

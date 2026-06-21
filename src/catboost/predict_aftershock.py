@@ -35,7 +35,7 @@ from predict_aftershock import (  # noqa: E402
     load_new_event,
     run_predictions,
 )
-from train_random_forest_aftershock_models import (  # noqa: E402
+from train_catboost_aftershock_models import (  # noqa: E402
     CLASSIFICATION_TARGETS,
     DEFAULT_OUTPUT_DIR,
     LOG_DISTANCE_TARGETS,
@@ -48,7 +48,7 @@ DEFAULT_FEATURE_COLUMNS = DEFAULT_OUTPUT_DIR / "feature_columns.txt"
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Run Random Forest aftershock inference for one raw earthquake event."
+        description="Run CatBoost aftershock inference for one raw earthquake event."
     )
     parser.add_argument("--historical-csv", type=Path, default=DEFAULT_HISTORICAL_CSV)
     parser.add_argument("--models-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
@@ -70,34 +70,57 @@ def parse_args():
 def require_prediction_dependencies():
     try:
         import joblib
+        from catboost import CatBoostClassifier, CatBoostRegressor
     except ModuleNotFoundError as error:
         raise ModuleNotFoundError(
-            "Prediction requires joblib and scikit-learn model dependencies. "
-            "Install them with `python -m pip install -r requirements-random-forest.txt`."
+            "Prediction requires joblib and CatBoost model dependencies. "
+            "Install them in your Python environment before running this script."
         ) from error
 
-    return joblib
+    return {
+        "joblib": joblib,
+        "CatBoostClassifier": CatBoostClassifier,
+        "CatBoostRegressor": CatBoostRegressor,
+    }
 
 
-def load_models(models_dir, joblib):
+def load_model(target, models_dir, deps):
+    joblib_path = models_dir / f"{target}.joblib"
+    if joblib_path.exists():
+        return deps["joblib"].load(joblib_path)
+
+    native_path = models_dir / f"{target}.cbm"
+    if not native_path.exists():
+        raise FileNotFoundError(
+            f"Model file does not exist: {joblib_path} or {native_path}"
+        )
+
+    if target in REGRESSION_TARGETS:
+        model = deps["CatBoostRegressor"]()
+    else:
+        model = deps["CatBoostClassifier"]()
+    model.load_model(native_path)
+    return model
+
+
+def load_models(models_dir, deps):
     models = {}
     for target in [*CLASSIFICATION_TARGETS, *REGRESSION_TARGETS]:
-        model_path = models_dir / f"{target}.joblib"
-        if not model_path.exists():
-            raise FileNotFoundError(f"Model file does not exist: {model_path}")
-        model = joblib.load(model_path)
-        # Models are SimpleImputer -> RandomForest pipelines; pin the forest to a
-        # single thread so per-event scoring doesn't spin up the full pool.
-        forest = model.named_steps.get("model") if hasattr(model, "named_steps") else None
-        if forest is not None and hasattr(forest, "set_params"):
-            forest.set_params(n_jobs=1)
+        model = load_model(target, models_dir, deps)
+        # CatBoost uses thread_count (not n_jobs); pin to 1 so single-row scoring
+        # doesn't spin up the full thread pool.
+        if hasattr(model, "set_params"):
+            try:
+                model.set_params(thread_count=1)
+            except Exception:
+                pass
         models[target] = model
     return models
 
 
 def main():
     args = parse_args()
-    joblib = require_prediction_dependencies()
+    deps = require_prediction_dependencies()
     if not args.historical_csv.exists():
         raise FileNotFoundError(f"Historical CSV does not exist: {args.historical_csv}")
 
@@ -116,7 +139,7 @@ def main():
     )
     feature_columns = load_feature_columns(args.feature_columns)
     feature_row = build_prediction_features(history, event, args, feature_columns)
-    models = load_models(args.models_dir, joblib)
+    models = load_models(args.models_dir, deps)
     classification, regression = run_predictions(
         feature_row,
         models,

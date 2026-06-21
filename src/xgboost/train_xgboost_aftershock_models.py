@@ -6,22 +6,41 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# Feature engineering (the columns this model consumes) is owned by the shared
+# module so training and serving never drift. The training CSV's features were
+# built by it via build_training_dataset.py; here we reuse its feature-list
+# loader as the single definition of "what columns are features".
+SHARED_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "scripts"
+if str(SHARED_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SHARED_SCRIPT_DIR))
+
+from feature_engineering import load_feature_columns as load_feature_list  # noqa: E402
+
 
 DEFAULT_INPUT_CSV = Path("src/training_set/training_dataset_mc_1_0.csv")
 DEFAULT_OUTPUT_DIR = Path("src/outputs/xgboost/models_mc_1_0")
 CLASSIFICATION_TARGETS = [
     "aftershock_24h",
-    "aftershock_dist_0_10km_24h",
-    "aftershock_dist_10_25km_24h",
-    "aftershock_dist_25_50km_24h",
-    "aftershock_dist_50_100km_24h",
-    "aftershock_dist_100_200km_24h",
-    "aftershock_dist_200_pluskm_24h",
+    "aftershock_within_10km_24h",
+    "aftershock_within_25km_24h",
+    "aftershock_within_50km_24h",
+    "aftershock_within_100km_24h",
+    "aftershock_within_200km_24h",
 ]
 REGRESSION_TARGETS = [
     "max_aftershock_mag_24h",
-    "max_aftershock_distance_km_24h",
+    "nearest_aftershock_distance_km_24h",
+    "median_aftershock_distance_km_24h",
+    "p90_aftershock_distance_km_24h",
 ]
+# Distance regressors are trained in log1p(km) space because the distance cloud
+# is heavily right-skewed (p95 ~ 500 km). The saved model therefore predicts
+# log1p(km); callers (and the metrics below) apply expm1 to recover kilometres.
+LOG_DISTANCE_TARGETS = {
+    "nearest_aftershock_distance_km_24h",
+    "median_aftershock_distance_km_24h",
+    "p90_aftershock_distance_km_24h",
+}
 # Backward-compatible alias: the single-target predict / backtest helpers import
 # this and only use the magnitude regressor (distance routing lives in src/seis).
 REGRESSION_TARGET = REGRESSION_TARGETS[0]
@@ -36,9 +55,11 @@ def parse_args():
     )
     parser.add_argument("--input-csv", type=Path, default=DEFAULT_INPUT_CSV)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--train-end-year", type=int, default=2023)
-    parser.add_argument("--validation-year", type=int, default=2024)
-    parser.add_argument("--test-start-year", type=int, default=2025)
+    # Split B: train on 2018-2024, validate on the last full year (2025), test on
+    # the freshest (partial) year (2026). Forward-validation on the newest data.
+    parser.add_argument("--train-end-year", type=int, default=2024)
+    parser.add_argument("--validation-year", type=int, default=2025)
+    parser.add_argument("--test-start-year", type=int, default=2026)
     parser.add_argument("--n-estimators", type=int, default=1200)
     parser.add_argument("--learning-rate", type=float, default=0.03)
     parser.add_argument("--max-depth", type=int, default=4)
@@ -58,9 +79,11 @@ def require_training_dependencies():
     try:
         import joblib
         import xgboost as xgb
+        from sklearn.calibration import calibration_curve
         from sklearn.metrics import (
             average_precision_score,
             brier_score_loss,
+            log_loss,
             mean_absolute_error,
             mean_squared_error,
             precision_score,
@@ -77,8 +100,10 @@ def require_training_dependencies():
     return {
         "joblib": joblib,
         "xgb": xgb,
+        "calibration_curve": calibration_curve,
         "average_precision_score": average_precision_score,
         "brier_score_loss": brier_score_loss,
+        "log_loss": log_loss,
         "mean_absolute_error": mean_absolute_error,
         "mean_squared_error": mean_squared_error,
         "precision_score": precision_score,
@@ -95,12 +120,9 @@ def load_feature_columns(input_csv):
             f"Feature list does not exist: {feature_path}. "
             "Run src/scripts/build_training_dataset.py first."
         )
-
-    return [
-        line.strip()
-        for line in feature_path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    # Parse via the shared feature module so there is one definition of the
+    # feature-column manifest across training and serving.
+    return load_feature_list(feature_path)
 
 
 def split_by_year(df, args):
@@ -127,6 +149,42 @@ def limit_rows(df, max_rows, random_state):
     )
 
 
+def expected_calibration_error(y_true, y_probability, n_bins=10):
+    """Count-weighted ECE over uniform probability bins."""
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    bin_index = np.clip(np.digitize(y_probability, edges[1:-1]), 0, n_bins - 1)
+    total = 0.0
+    for b in range(n_bins):
+        mask = bin_index == b
+        if mask.any():
+            total += mask.sum() / len(y_probability) * abs(
+                y_true[mask].mean() - y_probability[mask].mean()
+            )
+    return float(total)
+
+
+def calibration_report(y_true, y_probability, metrics, n_bins=10):
+    """Reliability self-check for a Path B (natural-prevalence) classifier.
+
+    Returns the sklearn calibration_curve points (predicted vs observed per bin),
+    ECE, and log loss. No correction is applied -- this only verifies that the
+    model's raw probabilities are already calibrated, which is the whole point of
+    training at natural prevalence instead of post-hoc isotonic.
+    """
+    prob_true, prob_pred = metrics["calibration_curve"](
+        y_true, y_probability, n_bins=n_bins, strategy="uniform"
+    )
+    return {
+        "n_bins": n_bins,
+        "ece": expected_calibration_error(y_true, y_probability, n_bins),
+        "log_loss": float(
+            metrics["log_loss"](y_true, np.clip(y_probability, 1e-7, 1 - 1e-7))
+        ),
+        "reliability_pred": [float(v) for v in prob_pred],
+        "reliability_obs": [float(v) for v in prob_true],
+    }
+
+
 def classification_metrics(y_true, y_probability, metrics):
     y_pred = (y_probability >= 0.5).astype(int)
     results = {
@@ -139,9 +197,11 @@ def classification_metrics(y_true, y_probability, metrics):
     if len(np.unique(y_true)) == 2:
         results["roc_auc"] = float(metrics["roc_auc_score"](y_true, y_probability))
         results["average_precision"] = float(metrics["average_precision_score"](y_true, y_probability))
+        results["calibration"] = calibration_report(y_true, y_probability, metrics)
     else:
         results["roc_auc"] = None
         results["average_precision"] = None
+        results["calibration"] = None
     return results
 
 
@@ -153,14 +213,6 @@ def regression_metrics(y_true, y_pred, metrics):
         "r2": float(metrics["r2_score"](y_true, y_pred)),
         "target_mean": float(np.mean(y_true)),
     }
-
-
-def scale_pos_weight(y):
-    positives = int(np.sum(y == 1))
-    negatives = int(np.sum(y == 0))
-    if positives == 0:
-        return 1.0
-    return float(negatives / positives)
 
 
 def best_iteration(model):
@@ -189,6 +241,9 @@ def train_classifier(target, train, validation, test, feature_columns, output_di
         print(f"Skipping {target}; training split has only one class.")
         return None
 
+    # Path B: train at the catalog's natural prevalence (no scale_pos_weight) with
+    # log loss, so the model's raw output is a calibrated probability and no
+    # post-hoc isotonic step is needed. calibration_report() below verifies this.
     model = xgb.XGBClassifier(
         objective="binary:logistic",
         eval_metric="logloss",
@@ -200,7 +255,6 @@ def train_classifier(target, train, validation, test, feature_columns, output_di
         colsample_bytree=args.colsample_bytree,
         min_child_weight=args.min_child_weight,
         reg_lambda=args.reg_lambda,
-        scale_pos_weight=scale_pos_weight(train[target].to_numpy()),
         early_stopping_rounds=args.early_stopping_rounds,
         random_state=args.random_state,
         n_jobs=-1,
@@ -244,6 +298,12 @@ def train_regressor(target, train, validation, test, feature_columns, output_dir
         print(f"Skipping {target}; one split has no positive aftershock targets.")
         return None
 
+    # Heavy-tailed distance targets are learned in log1p(km) space; magnitude is
+    # left on its natural scale.
+    use_log = target in LOG_DISTANCE_TARGETS
+    y_train = np.log1p(train[target].to_numpy()) if use_log else train[target].to_numpy()
+    y_validation = np.log1p(validation[target].to_numpy()) if use_log else validation[target].to_numpy()
+
     model = xgb.XGBRegressor(
         objective="reg:squarederror",
         eval_metric="rmse",
@@ -261,13 +321,18 @@ def train_regressor(target, train, validation, test, feature_columns, output_dir
     )
     model.fit(
         train[feature_columns],
-        train[target],
-        eval_set=[(validation[feature_columns], validation[target])],
+        y_train,
+        eval_set=[(validation[feature_columns], y_validation)],
         verbose=False,
     )
 
     validation_pred = model.predict(validation[feature_columns])
     test_pred = model.predict(test[feature_columns])
+    if use_log:
+        # Back-transform to kilometres so metrics are reported on the natural
+        # scale; clip the tiny negatives expm1 can produce near zero.
+        validation_pred = np.clip(np.expm1(validation_pred), 0.0, None)
+        test_pred = np.clip(np.expm1(test_pred), 0.0, None)
     model_path = output_dir / f"{target}.joblib"
     json_model_path = output_dir / f"{target}.json"
     importance_path = output_dir / f"{target}_feature_importances.csv"
@@ -278,6 +343,7 @@ def train_regressor(target, train, validation, test, feature_columns, output_dir
     return {
         "target": target,
         "task": "regression_positive_cases_only",
+        "target_transform": "log1p" if use_log else "identity",
         "model_path": str(model_path),
         "json_model_path": str(json_model_path),
         "feature_importances_path": str(importance_path),
@@ -323,6 +389,8 @@ def main():
             "early_stopping_rounds": args.early_stopping_rounds,
             "random_state": args.random_state,
             "tree_method": "hist",
+            "scale_pos_weight": 1.0,
+            "calibration": "natural_prevalence_path_b",
         },
         "splits": {
             "train_rows": int(len(train)),
@@ -342,6 +410,14 @@ def main():
         result = train_classifier(target, train, validation, test, feature_columns, args.output_dir, args, deps)
         if result is not None:
             metrics["models"].append(result)
+            calib = result["test"].get("calibration")
+            if calib is not None:
+                print(
+                    f"  [calib] {target:<32} test ECE={calib['ece']:.4f} "
+                    f"logloss={calib['log_loss']:.4f} "
+                    f"Brier={result['test']['brier']:.4f} "
+                    f"ROC={result['test']['roc_auc']:.4f}"
+                )
 
     for regression_target in REGRESSION_TARGETS:
         regression_result = train_regressor(
