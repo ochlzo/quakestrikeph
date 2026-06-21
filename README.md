@@ -118,6 +118,32 @@ src\training_set\training_dataset_mc_1_0.targets.txt
 
 This dataset is shared by LightGBM, Random Forest, XGBoost, and CatBoost.
 
+### Shared feature engineering
+
+All input-feature logic lives in one module so training and serving never drift:
+
+```powershell
+src\scripts\feature_engineering.py
+```
+
+`build_training_dataset.py` and every family's `predict_aftershock.py` /
+`backtest_aftershock_predictions.py` import their feature builders from it. It is
+a library, not a CLI — you do not run it directly; change a feature here and both
+training and inference update together.
+
+### Methodology (Path B)
+
+All four families are trained at the catalog's **natural prevalence** (no class
+weighting) with log loss, so the raw model probabilities are already calibrated —
+there is no post-hoc isotonic step. The chronological split is **train ≤ 2024,
+validate 2025, test 2026**. The targets are:
+
+- Classification: `aftershock_24h` plus cumulative containment
+  `aftershock_within_{10,25,50,100,200}km_24h`.
+- Regression: `max_aftershock_mag_24h` (natural scale) and
+  `nearest_/median_/p90_aftershock_distance_km_24h` (trained in `log1p` km space,
+  back-transformed to km on output).
+
 ## Models
 
 ### LightGBM
@@ -156,6 +182,18 @@ Run the backtest across all matching 2025+ events:
 
 ```powershell
 python src\lightgbm\backtest_aftershock_predictions.py --max-events 0
+```
+
+Build the self-contained HTML backtest report (reads the backtest output above):
+
+```powershell
+python src\lightgbm\build_backtest_report.py
+```
+
+Default output:
+
+```powershell
+src\docs\lightgbm_backtest_report.html
 ```
 
 Run prediction for one event from command-line fields:
@@ -214,6 +252,18 @@ Run the backtest across all matching 2025+ events:
 python src\random_forest\backtest_aftershock_predictions.py --max-events 0
 ```
 
+Build the self-contained HTML backtest report (reads the backtest output above):
+
+```powershell
+python src\random_forest\build_backtest_report.py
+```
+
+Default output:
+
+```powershell
+src\docs\random-forest_backtest_report.html
+```
+
 Run prediction for one event from command-line fields:
 
 ```powershell
@@ -270,6 +320,18 @@ Run the backtest across all matching 2025+ events:
 python src\xgboost\backtest_aftershock_predictions.py --max-events 0
 ```
 
+Build the self-contained HTML backtest report (reads the backtest output above):
+
+```powershell
+python src\xgboost\build_backtest_report.py
+```
+
+Default output:
+
+```powershell
+src\docs\xgboost_backtest_report.html
+```
+
 Run prediction for one event from command-line fields:
 
 ```powershell
@@ -282,29 +344,10 @@ Run prediction for one event from a one-row CSV:
 python src\xgboost\predict_aftershock.py --event-csv path\to\one_event.csv --output-json src\outputs\xgboost\prediction.json
 ```
 
-Compare LightGBM and Random Forest prediction outputs and runtime using the
-same input event:
-
-```powershell
-python src\scripts\compare_predict_aftershock.py
-```
-
-Compare LightGBM, Random Forest, and XGBoost prediction outputs and runtime:
-
-```powershell
-python src\scripts\compare_predict_aftershock.py --include-xgboost
-```
-
-Compare both predictors with a one-row event CSV:
-
-```powershell
-python src\scripts\compare_predict_aftershock.py --event-csv path\to\one_event.csv
-```
-
 ### CatBoost
 
-Train CatBoost classifiers and the regressors (train -> validate -> test split,
-mirroring the other families' hyperparameters):
+Train CatBoost classifiers and the regressors (CatBoost-native defaults; same
+Path B split and target schema as the other families):
 
 ```powershell
 python src\catboost\train_catboost_aftershock_models.py
@@ -322,13 +365,71 @@ Default output:
 src\outputs\catboost\models_mc_1_0\
 ```
 
-CatBoost is evaluated as a fourth family by the SEIS selection pipeline
-(walk-forward folds and the validation-based re-pick) and is served directly by
-SEIS where it wins; it does not ship a standalone `predict`/`backtest` CLI.
+Run the default production-style sampled backtest:
+
+```powershell
+python src\catboost\backtest_aftershock_predictions.py
+```
+
+Default output:
+
+```powershell
+src\outputs\catboost\backtests_mc_1_0\
+```
+
+Run the backtest across all matching 2025+ events:
+
+```powershell
+python src\catboost\backtest_aftershock_predictions.py --max-events 0
+```
+
+Build the self-contained HTML backtest report (reads the backtest output above):
+
+```powershell
+python src\catboost\build_backtest_report.py
+```
+
+Default output:
+
+```powershell
+src\docs\catboost_backtest_report.html
+```
+
+Run prediction for one event from command-line fields:
+
+```powershell
+python src\catboost\predict_aftershock.py --date-time "26 April 2026 - 03:20 PM" --latitude 10.0 --longitude 125.0 --depth 20 --magnitude 4.5
+```
+
+Run prediction for one event from a one-row CSV:
+
+```powershell
+python src\catboost\predict_aftershock.py --event-csv path\to\one_event.csv --output-json src\outputs\catboost\prediction.json
+```
 
 ### SEIS (Hybrid Multi-Model Ensemble)
 
-SEIS is the unified multi-model predictor that combines the best-in-class models (XGBoost, LightGBM, Random Forest, and CatBoost). Each target's deployed family is chosen honestly on the 2024 validation year by `src/seis/repick_bins.py` (written to `src/outputs/seis/calibration/repick_report.json`); the 2025+ holdout is reserved for the backtest and never used for selection.
+SEIS is the unified multi-model predictor that serves the best-in-class model per
+target across the four families (XGBoost, LightGBM, Random Forest, and CatBoost).
+Each target's deployed family is the strongest on the 2025 backtest (production
+inference path, Path B / natural prevalence): classification picks minimize Brier,
+regression picks maximize R². The picks are assembled from the four families'
+backtests into a single report:
+
+```powershell
+python src\seis\build_pick_report_from_backtests.py
+```
+
+Default output:
+
+```powershell
+src\outputs\seis\backtest_pick_report.json
+```
+
+That report is the source of truth for the static `HYBRID_MODEL_MAPPING` in
+`src/seis/predict.py` (regenerate the report and update the mapping after any
+re-train). SEIS reports raw Path B probabilities — there is no isotonic
+calibration layer.
 
 Run prediction for one event using command-line fields:
 
@@ -342,10 +443,18 @@ Run prediction for one event from a one-row CSV:
 python src\seis\predict.py --event-csv path\to\one_event.csv --output-json src\outputs\seis\prediction.json
 ```
 
-Run the sampled backtest to calculate combined hybrid metrics:
+Backtest the assembled ensemble end-to-end (rebuilds each event's features
+through the production path and scores it with the per-target chosen model, on the
+Path B target schema):
 
 ```powershell
 python src\seis\backtest.py
+```
+
+Run across all matching 2025+ events:
+
+```powershell
+python src\seis\backtest.py --max-events 0
 ```
 
 Default output:
@@ -356,24 +465,28 @@ src\outputs\seis\backtests_mc_1_0\
 
 ## Reports
 
-Generate the Random Forest report and LightGBM-vs-Random-Forest comparison
-report:
+Each family ships a self-contained HTML backtest report builder (documented in its
+section above); they read that family's `backtests_mc_1_0\` output and write to
+`src\docs\<family>_backtest_report.html`:
 
 ```powershell
-python src\reports\generate_random_forest_reports.py
+python src\lightgbm\build_backtest_report.py
+python src\random_forest\build_backtest_report.py
+python src\xgboost\build_backtest_report.py
+python src\catboost\build_backtest_report.py
 ```
 
-Outputs:
+The cross-family recommended-model-per-target picks are assembled by the SEIS pick
+builder:
 
 ```powershell
-src\reports\random_forest_model_report.html
-src\reports\lightgbm_vs_random_forest_comparison_report.html
+python src\seis\build_pick_report_from_backtests.py
 ```
 
-This report generator expects the model-comparison CSVs to already exist under:
+Output:
 
 ```powershell
-src\outputs\model-comparison\mc_1_0\
+src\outputs\seis\backtest_pick_report.json
 ```
 
 ## Utility Commands
@@ -395,5 +508,5 @@ build\tests\test_magnitude_diagnostics.exe
 Syntax-check the main Python scripts:
 
 ```powershell
-python -m py_compile scripts\run_zaliapin_clustering.py scripts\run_nn_diagnostics_for_mc.py scripts\validate_clustered_dataset.py src\scripts\build_training_dataset.py src\scripts\compare_predict_aftershock.py src\lightgbm\train_lightgbm_aftershock_models.py src\lightgbm\predict_aftershock.py src\lightgbm\backtest_aftershock_predictions.py src\random_forest\train_random_forest_aftershock_models.py src\random_forest\predict_aftershock.py src\random_forest\backtest_aftershock_predictions.py src\xgboost\train_xgboost_aftershock_models.py src\xgboost\predict_aftershock.py src\xgboost\backtest_aftershock_predictions.py src\catboost\train_catboost_aftershock_models.py src\seis\predict.py src\seis\backtest.py src\seis\fit_calibrators.py src\seis\calibration_score.py src\seis\repick_bins.py src\seis\pick_on_test.py src\seis\calibration_analysis.py src\seis\significance_check.py src\seis\walk_forward_pick.py src\seis\build_html_report.py src\seis\build_findings_report.py
+python -m py_compile scripts\run_zaliapin_clustering.py scripts\run_nn_diagnostics_for_mc.py scripts\validate_clustered_dataset.py scripts\analyze_aftershock_time_windows.py scripts\visualize_log10_eta_histograms.py scripts\yearly_event_percentages.py src\scripts\build_training_dataset.py src\scripts\feature_engineering.py src\lightgbm\train_lightgbm_aftershock_models.py src\lightgbm\predict_aftershock.py src\lightgbm\backtest_aftershock_predictions.py src\lightgbm\build_backtest_report.py src\random_forest\train_random_forest_aftershock_models.py src\random_forest\predict_aftershock.py src\random_forest\backtest_aftershock_predictions.py src\random_forest\build_backtest_report.py src\xgboost\train_xgboost_aftershock_models.py src\xgboost\predict_aftershock.py src\xgboost\backtest_aftershock_predictions.py src\xgboost\build_backtest_report.py src\catboost\train_catboost_aftershock_models.py src\catboost\predict_aftershock.py src\catboost\backtest_aftershock_predictions.py src\catboost\build_backtest_report.py src\seis\predict.py src\seis\backtest.py src\seis\build_pick_report_from_backtests.py
 ```

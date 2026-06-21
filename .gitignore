@@ -20,7 +20,7 @@ src/outputs/clustered_ml_ready_mc_1_0.csv
 
 # Backtest outputs (regenerate via src/<family>/backtest_aftershock_predictions.py)
 src/outputs/**/backtests_mc_1_0/backtest_metrics.json
-src/outputs/**/backtests_mc_1_0/backtest_predictions.csv
+src/outputs/**/backtests_mc_1_0/backtest_predictions*.csv
 
 # Generated HTML reports (regenerate via src/<family>/build_backtest_report.py)
 src/docs/*_backtest_report.html
@@ -48,3 +48,7 @@ env/
 # OS-specific files
 .DS_Store
 Thumbs.db
+
+# Stacking Ensemble
+src/docs/stacking_oof_fold_reference.md
+src/seis-stacking-ensemble/
