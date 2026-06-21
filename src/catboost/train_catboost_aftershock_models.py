@@ -1,0 +1,441 @@
+import argparse
+import json
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+# Feature engineering (the columns this model consumes) is owned by the shared
+# module so training and serving never drift. The training CSV's features were
+# built by it via build_training_dataset.py; here we reuse its feature-list
+# loader as the single definition of "what columns are features".
+SHARED_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "scripts"
+if str(SHARED_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SHARED_SCRIPT_DIR))
+
+from feature_engineering import load_feature_columns as load_feature_list  # noqa: E402
+
+
+DEFAULT_INPUT_CSV = Path("src/training_set/training_dataset_mc_1_0.csv")
+DEFAULT_OUTPUT_DIR = Path("src/outputs/catboost/models_mc_1_0")
+CLASSIFICATION_TARGETS = [
+    "aftershock_24h",
+    "aftershock_within_10km_24h",
+    "aftershock_within_25km_24h",
+    "aftershock_within_50km_24h",
+    "aftershock_within_100km_24h",
+    "aftershock_within_200km_24h",
+]
+REGRESSION_TARGETS = [
+    "max_aftershock_mag_24h",
+    "nearest_aftershock_distance_km_24h",
+    "median_aftershock_distance_km_24h",
+    "p90_aftershock_distance_km_24h",
+]
+# Distance regressors are trained in log1p(km) space because the distance cloud
+# is heavily right-skewed (p95 ~ 500 km). The saved model therefore predicts
+# log1p(km); callers (and the metrics below) apply expm1 to recover kilometres.
+LOG_DISTANCE_TARGETS = {
+    "nearest_aftershock_distance_km_24h",
+    "median_aftershock_distance_km_24h",
+    "p90_aftershock_distance_km_24h",
+}
+# Backward-compatible alias: the single-target predict / backtest helpers import
+# this and only use the magnitude regressor (distance routing lives in src/seis).
+REGRESSION_TARGET = REGRESSION_TARGETS[0]
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description=(
+            "Train CatBoost aftershock likelihood and magnitude models "
+            "from the existing leakage-safe mc_1_0 training dataset."
+        )
+    )
+    parser.add_argument("--input-csv", type=Path, default=DEFAULT_INPUT_CSV)
+    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    # Split B: train on 2018-2024, validate on the last full year (2025), test on
+    # the freshest (partial) year (2026). Forward-validation on the newest data.
+    parser.add_argument("--train-end-year", type=int, default=2024)
+    parser.add_argument("--validation-year", type=int, default=2025)
+    parser.add_argument("--test-start-year", type=int, default=2026)
+    # CatBoost-native defaults: symmetric (oblivious) trees at depth 6, the
+    # default Bayesian bootstrap, and default l2_leaf_reg=3 -- we do NOT force the
+    # Bernoulli subsample / rsm knobs the old GBM-mirrored config used. The shared
+    # training regime across families is kept: a slow learning rate over many
+    # iterations capped by early stopping on the validation year.
+    parser.add_argument("--iterations", type=int, default=2000)
+    parser.add_argument("--learning-rate", type=float, default=0.03)
+    parser.add_argument("--depth", type=int, default=6)
+    parser.add_argument("--l2-leaf-reg", type=float, default=3.0)
+    parser.add_argument("--early-stopping-rounds", type=int, default=100)
+    parser.add_argument("--random-state", type=int, default=42)
+    parser.add_argument("--max-train-rows", type=int, default=0)
+    parser.add_argument("--max-validation-rows", type=int, default=0)
+    parser.add_argument("--max-test-rows", type=int, default=0)
+    return parser.parse_args()
+
+
+def require_training_dependencies():
+    try:
+        import joblib
+        from catboost import CatBoostClassifier, CatBoostRegressor
+        from sklearn.calibration import calibration_curve
+        from sklearn.metrics import (
+            average_precision_score,
+            brier_score_loss,
+            log_loss,
+            mean_absolute_error,
+            mean_squared_error,
+            precision_score,
+            r2_score,
+            recall_score,
+            roc_auc_score,
+        )
+    except ModuleNotFoundError as error:
+        raise ModuleNotFoundError(
+            "Training requires catboost, scikit-learn, pandas, numpy, and joblib. "
+            "Install them in your Python environment before running this script."
+        ) from error
+
+    return {
+        "joblib": joblib,
+        "CatBoostClassifier": CatBoostClassifier,
+        "CatBoostRegressor": CatBoostRegressor,
+        "calibration_curve": calibration_curve,
+        "average_precision_score": average_precision_score,
+        "brier_score_loss": brier_score_loss,
+        "log_loss": log_loss,
+        "mean_absolute_error": mean_absolute_error,
+        "mean_squared_error": mean_squared_error,
+        "precision_score": precision_score,
+        "r2_score": r2_score,
+        "recall_score": recall_score,
+        "roc_auc_score": roc_auc_score,
+    }
+
+
+def load_feature_columns(input_csv):
+    feature_path = input_csv.with_suffix(".features.txt")
+    if not feature_path.exists():
+        raise FileNotFoundError(
+            f"Feature list does not exist: {feature_path}. "
+            "Run src/scripts/build_training_dataset.py first."
+        )
+    # Parse via the shared feature module so there is one definition of the
+    # feature-column manifest across training and serving.
+    return load_feature_list(feature_path)
+
+
+def split_by_year(df, args):
+    train = df[df["event_year"] <= args.train_end_year].copy()
+    validation = df[df["event_year"] == args.validation_year].copy()
+    test = df[df["event_year"] >= args.test_start_year].copy()
+    if train.empty or validation.empty or test.empty:
+        raise ValueError(
+            "Chronological split produced an empty train, validation, or test set. "
+            "Adjust --train-end-year, --validation-year, or --test-start-year."
+        )
+    return train, validation, test
+
+
+def limit_rows(df, max_rows, random_state):
+    if max_rows == 0 or len(df) <= max_rows:
+        return df
+    if max_rows < 0:
+        raise ValueError("Row limits must be >= 0.")
+    return (
+        df.sample(n=max_rows, random_state=random_state)
+        .sort_values(["event_time", "event_id"], kind="mergesort")
+        .reset_index(drop=True)
+    )
+
+
+def expected_calibration_error(y_true, y_probability, n_bins=10):
+    """Count-weighted ECE over uniform probability bins."""
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    bin_index = np.clip(np.digitize(y_probability, edges[1:-1]), 0, n_bins - 1)
+    total = 0.0
+    for b in range(n_bins):
+        mask = bin_index == b
+        if mask.any():
+            total += mask.sum() / len(y_probability) * abs(
+                y_true[mask].mean() - y_probability[mask].mean()
+            )
+    return float(total)
+
+
+def calibration_report(y_true, y_probability, metrics, n_bins=10):
+    """Reliability self-check for a Path B (natural-prevalence) classifier.
+
+    Returns the sklearn calibration_curve points (predicted vs observed per bin),
+    ECE, and log loss. No correction is applied -- this only verifies that the
+    model's raw probabilities are already calibrated, which is the whole point of
+    training at natural prevalence instead of post-hoc isotonic. CatBoost is a
+    log-loss GBM, so like XGBoost/LightGBM it is expected to be well calibrated.
+    """
+    prob_true, prob_pred = metrics["calibration_curve"](
+        y_true, y_probability, n_bins=n_bins, strategy="uniform"
+    )
+    return {
+        "n_bins": n_bins,
+        "ece": expected_calibration_error(y_true, y_probability, n_bins),
+        "log_loss": float(
+            metrics["log_loss"](y_true, np.clip(y_probability, 1e-7, 1 - 1e-7))
+        ),
+        "reliability_pred": [float(v) for v in prob_pred],
+        "reliability_obs": [float(v) for v in prob_true],
+    }
+
+
+def classification_metrics(y_true, y_probability, metrics):
+    y_pred = (y_probability >= 0.5).astype(int)
+    results = {
+        "positive_rate": float(np.mean(y_true)),
+        "predicted_positive_rate_at_0_5": float(np.mean(y_pred)),
+        "brier": float(metrics["brier_score_loss"](y_true, y_probability)),
+        "precision_at_0_5": float(metrics["precision_score"](y_true, y_pred, zero_division=0)),
+        "recall_at_0_5": float(metrics["recall_score"](y_true, y_pred, zero_division=0)),
+    }
+    if len(np.unique(y_true)) == 2:
+        results["roc_auc"] = float(metrics["roc_auc_score"](y_true, y_probability))
+        results["average_precision"] = float(metrics["average_precision_score"](y_true, y_probability))
+        results["calibration"] = calibration_report(y_true, y_probability, metrics)
+    else:
+        results["roc_auc"] = None
+        results["average_precision"] = None
+        results["calibration"] = None
+    return results
+
+
+def regression_metrics(y_true, y_pred, metrics):
+    mse = metrics["mean_squared_error"](y_true, y_pred)
+    return {
+        "mae": float(metrics["mean_absolute_error"](y_true, y_pred)),
+        "rmse": float(np.sqrt(mse)),
+        "r2": float(metrics["r2_score"](y_true, y_pred)),
+        "target_mean": float(np.mean(y_true)),
+    }
+
+
+def best_iteration(model):
+    iteration = model.get_best_iteration()
+    if iteration is None or iteration <= 0:
+        return int(model.tree_count_)
+    return int(iteration)
+
+
+def write_feature_importances(model, feature_columns, output_path):
+    importances = pd.DataFrame(
+        {
+            "feature": feature_columns,
+            "importance": model.get_feature_importance(),
+        }
+    ).sort_values("importance", ascending=False)
+    importances.to_csv(output_path, index=False)
+
+
+def train_classifier(target, train, validation, test, feature_columns, output_dir, args, deps):
+    CatBoostClassifier = deps["CatBoostClassifier"]
+    joblib = deps["joblib"]
+    if train[target].nunique() < 2:
+        print(f"Skipping {target}; training split has only one class.")
+        return None
+
+    # Path B: train at the catalog's natural prevalence (no auto_class_weights)
+    # with log loss, so the model's raw output is a calibrated probability and no
+    # post-hoc isotonic step is needed. calibration_report() below verifies this.
+    model = CatBoostClassifier(
+        loss_function="Logloss",
+        eval_metric="Logloss",
+        iterations=args.iterations,
+        learning_rate=args.learning_rate,
+        depth=args.depth,
+        l2_leaf_reg=args.l2_leaf_reg,
+        early_stopping_rounds=args.early_stopping_rounds,
+        random_seed=args.random_state,
+        thread_count=-1,
+        allow_writing_files=False,
+        verbose=False,
+    )
+    model.fit(
+        train[feature_columns],
+        train[target],
+        eval_set=(validation[feature_columns], validation[target]),
+        use_best_model=True,
+        verbose=False,
+    )
+
+    validation_probability = model.predict_proba(validation[feature_columns])[:, 1]
+    test_probability = model.predict_proba(test[feature_columns])[:, 1]
+    model_path = output_dir / f"{target}.joblib"
+    native_model_path = output_dir / f"{target}.cbm"
+    importance_path = output_dir / f"{target}_feature_importances.csv"
+    joblib.dump(model, model_path)
+    model.save_model(native_model_path)
+    write_feature_importances(model, feature_columns, importance_path)
+
+    return {
+        "target": target,
+        "task": "classification",
+        "model_path": str(model_path),
+        "native_model_path": str(native_model_path),
+        "feature_importances_path": str(importance_path),
+        "best_iteration": best_iteration(model),
+        "validation": classification_metrics(validation[target].to_numpy(), validation_probability, deps),
+        "test": classification_metrics(test[target].to_numpy(), test_probability, deps),
+    }
+
+
+def train_regressor(target, train, validation, test, feature_columns, output_dir, args, deps):
+    CatBoostRegressor = deps["CatBoostRegressor"]
+    joblib = deps["joblib"]
+    train = train.dropna(subset=[target])
+    validation = validation.dropna(subset=[target])
+    test = test.dropna(subset=[target])
+
+    if train.empty or validation.empty or test.empty:
+        print(f"Skipping {target}; one split has no positive aftershock targets.")
+        return None
+
+    # Heavy-tailed distance targets are learned in log1p(km) space; magnitude is
+    # left on its natural scale.
+    use_log = target in LOG_DISTANCE_TARGETS
+    y_train = np.log1p(train[target].to_numpy()) if use_log else train[target].to_numpy()
+    y_validation = np.log1p(validation[target].to_numpy()) if use_log else validation[target].to_numpy()
+
+    model = CatBoostRegressor(
+        loss_function="RMSE",
+        eval_metric="RMSE",
+        iterations=args.iterations,
+        learning_rate=args.learning_rate,
+        depth=args.depth,
+        l2_leaf_reg=args.l2_leaf_reg,
+        early_stopping_rounds=args.early_stopping_rounds,
+        random_seed=args.random_state,
+        thread_count=-1,
+        allow_writing_files=False,
+        verbose=False,
+    )
+    model.fit(
+        train[feature_columns],
+        y_train,
+        eval_set=(validation[feature_columns], y_validation),
+        use_best_model=True,
+        verbose=False,
+    )
+
+    validation_pred = model.predict(validation[feature_columns])
+    test_pred = model.predict(test[feature_columns])
+    if use_log:
+        # Back-transform to kilometres so metrics are reported on the natural
+        # scale; clip the tiny negatives expm1 can produce near zero.
+        validation_pred = np.clip(np.expm1(validation_pred), 0.0, None)
+        test_pred = np.clip(np.expm1(test_pred), 0.0, None)
+    model_path = output_dir / f"{target}.joblib"
+    native_model_path = output_dir / f"{target}.cbm"
+    importance_path = output_dir / f"{target}_feature_importances.csv"
+    joblib.dump(model, model_path)
+    model.save_model(native_model_path)
+    write_feature_importances(model, feature_columns, importance_path)
+
+    return {
+        "target": target,
+        "task": "regression_positive_cases_only",
+        "target_transform": "log1p" if use_log else "identity",
+        "model_path": str(model_path),
+        "native_model_path": str(native_model_path),
+        "feature_importances_path": str(importance_path),
+        "best_iteration": best_iteration(model),
+        "validation": regression_metrics(validation[target].to_numpy(), validation_pred, deps),
+        "test": regression_metrics(test[target].to_numpy(), test_pred, deps),
+    }
+
+
+def main():
+    args = parse_args()
+    if not args.input_csv.exists():
+        raise FileNotFoundError(
+            f"Input CSV does not exist: {args.input_csv}. "
+            "Run src/scripts/build_training_dataset.py first."
+        )
+
+    deps = require_training_dependencies()
+    feature_columns = load_feature_columns(args.input_csv)
+    df = pd.read_csv(args.input_csv, low_memory=False)
+    missing_columns = sorted(set(feature_columns + CLASSIFICATION_TARGETS + REGRESSION_TARGETS) - set(df.columns))
+    if missing_columns:
+        raise ValueError(f"Training CSV is missing columns: {missing_columns}")
+
+    train, validation, test = split_by_year(df, args)
+    train = limit_rows(train, args.max_train_rows, args.random_state)
+    validation = limit_rows(validation, args.max_validation_rows, args.random_state + 1)
+    test = limit_rows(test, args.max_test_rows, args.random_state + 2)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    metrics = {
+        "model_family": "catboost",
+        "input_csv": str(args.input_csv),
+        "feature_columns": feature_columns,
+        "hyperparameters": {
+            "iterations": args.iterations,
+            "learning_rate": args.learning_rate,
+            "depth": args.depth,
+            "l2_leaf_reg": args.l2_leaf_reg,
+            "bootstrap_type": "Bayesian (CatBoost default)",
+            "early_stopping_rounds": args.early_stopping_rounds,
+            "random_state": args.random_state,
+            "class_weight": None,
+            "calibration": "natural_prevalence_path_b",
+        },
+        "splits": {
+            "train_rows": int(len(train)),
+            "validation_rows": int(len(validation)),
+            "test_rows": int(len(test)),
+            "train_end_year": args.train_end_year,
+            "validation_year": args.validation_year,
+            "test_start_year": args.test_start_year,
+            "max_train_rows": args.max_train_rows,
+            "max_validation_rows": args.max_validation_rows,
+            "max_test_rows": args.max_test_rows,
+        },
+        "models": [],
+    }
+
+    for target in CLASSIFICATION_TARGETS:
+        result = train_classifier(target, train, validation, test, feature_columns, args.output_dir, args, deps)
+        if result is not None:
+            metrics["models"].append(result)
+            calib = result["test"].get("calibration")
+            if calib is not None:
+                print(
+                    f"  [calib] {target:<32} test ECE={calib['ece']:.4f} "
+                    f"logloss={calib['log_loss']:.4f} "
+                    f"Brier={result['test']['brier']:.4f} "
+                    f"ROC={result['test']['roc_auc']:.4f}"
+                )
+
+    for regression_target in REGRESSION_TARGETS:
+        regression_result = train_regressor(
+            regression_target, train, validation, test, feature_columns, args.output_dir, args, deps
+        )
+        if regression_result is not None:
+            metrics["models"].append(regression_result)
+
+    metrics_path = args.output_dir / "metrics.json"
+    metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    (args.output_dir / "feature_columns.txt").write_text(
+        "\n".join(feature_columns) + "\n",
+        encoding="utf-8",
+    )
+    print(f"Wrote metrics: {metrics_path}")
+    print(f"Trained models: {len(metrics['models'])}")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as error:
+        print(f"Error: {error}", file=sys.stderr)
+        raise SystemExit(1)

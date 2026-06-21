@@ -6,12 +6,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# Feature helpers come straight from the shared module so the backtest rebuilds
+# each event's features through the exact same code the serving path uses.
+SHARED_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "scripts"
+if str(SHARED_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SHARED_SCRIPT_DIR))
 
-LIGHTGBM_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "lightgbm"
-if str(LIGHTGBM_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(LIGHTGBM_SCRIPT_DIR))
-
-from predict_aftershock import (  # noqa: E402
+from feature_engineering import (  # noqa: E402
     DEFAULT_HISTORICAL_CSV,
     DEFAULT_MIN_MAGNITUDE,
     build_prediction_features,
@@ -23,7 +24,8 @@ from train_random_forest_aftershock_models import (  # noqa: E402
     CLASSIFICATION_TARGETS,
     DEFAULT_INPUT_CSV,
     DEFAULT_OUTPUT_DIR as DEFAULT_MODELS_DIR,
-    REGRESSION_TARGET,
+    LOG_DISTANCE_TARGETS,
+    REGRESSION_TARGETS,
 )
 
 
@@ -45,6 +47,13 @@ def parse_args():
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_BACKTEST_OUTPUT_DIR)
     parser.add_argument("--test-start-year", type=int, default=2025)
     parser.add_argument(
+        "--test-end-year",
+        type=int,
+        default=None,
+        help="Inclusive upper bound on event_year. Set equal to --test-start-year "
+        "to backtest a single year (e.g. the 2025 validation year).",
+    )
+    parser.add_argument(
         "--max-events",
         type=int,
         default=500,
@@ -53,8 +62,10 @@ def parse_args():
     parser.add_argument(
         "--sample-mode",
         choices=["balanced", "chronological"],
-        default="balanced",
-        help="How to choose rows when --max-events limits the backtest.",
+        default="chronological",
+        help="How to choose rows when --max-events limits the backtest. "
+        "chronological keeps the natural deployment prevalence; balanced "
+        "oversamples positives and distorts Brier/precision.",
     )
     parser.add_argument("--random-seed", type=int, default=42)
     parser.add_argument("--minimum-magnitude", type=float, default=DEFAULT_MIN_MAGNITUDE)
@@ -96,13 +107,15 @@ def require_backtest_dependencies():
     }
 
 
-def load_models(models_dir, joblib):
+def load_models(models_dir, deps):
     models = {}
-    for target in [*CLASSIFICATION_TARGETS, REGRESSION_TARGET]:
+    for target in [*CLASSIFICATION_TARGETS, *REGRESSION_TARGETS]:
         model_path = models_dir / f"{target}.joblib"
         if not model_path.exists():
             raise FileNotFoundError(f"Model file does not exist: {model_path}")
-        model = joblib.load(model_path)
+        model = deps["joblib"].load(model_path)
+        # Each model is a Pipeline(imputer, forest); pin the forest to one thread
+        # so per-event scoring does not oversubscribe cores.
         forest = model.named_steps.get("model")
         if hasattr(forest, "set_params"):
             forest.set_params(n_jobs=1)
@@ -110,7 +123,7 @@ def load_models(models_dir, joblib):
     return models
 
 
-def load_labeled_events(path, test_start_year, minimum_magnitude):
+def load_labeled_events(path, test_start_year, test_end_year, minimum_magnitude):
     if not path.exists():
         raise FileNotFoundError(f"Labeled CSV does not exist: {path}")
     df = pd.read_csv(path, low_memory=False)
@@ -123,7 +136,7 @@ def load_labeled_events(path, test_start_year, minimum_magnitude):
         "depth_km",
         "magnitude",
         "event_year",
-        REGRESSION_TARGET,
+        *REGRESSION_TARGETS,
         *CLASSIFICATION_TARGETS,
     }
     missing = sorted(required - set(df.columns))
@@ -132,10 +145,10 @@ def load_labeled_events(path, test_start_year, minimum_magnitude):
 
     df["event_time"] = pd.to_datetime(df["event_time"], errors="coerce")
     df = df.dropna(subset=["event_time", "latitude", "longitude", "depth_km", "magnitude"])
-    df = df[
-        (df["event_year"] >= test_start_year)
-        & (df["magnitude"] >= minimum_magnitude)
-    ].copy()
+    year_mask = df["event_year"] >= test_start_year
+    if test_end_year is not None:
+        year_mask &= df["event_year"] <= test_end_year
+    df = df[year_mask & (df["magnitude"] >= minimum_magnitude)].copy()
     if df.empty:
         raise ValueError("No labeled test events matched the requested filters.")
     return df.sort_values(["event_time", "event_id"], kind="mergesort").reset_index(drop=True)
@@ -198,11 +211,17 @@ def run_predictions(feature_row, models):
     for target in CLASSIFICATION_TARGETS:
         classification[target] = positive_class_probability(models[target], feature_row)
 
-    max_magnitude = float(models[REGRESSION_TARGET].predict(feature_row)[0])
-    return classification, max_magnitude
+    regression = {}
+    for target in REGRESSION_TARGETS:
+        prediction = float(models[target].predict(feature_row)[0])
+        # Distance regressors are trained in log1p(km) space; back-transform to km.
+        if target in LOG_DISTANCE_TARGETS:
+            prediction = float(np.clip(np.expm1(prediction), 0.0, None))
+        regression[target] = prediction
+    return classification, regression
 
 
-def build_prediction_record(row, classification, max_magnitude, history_rows):
+def build_prediction_record(row, classification, regression, history_rows):
     record = {
         "event_id": row["event_id"],
         "origin_time": row["origin_time"],
@@ -211,15 +230,30 @@ def build_prediction_record(row, classification, max_magnitude, history_rows):
         "latitude": float(row["latitude"]),
         "longitude": float(row["longitude"]),
         "history_rows_used": int(history_rows),
-        "predicted_max_aftershock_mag_24h": float(max_magnitude),
-        "actual_max_aftershock_mag_24h": (
-            None if pd.isna(row[REGRESSION_TARGET]) else float(row[REGRESSION_TARGET])
-        ),
     }
+    for target in REGRESSION_TARGETS:
+        record[f"predicted_{target}"] = float(regression[target])
+        record[f"actual_{target}"] = (
+            None if pd.isna(row[target]) else float(row[target])
+        )
     for target in CLASSIFICATION_TARGETS:
         record[f"actual_{target}"] = int(row[target])
         record[f"predicted_probability_{target}"] = float(classification[target])
     return record
+
+
+def expected_calibration_error(y_true, y_probability, n_bins=10):
+    """Count-weighted ECE over uniform probability bins (matches the trainer)."""
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    bin_index = np.clip(np.digitize(y_probability, edges[1:-1]), 0, n_bins - 1)
+    total = 0.0
+    for b in range(n_bins):
+        mask = bin_index == b
+        if mask.any():
+            total += mask.sum() / len(y_probability) * abs(
+                y_true[mask].mean() - y_probability[mask].mean()
+            )
+    return float(total)
 
 
 def classification_metrics(y_true, y_probability, metrics):
@@ -239,20 +273,19 @@ def classification_metrics(y_true, y_probability, metrics):
         result["average_precision"] = float(
             metrics["average_precision_score"](y_true, y_probability)
         )
+        result["ece"] = expected_calibration_error(y_true, y_probability)
     else:
         result["roc_auc"] = None
         result["average_precision"] = None
+        result["ece"] = None
     return result
 
 
-def regression_metrics(records, metrics):
+def regression_metrics(records, target, metrics):
     pairs = [
-        (
-            record["actual_max_aftershock_mag_24h"],
-            record["predicted_max_aftershock_mag_24h"],
-        )
+        (record[f"actual_{target}"], record[f"predicted_{target}"])
         for record in records
-        if record["actual_max_aftershock_mag_24h"] is not None
+        if record[f"actual_{target}"] is not None
     ]
     if not pairs:
         return {"count": 0}
@@ -283,7 +316,8 @@ def summarize_records(records, metrics):
             metrics,
         )
     summary["regression"] = {
-        REGRESSION_TARGET: regression_metrics(records, metrics)
+        target: regression_metrics(records, target, metrics)
+        for target in REGRESSION_TARGETS
     }
     return summary
 
@@ -292,12 +326,13 @@ def main():
     args = parse_args()
     deps = require_backtest_dependencies()
     feature_columns = load_feature_columns(args.feature_columns)
-    models = load_models(args.models_dir, deps["joblib"])
+    models = load_models(args.models_dir, deps)
 
     history = normalize_raw_catalog(pd.read_csv(args.historical_csv, low_memory=False))
     labeled = load_labeled_events(
         args.labeled_csv,
         args.test_start_year,
+        args.test_end_year,
         args.minimum_magnitude,
     )
     sampled = sample_events(
@@ -321,12 +356,12 @@ def main():
             args,
             feature_columns,
         )
-        classification, max_magnitude = run_predictions(feature_row, models)
+        classification, regression = run_predictions(feature_row, models)
         records.append(
             build_prediction_record(
                 row,
                 classification,
-                max_magnitude,
+                regression,
                 len(prediction_history),
             )
         )
@@ -341,6 +376,7 @@ def main():
             "models_dir": str(args.models_dir),
             "feature_columns": str(args.feature_columns),
             "test_start_year": args.test_start_year,
+            "test_end_year": args.test_end_year,
             "max_events": args.max_events,
             "sample_mode": args.sample_mode,
             "sampled_rows": int(len(sampled)),

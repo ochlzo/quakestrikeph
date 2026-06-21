@@ -1,83 +1,130 @@
+"""Backtest the deployed SEIS ensemble end-to-end on the Path B target schema.
+
+The ensemble serves ONE model per target -- the per-target winner recorded in
+``HYBRID_MODEL_MAPPING`` in ``src/seis/predict.py`` (assembled from the 2025
+backtest into ``src/outputs/seis/backtest_pick_report.json``). This script loads
+exactly that ensemble, rebuilds each event's features through the production
+inference path (the shared ``feature_engineering`` module), scores every target
+with its chosen family, and reports the ensemble's metrics.
+
+It evaluates two years and writes a single combined metrics file:
+
+- **2026** -- the true out-of-sample holdout. The models never trained on it, it
+  was not the early-stopping validation year, and the per-target selection did not
+  use it. This is the honest deployment estimate (note: a partial year, so smaller
+  n / noisier per-target metrics).
+- **2025** -- in-sample with respect to selection. It was both the early-stopping
+  validation year AND the year the per-target winners were chosen on, so these
+  numbers are an optimistic ceiling, not a holdout. Kept for the apples-to-apples
+  comparison against the per-family pick report.
+
+Output (Option A -- one JSON keyed by year, per-year prediction CSVs):
+
+    src/outputs/seis/backtests_mc_1_0/backtest_metrics.json   # {"2025": {...}, "2026": {...}}
+    src/outputs/seis/backtests_mc_1_0/backtest_predictions_2025.csv
+    src/outputs/seis/backtests_mc_1_0/backtest_predictions_2026.csv
+"""
+
 import argparse
 import json
 import sys
 from pathlib import Path
-import numpy as np
+
 import pandas as pd
 
-# Add prediction script to sys.path
-SEIS_DIR = Path(__file__).resolve().parent
-if str(SEIS_DIR) not in sys.path:
-    sys.path.insert(0, str(SEIS_DIR))
+# Shared feature engineering (single source of truth for the production path).
+SHARED_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "scripts"
+if str(SHARED_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SHARED_SCRIPT_DIR))
 
-from predict import (
+from feature_engineering import (  # noqa: E402
     DEFAULT_B_VALUE,
     DEFAULT_FRACTAL_DIMENSION,
     DEFAULT_HISTORICAL_CSV,
     DEFAULT_LOG10_ETA0,
     DEFAULT_MIN_MAGNITUDE,
-    HYBRID_MODEL_MAPPING,
     build_prediction_features,
     filter_history_for_prediction,
     load_feature_columns,
-    load_all_hybrid_models,
     normalize_raw_catalog,
-    require_dependencies,
-    run_hybrid_predictions,
-    load_feature_columns,
 )
 
-# Reference LightGBM backtest helper imports
+# The deployed ensemble definition + loaders live in predict.py, so the backtest
+# scores exactly what predict.py serves.
+SEIS_DIR = Path(__file__).resolve().parent
+if str(SEIS_DIR) not in sys.path:
+    sys.path.insert(0, str(SEIS_DIR))
+
+from predict import (  # noqa: E402
+    CLASSIFICATION_TARGETS,
+    DEFAULT_CB_DIR,
+    DEFAULT_FEATURE_COLUMNS,
+    DEFAULT_LGB_DIR,
+    DEFAULT_RF_DIR,
+    DEFAULT_XGB_DIR,
+    HYBRID_MODEL_MAPPING,
+    LOG_DISTANCE_TARGETS,
+    REGRESSION_TARGETS,
+    load_all_hybrid_models,
+    require_dependencies,
+)
+
+# Serving inference + the verified backtest metric helpers both live in the
+# lightgbm package (the repo's serving/backtest base). Reuse them so the ensemble
+# backtest produces metrics identical in shape to the single-family backtests.
 LIGHTGBM_DIR = SEIS_DIR.parent / "lightgbm"
 if str(LIGHTGBM_DIR) not in sys.path:
     sys.path.insert(0, str(LIGHTGBM_DIR))
 
-from backtest_aftershock_predictions import (
+from predict_aftershock import run_predictions  # noqa: E402
+from backtest_aftershock_predictions import (  # noqa: E402
     DEFAULT_INPUT_CSV,
+    build_prediction_record,
     load_labeled_events,
-    sample_events,
+    require_backtest_dependencies,
     row_to_event,
-    classification_metrics,
-    regression_metrics,
+    sample_events,
+    summarize_records,
 )
 
-DEFAULT_FEATURE_COLUMNS = Path("src/outputs/lightgbm/models_mc_1_0/feature_columns.txt")
 DEFAULT_BACKTEST_OUTPUT_DIR = Path("src/outputs/seis/backtests_mc_1_0")
 
-CLASSIFICATION_TARGETS = [
-    "aftershock_24h",
-    "aftershock_dist_0_10km_24h",
-    "aftershock_dist_10_25km_24h",
-    "aftershock_dist_25_50km_24h",
-    "aftershock_dist_50_100km_24h",
-    "aftershock_dist_100_200km_24h",
-    "aftershock_dist_200_pluskm_24h",
-]
+# Honesty labels per evaluation year (see module docstring).
+YEAR_HOLDOUT_STATUS = {
+    2025: "in_sample_wrt_selection (early-stopping validation year AND per-target "
+    "selection year -- optimistic ceiling, not a holdout)",
+    2026: "out_of_sample_holdout (never trained on, not the validation year, not "
+    "used for selection -- honest deployment estimate; partial year)",
+}
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Backtest the SEIS Hybrid Multi-Model inference path against historical holdout events."
-    )
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--labeled-csv", type=Path, default=DEFAULT_INPUT_CSV)
     parser.add_argument("--historical-csv", type=Path, default=DEFAULT_HISTORICAL_CSV)
-    parser.add_argument("--xgb-models-dir", type=Path, default=Path("src/outputs/xgboost/models_mc_1_0"))
-    parser.add_argument("--lgb-models-dir", type=Path, default=Path("src/outputs/lightgbm/models_mc_1_0"))
-    parser.add_argument("--rf-models-dir", type=Path, default=Path("src/outputs/random-forest/models_mc_1_0"))
+    parser.add_argument("--xgb-models-dir", type=Path, default=DEFAULT_XGB_DIR)
+    parser.add_argument("--lgb-models-dir", type=Path, default=DEFAULT_LGB_DIR)
+    parser.add_argument("--rf-models-dir", type=Path, default=DEFAULT_RF_DIR)
+    parser.add_argument("--cb-models-dir", type=Path, default=DEFAULT_CB_DIR)
     parser.add_argument("--feature-columns", type=Path, default=DEFAULT_FEATURE_COLUMNS)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_BACKTEST_OUTPUT_DIR)
-    parser.add_argument("--test-start-year", type=int, default=2025)
+    parser.add_argument(
+        "--years",
+        default="2025,2026",
+        help="Comma-separated evaluation years; each is backtested in isolation "
+        "(test_start_year == test_end_year == year).",
+    )
     parser.add_argument(
         "--max-events",
         type=int,
-        default=500,
-        help="Maximum labeled events to backtest. Use 0 for all matching events.",
+        default=0,
+        help="Maximum labeled events per year. 0 = the whole year's pool (honest).",
     )
     parser.add_argument(
         "--sample-mode",
         choices=["balanced", "chronological"],
-        default="balanced",
-        help="How to choose rows when --max-events limits the backtest.",
+        default="chronological",
+        help="chronological keeps natural deployment prevalence; balanced distorts it.",
     )
     parser.add_argument("--random-seed", type=int, default=42)
     parser.add_argument("--minimum-magnitude", type=float, default=DEFAULT_MIN_MAGNITUDE)
@@ -87,162 +134,95 @@ def parse_args():
     return parser.parse_args()
 
 
-def require_metric_dependencies():
-    try:
-        from sklearn.metrics import (
-            average_precision_score,
-            brier_score_loss,
-            mean_absolute_error,
-            mean_squared_error,
-            precision_score,
-            r2_score,
-            recall_score,
-            roc_auc_score,
-        )
-    except ModuleNotFoundError as error:
-        raise ModuleNotFoundError(
-            "Backtesting requires scikit-learn. Install dependencies before running."
-        ) from error
-
-    return {
-        "average_precision_score": average_precision_score,
-        "brier_score_loss": brier_score_loss,
-        "mean_absolute_error": mean_absolute_error,
-        "mean_squared_error": mean_squared_error,
-        "precision_score": precision_score,
-        "r2_score": r2_score,
-        "recall_score": recall_score,
-        "roc_auc_score": roc_auc_score,
-    }
-
-
-def build_prediction_record(row, classification, max_magnitude, max_distance, history_rows):
-    record = {
-        "event_id": row["event_id"],
-        "origin_time": row["origin_time"],
-        "event_time": row["event_time"].isoformat(),
-        "magnitude": float(row["magnitude"]),
-        "latitude": float(row["latitude"]),
-        "longitude": float(row["longitude"]),
-        "history_rows_used": int(history_rows),
-        "predicted_max_aftershock_mag_24h": float(max_magnitude),
-        "actual_max_aftershock_mag_24h": (
-            None if pd.isna(row["max_aftershock_mag_24h"]) else float(row["max_aftershock_mag_24h"])
-        ),
-        "predicted_max_aftershock_distance_km_24h": float(max_distance),
-        "actual_max_aftershock_distance_km_24h": (
-            None if pd.isna(row["max_aftershock_distance_km_24h"]) else float(row["max_aftershock_distance_km_24h"])
-        ),
-    }
-    for target in CLASSIFICATION_TARGETS:
-        record[f"actual_{target}"] = int(row[target])
-        record[f"predicted_probability_{target}"] = float(classification[target])
-    return record
-
-
-def summarize_records(records, metrics):
-    summary = {"classification": {}}
-    for target in CLASSIFICATION_TARGETS:
-        y_true = [record[f"actual_{target}"] for record in records]
-        y_probability = [
-            record[f"predicted_probability_{target}"] for record in records
-        ]
-        summary["classification"][target] = classification_metrics(
-            y_true,
-            y_probability,
-            metrics,
-        )
-    summary["regression"] = {
-        "max_aftershock_mag_24h": regression_metrics(
-            records, "actual_max_aftershock_mag_24h", "predicted_max_aftershock_mag_24h", metrics
-        ),
-        "max_aftershock_distance_km_24h": regression_metrics(
-            records, "actual_max_aftershock_distance_km_24h", "predicted_max_aftershock_distance_km_24h", metrics
-        ),
-    }
-    return summary
-
-
-def main():
-    args = parse_args()
-    deps = require_dependencies()
-    metric_deps = require_metric_dependencies()
-    feature_columns = load_feature_columns(args.feature_columns)
-    
-    # Load all models
-    models = load_all_hybrid_models(args, deps)
-
-    history = normalize_raw_catalog(pd.read_csv(args.historical_csv, low_memory=False))
+def backtest_year(year, args, models, history, feature_columns, metric_deps):
+    """Run the ensemble over one year's labeled pool; return (summary, records)."""
     labeled = load_labeled_events(
-        args.labeled_csv,
-        args.test_start_year,
-        args.minimum_magnitude,
+        args.labeled_csv, year, year, args.minimum_magnitude
     )
-    
-    # Check if there is an extra column required by the regression targets
-    if "max_aftershock_distance_km_24h" not in labeled.columns:
-        # Re-parse labeled events or ensure it is present
-        pass
-        
     sampled = sample_events(
-        labeled,
-        args.max_events,
-        args.sample_mode,
-        args.random_seed,
-    )
+        labeled, args.max_events, args.sample_mode, args.random_seed
+    ).reset_index(drop=True)
+    print(f"  [{year}] pool: {len(sampled)} events "
+          f"(prevalence-preserving '{args.sample_mode}').", flush=True)
 
     records = []
     for index, row in sampled.iterrows():
         event = row_to_event(row)
         prediction_history = filter_history_for_prediction(
-            history,
-            event["event_time"],
-            args.minimum_magnitude,
+            history, event["event_time"], args.minimum_magnitude
         )
         feature_row = build_prediction_features(
-            prediction_history,
-            event,
-            args,
-            feature_columns,
+            prediction_history, event, args, feature_columns
         )
-        classification, max_magnitude, max_distance = run_hybrid_predictions(feature_row, models)
+        classification, regression = run_predictions(
+            feature_row,
+            models,
+            CLASSIFICATION_TARGETS,
+            REGRESSION_TARGETS,
+            LOG_DISTANCE_TARGETS,
+        )
         records.append(
             build_prediction_record(
-                row,
-                classification,
-                max_magnitude,
-                max_distance,
-                len(prediction_history),
+                row, classification, regression, len(prediction_history)
             )
         )
-        if (index + 1) % 50 == 0:
-            print(f"Backtested {index + 1}/{len(sampled)} events...")
+        if (index + 1) % 1000 == 0:
+            print(f"  [{year}] scored {index + 1}/{len(sampled)}...", flush=True)
 
     summary = {
         "config": {
-            "model_family": "seis_hybrid_ensemble",
+            "model_family": "seis_ensemble",
+            "evaluation_year": year,
+            "holdout_status": YEAR_HOLDOUT_STATUS.get(year, "unknown"),
+            "model_selection": dict(HYBRID_MODEL_MAPPING),
             "labeled_csv": str(args.labeled_csv),
             "historical_csv": str(args.historical_csv),
-            "xgb_models_dir": str(args.xgb_models_dir),
-            "lgb_models_dir": str(args.lgb_models_dir),
-            "rf_models_dir": str(args.rf_models_dir),
-            "feature_columns": str(args.feature_columns),
-            "test_start_year": args.test_start_year,
+            "evaluation_rows": int(len(sampled)),
+            "candidate_rows": int(len(labeled)),
             "max_events": args.max_events,
             "sample_mode": args.sample_mode,
-            "sampled_rows": int(len(sampled)),
-            "candidate_rows": int(len(labeled)),
             "minimum_magnitude": args.minimum_magnitude,
         },
         "metrics": summarize_records(records, metric_deps),
     }
+    return summary, records
+
+
+def main():
+    args = parse_args()
+    deps = require_dependencies()
+    metric_deps = require_backtest_dependencies()
+    feature_columns = load_feature_columns(args.feature_columns)
+    years = [int(y.strip()) for y in args.years.split(",") if y.strip()]
+
+    print("Loading deployed ensemble (one model per target):", flush=True)
+    for target, family in HYBRID_MODEL_MAPPING.items():
+        print(f"  {target:<34} -> {family}", flush=True)
+    models = load_all_hybrid_models(args, deps)
+
+    print("Loading historical catalog...", flush=True)
+    history = normalize_raw_catalog(pd.read_csv(args.historical_csv, low_memory=False))
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    predictions_path = args.output_dir / "backtest_predictions.csv"
+    combined = {}
+    for year in years:
+        print(f"Backtesting {year}...", flush=True)
+        try:
+            summary, records = backtest_year(
+                year, args, models, history, feature_columns, metric_deps
+            )
+        except ValueError as error:
+            # e.g. a year with no labeled events matching the filters.
+            print(f"  [{year}] skipped: {error}", flush=True)
+            combined[str(year)] = {"error": str(error)}
+            continue
+        combined[str(year)] = summary
+        predictions_path = args.output_dir / f"backtest_predictions_{year}.csv"
+        pd.DataFrame(records).to_csv(predictions_path, index=False)
+        print(f"  [{year}] wrote {predictions_path}", flush=True)
+
     metrics_path = args.output_dir / "backtest_metrics.json"
-    pd.DataFrame(records).to_csv(predictions_path, index=False)
-    metrics_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    print(f"Wrote {predictions_path}")
+    metrics_path.write_text(json.dumps(combined, indent=2), encoding="utf-8")
     print(f"Wrote {metrics_path}")
 
 

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SEIS Model Selection — Findings Report</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1e293b;background:#f1f5f9;line-height:1.55}
+header{background:linear-gradient(135deg,#1e3a8a,#0f172a);color:#fff;padding:38px 40px}
+header h1{margin:0 0 6px;font-size:27px}
+header p{margin:0;color:#cbd5e1;font-size:14px;max-width:820px}
+.wrap{max-width:1100px;margin:0 auto;padding:26px 20px 70px}
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:22px 24px;margin:18px 0;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.card.mini{padding:14px 16px;margin:0}
+h2{font-size:20px;margin:4px 0 6px;border-left:4px solid #2563eb;padding-left:10px}
+h3{font-size:13px;margin:0 0 6px;color:#475569}
+.lead{color:#64748b;font-size:14px;margin:2px 0 16px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #e2e8f0;vertical-align:middle}
+th{background:#f8fafc;font-weight:600;color:#475569;font-size:12px;text-transform:uppercase;letter-spacing:.03em}
+td.target{font-weight:600;min-width:130px}
+.badge{display:inline-block;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700}
+.badge.ok{background:#dcfce7;color:#15803d}
+.badge.warn{background:#fef9c3;color:#a16207}
+.badge.bad{background:#fee2e2;color:#b91c1c}
+.kpis{display:flex;gap:14px;flex-wrap:wrap}
+.kpi{flex:1;min-width:165px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px}
+.kpi .n{font-size:28px;font-weight:800;color:#1e3a8a}
+.kpi .l{font-size:12px;color:#64748b;margin-top:2px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+@media(max-width:820px){.grid2,.grid3{grid-template-columns:1fr}}
+.chart-box{position:relative;height:300px}
+.chart-box.sm{height:190px}
+.note{font-size:12.5px;color:#475569;background:#f8fafc;border-left:3px solid #cbd5e1;padding:10px 12px;border-radius:0 6px 6px 0;margin-top:12px}
+ul{font-size:13.5px;margin:6px 0;padding-left:20px}
+li{margin:4px 0}
+footer{text-align:center;color:#94a3b8;font-size:12px;padding:20px}
+</style></head>
+<body>
+<header>
+<h1>SEIS Aftershock Models — Model-Selection Findings</h1>
+<p>How we choose which model family (XGBoost · LightGBM · Random Forest · CatBoost) to deploy per target, what three selection methods reveal, and why no single family is reliably best. All numbers computed on held-out data (29,720-event test set; walk-forward folds 2021, 2022, 2023, 2024).</p>
+</header>
+<div class="wrap">
+
+<div class="card">
+<h2>Executive summary</h2>
+<div class="kpis">
+<div class="kpi"><div class="n">14</div><div class="l">times CatBoost is picked (of 27 = 9 targets × 3 methods) — the most of any family</div></div>
+<div class="kpi"><div class="n">9 / 9</div><div class="l">targets where the three selection methods <b>disagree</b> on the best family</div></div>
+<div class="kpi"><div class="n">2</div><div class="l">times LightGBM is picked — it is rarely the best by any method</div></div>
+<div class="kpi"><div class="n">4 / 7</div><div class="l">classification targets where the test winner beats the deployed pick by a statistically real margin</div></div>
+</div>
+<div class="note"><b>Headline:</b> with CatBoost added as a fourth family it becomes the <b>most-picked model overall</b> and the deployed choice for most targets — yet the best family per target is still <b>not stable</b>, changing with the selection year/method. CatBoost is strongest on the near-distance bins and magnitude; Random Forest remains the most <i>consistent</i> across folds and owns the far-distance bins; XGBoost holds a couple of targets; LightGBM is seldom best. Because no single family wins reliably across all targets, an <b>equal-weight ensemble</b> of the calibrated families remains the most robust deployment — pursued in the dedicated sibling project.</div>
+</div>
+
+<div class="card">
+<h2>1. The three selection methods disagree</h2>
+<p class="lead">Each method picks the best family per target on different held-out data. Where they differ, the "winner" is method/year-dependent — i.e. not robust.</p>
+<table>
+<thead><tr><th>Target</th><th>Validation (2024)</th><th>Test (2025)</th><th>Walk-forward (2021–24)</th><th>Stability</th></tr></thead>
+<tbody>
+<tr><td class="target">Any aftershock (24h)</td><td style="background:#dbeafe;color:#2563eb;font-weight:600">XGB</td><td style="background:#f3e8ff;color:#9333ea;font-weight:600">CB</td><td style="background:#f3e8ff;color:#9333ea;font-weight:600">CB</td><td><span class="badge warn">partial</span></td></tr>
+<tr><td class="target">0-10 km</td><td style="background:#f3e8ff;color:#9333ea;font-weight:600">CB</td><td style="background:#dbeafe;color:#2563eb;font-weight:600">XGB</td><td style="background:#f3e8ff;color:#9333ea;font-weight:600">CB</td><td><span class="badge warn">partial</span></td></tr>
+<tr><td class="target">10-25 km</td><td style="background:#f3e8ff;color:#9333ea;font-weight:600">CB</td><td style="background:#dcfce7;color:#16a34a;font-weight:600">LGBM</td><td style="background:#f3e8ff;color:#9333ea;font-weight:600">CB</td><td><span class="badge warn">partial</span></td></tr>
+<tr><td class="target">25-50 km</td><td style="background:#f3e8ff;color:#9333ea;font-weight:600">CB</td><td style="background:#ffedd5;color:#d97706;font-weight:600">RF</td><td style="background:#ffedd5;color:#d97706;font-weight:600">RF</td><td><span class="badge warn">partial</span></td></tr>
+<tr><td class="target">50-100 km</td><td style="background:#f3e8ff;color:#9333ea;font-weight:600">CB</td><td style="background:#f3e8ff;color:#9333ea;font-weight:600">CB</td><td style="background:#ffedd5;color:#d97706;font-weight:600">RF</td><td><span class="badge warn">partial</span></td></tr>
+<tr><td class="target">100-200 km</td><td style="background:#ffedd5;color:#d97706;font-weight:600">RF</td><td style="background:#dbeafe;color:#2563eb;font-weight:600">XGB</td><td style="background:#ffedd5;color:#d97706;font-weight:600">RF</td><td><span class="badge warn">partial</span></td></tr>
+<tr><td class="target">200+ km</td><td style="background:#f3e8ff;color:#9333ea;font-weight:600">CB</td><td style="background:#dcfce7;color:#16a34a;font-weight:600">LGBM</td><td style="background:#ffedd5;color:#d97706;font-weight:600">RF</td><td><span class="badge bad">rotates</span></td></tr>
+<tr><td class="target">Max magnitude</td><td style="background:#dbeafe;color:#2563eb;font-weight:600">XGB</td><td style="background:#f3e8ff;color:#9333ea;font-weight:600">CB</td><td style="background:#f3e8ff;color:#9333ea;font-weight:600">CB</td><td><span class="badge warn">partial</span></td></tr>
+<tr><td class="target">Max distance</td><td style="background:#f3e8ff;color:#9333ea;font-weight:600">CB</td><td style="background:#f3e8ff;color:#9333ea;font-weight:600">CB</td><td style="background:#dbeafe;color:#2563eb;font-weight:600">XGB</td><td><span class="badge warn">partial</span></td></tr>
+</tbody></table>
+<div class="note">“&#10003; stable” = all three methods agree; “rotates” = all three differ (no robust winner); “partial” = two agree.</div>
+</div>
+
+<div class="card">
+<h2>2. How often each family is the best pick</h2>
+<p class="lead">Across all 9 targets under each selection method. CatBoost is the most-picked family overall and dominates the deployment (validation) view; Random Forest leads the robust (walk-forward) fold wins; LightGBM barely registers.</p>
+<div class="chart-box"><canvas id="pickcount"></canvas></div>
+</div>
+
+<div class="card">
+<h2>3. Robustness: per-fold calibrated Brier (lower = better)</h2>
+<p class="lead">Walk-forward folds evaluate on 2021–2024. The story is <b>variance</b>: Random Forest (orange) and CatBoost (purple) stay relatively flat across years; XGBoost (blue) swings — sometimes best, sometimes much worse. A flat line is a dependable model.</p>
+<div class="grid3">
+<div class="card mini"><h3>Any aftershock (24h)</h3><div class="chart-box sm"><canvas id="c_aftershock_24h"></canvas></div></div><div class="card mini"><h3>0-10 km</h3><div class="chart-box sm"><canvas id="c_aftershock_dist_0_10km_24h"></canvas></div></div><div class="card mini"><h3>10-25 km</h3><div class="chart-box sm"><canvas id="c_aftershock_dist_10_25km_24h"></canvas></div></div><div class="card mini"><h3>25-50 km</h3><div class="chart-box sm"><canvas id="c_aftershock_dist_25_50km_24h"></canvas></div></div><div class="card mini"><h3>50-100 km</h3><div class="chart-box sm"><canvas id="c_aftershock_dist_50_100km_24h"></canvas></div></div><div class="card mini"><h3>100-200 km</h3><div class="chart-box sm"><canvas id="c_aftershock_dist_100_200km_24h"></canvas></div></div><div class="card mini"><h3>200+ km</h3><div class="chart-box sm"><canvas id="c_aftershock_dist_200_pluskm_24h"></canvas></div></div>
+</div>
+</div>
+
+<div class="card">
+<h2>4. Who wins each fold</h2>
+<p class="lead">Number of the four folds each family wins per target (stacks to 4). Random Forest takes the most folds overall, with CatBoost close behind (winning the near-distance bins).</p>
+<div class="chart-box"><canvas id="foldwins"></canvas></div>
+</div>
+
+<div class="card">
+<h2>5. Are the test-set differences real or noise?</h2>
+<p class="lead">Paired bootstrap on the 29,720-event test set. With this many events even small gaps are statistically detectable — but most are small in magnitude; only a couple are both real and sizeable.</p>
+<table>
+<thead><tr><th>Target</th><th>Test winner</th><th>Deployed</th><th>Δ Brier (dep − win) [95% CI]</th><th>Verdict</th></tr></thead>
+<tbody>
+<tr><td class="target">Any aftershock (24h)</td><td>CB</td><td>XGB</td><td>+0.0003 [-0.0001, +0.0007]</td><td><span class="badge warn">tie (within noise)</span></td></tr>
+<tr><td class="target">0-10 km</td><td>XGB</td><td>CB</td><td>+0.0000 [-0.0005, +0.0005]</td><td><span class="badge warn">tie (within noise)</span></td></tr>
+<tr><td class="target">10-25 km</td><td>LGBM</td><td>CB</td><td>+0.0017 [+0.0010, +0.0024]</td><td><span class="badge bad">REAL gap</span></td></tr>
+<tr><td class="target">25-50 km</td><td>RF</td><td>CB</td><td>+0.0013 [+0.0005, +0.0020]</td><td><span class="badge bad">REAL gap</span></td></tr>
+<tr><td class="target">50-100 km</td><td>CB</td><td>CB</td><td>&mdash;</td><td><span class="badge ok">deployed is winner</span></td></tr>
+<tr><td class="target">100-200 km</td><td>XGB</td><td>RF</td><td>+0.0073 [+0.0066, +0.0080]</td><td><span class="badge bad">REAL gap</span></td></tr>
+<tr><td class="target">200+ km</td><td>LGBM</td><td>CB</td><td>+0.0051 [+0.0043, +0.0059]</td><td><span class="badge bad">REAL gap</span></td></tr>
+</tbody></table>
+<div class="note">“REAL gap” = 95% CI excludes 0 (reliably non-zero, though often small). “deployed is winner” = the deployed pick already had the best test Brier.</div>
+</div>
+
+<div class="card">
+<h2>6. Regression stability (R&sup2; across folds)</h2>
+<p class="lead">Magnitude and distance regressors across walk-forward folds. Magnitude is volatile and near its physical ceiling; distance is steadier.</p>
+<div class="grid2">
+<div class="card mini"><h3>Max magnitude &mdash; R&sup2; across folds</h3><div class="chart-box sm"><canvas id="c_max_aftershock_mag_24h"></canvas></div></div><div class="card mini"><h3>Max distance &mdash; R&sup2; across folds</h3><div class="chart-box sm"><canvas id="c_max_aftershock_distance_km_24h"></canvas></div></div>
+</div>
+</div>
+
+<div class="card">
+<h2>7. Conclusions &amp; recommendations</h2>
+<ul>
+<li><b>No single family is reliably best.</b> The pick rotates across 9 of 9 targets depending on selection year/method.</li>
+<li><b>CatBoost is the strongest single family by the deployment criterion</b> — the most-picked family overall (14 of 27) and the validation-selected choice for most targets, especially the near-distance bins (0–50 km), 200+ km, and magnitude.</li>
+<li><b>Random Forest remains the most robust across folds</b> — the most walk-forward fold wins and lowest fold-to-fold variance, and it still owns the far-distance bins (100–200 km). Best fallback if a non-boosting model is needed.</li>
+<li><b>XGBoost is higher-variance and data-hungry</b> — strong in recent, data-rich years (it keeps any-aftershock and max-magnitude), erratic in leaner ones.</li>
+<li><b>LightGBM can be retired</b> from the shortlist — it is seldom the best by any method (2 of 27, zero walk-forward fold wins).</li>
+<li><b>The robust answer is still an equal-weight ensemble</b> of the calibrated families — now including CatBoost — which sidesteps the unstable per-target pick entirely. This is the focus of the dedicated sibling project.</li>
+<li><b>Caveat:</b> walk-forward folds train on one year less data than production (reserving a year for early stopping), which modestly favors Random Forest over the data-hungry boosters (XGBoost and CatBoost).</li>
+</ul>
+</div>
+
+</div>
+<footer>Generated from repick_report.json · test_pick_report.json · walk_forward_report.json · significance_report.json</footer>
+<script>
+const CFG = {"folds": ["2021", "2022", "2023", "2024"], "wf_line": [{"id": "c_aftershock_24h", "title": "Any aftershock (24h)", "series": [{"label": "XGBoost", "color": "#2563eb", "data": [0.0645, 0.0526, 0.0475, 0.0513]}, {"label": "LightGBM", "color": "#16a34a", "data": [0.0683, 0.0755, 0.088, 0.0641]}, {"label": "Random Forest", "color": "#d97706", "data": [0.0646, 0.0501, 0.0567, 0.0497]}, {"label": "CatBoost", "color": "#9333ea", "data": [0.0666, 0.0494, 0.0498, 0.0462]}]}, {"id": "c_aftershock_dist_0_10km_24h", "title": "0-10 km", "series": [{"label": "XGBoost", "color": "#2563eb", "data": [0.0633, 0.0769, 0.1047, 0.0629]}, {"label": "LightGBM", "color": "#16a34a", "data": [0.07, 0.0858, 0.1015, 0.0645]}, {"label": "Random Forest", "color": "#d97706", "data": [0.0625, 0.0655, 0.0874, 0.0606]}, {"label": "CatBoost", "color": "#9333ea", "data": [0.0624, 0.0711, 0.0759, 0.0578]}]}, {"id": "c_aftershock_dist_10_25km_24h", "title": "10-25 km", "series": [{"label": "XGBoost", "color": "#2563eb", "data": [0.0558, 0.0589, 0.0452, 0.0513]}, {"label": "LightGBM", "color": "#16a34a", "data": [0.0578, 0.0686, 0.0705, 0.0576]}, {"label": "Random Forest", "color": "#d97706", "data": [0.056, 0.0449, 0.0568, 0.0476]}, {"label": "CatBoost", "color": "#9333ea", "data": [0.0551, 0.0471, 0.0517, 0.0463]}]}, {"id": "c_aftershock_dist_25_50km_24h", "title": "25-50 km", "series": [{"label": "XGBoost", "color": "#2563eb", "data": [0.0391, 0.0543, 0.0434, 0.0472]}, {"label": "LightGBM", "color": "#16a34a", "data": [0.0433, 0.0689, 0.0521, 0.0431]}, {"label": "Random Forest", "color": "#d97706", "data": [0.0413, 0.0412, 0.0414, 0.0398]}, {"label": "CatBoost", "color": "#9333ea", "data": [0.04, 0.0529, 0.0454, 0.0381]}]}, {"id": "c_aftershock_dist_50_100km_24h", "title": "50-100 km", "series": [{"label": "XGBoost", "color": "#2563eb", "data": [0.0283, 0.0663, 0.0469, 0.0472]}, {"label": "LightGBM", "color": "#16a34a", "data": [0.0285, 0.062, 0.0552, 0.0503]}, {"label": "Random Forest", "color": "#d97706", "data": [0.0276, 0.0518, 0.0403, 0.0408]}, {"label": "CatBoost", "color": "#9333ea", "data": [0.0286, 0.0572, 0.0323, 0.0438]}]}, {"id": "c_aftershock_dist_100_200km_24h", "title": "100-200 km", "series": [{"label": "XGBoost", "color": "#2563eb", "data": [0.0143, 0.0494, 0.0957, 0.0368]}, {"label": "LightGBM", "color": "#16a34a", "data": [0.0142, 0.048, 0.0824, 0.0362]}, {"label": "Random Forest", "color": "#d97706", "data": [0.0141, 0.043, 0.0636, 0.0326]}, {"label": "CatBoost", "color": "#9333ea", "data": [0.0156, 0.0483, 0.0933, 0.037]}]}, {"id": "c_aftershock_dist_200_pluskm_24h", "title": "200+ km", "series": [{"label": "XGBoost", "color": "#2563eb", "data": [0.0196, 0.0417, 0.0754, 0.0114]}, {"label": "LightGBM", "color": "#16a34a", "data": [0.0169, 0.0409, 0.0712, 0.0112]}, {"label": "Random Forest", "color": "#d97706", "data": [0.0142, 0.0357, 0.0655, 0.0112]}, {"label": "CatBoost", "color": "#9333ea", "data": [0.0165, 0.0371, 0.0672, 0.0102]}]}], "reg_line": [{"id": "c_max_aftershock_mag_24h", "title": "Max magnitude", "series": [{"label": "XGBoost", "color": "#2563eb", "data": [0.436, 0.435, 0.292, 0.459]}, {"label": "LightGBM", "color": "#16a34a", "data": [0.408, 0.415, 0.287, 0.448]}, {"label": "Random Forest", "color": "#d97706", "data": [0.421, 0.513, 0.311, 0.426]}, {"label": "CatBoost", "color": "#9333ea", "data": [0.475, 0.464, 0.473, 0.418]}]}, {"id": "c_max_aftershock_distance_km_24h", "title": "Max distance", "series": [{"label": "XGBoost", "color": "#2563eb", "data": [0.583, 0.55, 0.502, 0.573]}, {"label": "LightGBM", "color": "#16a34a", "data": [0.536, 0.534, 0.489, 0.581]}, {"label": "Random Forest", "color": "#d97706", "data": [0.522, 0.539, 0.463, 0.538]}, {"label": "CatBoost", "color": "#9333ea", "data": [0.548, 0.454, 0.579, 0.607]}]}], "pickcount": {"labels": ["XGBoost", "LightGBM", "Random Forest", "CatBoost"], "datasets": [{"label": "Validation (2024)", "color": "#1e3a8a", "data": [2, 0, 1, 6]}, {"label": "Test (2025)", "color": "#0891b2", "data": [2, 2, 1, 4]}, {"label": "Walk-forward", "color": "#7c3aed", "data": [1, 0, 4, 4]}]}, "foldwins": {"labels": ["Any aftershock (24h)", "0-10 km", "10-25 km", "25-50 km", "50-100 km", "100-200 km", "200+ km"], "datasets": [{"label": "XGBoost", "color": "#2563eb", "data": [2, 0, 1, 1, 0, 0, 0]}, {"label": "LightGBM", "color": "#16a34a", "data": [0, 0, 0, 0, 0, 0, 0]}, {"label": "Random Forest", "color": "#d97706", "data": [0, 1, 1, 2, 3, 4, 3]}, {"label": "CatBoost", "color": "#9333ea", "data": [2, 3, 2, 1, 1, 0, 1]}]}};
+Chart.defaults.font.family="-apple-system,Segoe UI,Roboto,sans-serif";
+Chart.defaults.font.size=11;
+function lineChart(spec, yTitle){
+  new Chart(document.getElementById(spec.id),{type:'line',
+    data:{labels:CFG.folds,datasets:spec.series.map(s=>({label:s.label,data:s.data,borderColor:s.color,backgroundColor:s.color,borderWidth:2,tension:.25,pointRadius:2}))},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{title:{display:true,text:yTitle}}}}});
+}
+CFG.wf_line.forEach(s=>lineChart(s,'Brier'));
+CFG.reg_line.forEach(s=>lineChart(s,'R2'));
+function stackedBar(id,cfg,yTitle){
+  new Chart(document.getElementById(id),{type:'bar',
+    data:{labels:cfg.labels,datasets:cfg.datasets.map(d=>({label:d.label,data:d.data,backgroundColor:(d.color||'#888')+'cc',borderColor:d.color||'#888',borderWidth:1}))},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},scales:{x:{stacked:true,ticks:{maxRotation:55,minRotation:35}},y:{stacked:true,title:{display:true,text:yTitle}}}}});
+}
+stackedBar('pickcount',CFG.pickcount,'times picked (of 9)');
+stackedBar('foldwins',CFG.foldwins,'folds won (of 4)');
+</script>
+</body></html>

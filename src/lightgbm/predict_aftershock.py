@@ -1,6 +1,5 @@
 import argparse
 import json
-import math
 import sys
 from pathlib import Path
 
@@ -11,37 +10,41 @@ SHARED_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "scripts"
 if str(SHARED_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SHARED_SCRIPT_DIR))
 
-from build_training_dataset import (  # noqa: E402
+# Feature engineering lives in the shared module so training and serving compute
+# identical features. These names are re-exported here because several downstream
+# scripts (backtests, calibration, the seis package) import them from
+# predict_aftershock.
+from feature_engineering import (  # noqa: E402,F401
+    DEFAULT_B_VALUE,
+    DEFAULT_FRACTAL_DIMENSION,
+    DEFAULT_HISTORICAL_CSV,
+    DEFAULT_LOG10_ETA0,
+    DEFAULT_MIN_MAGNITUDE,
     LOCAL_RADII_KM,
     NEAREST_RECENT_WINDOW_DAYS,
     PHIVOLCS_TIME_FORMAT,
+    RAW_COLUMN_MAP,
     RECENT_WINDOWS_DAYS,
+    SECONDS_PER_YEAR,
+    build_prediction_features,
+    compute_global_history_features,
+    compute_local_history_features,
+    compute_parent_features,
+    filter_history_for_prediction,
     haversine_km,
+    load_feature_columns,
+    normalize_raw_catalog,
     parse_origin_time,
 )
 from train_lightgbm_aftershock_models import (  # noqa: E402
     CLASSIFICATION_TARGETS,
     DEFAULT_OUTPUT_DIR,
+    LOG_DISTANCE_TARGETS,
     REGRESSION_TARGETS,
 )
 
 
-DEFAULT_HISTORICAL_CSV = Path("dataset/phivolcs_earthquake_2018_2026.csv")
 DEFAULT_FEATURE_COLUMNS = Path("src/outputs/lightgbm/models_mc_1_0/feature_columns.txt")
-DEFAULT_MIN_MAGNITUDE = 1.0
-DEFAULT_B_VALUE = 1.0
-DEFAULT_FRACTAL_DIMENSION = 1.6
-DEFAULT_LOG10_ETA0 = -5.468679834899335
-SECONDS_PER_YEAR = 365.25 * 24.0 * 60.0 * 60.0
-
-
-RAW_COLUMN_MAP = {
-    "Date-Time": "origin_time",
-    "Latitude": "latitude",
-    "Longitude": "longitude",
-    "Depth": "depth_km",
-    "Magnitude": "magnitude",
-}
 
 
 def parse_args():
@@ -75,31 +78,6 @@ def require_prediction_dependencies():
         ) from error
 
     return joblib
-
-
-def normalize_raw_catalog(df):
-    renamed = df.rename(columns={source: target for source, target in RAW_COLUMN_MAP.items()})
-    required = {"origin_time", "latitude", "longitude", "depth_km", "magnitude"}
-    missing = sorted(required - set(renamed.columns))
-    if missing:
-        raise ValueError(f"CSV is missing required raw columns: {missing}")
-
-    normalized = renamed[list(required)].copy()
-    normalized["event_time"] = parse_origin_time(normalized["origin_time"])
-    for column in ["latitude", "longitude", "depth_km", "magnitude"]:
-        normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
-
-    before = len(normalized)
-    normalized = normalized.dropna(
-        subset=["event_time", "latitude", "longitude", "depth_km", "magnitude"]
-    )
-    if normalized.empty:
-        raise ValueError("No usable historical rows after parsing raw catalog.")
-    if len(normalized) != before:
-        skipped = before - len(normalized)
-        print(f"Warning: skipped {skipped} malformed historical rows.", file=sys.stderr)
-
-    return normalized.sort_values("event_time", kind="mergesort").reset_index(drop=True)
 
 
 def load_new_event(args):
@@ -140,208 +118,6 @@ def load_new_event(args):
     return normalize_raw_catalog(event_df).iloc[0].to_dict()
 
 
-def load_feature_columns(feature_columns_path):
-    if not feature_columns_path.exists():
-        raise FileNotFoundError(f"Feature columns file does not exist: {feature_columns_path}")
-    return [
-        line.strip()
-        for line in feature_columns_path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-
-
-def filter_history_for_prediction(history, event_time, minimum_magnitude):
-    history = history[
-        (history["event_time"] < event_time)
-        & (history["magnitude"] >= minimum_magnitude)
-    ].copy()
-    return history.sort_values("event_time", kind="mergesort").reset_index(drop=True)
-
-
-def compute_parent_features(history, event, b_value, fractal_dimension, log10_eta0):
-    defaults = {
-        "eta": np.nan,
-        "log10_eta": np.nan,
-        "is_strong_link": 0,
-        "has_parent": 0,
-        "parent_time_gap_days": np.nan,
-        "parent_distance_km": np.nan,
-        "parent_magnitude": np.nan,
-        "parent_depth_km": np.nan,
-    }
-    if history.empty:
-        return defaults
-
-    seconds = (event["event_time"] - history["event_time"]).dt.total_seconds().to_numpy()
-    valid_time = seconds > 0
-    if not valid_time.any():
-        return defaults
-
-    candidates = history.loc[valid_time].copy()
-    seconds = seconds[valid_time]
-    distances = haversine_km(
-        event["latitude"],
-        event["longitude"],
-        candidates["latitude"].to_numpy(dtype=float),
-        candidates["longitude"].to_numpy(dtype=float),
-    )
-    valid_distance = distances > 0.0
-    if not valid_distance.any():
-        return defaults
-
-    candidates = candidates.loc[valid_distance].reset_index(drop=True)
-    seconds = seconds[valid_distance]
-    distances = distances[valid_distance]
-    years = seconds / SECONDS_PER_YEAR
-    log_eta = (
-        np.log10(years)
-        + fractal_dimension * np.log10(distances)
-        - b_value * candidates["magnitude"].to_numpy(dtype=float)
-    )
-    best_position = int(np.nanargmin(log_eta))
-    best_log_eta = float(log_eta[best_position])
-    parent = candidates.iloc[best_position]
-
-    return {
-        "eta": float(10.0 ** best_log_eta),
-        "log10_eta": best_log_eta,
-        "is_strong_link": int(best_log_eta < log10_eta0),
-        "has_parent": 1,
-        "parent_time_gap_days": float(seconds[best_position] / 86400.0),
-        "parent_distance_km": float(distances[best_position]),
-        "parent_magnitude": float(parent["magnitude"]),
-        "parent_depth_km": float(parent["depth_km"]),
-    }
-
-
-def compute_global_history_features(history, event_time):
-    features = {}
-    for days in RECENT_WINDOWS_DAYS:
-        start_time = event_time - pd.Timedelta(days=days)
-        features[f"events_past_{days}d"] = int(
-            ((history["event_time"] >= start_time) & (history["event_time"] < event_time)).sum()
-        )
-    return features
-
-
-def compute_local_history_features(history, event):
-    features = {}
-    for days in RECENT_WINDOWS_DAYS:
-        for radius in LOCAL_RADII_KM:
-            radius_token = int(radius)
-            features[f"local_events_{radius_token}km_past_{days}d"] = 0
-            features[f"local_max_mag_{radius_token}km_past_{days}d"] = np.nan
-            features[f"local_log10_energy_{radius_token}km_past_{days}d"] = np.nan
-
-    features[
-        f"nearest_recent_event_distance_km_past_{NEAREST_RECENT_WINDOW_DAYS}d"
-    ] = np.nan
-    features[
-        f"nearest_recent_event_magnitude_past_{NEAREST_RECENT_WINDOW_DAYS}d"
-    ] = np.nan
-    features[
-        f"nearest_recent_event_age_days_past_{NEAREST_RECENT_WINDOW_DAYS}d"
-    ] = np.nan
-
-    if history.empty:
-        return features
-
-    max_window_days = max(RECENT_WINDOWS_DAYS)
-    max_radius_km = max(LOCAL_RADII_KM)
-    start_time = event["event_time"] - pd.Timedelta(days=max_window_days)
-    candidates = history[
-        (history["event_time"] >= start_time)
-        & (history["event_time"] < event["event_time"])
-    ].copy()
-    if candidates.empty:
-        return features
-
-    lat_delta = max_radius_km / 111.32
-    lon_scale = max(math.cos(math.radians(event["latitude"])), 0.1)
-    lon_delta = max_radius_km / (111.32 * lon_scale)
-    candidates = candidates[
-        (np.abs(candidates["latitude"] - event["latitude"]) <= lat_delta)
-        & (np.abs(candidates["longitude"] - event["longitude"]) <= lon_delta)
-    ].copy()
-    if candidates.empty:
-        return features
-
-    distances = haversine_km(
-        event["latitude"],
-        event["longitude"],
-        candidates["latitude"].to_numpy(dtype=float),
-        candidates["longitude"].to_numpy(dtype=float),
-    )
-    candidates["distance_km"] = distances
-    candidates = candidates[candidates["distance_km"] <= max_radius_km].copy()
-    if candidates.empty:
-        return features
-
-    nearest_window_start = event["event_time"] - pd.Timedelta(days=NEAREST_RECENT_WINDOW_DAYS)
-    nearest_candidates = candidates[candidates["event_time"] >= nearest_window_start]
-    if not nearest_candidates.empty:
-        nearest = nearest_candidates.loc[nearest_candidates["distance_km"].idxmin()]
-        features[
-            f"nearest_recent_event_distance_km_past_{NEAREST_RECENT_WINDOW_DAYS}d"
-        ] = float(nearest["distance_km"])
-        features[
-            f"nearest_recent_event_magnitude_past_{NEAREST_RECENT_WINDOW_DAYS}d"
-        ] = float(nearest["magnitude"])
-        features[
-            f"nearest_recent_event_age_days_past_{NEAREST_RECENT_WINDOW_DAYS}d"
-        ] = float((event["event_time"] - nearest["event_time"]).total_seconds() / 86400.0)
-
-    for days in RECENT_WINDOWS_DAYS:
-        window_start = event["event_time"] - pd.Timedelta(days=days)
-        window = candidates[candidates["event_time"] >= window_start]
-        if window.empty:
-            continue
-        for radius in LOCAL_RADII_KM:
-            radius_token = int(radius)
-            local = window[window["distance_km"] <= radius]
-            if local.empty:
-                continue
-            magnitudes = local["magnitude"].to_numpy(dtype=float)
-            features[f"local_events_{radius_token}km_past_{days}d"] = int(len(local))
-            features[f"local_max_mag_{radius_token}km_past_{days}d"] = float(np.nanmax(magnitudes))
-            features[f"local_log10_energy_{radius_token}km_past_{days}d"] = float(
-                np.log10(np.nansum(10.0 ** (1.5 * magnitudes)))
-            )
-
-    return features
-
-
-def build_prediction_features(history, event, args, feature_columns):
-    event_time = event["event_time"]
-    features = {
-        "magnitude": float(event["magnitude"]),
-        "depth_km": float(event["depth_km"]),
-        "latitude": float(event["latitude"]),
-        "longitude": float(event["longitude"]),
-        "event_year": int(event_time.year),
-        "event_month": int(event_time.month),
-        "event_dayofyear": int(event_time.dayofyear),
-        "event_hour": int(event_time.hour),
-        "event_weekday": int(event_time.weekday()),
-    }
-    features.update(
-        compute_parent_features(
-            history,
-            event,
-            args.b_value,
-            args.fractal_dimension,
-            args.log10_eta0,
-        )
-    )
-    features.update(compute_global_history_features(history, event_time))
-    features.update(compute_local_history_features(history, event))
-
-    missing = sorted(set(feature_columns) - set(features))
-    if missing:
-        raise ValueError(f"Prediction builder did not create required features: {missing}")
-    return pd.DataFrame([{column: features[column] for column in feature_columns}])
-
-
 def load_models(models_dir, joblib):
     models = {}
     for target in [*CLASSIFICATION_TARGETS, *REGRESSION_TARGETS]:
@@ -352,18 +128,40 @@ def load_models(models_dir, joblib):
     return models
 
 
-def run_predictions(feature_row, models):
-    classification = {}
-    for target in CLASSIFICATION_TARGETS:
-        probability = models[target].predict_proba(feature_row, validate_features=True)[0, 1]
-        classification[target] = float(probability)
+def positive_class_probability(model, feature_row):
+    """Probability of the positive class (label 1), robust to class ordering.
 
-    max_magnitude = float(models["max_aftershock_mag_24h"].predict(feature_row)[0])
-    max_distance = float(models["max_aftershock_distance_km_24h"].predict(feature_row)[0])
-    return classification, max_magnitude, max_distance
+    Works for every family: plain estimators (LightGBM/XGBoost/CatBoost) and the
+    Random Forest sklearn Pipeline both expose ``classes_`` and ``predict_proba``.
+    """
+    probabilities = model.predict_proba(feature_row)
+    class_positions = {label: index for index, label in enumerate(model.classes_)}
+    if 1 not in class_positions:
+        return 0.0
+    return float(probabilities[0, class_positions[1]])
 
 
-def build_output(event, feature_row, classification, max_magnitude, max_distance, history_rows):
+def run_predictions(feature_row, models, classification_targets, regression_targets, log_distance_targets):
+    """Shared serving inference for all four families (new Path B schema).
+
+    Distance regressors are trained in log1p(km) space, so their raw prediction
+    is back-transformed with expm1 (clipped at 0) to recover kilometres.
+    """
+    classification = {
+        target: positive_class_probability(models[target], feature_row)
+        for target in classification_targets
+    }
+
+    regression = {}
+    for target in regression_targets:
+        prediction = float(models[target].predict(feature_row)[0])
+        if target in log_distance_targets:
+            prediction = float(np.clip(np.expm1(prediction), 0.0, None))
+        regression[target] = prediction
+    return classification, regression
+
+
+def build_output(event, feature_row, classification, regression, history_rows):
     feature_values = {}
     for column, value in feature_row.iloc[0].items():
         if pd.isna(value):
@@ -375,13 +173,13 @@ def build_output(event, feature_row, classification, max_magnitude, max_distance
         else:
             feature_values[column] = value
 
-    distance_bins = {
-        "0_10km": classification["aftershock_dist_0_10km_24h"],
-        "10_25km": classification["aftershock_dist_10_25km_24h"],
-        "25_50km": classification["aftershock_dist_25_50km_24h"],
-        "50_100km": classification["aftershock_dist_50_100km_24h"],
-        "100_200km": classification["aftershock_dist_100_200km_24h"],
-        "200_pluskm": classification["aftershock_dist_200_pluskm_24h"],
+    # Cumulative containment probabilities: P(an aftershock occurs within R km).
+    containment = {
+        "within_10km": classification["aftershock_within_10km_24h"],
+        "within_25km": classification["aftershock_within_25km_24h"],
+        "within_50km": classification["aftershock_within_50km_24h"],
+        "within_100km": classification["aftershock_within_100km_24h"],
+        "within_200km": classification["aftershock_within_200km_24h"],
     }
     return {
         "event": {
@@ -396,9 +194,15 @@ def build_output(event, feature_row, classification, max_magnitude, max_distance
         "features": feature_values,
         "predictions": {
             "aftershock_24h_probability": classification["aftershock_24h"],
-            "distance_bin_probabilities_24h": distance_bins,
-            "estimated_max_aftershock_magnitude_if_aftershock_24h": max_magnitude,
-            "estimated_max_aftershock_distance_km_if_aftershock_24h": max_distance,
+            "aftershock_within_distance_probabilities_24h": containment,
+            "estimated_max_aftershock_magnitude_if_aftershock_24h": regression[
+                "max_aftershock_mag_24h"
+            ],
+            "estimated_aftershock_distances_km_if_aftershock_24h": {
+                "nearest": regression["nearest_aftershock_distance_km_24h"],
+                "median": regression["median_aftershock_distance_km_24h"],
+                "p90": regression["p90_aftershock_distance_km_24h"],
+            },
         },
     }
 
@@ -425,8 +229,14 @@ def main():
     feature_columns = load_feature_columns(args.feature_columns)
     feature_row = build_prediction_features(history, event, args, feature_columns)
     models = load_models(args.models_dir, joblib)
-    classification, max_magnitude, max_distance = run_predictions(feature_row, models)
-    output = build_output(event, feature_row, classification, max_magnitude, max_distance, len(history))
+    classification, regression = run_predictions(
+        feature_row,
+        models,
+        CLASSIFICATION_TARGETS,
+        REGRESSION_TARGETS,
+        LOG_DISTANCE_TARGETS,
+    )
+    output = build_output(event, feature_row, classification, regression, len(history))
     output_json = json.dumps(output, indent=2, allow_nan=False)
 
     if args.output_json:

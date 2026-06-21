@@ -1,8 +1,0 @@
-total_rows=122166
-valid_rows=122166
-invalid_date_time=0
-invalid_latitude=0
-invalid_longitude=0
-invalid_depth=0
-invalid_magnitude=0
-invalid_year=0

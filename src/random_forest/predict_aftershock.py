@@ -3,31 +3,44 @@ import json
 import sys
 from pathlib import Path
 
+import pandas as pd
 
-LIGHTGBM_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "lightgbm"
-if str(LIGHTGBM_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(LIGHTGBM_SCRIPT_DIR))
+# Feature engineering comes straight from the shared module so training and
+# serving compute identical features (single source of truth).
+SHARED_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "scripts"
+if str(SHARED_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SHARED_SCRIPT_DIR))
 
-from predict_aftershock import (  # noqa: E402
+from feature_engineering import (  # noqa: E402
     DEFAULT_B_VALUE,
     DEFAULT_FRACTAL_DIMENSION,
     DEFAULT_HISTORICAL_CSV,
     DEFAULT_LOG10_ETA0,
     DEFAULT_MIN_MAGNITUDE,
-    build_output,
     build_prediction_features,
     filter_history_for_prediction,
     load_feature_columns,
-    load_new_event,
     normalize_raw_catalog,
+)
+
+# Serving helpers (event parsing, shared inference, output schema) live in the
+# LightGBM predict module, which is the repo's serving base. Reusing them keeps
+# every family's prediction JSON identical.
+LIGHTGBM_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "lightgbm"
+if str(LIGHTGBM_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(LIGHTGBM_SCRIPT_DIR))
+
+from predict_aftershock import (  # noqa: E402
+    build_output,
+    load_new_event,
+    run_predictions,
 )
 from train_random_forest_aftershock_models import (  # noqa: E402
     CLASSIFICATION_TARGETS,
     DEFAULT_OUTPUT_DIR,
-    REGRESSION_TARGET,
+    LOG_DISTANCE_TARGETS,
+    REGRESSION_TARGETS,
 )
-
-import pandas as pd  # noqa: E402
 
 
 DEFAULT_FEATURE_COLUMNS = DEFAULT_OUTPUT_DIR / "feature_columns.txt"
@@ -68,34 +81,18 @@ def require_prediction_dependencies():
 
 def load_models(models_dir, joblib):
     models = {}
-    for target in [*CLASSIFICATION_TARGETS, REGRESSION_TARGET]:
+    for target in [*CLASSIFICATION_TARGETS, *REGRESSION_TARGETS]:
         model_path = models_dir / f"{target}.joblib"
         if not model_path.exists():
             raise FileNotFoundError(f"Model file does not exist: {model_path}")
         model = joblib.load(model_path)
-        forest = model.named_steps.get("model")
-        if hasattr(forest, "set_params"):
+        # Models are SimpleImputer -> RandomForest pipelines; pin the forest to a
+        # single thread so per-event scoring doesn't spin up the full pool.
+        forest = model.named_steps.get("model") if hasattr(model, "named_steps") else None
+        if forest is not None and hasattr(forest, "set_params"):
             forest.set_params(n_jobs=1)
         models[target] = model
     return models
-
-
-def positive_class_probability(model, feature_row):
-    classifier = model.named_steps["model"]
-    probabilities = model.predict_proba(feature_row)
-    class_positions = {label: index for index, label in enumerate(classifier.classes_)}
-    if 1 not in class_positions:
-        return 0.0
-    return float(probabilities[0, class_positions[1]])
-
-
-def run_predictions(feature_row, models):
-    classification = {}
-    for target in CLASSIFICATION_TARGETS:
-        classification[target] = positive_class_probability(models[target], feature_row)
-
-    max_magnitude = float(models[REGRESSION_TARGET].predict(feature_row)[0])
-    return classification, max_magnitude
 
 
 def main():
@@ -120,8 +117,14 @@ def main():
     feature_columns = load_feature_columns(args.feature_columns)
     feature_row = build_prediction_features(history, event, args, feature_columns)
     models = load_models(args.models_dir, joblib)
-    classification, max_magnitude = run_predictions(feature_row, models)
-    output = build_output(event, feature_row, classification, max_magnitude, len(history))
+    classification, regression = run_predictions(
+        feature_row,
+        models,
+        CLASSIFICATION_TARGETS,
+        REGRESSION_TARGETS,
+        LOG_DISTANCE_TARGETS,
+    )
+    output = build_output(event, feature_row, classification, regression, len(history))
     output_json = json.dumps(output, indent=2, allow_nan=False)
 
     if args.output_json:

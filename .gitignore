@@ -8,6 +8,32 @@ __pycache__/
 *.joblib
 src/outputs/**/*.joblib
 
+# Trained model artifacts (regenerate via src/<family>/train_*.py)
+src/outputs/**/*.cbm
+src/outputs/**/models_mc_1_0/*.json
+src/outputs/**/models_mc_1_0/*.txt
+src/outputs/**/*_feature_importances.csv
+src/outputs/**/metrics.json
+
+# Generated clustering intermediate (input to build_training_dataset.py)
+src/outputs/clustered_ml_ready_mc_1_0.csv
+
+# Backtest outputs (regenerate via src/<family>/backtest_aftershock_predictions.py)
+src/outputs/**/backtests_mc_1_0/backtest_metrics.json
+src/outputs/**/backtests_mc_1_0/backtest_predictions*.csv
+
+# Generated HTML reports (regenerate via src/<family>/build_backtest_report.py)
+src/docs/*_backtest_report.html
+
+# ...but keep the serving feature manifest and the pick-report config (not weights)
+!src/outputs/**/models_mc_1_0/feature_columns.txt
+!src/outputs/seis/backtest_pick_report.json
+
+# Reproducible calibration intermediates (regenerate via src/seis/*.py)
+src/outputs/seis/calibration/full_pool_predictions.csv
+src/outputs/seis/calibration/calibrators/validation_raw_predictions.csv
+src/outputs/seis/calibration/*.log
+
 # Virtual environments
 .venv/
 venv/
@@ -22,3 +48,7 @@ env/
 # OS-specific files
 .DS_Store
 Thumbs.db
+
+# Stacking Ensemble
+src/docs/stacking_oof_fold_reference.md
+src/seis-stacking-ensemble/

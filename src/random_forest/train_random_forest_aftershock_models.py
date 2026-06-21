@@ -6,19 +6,44 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# Feature engineering (the columns this model consumes) is owned by the shared
+# module so training and serving never drift. The training CSV's features were
+# built by it via build_training_dataset.py; here we reuse its feature-list
+# loader as the single definition of "what columns are features".
+SHARED_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "scripts"
+if str(SHARED_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SHARED_SCRIPT_DIR))
+
+from feature_engineering import load_feature_columns as load_feature_list  # noqa: E402
+
 
 DEFAULT_INPUT_CSV = Path("src/training_set/training_dataset_mc_1_0.csv")
 DEFAULT_OUTPUT_DIR = Path("src/outputs/random-forest/models_mc_1_0")
 CLASSIFICATION_TARGETS = [
     "aftershock_24h",
-    "aftershock_dist_0_10km_24h",
-    "aftershock_dist_10_25km_24h",
-    "aftershock_dist_25_50km_24h",
-    "aftershock_dist_50_100km_24h",
-    "aftershock_dist_100_200km_24h",
-    "aftershock_dist_200_pluskm_24h",
+    "aftershock_within_10km_24h",
+    "aftershock_within_25km_24h",
+    "aftershock_within_50km_24h",
+    "aftershock_within_100km_24h",
+    "aftershock_within_200km_24h",
 ]
-REGRESSION_TARGET = "max_aftershock_mag_24h"
+REGRESSION_TARGETS = [
+    "max_aftershock_mag_24h",
+    "nearest_aftershock_distance_km_24h",
+    "median_aftershock_distance_km_24h",
+    "p90_aftershock_distance_km_24h",
+]
+# Distance regressors are trained in log1p(km) space because the distance cloud
+# is heavily right-skewed (p95 ~ 500 km). The saved model therefore predicts
+# log1p(km); callers (and the metrics below) apply expm1 to recover kilometres.
+LOG_DISTANCE_TARGETS = {
+    "nearest_aftershock_distance_km_24h",
+    "median_aftershock_distance_km_24h",
+    "p90_aftershock_distance_km_24h",
+}
+# Backward-compatible alias: the single-target predict / backtest helpers import
+# this and only use the magnitude regressor (distance routing lives in src/seis).
+REGRESSION_TARGET = REGRESSION_TARGETS[0]
 
 
 def parse_args():
@@ -30,12 +55,17 @@ def parse_args():
     )
     parser.add_argument("--input-csv", type=Path, default=DEFAULT_INPUT_CSV)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--train-end-year", type=int, default=2023)
-    parser.add_argument("--validation-year", type=int, default=2024)
-    parser.add_argument("--test-start-year", type=int, default=2025)
+    # Split B: train on 2018-2024, validate on the last full year (2025), test on
+    # the freshest (partial) year (2026). Forward-validation on the newest data.
+    parser.add_argument("--train-end-year", type=int, default=2024)
+    parser.add_argument("--validation-year", type=int, default=2025)
+    parser.add_argument("--test-start-year", type=int, default=2026)
+    # RF-native defaults: a large bagged forest with sqrt feature subsampling.
+    # min_samples_leaf differs by task (4 generalises the regressors better).
     parser.add_argument("--n-estimators", type=int, default=400)
     parser.add_argument("--max-depth", type=int)
     parser.add_argument("--min-samples-leaf", type=int, default=2)
+    parser.add_argument("--regressor-min-samples-leaf", type=int, default=4)
     parser.add_argument("--max-features", default="sqrt")
     parser.add_argument("--random-state", type=int, default=42)
     parser.add_argument("--max-train-rows", type=int, default=0)
@@ -49,10 +79,11 @@ def require_training_dependencies():
         import joblib
         from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
         from sklearn.impute import SimpleImputer
-        from sklearn.calibration import CalibratedClassifierCV, FrozenEstimator
+        from sklearn.calibration import calibration_curve
         from sklearn.metrics import (
             average_precision_score,
             brier_score_loss,
+            log_loss,
             mean_absolute_error,
             mean_squared_error,
             precision_score,
@@ -73,10 +104,10 @@ def require_training_dependencies():
         "SimpleImputer": SimpleImputer,
         "RandomForestClassifier": RandomForestClassifier,
         "RandomForestRegressor": RandomForestRegressor,
-        "CalibratedClassifierCV": CalibratedClassifierCV,
-        "FrozenEstimator": FrozenEstimator,
+        "calibration_curve": calibration_curve,
         "average_precision_score": average_precision_score,
         "brier_score_loss": brier_score_loss,
+        "log_loss": log_loss,
         "mean_absolute_error": mean_absolute_error,
         "mean_squared_error": mean_squared_error,
         "precision_score": precision_score,
@@ -93,12 +124,9 @@ def load_feature_columns(input_csv):
             f"Feature list does not exist: {feature_path}. "
             "Run src/scripts/build_training_dataset.py first."
         )
-
-    return [
-        line.strip()
-        for line in feature_path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    # Parse via the shared feature module so there is one definition of the
+    # feature-column manifest across training and serving.
+    return load_feature_list(feature_path)
 
 
 def split_by_year(df, args):
@@ -125,6 +153,43 @@ def limit_rows(df, max_rows, random_state):
     )
 
 
+def expected_calibration_error(y_true, y_probability, n_bins=10):
+    """Count-weighted ECE over uniform probability bins."""
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    bin_index = np.clip(np.digitize(y_probability, edges[1:-1]), 0, n_bins - 1)
+    total = 0.0
+    for b in range(n_bins):
+        mask = bin_index == b
+        if mask.any():
+            total += mask.sum() / len(y_probability) * abs(
+                y_true[mask].mean() - y_probability[mask].mean()
+            )
+    return float(total)
+
+
+def calibration_report(y_true, y_probability, metrics, n_bins=10):
+    """Reliability self-check for a Path B (natural-prevalence) classifier.
+
+    Returns the sklearn calibration_curve points (predicted vs observed per bin),
+    ECE, and log loss. No correction is applied -- this only measures how well the
+    raw Random Forest probabilities are calibrated when trained at natural
+    prevalence (RF is not a log-loss learner, so this is the honest check on
+    whether a post-hoc step would have been warranted).
+    """
+    prob_true, prob_pred = metrics["calibration_curve"](
+        y_true, y_probability, n_bins=n_bins, strategy="uniform"
+    )
+    return {
+        "n_bins": n_bins,
+        "ece": expected_calibration_error(y_true, y_probability, n_bins),
+        "log_loss": float(
+            metrics["log_loss"](y_true, np.clip(y_probability, 1e-7, 1 - 1e-7))
+        ),
+        "reliability_pred": [float(v) for v in prob_pred],
+        "reliability_obs": [float(v) for v in prob_true],
+    }
+
+
 def classification_metrics(y_true, y_probability, metrics):
     y_pred = (y_probability >= 0.5).astype(int)
     results = {
@@ -137,9 +202,11 @@ def classification_metrics(y_true, y_probability, metrics):
     if len(np.unique(y_true)) == 2:
         results["roc_auc"] = float(metrics["roc_auc_score"](y_true, y_probability))
         results["average_precision"] = float(metrics["average_precision_score"](y_true, y_probability))
+        results["calibration"] = calibration_report(y_true, y_probability, metrics)
     else:
         results["roc_auc"] = None
         results["average_precision"] = None
+        results["calibration"] = None
     return results
 
 
@@ -163,6 +230,11 @@ def positive_class_probability(model, rows):
 
 
 def build_classifier(args, deps):
+    # Path B: natural prevalence (no class_weight) and NO post-hoc calibration --
+    # the raw forest vote-fraction is reported as the probability and checked by
+    # calibration_report(). RF needs the median imputer because, unlike the GBMs,
+    # it cannot consume the NaN features the catalog produces (e.g. local maxima
+    # with no nearby history).
     return deps["Pipeline"](
         steps=[
             ("imputer", deps["SimpleImputer"](strategy="median")),
@@ -173,7 +245,6 @@ def build_classifier(args, deps):
                     max_depth=args.max_depth,
                     min_samples_leaf=args.min_samples_leaf,
                     max_features=args.max_features,
-                    class_weight="balanced_subsample",
                     random_state=args.random_state,
                     n_jobs=-1,
                 ),
@@ -191,7 +262,7 @@ def build_regressor(args, deps):
                 deps["RandomForestRegressor"](
                     n_estimators=args.n_estimators,
                     max_depth=args.max_depth,
-                    min_samples_leaf=4,  # Tuned for better generalization (R2 0.32 -> 0.35 on test set)
+                    min_samples_leaf=args.regressor_min_samples_leaf,
                     max_features=args.max_features,
                     random_state=args.random_state,
                     n_jobs=-1,
@@ -218,44 +289,15 @@ def train_classifier(target, train, validation, test, feature_columns, output_di
         print(f"Skipping {target}; training split has only one class.")
         return None
 
-    # 1. Fit base pipeline on train split
-    base_pipeline = build_classifier(args, deps)
-    base_pipeline.fit(train[feature_columns], train[target])
+    model = build_classifier(args, deps)
+    model.fit(train[feature_columns], train[target])
 
-    # 2. Extract fitted imputer and classifier, then calibrate on validation split
-    fitted_imputer = base_pipeline.named_steps["imputer"]
-    fitted_rf = base_pipeline.named_steps["model"]
-
-    imputed_val = fitted_imputer.transform(validation[feature_columns])
-    calibrated_rf = deps["CalibratedClassifierCV"](
-        estimator=deps["FrozenEstimator"](fitted_rf),
-        method="isotonic"
-    )
-    calibrated_rf.fit(imputed_val, validation[target])
-
-    # 3. Assemble final pipeline with calibrated classifier
-    model = deps["Pipeline"]([
-        ("imputer", fitted_imputer),
-        ("model", calibrated_rf)
-    ])
-
-    validation_probability = positive_class_probability(
-        model,
-        validation[feature_columns],
-    )
+    validation_probability = positive_class_probability(model, validation[feature_columns])
     test_probability = positive_class_probability(model, test[feature_columns])
     model_path = output_dir / f"{target}.joblib"
     importance_path = output_dir / f"{target}_feature_importances.csv"
     joblib.dump(model, model_path)
-    
-    # Write feature importances using the base fitted Random Forest (since CalibratedClassifierCV has no feature_importances_)
-    importances = pd.DataFrame(
-        {
-            "feature": feature_columns,
-            "importance": fitted_rf.feature_importances_,
-        }
-    ).sort_values("importance", ascending=False)
-    importances.to_csv(importance_path, index=False)
+    write_feature_importances(model, feature_columns, importance_path)
 
     return {
         "target": target,
@@ -267,33 +309,44 @@ def train_classifier(target, train, validation, test, feature_columns, output_di
     }
 
 
-def train_regressor(train, validation, test, feature_columns, output_dir, args, deps):
+def train_regressor(target, train, validation, test, feature_columns, output_dir, args, deps):
     joblib = deps["joblib"]
-    train = train.dropna(subset=[REGRESSION_TARGET])
-    validation = validation.dropna(subset=[REGRESSION_TARGET])
-    test = test.dropna(subset=[REGRESSION_TARGET])
+    train = train.dropna(subset=[target])
+    validation = validation.dropna(subset=[target])
+    test = test.dropna(subset=[target])
 
     if train.empty or validation.empty or test.empty:
-        print(f"Skipping {REGRESSION_TARGET}; one split has no positive aftershock targets.")
+        print(f"Skipping {target}; one split has no positive aftershock targets.")
         return None
 
+    # Heavy-tailed distance targets are learned in log1p(km) space; magnitude is
+    # left on its natural scale.
+    use_log = target in LOG_DISTANCE_TARGETS
+    y_train = np.log1p(train[target].to_numpy()) if use_log else train[target].to_numpy()
+
     model = build_regressor(args, deps)
-    model.fit(train[feature_columns], train[REGRESSION_TARGET])
+    model.fit(train[feature_columns], y_train)
 
     validation_pred = model.predict(validation[feature_columns])
     test_pred = model.predict(test[feature_columns])
-    model_path = output_dir / f"{REGRESSION_TARGET}.joblib"
-    importance_path = output_dir / f"{REGRESSION_TARGET}_feature_importances.csv"
+    if use_log:
+        # Back-transform to kilometres so metrics are reported on the natural
+        # scale; clip the tiny negatives expm1 can produce near zero.
+        validation_pred = np.clip(np.expm1(validation_pred), 0.0, None)
+        test_pred = np.clip(np.expm1(test_pred), 0.0, None)
+    model_path = output_dir / f"{target}.joblib"
+    importance_path = output_dir / f"{target}_feature_importances.csv"
     joblib.dump(model, model_path)
     write_feature_importances(model, feature_columns, importance_path)
 
     return {
-        "target": REGRESSION_TARGET,
+        "target": target,
         "task": "regression_positive_cases_only",
+        "target_transform": "log1p" if use_log else "identity",
         "model_path": str(model_path),
         "feature_importances_path": str(importance_path),
-        "validation": regression_metrics(validation[REGRESSION_TARGET].to_numpy(), validation_pred, deps),
-        "test": regression_metrics(test[REGRESSION_TARGET].to_numpy(), test_pred, deps),
+        "validation": regression_metrics(validation[target].to_numpy(), validation_pred, deps),
+        "test": regression_metrics(test[target].to_numpy(), test_pred, deps),
     }
 
 
@@ -308,7 +361,7 @@ def main():
     deps = require_training_dependencies()
     feature_columns = load_feature_columns(args.input_csv)
     df = pd.read_csv(args.input_csv, low_memory=False)
-    missing_columns = sorted(set(feature_columns + CLASSIFICATION_TARGETS + [REGRESSION_TARGET]) - set(df.columns))
+    missing_columns = sorted(set(feature_columns + CLASSIFICATION_TARGETS + REGRESSION_TARGETS) - set(df.columns))
     if missing_columns:
         raise ValueError(f"Training CSV is missing columns: {missing_columns}")
 
@@ -326,9 +379,12 @@ def main():
             "n_estimators": args.n_estimators,
             "max_depth": args.max_depth,
             "min_samples_leaf": args.min_samples_leaf,
+            "regressor_min_samples_leaf": args.regressor_min_samples_leaf,
             "max_features": args.max_features,
-            "class_weight": "balanced_subsample",
             "random_state": args.random_state,
+            "imputer": "median",
+            "class_weight": None,
+            "calibration": "natural_prevalence_path_b",
         },
         "splits": {
             "train_rows": int(len(train)),
@@ -348,10 +404,21 @@ def main():
         result = train_classifier(target, train, validation, test, feature_columns, args.output_dir, args, deps)
         if result is not None:
             metrics["models"].append(result)
+            calib = result["test"].get("calibration")
+            if calib is not None:
+                print(
+                    f"  [calib] {target:<32} test ECE={calib['ece']:.4f} "
+                    f"logloss={calib['log_loss']:.4f} "
+                    f"Brier={result['test']['brier']:.4f} "
+                    f"ROC={result['test']['roc_auc']:.4f}"
+                )
 
-    regression_result = train_regressor(train, validation, test, feature_columns, args.output_dir, args, deps)
-    if regression_result is not None:
-        metrics["models"].append(regression_result)
+    for regression_target in REGRESSION_TARGETS:
+        regression_result = train_regressor(
+            regression_target, train, validation, test, feature_columns, args.output_dir, args, deps
+        )
+        if regression_result is not None:
+            metrics["models"].append(regression_result)
 
     metrics_path = args.output_dir / "metrics.json"
     metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
