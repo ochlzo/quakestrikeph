@@ -15,6 +15,9 @@ src/outputs/**/models_mc_1_0/*.txt
 src/outputs/**/*_feature_importances.csv
 src/outputs/**/metrics.json
 
+# Generated clustering intermediate (input to build_training_dataset.py)
+src/outputs/clustered_ml_ready_mc_1_0.csv
+
 # Backtest outputs (regenerate via src/<family>/backtest_aftershock_predictions.py)
 src/outputs/**/backtests_mc_1_0/backtest_metrics.json
 src/outputs/**/backtests_mc_1_0/backtest_predictions.csv
