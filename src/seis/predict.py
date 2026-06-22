@@ -3,6 +3,7 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 # Feature engineering comes straight from the shared module so training and
@@ -23,19 +24,12 @@ from feature_engineering import (  # noqa: E402
     normalize_raw_catalog,
 )
 
-# Serving helpers (event parsing, shared inference, output schema) live in the
-# LightGBM predict module, the repo's serving base. The ensemble holds exactly
-# one chosen model per target, so the same run_predictions/build_output the
-# single-family scripts use produce an identical-schema output here.
-LIGHTGBM_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "lightgbm"
-if str(LIGHTGBM_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(LIGHTGBM_SCRIPT_DIR))
-
-from predict_aftershock import (  # noqa: E402
-    build_output,
-    load_new_event,
-    run_predictions,
-)
+# The serving helpers below (event parsing, shared inference, output schema)
+# were originally imported from the LightGBM predict module, the repo's serving
+# base. They are inlined here so the deployed ensemble predictor is fully
+# self-contained -- it depends only on the shared feature module and the chosen
+# per-target model files, with no cross-family .py imports. Keep these in sync
+# with src/lightgbm/predict_aftershock.py if that base ever changes.
 
 # Default per-family model directories.
 DEFAULT_XGB_DIR = Path("src/outputs/xgboost/models_mc_1_0")
@@ -93,6 +87,130 @@ HYBRID_MODEL_MAPPING = {
     "median_aftershock_distance_km_24h": "xgboost",
     "p90_aftershock_distance_km_24h": "xgboost",
 }
+
+
+def load_new_event(args):
+    """Build a normalized single-event dict from --event-csv or raw CLI args.
+
+    Inlined from the LightGBM serving base so this predictor stands alone.
+    """
+    if args.event_csv:
+        event_df = pd.read_csv(args.event_csv, low_memory=False)
+        if len(event_df) != 1:
+            raise ValueError("--event-csv must contain exactly one row.")
+        return normalize_raw_catalog(event_df).iloc[0].to_dict()
+
+    missing_args = [
+        name
+        for name, value in [
+            ("--date-time", args.date_time),
+            ("--latitude", args.latitude),
+            ("--longitude", args.longitude),
+            ("--depth", args.depth),
+            ("--magnitude", args.magnitude),
+        ]
+        if value is None
+    ]
+    if missing_args:
+        raise ValueError(
+            "Provide either --event-csv or all raw event arguments: "
+            + ", ".join(missing_args)
+        )
+
+    event_df = pd.DataFrame(
+        [
+            {
+                "Date-Time": args.date_time,
+                "Latitude": args.latitude,
+                "Longitude": args.longitude,
+                "Depth": args.depth,
+                "Magnitude": args.magnitude,
+            }
+        ]
+    )
+    return normalize_raw_catalog(event_df).iloc[0].to_dict()
+
+
+def positive_class_probability(model, feature_row):
+    """Probability of the positive class (label 1), robust to class ordering.
+
+    Works for every family: plain estimators (LightGBM/XGBoost/CatBoost) and the
+    Random Forest sklearn Pipeline both expose ``classes_`` and ``predict_proba``.
+    Inlined from the LightGBM serving base.
+    """
+    probabilities = model.predict_proba(feature_row)
+    class_positions = {label: index for index, label in enumerate(model.classes_)}
+    if 1 not in class_positions:
+        return 0.0
+    return float(probabilities[0, class_positions[1]])
+
+
+def run_predictions(feature_row, models, classification_targets, regression_targets, log_distance_targets):
+    """Shared serving inference for all four families (Path B schema).
+
+    Distance regressors are trained in log1p(km) space, so their raw prediction
+    is back-transformed with expm1 (clipped at 0) to recover kilometres.
+    Inlined from the LightGBM serving base.
+    """
+    classification = {
+        target: positive_class_probability(models[target], feature_row)
+        for target in classification_targets
+    }
+
+    regression = {}
+    for target in regression_targets:
+        prediction = float(models[target].predict(feature_row)[0])
+        if target in log_distance_targets:
+            prediction = float(np.clip(np.expm1(prediction), 0.0, None))
+        regression[target] = prediction
+    return classification, regression
+
+
+def build_output(event, feature_row, classification, regression, history_rows):
+    """Assemble the prediction-output JSON dict. Inlined from the serving base."""
+    feature_values = {}
+    for column, value in feature_row.iloc[0].items():
+        if pd.isna(value):
+            feature_values[column] = None
+        elif isinstance(value, (np.integer,)):
+            feature_values[column] = int(value)
+        elif isinstance(value, (np.floating,)):
+            feature_values[column] = float(value)
+        else:
+            feature_values[column] = value
+
+    # Cumulative containment probabilities: P(an aftershock occurs within R km).
+    containment = {
+        "within_10km": classification["aftershock_within_10km_24h"],
+        "within_25km": classification["aftershock_within_25km_24h"],
+        "within_50km": classification["aftershock_within_50km_24h"],
+        "within_100km": classification["aftershock_within_100km_24h"],
+        "within_200km": classification["aftershock_within_200km_24h"],
+    }
+    return {
+        "event": {
+            "origin_time": str(event["origin_time"]),
+            "event_time": event["event_time"].isoformat(),
+            "latitude": float(event["latitude"]),
+            "longitude": float(event["longitude"]),
+            "depth_km": float(event["depth_km"]),
+            "magnitude": float(event["magnitude"]),
+        },
+        "history_rows_used": int(history_rows),
+        "features": feature_values,
+        "predictions": {
+            "aftershock_24h_probability": classification["aftershock_24h"],
+            "aftershock_within_distance_probabilities_24h": containment,
+            "estimated_max_aftershock_magnitude_if_aftershock_24h": regression[
+                "max_aftershock_mag_24h"
+            ],
+            "estimated_aftershock_distances_km_if_aftershock_24h": {
+                "nearest": regression["nearest_aftershock_distance_km_24h"],
+                "median": regression["median_aftershock_distance_km_24h"],
+                "p90": regression["p90_aftershock_distance_km_24h"],
+            },
+        },
+    }
 
 
 def parse_args():

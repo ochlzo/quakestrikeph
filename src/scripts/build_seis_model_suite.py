@@ -42,14 +42,12 @@ SERVED_FAMILIES = {
 MODEL_DIR_EXCLUDE_SUFFIXES = ("_feature_importances.csv",)
 MODEL_DIR_EXCLUDE_NAMES = {"metrics.json"}
 
-# Runtime serving code. predict.py resolves these via __file__-relative paths
-# (src/scripts, src/lightgbm), so the repo-relative layout must be preserved.
+# Runtime serving code. predict.py is self-contained (serving helpers inlined),
+# so it depends only on the shared feature module; predict.py resolves it via an
+# __file__-relative path (src/scripts), so the repo-relative layout is preserved.
 CODE_FILES = [
     "src/seis/predict.py",
     "src/scripts/feature_engineering.py",
-    "src/lightgbm/predict_aftershock.py",
-    # predict_aftershock imports its target constants from the train module.
-    "src/lightgbm/train_lightgbm_aftershock_models.py",
 ]
 
 # Historical catalog (default --historical-csv) + per-family requirements.
