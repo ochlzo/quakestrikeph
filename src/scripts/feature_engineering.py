@@ -39,7 +39,13 @@ DEFAULT_MIN_MAGNITUDE = 1.0
 DEFAULT_B_VALUE = 1.0
 DEFAULT_FRACTAL_DIMENSION = 1.6
 DEFAULT_LOG10_ETA0 = -5.468679834899335
+# Split parameter for the Zaliapin-Ben-Zion rescaled (T, R) coordinates. q = 0.5
+# weights the temporal and spatial components equally; their sum reconstructs
+# log10_eta exactly, so this is a re-expression of existing causal info, not new
+# information (and adds no leakage surface).
+DEFAULT_RESCALE_Q = 0.5
 SECONDS_PER_YEAR = 365.25 * 24.0 * 60.0 * 60.0
+DAYS_PER_YEAR = 365.25
 
 RAW_COLUMN_MAP = {
     "Date-Time": "origin_time",
@@ -69,6 +75,29 @@ def haversine_km(lat1, lon1, lat2, lon2):
     dlon = lon2 - lon1
     a = np.sin(dlat / 2.0) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2.0) ** 2
     return 2.0 * radius_km * np.arcsin(np.sqrt(a))
+
+
+def rescaled_time_distance(years, distance_km, parent_magnitude, b_value,
+                           fractal_dimension, q):
+    """Zaliapin-Ben-Zion rescaled (T, R) coordinates, in log10 space.
+
+    Splits the nearest-neighbor proximity ``eta = years * dist**d * 10**(-b*m)``
+    into its magnitude-weighted temporal (T) and spatial (R) components:
+
+        log10(T) = log10(years)            - q       * b * m_parent
+        log10(R) = d * log10(distance_km)  - (1 - q) * b * m_parent
+
+    By construction ``log10(T) + log10(R) == log10_eta``. Background and clustered
+    events separate along different axes in the (log T, log R) plane, so exposing
+    the components carries discriminative signal the product ``eta`` alone hides.
+    Works elementwise for scalars (serving) and pandas/NumPy arrays (batch).
+    """
+    log10_time = np.log10(years) - q * b_value * parent_magnitude
+    log10_distance = (
+        fractal_dimension * np.log10(distance_km)
+        - (1.0 - q) * b_value * parent_magnitude
+    )
+    return log10_time, log10_distance
 
 
 def id_key(value):
@@ -128,7 +157,8 @@ def load_feature_columns(feature_columns_path):
 
 
 # --- Per-event builders (serving) -------------------------------------------
-def compute_parent_features(history, event, b_value, fractal_dimension, log10_eta0):
+def compute_parent_features(history, event, b_value, fractal_dimension, log10_eta0,
+                            q=DEFAULT_RESCALE_Q):
     """Re-derive the nearest-neighbor (eta-minimizing) parent for one event.
 
     Mirrors the C++ Zaliapin-Ben-Zion clustering's parent assignment using the
@@ -144,6 +174,8 @@ def compute_parent_features(history, event, b_value, fractal_dimension, log10_et
         "parent_distance_km": np.nan,
         "parent_magnitude": np.nan,
         "parent_depth_km": np.nan,
+        "log10_rescaled_time": np.nan,
+        "log10_rescaled_distance": np.nan,
     }
     if history.empty:
         return defaults
@@ -178,6 +210,15 @@ def compute_parent_features(history, event, b_value, fractal_dimension, log10_et
     best_log_eta = float(log_eta[best_position])
     parent = candidates.iloc[best_position]
 
+    log10_rescaled_time, log10_rescaled_distance = rescaled_time_distance(
+        years[best_position],
+        distances[best_position],
+        float(parent["magnitude"]),
+        b_value,
+        fractal_dimension,
+        q,
+    )
+
     return {
         "eta": float(10.0 ** best_log_eta),
         "log10_eta": best_log_eta,
@@ -187,6 +228,8 @@ def compute_parent_features(history, event, b_value, fractal_dimension, log10_et
         "parent_distance_km": float(distances[best_position]),
         "parent_magnitude": float(parent["magnitude"]),
         "parent_depth_km": float(parent["depth_km"]),
+        "log10_rescaled_time": float(log10_rescaled_time),
+        "log10_rescaled_distance": float(log10_rescaled_distance),
     }
 
 
@@ -362,6 +405,21 @@ def add_parent_features(df):
         df.loc[has_parent_location, "parent_longitude"],
     )
     df["has_parent"] = df["parent_id_key"].notna().astype(int)
+
+    # ZBZ rescaled (T, R) coordinates -- decomposes log10_eta into its temporal
+    # and spatial halves. Computed from the same physical quantities the serving
+    # path uses (gap, distance, parent magnitude) so the two stay in parity.
+    years = df["parent_time_gap_days"] / DAYS_PER_YEAR
+    log10_rescaled_time, log10_rescaled_distance = rescaled_time_distance(
+        years,
+        df["parent_distance_km"],
+        df["parent_magnitude"],
+        DEFAULT_B_VALUE,
+        DEFAULT_FRACTAL_DIMENSION,
+        DEFAULT_RESCALE_Q,
+    )
+    df["log10_rescaled_time"] = log10_rescaled_time
+    df["log10_rescaled_distance"] = log10_rescaled_distance
     return df
 
 

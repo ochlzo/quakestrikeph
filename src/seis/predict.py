@@ -70,22 +70,23 @@ FAMILY_DIRS = {
 
 # Per-target winner taken verbatim from src/outputs/seis/backtest_pick_report.json
 # (2025 backtest, production inference path, Path B / natural prevalence — no
-# post-hoc calibration). Classification picks minimize Brier; regression picks
-# maximize R^2. Regenerate that report (src/seis/build_pick_report_from_backtests.py)
+# post-hoc calibration). Picks use a weighted, per-target normalized score:
+# classification = Brier 50 / ECE 25 / AP 15 / ROC 10; regression = RMSE 50 /
+# MAE 30 / R² 20. Regenerate that report (src/seis/build_pick_report_from_backtests.py)
 # and update this dict after any re-train. Random Forest wins no target.
 HYBRID_MODEL_MAPPING = {
     # Classification
     "aftershock_24h": "lightgbm",
     "aftershock_within_10km_24h": "lightgbm",
     "aftershock_within_25km_24h": "catboost",
-    "aftershock_within_50km_24h": "catboost",
-    "aftershock_within_100km_24h": "catboost",
-    "aftershock_within_200km_24h": "catboost",
+    "aftershock_within_50km_24h": "lightgbm",
+    "aftershock_within_100km_24h": "lightgbm",
+    "aftershock_within_200km_24h": "lightgbm",
     # Regression
     "max_aftershock_mag_24h": "catboost",
     "nearest_aftershock_distance_km_24h": "lightgbm",
     "median_aftershock_distance_km_24h": "xgboost",
-    "p90_aftershock_distance_km_24h": "xgboost",
+    "p90_aftershock_distance_km_24h": "lightgbm",
 }
 
 

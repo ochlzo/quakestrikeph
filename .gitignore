@@ -52,3 +52,6 @@ Thumbs.db
 # Stacking Ensemble
 src/docs/stacking_oof_fold_reference.md
 src/seis-stacking-ensemble/
+
+# Backup directory
+backup/

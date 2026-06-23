@@ -46,6 +46,9 @@ MODEL = Path("src/outputs/xgboost/models_mc_1_0/aftershock_24h.joblib")
 PARENT_FEATURES = {
     "eta", "log10_eta", "is_strong_link", "has_parent",
     "parent_time_gap_days", "parent_distance_km", "parent_magnitude", "parent_depth_km",
+    # ZBZ rescaled (T, R) decomposition of log10_eta -- same parent provenance,
+    # so the skew guard treats them as parent/clustering-derived features.
+    "log10_rescaled_time", "log10_rescaled_distance",
 }
 
 

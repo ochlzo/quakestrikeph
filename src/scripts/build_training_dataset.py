@@ -153,6 +153,8 @@ def select_training_columns(df, include_local_history):
         "longitude",
         "eta",
         "log10_eta",
+        "log10_rescaled_time",
+        "log10_rescaled_distance",
         "is_strong_link",
         "has_parent",
         "parent_time_gap_days",

@@ -8,9 +8,22 @@ repick-report-shaped JSON that build_html_report.py consumes:
                               roc_auc,average_precision}}}
     regression[target]     = {pick, families{fam:{r2,mae,rmse}}}
 
-The "pick" per target is the single best family on the primary metric for that
-task: lowest Brier for classification (Path B trains at natural prevalence, so
-the raw Brier IS the calibrated Brier), highest R² for regression.
+The "pick" per target is the family with the highest weighted, normalized score
+(not a single-metric winner). For each target, every metric is min-max normalized
+across the four families (1 = best family on that metric, 0 = worst) so metrics
+on very different numeric ranges contribute comparably, then combined with task
+weights:
+
+  Classification: Brier 50%, ECE 25%, Average Precision 15%, ROC-AUC 10%
+                  (Brier/ECE are lower-is-better; AP/ROC higher-is-better)
+  Regression:     RMSE 50%, MAE 30%, R² 20%
+                  (RMSE/MAE lower-is-better; R² higher-is-better)
+
+Rationale: once ROC-AUC is ~0.98+, family differences there are negligible, so
+probability accuracy (Brier) and calibration (ECE) dominate. For regression, large
+misses matter most (a 40 km vs 180 km distance error, or 0.3 vs 1.2 magnitude), so
+RMSE is weighted above MAE and R². Path B trains at natural prevalence, so the raw
+Brier IS the calibrated Brier.
 """
 
 import argparse
@@ -45,6 +58,50 @@ REGRESSION_TARGETS = [
 CLS_KEYS = ["brier", "ece", "roc_auc", "average_precision"]
 REG_KEYS = ["r2", "mae", "rmse"]
 
+# Weighted scoring. Each metric is min-max normalized across the four families
+# per target (1 = best, 0 = worst), then combined with these weights. The pick is
+# the highest weighted score. LOWER_BETTER metrics are inverted during normalize.
+CLS_WEIGHTS = {"brier": 0.50, "ece": 0.25, "average_precision": 0.15, "roc_auc": 0.10}
+REG_WEIGHTS = {"rmse": 0.50, "mae": 0.30, "r2": 0.20}
+LOWER_BETTER = {"brier", "ece", "rmse", "mae"}
+
+
+def normalize_metric(values, lower_better):
+    """Min-max normalize fam->value to fam->[0,1] with 1 = best.
+
+    A missing value (None) scores 0 (treated as worst). When all families tie
+    (zero spread) every family scores 1.0 so the metric does not break the tie.
+    """
+    present = [v for v in values.values() if v is not None]
+    if not present:
+        return {fam: 0.0 for fam in values}
+    lo, hi = min(present), max(present)
+    out = {}
+    for fam, value in values.items():
+        if value is None:
+            out[fam] = 0.0
+        elif hi == lo:
+            out[fam] = 1.0
+        else:
+            frac = (value - lo) / (hi - lo)
+            out[fam] = (1.0 - frac) if lower_better else frac
+    return out
+
+
+def weighted_scores(fam_metrics, weights):
+    """fam->metrics dict and metric weights -> fam->weighted score (higher=better)."""
+    normalized = {
+        metric: normalize_metric(
+            {fam: fam_metrics[fam].get(metric) for fam in fam_metrics},
+            metric in LOWER_BETTER,
+        )
+        for metric in weights
+    }
+    return {
+        fam: round(sum(weights[m] * normalized[m][fam] for m in weights), 6)
+        for fam in fam_metrics
+    }
+
 
 def load_metrics(paths):
     families = {}
@@ -76,13 +133,16 @@ def build_classification(families):
         for fam, data in families.items():
             node = data["metrics"]["classification"][target]
             fam_metrics[fam] = {k: node.get(k) for k in CLS_KEYS}
-        # Primary metric: lowest Brier wins.
-        pick = min(fam_metrics, key=lambda f: fam_metrics[f]["brier"])
+        # Weighted, normalized score (Brier 50 / ECE 25 / AP 15 / ROC 10).
+        scores = weighted_scores(fam_metrics, CLS_WEIGHTS)
+        pick = max(scores, key=scores.get)
         ref = families[pick]["metrics"]["classification"][target]
         out[target] = {
             "prevalence": ref["positive_rate"],
             "count": ref["count"],
             "pick": pick,
+            "pick_score": scores[pick],
+            "scores": scores,
             "families": fam_metrics,
         }
     return out
@@ -95,10 +155,15 @@ def build_regression(families):
         for fam, data in families.items():
             node = data["metrics"]["regression"].get(target, {})
             fam_metrics[fam] = {k: node.get(k) for k in REG_KEYS}
-        # Primary metric: highest R² wins (skip families with no R²).
-        scored = {f: m["r2"] for f, m in fam_metrics.items() if m.get("r2") is not None}
-        pick = max(scored, key=scored.get) if scored else next(iter(fam_metrics))
-        out[target] = {"pick": pick, "families": fam_metrics}
+        # Weighted, normalized score (RMSE 50 / MAE 30 / R² 20).
+        scores = weighted_scores(fam_metrics, REG_WEIGHTS)
+        pick = max(scores, key=scores.get)
+        out[target] = {
+            "pick": pick,
+            "pick_score": scores[pick],
+            "scores": scores,
+            "families": fam_metrics,
+        }
     return out
 
 
@@ -123,6 +188,12 @@ def main():
         "test_start_year": config.get("test_start_year"),
         "test_end_year": config.get("test_end_year"),
         "families": list(FAMILY_BACKTESTS),
+        "scoring": {
+            "method": "per-target min-max normalization across families (1=best), weighted sum",
+            "classification_weights": CLS_WEIGHTS,
+            "regression_weights": REG_WEIGHTS,
+            "lower_is_better": sorted(LOWER_BETTER),
+        },
         "classification": build_classification(families),
         "regression": build_regression(families),
     }
@@ -130,13 +201,21 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"Wrote {args.output} ({args.output.stat().st_size:,} bytes)")
-    print("\nRecommended (best) model per target:")
+    print("\nRecommended model per target (highest weighted score):")
     for target in CLASSIFICATION_TARGETS:
         node = report["classification"][target]
-        print(f"  {target:<30} -> {node['pick']:<14} (Brier {node['families'][node['pick']]['brier']:.4f})")
+        fam = node["families"][node["pick"]]
+        print(
+            f"  {target:<34} -> {node['pick']:<14} "
+            f"score {node['pick_score']:.3f} (Brier {fam['brier']:.4f}, ECE {fam['ece']:.4f})"
+        )
     for target in REGRESSION_TARGETS:
         node = report["regression"][target]
-        print(f"  {target:<30} -> {node['pick']:<14} (R2 {node['families'][node['pick']]['r2']:.4f})")
+        fam = node["families"][node["pick"]]
+        print(
+            f"  {target:<34} -> {node['pick']:<14} "
+            f"score {node['pick_score']:.3f} (RMSE {fam['rmse']:.3f}, MAE {fam['mae']:.3f}, R2 {fam['r2']:.3f})"
+        )
 
 
 if __name__ == "__main__":
