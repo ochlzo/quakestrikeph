@@ -30,24 +30,21 @@ CLS_TARGETS = [
     "aftershock_within_10km_24h",
     "aftershock_within_25km_24h",
     "aftershock_within_50km_24h",
-    "aftershock_within_100km_24h",
-    "aftershock_within_200km_24h",
+    "aftershock_beyond_50km_24h",
 ]
 TARGET_LABEL = {
     "aftershock_24h": "Any aftershock",
     "aftershock_within_10km_24h": "Within 10 km",
     "aftershock_within_25km_24h": "Within 25 km",
     "aftershock_within_50km_24h": "Within 50 km",
-    "aftershock_within_100km_24h": "Within 100 km",
-    "aftershock_within_200km_24h": "Within 200 km",
+    "aftershock_beyond_50km_24h": "Beyond 50 km",
 }
 TARGET_COLOR = {
     "aftershock_24h": "#2563eb",
     "aftershock_within_10km_24h": "#dc2626",
     "aftershock_within_25km_24h": "#ea580c",
     "aftershock_within_50km_24h": "#d97706",
-    "aftershock_within_100km_24h": "#16a34a",
-    "aftershock_within_200km_24h": "#9333ea",
+    "aftershock_beyond_50km_24h": "#9333ea",
 }
 REG_LABEL = {
     "max_aftershock_mag_24h": "Max aftershock magnitude",

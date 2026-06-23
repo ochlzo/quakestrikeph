@@ -20,12 +20,7 @@ from feature_engineering import load_feature_columns as load_feature_list  # noq
 DEFAULT_INPUT_CSV = Path("src/training_set/training_dataset_mc_1_0.csv")
 DEFAULT_OUTPUT_DIR = Path("src/outputs/xgboost/models_mc_1_0")
 CLASSIFICATION_TARGETS = [
-    "aftershock_24h",
-    "aftershock_within_10km_24h",
-    "aftershock_within_25km_24h",
-    "aftershock_within_50km_24h",
-    "aftershock_within_100km_24h",
-    "aftershock_within_200km_24h",
+    "aftershock_spatial_zone_24h",
 ]
 REGRESSION_TARGETS = [
     "max_aftershock_mag_24h",
@@ -241,12 +236,11 @@ def train_classifier(target, train, validation, test, feature_columns, output_di
         print(f"Skipping {target}; training split has only one class.")
         return None
 
-    # Path B: train at the catalog's natural prevalence (no scale_pos_weight) with
-    # log loss, so the model's raw output is a calibrated probability and no
-    # post-hoc isotonic step is needed. calibration_report() below verifies this.
+    n_classes = int(train[target].nunique())
     model = xgb.XGBClassifier(
-        objective="binary:logistic",
-        eval_metric="logloss",
+        objective="multi:softprob",
+        eval_metric="mlogloss",
+        num_class=n_classes,
         tree_method="hist",
         n_estimators=args.n_estimators,
         learning_rate=args.learning_rate,
@@ -266,8 +260,9 @@ def train_classifier(target, train, validation, test, feature_columns, output_di
         verbose=False,
     )
 
-    validation_probability = model.predict_proba(validation[feature_columns])[:, 1]
-    test_probability = model.predict_proba(test[feature_columns])[:, 1]
+    validation_probability = model.predict_proba(validation[feature_columns])
+    test_probability = model.predict_proba(test[feature_columns])
+    
     model_path = output_dir / f"{target}.joblib"
     json_model_path = output_dir / f"{target}.json"
     importance_path = output_dir / f"{target}_feature_importances.csv"
@@ -275,16 +270,94 @@ def train_classifier(target, train, validation, test, feature_columns, output_di
     model.save_model(json_model_path)
     write_feature_importances(model, feature_columns, importance_path)
 
-    return {
-        "target": target,
+    results = []
+
+    # Virtual target 1: aftershock_24h (any aftershock)
+    y_true_val_any = (validation[target] > 0).astype(int).to_numpy()
+    y_prob_val_any = np.clip(validation_probability[:, 1:].sum(axis=1), 0.0, 1.0)
+    y_true_test_any = (test[target] > 0).astype(int).to_numpy()
+    y_prob_test_any = np.clip(test_probability[:, 1:].sum(axis=1), 0.0, 1.0)
+    
+    results.append({
+        "target": "aftershock_24h",
         "task": "classification",
         "model_path": str(model_path),
         "json_model_path": str(json_model_path),
         "feature_importances_path": str(importance_path),
         "best_iteration": best_iteration(model),
-        "validation": classification_metrics(validation[target].to_numpy(), validation_probability, deps),
-        "test": classification_metrics(test[target].to_numpy(), test_probability, deps),
-    }
+        "validation": classification_metrics(y_true_val_any, y_prob_val_any, deps),
+        "test": classification_metrics(y_true_test_any, y_prob_test_any, deps),
+    })
+    
+    # Virtual target 2: aftershock_within_10km_24h
+    y_true_val_10 = (validation[target] == 1).astype(int).to_numpy()
+    y_prob_val_10 = np.clip(validation_probability[:, 1], 0.0, 1.0)
+    y_true_test_10 = (test[target] == 1).astype(int).to_numpy()
+    y_prob_test_10 = np.clip(test_probability[:, 1], 0.0, 1.0)
+    
+    results.append({
+        "target": "aftershock_within_10km_24h",
+        "task": "classification",
+        "model_path": str(model_path),
+        "json_model_path": str(json_model_path),
+        "feature_importances_path": str(importance_path),
+        "best_iteration": best_iteration(model),
+        "validation": classification_metrics(y_true_val_10, y_prob_val_10, deps),
+        "test": classification_metrics(y_true_test_10, y_prob_test_10, deps),
+    })
+
+    # Virtual target 3: aftershock_within_25km_24h
+    y_true_val_25 = (validation[target].isin([1, 2])).astype(int).to_numpy()
+    y_prob_val_25 = np.clip(validation_probability[:, 1] + validation_probability[:, 2], 0.0, 1.0)
+    y_true_test_25 = (test[target].isin([1, 2])).astype(int).to_numpy()
+    y_prob_test_25 = np.clip(test_probability[:, 1] + test_probability[:, 2], 0.0, 1.0)
+    
+    results.append({
+        "target": "aftershock_within_25km_24h",
+        "task": "classification",
+        "model_path": str(model_path),
+        "json_model_path": str(json_model_path),
+        "feature_importances_path": str(importance_path),
+        "best_iteration": best_iteration(model),
+        "validation": classification_metrics(y_true_val_25, y_prob_val_25, deps),
+        "test": classification_metrics(y_true_test_25, y_prob_test_25, deps),
+    })
+
+    # Virtual target 4: aftershock_within_50km_24h
+    y_true_val_50 = (validation[target].isin([1, 2, 3])).astype(int).to_numpy()
+    y_prob_val_50 = np.clip(validation_probability[:, 1] + validation_probability[:, 2] + validation_probability[:, 3], 0.0, 1.0)
+    y_true_test_50 = (test[target].isin([1, 2, 3])).astype(int).to_numpy()
+    y_prob_test_50 = np.clip(test_probability[:, 1] + test_probability[:, 2] + test_probability[:, 3], 0.0, 1.0)
+    
+    results.append({
+        "target": "aftershock_within_50km_24h",
+        "task": "classification",
+        "model_path": str(model_path),
+        "json_model_path": str(json_model_path),
+        "feature_importances_path": str(importance_path),
+        "best_iteration": best_iteration(model),
+        "validation": classification_metrics(y_true_val_50, y_prob_val_50, deps),
+        "test": classification_metrics(y_true_test_50, y_prob_test_50, deps),
+    })
+
+    # Virtual target 5: aftershock_beyond_50km_24h
+    y_true_val_beyond = (validation[target] == 4).astype(int).to_numpy()
+    y_prob_val_beyond = np.clip(validation_probability[:, 4], 0.0, 1.0)
+    y_true_test_beyond = (test[target] == 4).astype(int).to_numpy()
+    y_prob_test_beyond = np.clip(test_probability[:, 4], 0.0, 1.0)
+
+    results.append({
+        "target": "aftershock_beyond_50km_24h",
+        "task": "classification",
+        "model_path": str(model_path),
+        "json_model_path": str(json_model_path),
+        "feature_importances_path": str(importance_path),
+        "best_iteration": best_iteration(model),
+        "validation": classification_metrics(y_true_val_beyond, y_prob_val_beyond, deps),
+        "test": classification_metrics(y_true_test_beyond, y_prob_test_beyond, deps),
+    })
+    
+    return results
 
 
 def train_regressor(target, train, validation, test, feature_columns, output_dir, args, deps):
@@ -407,17 +480,18 @@ def main():
     }
 
     for target in CLASSIFICATION_TARGETS:
-        result = train_classifier(target, train, validation, test, feature_columns, args.output_dir, args, deps)
-        if result is not None:
-            metrics["models"].append(result)
-            calib = result["test"].get("calibration")
-            if calib is not None:
-                print(
-                    f"  [calib] {target:<32} test ECE={calib['ece']:.4f} "
-                    f"logloss={calib['log_loss']:.4f} "
-                    f"Brier={result['test']['brier']:.4f} "
-                    f"ROC={result['test']['roc_auc']:.4f}"
-                )
+        results = train_classifier(target, train, validation, test, feature_columns, args.output_dir, args, deps)
+        if results is not None:
+            for result in results:
+                metrics["models"].append(result)
+                calib = result["test"].get("calibration")
+                if calib is not None:
+                    print(
+                        f"  [calib] {result['target']:<32} test ECE={calib['ece']:.4f} "
+                        f"logloss={calib['log_loss']:.4f} "
+                        f"Brier={result['test']['brier']:.4f} "
+                        f"ROC={result['test']['roc_auc']:.4f}"
+                    )
 
     for regression_target in REGRESSION_TARGETS:
         regression_result = train_regressor(

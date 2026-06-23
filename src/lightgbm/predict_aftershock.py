@@ -147,10 +147,21 @@ def run_predictions(feature_row, models, classification_targets, regression_targ
     Distance regressors are trained in log1p(km) space, so their raw prediction
     is back-transformed with expm1 (clipped at 0) to recover kilometres.
     """
+    mc_model = models["aftershock_spatial_zone_24h"]
+    p = mc_model.predict_proba(feature_row)[0] # [p0, p1, p2, p3, p4]
+    
+    # Clip each probability to [0.0, 1.0] just in case of float issues
+    p = np.clip(p, 0.0, 1.0)
+    
     classification = {
-        target: positive_class_probability(models[target], feature_row)
-        for target in classification_targets
+        "aftershock_24h": float(p[1:].sum()),
+        "aftershock_within_10km_24h": float(p[1]),
+        "aftershock_within_25km_24h": float(p[1] + p[2]),
+        "aftershock_within_50km_24h": float(p[1] + p[2] + p[3]),
+        "aftershock_beyond_50km_24h": float(p[4]),
     }
+    for target in classification:
+        classification[target] = float(np.clip(classification[target], 0.0, 1.0))
 
     regression = {}
     for target in regression_targets:
@@ -173,13 +184,17 @@ def build_output(event, feature_row, classification, regression, history_rows):
         else:
             feature_values[column] = value
 
-    # Cumulative containment probabilities: P(an aftershock occurs within R km).
+    # Disjoint zone probabilities: extract from cumulative values
+    p1 = classification["aftershock_within_10km_24h"]
+    p2 = classification["aftershock_within_25km_24h"] - p1
+    p3 = classification["aftershock_within_50km_24h"] - (p1 + p2)
+    p4 = classification["aftershock_24h"] - (p1 + p2 + p3)
+
     containment = {
-        "within_10km": classification["aftershock_within_10km_24h"],
-        "within_25km": classification["aftershock_within_25km_24h"],
-        "within_50km": classification["aftershock_within_50km_24h"],
-        "within_100km": classification["aftershock_within_100km_24h"],
-        "within_200km": classification["aftershock_within_200km_24h"],
+        "within_10km": float(np.clip(p1, 0.0, 1.0)),
+        "between_10_25km": float(np.clip(p2, 0.0, 1.0)),
+        "between_25_50km": float(np.clip(p3, 0.0, 1.0)),
+        "beyond_50km": float(np.clip(p4, 0.0, 1.0)),
     }
     return {
         "event": {
@@ -194,7 +209,7 @@ def build_output(event, feature_row, classification, regression, history_rows):
         "features": feature_values,
         "predictions": {
             "aftershock_24h_probability": classification["aftershock_24h"],
-            "aftershock_within_distance_probabilities_24h": containment,
+            "aftershock_distance_probabilities_24h": containment,
             "estimated_max_aftershock_magnitude_if_aftershock_24h": regression[
                 "max_aftershock_mag_24h"
             ],

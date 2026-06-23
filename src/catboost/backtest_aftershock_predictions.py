@@ -28,6 +28,15 @@ from train_catboost_aftershock_models import (  # noqa: E402
     REGRESSION_TARGETS,
 )
 
+EVAL_CLASSIFICATION_TARGETS = [
+    "aftershock_24h",
+    "aftershock_within_10km_24h",
+    "aftershock_within_25km_24h",
+    "aftershock_within_50km_24h",
+    "aftershock_beyond_50km_24h",
+]
+
+
 
 DEFAULT_FEATURE_COLUMNS = DEFAULT_MODELS_DIR / "feature_columns.txt"
 DEFAULT_BACKTEST_OUTPUT_DIR = Path("src/outputs/catboost/backtests_mc_1_0")
@@ -140,7 +149,7 @@ def load_labeled_events(path, test_start_year, test_end_year, minimum_magnitude)
         "magnitude",
         "event_year",
         *REGRESSION_TARGETS,
-        *CLASSIFICATION_TARGETS,
+        *EVAL_CLASSIFICATION_TARGETS,
     }
     missing = sorted(required - set(df.columns))
     if missing:
@@ -209,9 +218,17 @@ def positive_class_probability(model, feature_row):
 
 
 def run_predictions(feature_row, models):
-    classification = {}
-    for target in CLASSIFICATION_TARGETS:
-        classification[target] = positive_class_probability(models[target], feature_row)
+    # Predict multiclass zone probabilities
+    mc_model = models["aftershock_spatial_zone_24h"]
+    p = mc_model.predict_proba(feature_row)[0] # [p0, p1, p2, p3, p4]
+    
+    classification = {
+        "aftershock_24h": np.clip(p[1:].sum(), 0.0, 1.0),
+        "aftershock_within_10km_24h": np.clip(p[1], 0.0, 1.0),
+        "aftershock_within_25km_24h": np.clip(p[1] + p[2], 0.0, 1.0),
+        "aftershock_within_50km_24h": np.clip(p[1] + p[2] + p[3], 0.0, 1.0),
+        "aftershock_beyond_50km_24h": np.clip(p[4], 0.0, 1.0),
+    }
 
     regression = {}
     for target in REGRESSION_TARGETS:
@@ -238,7 +255,7 @@ def build_prediction_record(row, classification, regression, history_rows):
         record[f"actual_{target}"] = (
             None if pd.isna(row[target]) else float(row[target])
         )
-    for target in CLASSIFICATION_TARGETS:
+    for target in EVAL_CLASSIFICATION_TARGETS:
         record[f"actual_{target}"] = int(row[target])
         record[f"predicted_probability_{target}"] = float(classification[target])
     return record
@@ -307,7 +324,7 @@ def regression_metrics(records, target, metrics):
 
 def summarize_records(records, metrics):
     summary = {"classification": {}}
-    for target in CLASSIFICATION_TARGETS:
+    for target in EVAL_CLASSIFICATION_TARGETS:
         y_true = [record[f"actual_{target}"] for record in records]
         y_probability = [
             record[f"predicted_probability_{target}"] for record in records

@@ -34,7 +34,8 @@ FORECAST_HOURS = 24
 # Local-history radii / windows (LOCAL_RADII_KM, RECENT_WINDOWS_DAYS,
 # NEAREST_RECENT_WINDOW_DAYS) are imported from feature_engineering above so the
 # batch feature builders and select_training_columns agree on the column names.
-CUMULATIVE_RADII_KM = [10.0, 25.0, 50.0, 100.0, 200.0]
+CUMULATIVE_RADII_KM = [10.0, 25.0, 50.0]
+
 
 
 def parse_args():
@@ -135,14 +136,27 @@ def add_forecast_targets(df, forecast_hours):
             for radius in CUMULATIVE_RADII_KM:
                 within_targets[radius][original_index] = int((distances <= radius).any())
 
+    # Define multi-class spatial target: 0 = none, 1 = within 10km, 2 = 10-25km, 3 = 25-50km, 4 = >50km
+    target_spatial_zone = np.zeros(len(df), dtype=np.int8)
+    has_aftershock = target_aftershock == 1
+    nearest = target_nearest_distance
+    
+    target_spatial_zone[has_aftershock & (nearest <= 10.0)] = 1
+    target_spatial_zone[has_aftershock & (nearest > 10.0) & (nearest <= 25.0)] = 2
+    target_spatial_zone[has_aftershock & (nearest > 25.0) & (nearest <= 50.0)] = 3
+    target_spatial_zone[has_aftershock & (nearest > 50.0)] = 4
+
+    df["aftershock_spatial_zone_24h"] = target_spatial_zone
     df["aftershock_24h"] = target_aftershock
     for radius, values in within_targets.items():
         df[f"aftershock_within_{int(radius)}km_24h"] = values
+    df["aftershock_beyond_50km_24h"] = (target_spatial_zone == 4).astype(np.int8)
     df["nearest_aftershock_distance_km_24h"] = target_nearest_distance
     df["median_aftershock_distance_km_24h"] = target_median_distance
     df["p90_aftershock_distance_km_24h"] = target_p90_distance
     df["max_aftershock_mag_24h"] = target_max_magnitude
     return df
+
 
 
 def select_training_columns(df, include_local_history):
@@ -191,8 +205,10 @@ def select_training_columns(df, include_local_history):
         )
 
     target_columns = [
+        "aftershock_spatial_zone_24h",
         "aftershock_24h",
         *[f"aftershock_within_{int(radius)}km_24h" for radius in CUMULATIVE_RADII_KM],
+        "aftershock_beyond_50km_24h",
         "nearest_aftershock_distance_km_24h",
         "median_aftershock_distance_km_24h",
         "p90_aftershock_distance_km_24h",

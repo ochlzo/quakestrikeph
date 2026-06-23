@@ -36,8 +36,7 @@ CLS_TARGETS = [
     ("aftershock_within_10km_24h", "Aftershock within 10 km"),
     ("aftershock_within_25km_24h", "Aftershock within 25 km"),
     ("aftershock_within_50km_24h", "Aftershock within 50 km"),
-    ("aftershock_within_100km_24h", "Aftershock within 100 km"),
-    ("aftershock_within_200km_24h", "Aftershock within 200 km"),
+    ("aftershock_beyond_50km_24h", "Aftershock beyond 50 km"),
 ]
 REG_TARGETS = [
     ("max_aftershock_mag_24h", "Max aftershock magnitude"),
@@ -47,7 +46,7 @@ REG_TARGETS = [
 ]
 CLS_CHART_LABELS = [
     "Any aftershock (24h)", "Aftershock within 10 km", "Aftershock within 25 km",
-    "Aftershock within 50 km", "Aftershock within 100 km", "Aftershock within 200 km",
+    "Aftershock within 50 km", "Aftershock beyond 50 km",
 ]
 REG_CHART_LABELS = ["Max magnitude", "Nearest dist (km)", "Median dist (km)", "P90 dist (km)"]
 
@@ -61,6 +60,20 @@ def weight_text(weights, order):
     )
 
 
+def overall_classification_pick(classification):
+    """The single multiclass family chosen across all 5 classification targets.
+
+    Mirrors build_pick_report_from_backtests.py: sum each family's per-target
+    weighted score, return the highest. Derived from the pick report so this
+    text can never drift from the data after a re-train.
+    """
+    overall = {}
+    for tkey, _ in CLS_TARGETS:
+        for fam, score in classification[tkey]["scores"].items():
+            overall[fam] = overall.get(fam, 0.0) + score
+    return max(overall, key=overall.get)
+
+
 def score_sub(node):
     score = node.get("pick_score")
     return f'<span class="sub">score {score:.3f}</span>' if score is not None else ""
@@ -71,11 +84,18 @@ def cls_rows(classification):
     for tkey, tlabel in CLS_TARGETS:
         node = classification[tkey]
         pick = node["pick"]
+        raw_winner = node.get("raw_winner", pick)
         cells = ""
         for fkey, _, _ in FAMILIES:
             m = node["families"][fkey]
             win = "win" if fkey == pick else ""
-            badge = '<span class="badge ok">best</span>' if fkey == pick else ""
+            
+            badge = ""
+            if fkey == pick:
+                badge = '<span class="badge ok">ensemble pick</span>'
+            elif fkey == raw_winner:
+                badge = '<span class="badge" style="background:#f1f5f9;color:#475569">best standalone</span>'
+                
             cells += (
                 f'<td class="{win}"><b>{m["brier"]:.4f}</b>'
                 f'<span class="sub">ECE {m["ece"]:.3f} · AUC {m["roc_auc"]:.3f} '
@@ -99,7 +119,7 @@ def reg_rows(regression):
         for fkey, _, _ in FAMILIES:
             m = node["families"][fkey]
             win = "win" if fkey == pick else ""
-            badge = '<span class="badge ok">best</span>' if fkey == pick else ""
+            badge = '<span class="badge ok">ensemble pick</span>' if fkey == pick else ""
             cells += (
                 f'<td class="{win}"><b>R² {m["r2"]:.3f}</b>'
                 f'<span class="sub">MAE {m["mae"]:.3f} · RMSE {m["rmse"]:.3f}</span>{badge}</td>'
@@ -150,10 +170,19 @@ def build(pick_report_path, output_path):
             f'Classification: {cls_w}. Regression: {reg_w}.</li>'
         )
 
+    # The overall classification winner is the family whose per-target scores sum
+    # highest -- derived from the report so this sentence never goes stale.
+    cls_pick = overall_classification_pick(classification)
+    cls_pick_line = (
+        f'{DISP[cls_pick]} was selected overall as it had the highest summed '
+        f'classification score across all 5 targets.'
+    )
+
     html = TEMPLATE
     html = html.replace("__YEAR__", year_label)
     html = html.replace("__ROWS__", rows_label)
     html = html.replace("__WEIGHTS_LINE__", weights_line)
+    html = html.replace("__CLS_PICK_LINE__", cls_pick_line)
     html = html.replace("__CLS_ROWS__", cls_rows(classification))
     html = html.replace("__REG_ROWS__", reg_rows(regression))
     html = html.replace("__REC_ROWS__", recommended_rows(classification, regression))
@@ -221,9 +250,10 @@ footer{text-align:center;color:#94a3b8;font-size:12px;padding:20px}
 <li><b>ROC-AUC / AP</b> — ranking quality: can the model tell risky events from safe ones (higher is better, max 1.0).</li>
 <li><b>R² / MAE / RMSE</b> (regression) — variance explained and error magnitude; RMSE punishes large misses most.</li>
 __WEIGHTS_LINE__
-<li>Green cell = the weighted-score winner for that target (right column).</li>
+<li><b>Ensemble Pick</b> — highlighted in green. For all classification targets, a single multi-class model (<code>aftershock_spatial_zone_24h</code>) must be served to guarantee disjoint probabilities. __CLS_PICK_LINE__</li>
+<li>Green cell = the chosen ensemble model for that target (right column).</li>
 </ul>
-<div class="note">Every family is trained at natural prevalence (Path B — no post-hoc calibration) and scored on the __YEAR__ backtest through the production inference path. The highlighted family per target is the weighted-score winner, and this selection <b>is the deployed mapping</b> (kept in sync with HYBRID_MODEL_MAPPING in src/seis/predict.py).</div>
+<div class="note">Every family is trained at natural prevalence (Path B — no post-hoc calibration) and scored on the __YEAR__ backtest through the production inference path. The highlighted family per target is the chosen ensemble model, and this selection <b>is the deployed mapping</b> (kept in sync with HYBRID_MODEL_MAPPING in src/seis/predict.py).</div>
 </div>
 
 <div class="card">

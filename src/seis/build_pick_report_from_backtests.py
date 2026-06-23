@@ -45,8 +45,7 @@ CLASSIFICATION_TARGETS = [
     "aftershock_within_10km_24h",
     "aftershock_within_25km_24h",
     "aftershock_within_50km_24h",
-    "aftershock_within_100km_24h",
-    "aftershock_within_200km_24h",
+    "aftershock_beyond_50km_24h",
 ]
 REGRESSION_TARGETS = [
     "max_aftershock_mag_24h",
@@ -128,22 +127,38 @@ def check_same_eval(families):
 
 def build_classification(families):
     out = {}
+    
+    # Calculate scores for each family on each target first
+    target_scores = {}
+    target_fam_metrics = {}
+    overall_scores = {fam: 0.0 for fam in families}
+    
     for target in CLASSIFICATION_TARGETS:
         fam_metrics = {}
         for fam, data in families.items():
             node = data["metrics"]["classification"][target]
             fam_metrics[fam] = {k: node.get(k) for k in CLS_KEYS}
-        # Weighted, normalized score (Brier 50 / ECE 25 / AP 15 / ROC 10).
         scores = weighted_scores(fam_metrics, CLS_WEIGHTS)
-        pick = max(scores, key=scores.get)
-        ref = families[pick]["metrics"]["classification"][target]
+        target_scores[target] = scores
+        target_fam_metrics[target] = fam_metrics
+        for fam in families:
+            overall_scores[fam] += scores[fam]
+            
+    # The overall winner for classification model family (multiclass constraint)
+    class_pick = max(overall_scores, key=overall_scores.get)
+    
+    for target in CLASSIFICATION_TARGETS:
+        ref = families[class_pick]["metrics"]["classification"][target]
+        raw_winner = max(target_scores[target], key=target_scores[target].get)
         out[target] = {
             "prevalence": ref["positive_rate"],
             "count": ref["count"],
-            "pick": pick,
-            "pick_score": scores[pick],
-            "scores": scores,
-            "families": fam_metrics,
+            "pick": class_pick,
+            "pick_score": target_scores[target][class_pick],
+            "raw_winner": raw_winner,
+            "raw_winner_score": target_scores[target][raw_winner],
+            "scores": target_scores[target],
+            "families": target_fam_metrics[target],
         }
     return out
 
@@ -201,13 +216,16 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"Wrote {args.output} ({args.output.stat().st_size:,} bytes)")
-    print("\nRecommended model per target (highest weighted score):")
+    print("\nRecommended model per target (constrained multi-class ensemble pick):")
     for target in CLASSIFICATION_TARGETS:
         node = report["classification"][target]
         fam = node["families"][node["pick"]]
+        raw_info = ""
+        if node["pick"] != node["raw_winner"]:
+            raw_info = f" [best standalone: {node['raw_winner']}]"
         print(
             f"  {target:<34} -> {node['pick']:<14} "
-            f"score {node['pick_score']:.3f} (Brier {fam['brier']:.4f}, ECE {fam['ece']:.4f})"
+            f"score {node['pick_score']:.3f} (Brier {fam['brier']:.4f}, ECE {fam['ece']:.4f}){raw_info}"
         )
     for target in REGRESSION_TARGETS:
         node = report["regression"][target]

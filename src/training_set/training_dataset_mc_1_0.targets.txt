@@ -1,9 +1,9 @@
+aftershock_spatial_zone_24h
 aftershock_24h
 aftershock_within_10km_24h
 aftershock_within_25km_24h
 aftershock_within_50km_24h
-aftershock_within_100km_24h
-aftershock_within_200km_24h
+aftershock_beyond_50km_24h
 nearest_aftershock_distance_km_24h
 median_aftershock_distance_km_24h
 p90_aftershock_distance_km_24h

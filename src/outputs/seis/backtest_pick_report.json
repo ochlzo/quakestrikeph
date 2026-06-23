@@ -33,76 +33,80 @@
     "aftershock_24h": {
       "prevalence": 0.3439525582678251,
       "count": 21753,
-      "pick": "lightgbm",
-      "pick_score": 0.980333,
+      "pick": "catboost",
+      "pick_score": 0.957471,
+      "raw_winner": "lightgbm",
+      "raw_winner_score": 0.999973,
       "scores": {
-        "xgboost": 0.893277,
-        "lightgbm": 0.980333,
+        "xgboost": 0.946222,
+        "lightgbm": 0.999973,
         "random_forest": 0.0,
-        "catboost": 0.960443
+        "catboost": 0.957471
       },
       "families": {
         "xgboost": {
-          "brier": 0.039878548292500274,
-          "ece": 0.008885383684565335,
-          "roc_auc": 0.9840048695759414,
-          "average_precision": 0.9773717240234716
+          "brier": 0.039518761045387235,
+          "ece": 0.007831375428362585,
+          "roc_auc": 0.9840451128442035,
+          "average_precision": 0.9776211321714618
         },
         "lightgbm": {
-          "brier": 0.039295684392191714,
-          "ece": 0.00742219839245056,
-          "roc_auc": 0.9838118948162154,
-          "average_precision": 0.9776815279801646
+          "brier": 0.03919301506926422,
+          "ece": 0.007762335976992772,
+          "roc_auc": 0.9841462220655571,
+          "average_precision": 0.9778770712191514
         },
         "random_forest": {
-          "brier": 0.0438409518132707,
-          "ece": 0.030739782344153706,
-          "roc_auc": 0.9801340656203341,
-          "average_precision": 0.9739002405168437
+          "brier": 0.043149313230786114,
+          "ece": 0.027194685261336865,
+          "roc_auc": 0.9800332982373074,
+          "average_precision": 0.9737209564070922
         },
         "catboost": {
-          "brier": 0.03943384784445597,
-          "ece": 0.009694096790880704,
-          "roc_auc": 0.984387868983802,
-          "average_precision": 0.9778425467731566
+          "brier": 0.039458674004301954,
+          "ece": 0.008015190525827522,
+          "roc_auc": 0.984147336552158,
+          "average_precision": 0.9777190786628756
         }
       }
     },
     "aftershock_within_10km_24h": {
       "prevalence": 0.28198409414793363,
       "count": 21753,
-      "pick": "lightgbm",
-      "pick_score": 0.992588,
+      "pick": "catboost",
+      "pick_score": 0.931163,
+      "raw_winner": "lightgbm",
+      "raw_winner_score": 0.999045,
       "scores": {
-        "xgboost": 0.966157,
-        "lightgbm": 0.992588,
+        "xgboost": 0.982725,
+        "lightgbm": 0.999045,
         "random_forest": 0.0,
-        "catboost": 0.917223
+        "catboost": 0.931163
       },
       "families": {
         "xgboost": {
-          "brier": 0.046146345986280625,
-          "ece": 0.00951358315075248,
-          "roc_auc": 0.9780361018918189,
-          "average_precision": 0.9595614611956669
+          "brier": 0.04598704619817892,
+          "ece": 0.007930246072556737,
+          "roc_auc": 0.9782977739421941,
+          "average_precision": 0.9599451778678357
         },
         "lightgbm": {
-          "brier": 0.04580866712495282,
-          "ece": 0.010387359877610186,
-          "roc_auc": 0.9781148331353761,
-          "average_precision": 0.9599901445133115
+          "brier": 0.04584552303461205,
+          "ece": 0.007188735678543225,
+          "roc_auc": 0.9782570983945152,
+          "average_precision": 0.9599922138003232
         },
         "random_forest": {
-          "brier": 0.0531544640432147,
-          "ece": 0.03898590279147159,
-          "roc_auc": 0.973649974188719,
-          "average_precision": 0.9529202092502413
+          "brier": 0.05282099846216651,
+          "ece": 0.03822191620299641,
+          "roc_auc": 0.9740374200008421,
+          "average_precision": 0.9538940519613794
         },
         "catboost": {
-          "brier": 0.04636400224209569,
-          "ece": 0.011178245539059703,
-          "roc_auc": 0.977806254256346,
-          "average_precision": 0.958861497133084
+          "brier": 0.04644199123034758,
+          "ece": 0.007372838879480781,
+          "roc_auc": 0.9781747035334998,
+          "average_precision": 0.9591095913206021
         }
       }
     },
@@ -110,151 +114,119 @@
       "prevalence": 0.32174872431388774,
       "count": 21753,
       "pick": "catboost",
-      "pick_score": 1.0,
+      "pick_score": 0.962819,
+      "raw_winner": "lightgbm",
+      "raw_winner_score": 0.996977,
       "scores": {
-        "xgboost": 0.939643,
-        "lightgbm": 0.968308,
+        "xgboost": 0.96096,
+        "lightgbm": 0.996977,
         "random_forest": 0.0,
-        "catboost": 1.0
+        "catboost": 0.962819
       },
       "families": {
         "xgboost": {
-          "brier": 0.04335748206921011,
-          "ece": 0.009112775781945203,
-          "roc_auc": 0.9815296819160614,
-          "average_precision": 0.9713069850801759
+          "brier": 0.04285694580294585,
+          "ece": 0.006449140282534572,
+          "roc_auc": 0.9815383345590357,
+          "average_precision": 0.9715303984293466
         },
         "lightgbm": {
-          "brier": 0.043162481503657174,
-          "ece": 0.008686080250340211,
-          "roc_auc": 0.9814729531163489,
-          "average_precision": 0.9713629375551671
+          "brier": 0.04268865046668231,
+          "ece": 0.005796750137740002,
+          "roc_auc": 0.981536838382942,
+          "average_precision": 0.9716688478775587
         },
         "random_forest": {
-          "brier": 0.04711376678059457,
-          "ece": 0.031463968361491255,
-          "roc_auc": 0.9777139002583746,
-          "average_precision": 0.9673662029291565
+          "brier": 0.04629971988521905,
+          "ece": 0.026439821451334583,
+          "roc_auc": 0.9774731466411583,
+          "average_precision": 0.9673861283927603
         },
         "catboost": {
-          "brier": 0.04295539343442394,
-          "ece": 0.008477944643753675,
-          "roc_auc": 0.9815384943448321,
-          "average_precision": 0.9714393544023364
+          "brier": 0.04285202593307472,
+          "ece": 0.006870074146233717,
+          "roc_auc": 0.9816635146255231,
+          "average_precision": 0.9716242867256548
         }
       }
     },
     "aftershock_within_50km_24h": {
       "prevalence": 0.3337470693697421,
       "count": 21753,
-      "pick": "lightgbm",
-      "pick_score": 0.982386,
+      "pick": "catboost",
+      "pick_score": 0.931211,
+      "raw_winner": "lightgbm",
+      "raw_winner_score": 0.999391,
       "scores": {
-        "xgboost": 0.95752,
-        "lightgbm": 0.982386,
+        "xgboost": 0.937701,
+        "lightgbm": 0.999391,
         "random_forest": 0.0,
-        "catboost": 0.981193
+        "catboost": 0.931211
       },
       "families": {
         "xgboost": {
-          "brier": 0.04080900507823373,
-          "ece": 0.007463028781810325,
-          "roc_auc": 0.9831034655468707,
-          "average_precision": 0.9752186400343575
+          "brier": 0.04054465713479959,
+          "ece": 0.006471650077535319,
+          "roc_auc": 0.9830730195768491,
+          "average_precision": 0.9753258380516555
         },
         "lightgbm": {
-          "brier": 0.040618024594629216,
-          "ece": 0.0069586769309626885,
-          "roc_auc": 0.9830110441841496,
-          "average_precision": 0.975260644131219
+          "brier": 0.040200542622512,
+          "ece": 0.005661027081602813,
+          "roc_auc": 0.9831419898919569,
+          "average_precision": 0.9755513327341878
         },
         "random_forest": {
-          "brier": 0.04526244584222174,
-          "ece": 0.03298089480892543,
-          "roc_auc": 0.9788380027291602,
-          "average_precision": 0.9711924614513852
+          "brier": 0.044261930354158624,
+          "ece": 0.02654419054917869,
+          "roc_auc": 0.9790159123080032,
+          "average_precision": 0.9713024067327485
         },
         "catboost": {
-          "brier": 0.04061856115536774,
-          "ece": 0.008910215966825907,
-          "roc_auc": 0.9834481793148359,
-          "average_precision": 0.975493848623926
+          "brier": 0.040587771806741134,
+          "ece": 0.0071043841505437294,
+          "roc_auc": 0.9831672609499523,
+          "average_precision": 0.975442606374029
         }
       }
     },
-    "aftershock_within_100km_24h": {
-      "prevalence": 0.3394934032087528,
+    "aftershock_beyond_50km_24h": {
+      "prevalence": 0.010205488898083023,
       "count": 21753,
-      "pick": "lightgbm",
-      "pick_score": 0.982563,
+      "pick": "catboost",
+      "pick_score": 0.924358,
+      "raw_winner": "catboost",
+      "raw_winner_score": 0.924358,
       "scores": {
-        "xgboost": 0.959389,
-        "lightgbm": 0.982563,
-        "random_forest": 0.0,
-        "catboost": 0.956045
+        "xgboost": 0.716172,
+        "lightgbm": 0.201085,
+        "random_forest": 0.118419,
+        "catboost": 0.924358
       },
       "families": {
         "xgboost": {
-          "brier": 0.039494607627452716,
-          "ece": 0.007603020443926566,
-          "roc_auc": 0.9838093623383342,
-          "average_precision": 0.9769732161124152
+          "brier": 0.006664168314763229,
+          "ece": 0.0018617423574698695,
+          "roc_auc": 0.9745709203700009,
+          "average_precision": 0.5017263476375167
         },
         "lightgbm": {
-          "brier": 0.03919181512937403,
-          "ece": 0.0075290671438701775,
-          "roc_auc": 0.9834498878874743,
-          "average_precision": 0.9769990298702752
+          "brier": 0.006785897051018078,
+          "ece": 0.003111668318989353,
+          "roc_auc": 0.9761328836151184,
+          "average_precision": 0.4916790583093421
         },
         "random_forest": {
-          "brier": 0.044337976637808675,
-          "ece": 0.0316128889402108,
-          "roc_auc": 0.9794630228462256,
-          "average_precision": 0.9727241727383643
+          "brier": 0.0068487296660191335,
+          "ece": 0.0025726455104294467,
+          "roc_auc": 0.9728920086311754,
+          "average_precision": 0.49485383888217593
         },
         "catboost": {
-          "brier": 0.03950285420626627,
-          "ece": 0.008852208504146442,
-          "roc_auc": 0.9840196581435009,
-          "average_precision": 0.9771443890823469
-        }
-      }
-    },
-    "aftershock_within_200km_24h": {
-      "prevalence": 0.3421597021100538,
-      "count": 21753,
-      "pick": "lightgbm",
-      "pick_score": 0.987236,
-      "scores": {
-        "xgboost": 0.916898,
-        "lightgbm": 0.987236,
-        "random_forest": 0.0,
-        "catboost": 0.97052
-      },
-      "families": {
-        "xgboost": {
-          "brier": 0.03968816463858696,
-          "ece": 0.00849307140937762,
-          "roc_auc": 0.9839275207157908,
-          "average_precision": 0.9772634681073707
-        },
-        "lightgbm": {
-          "brier": 0.039199072662129776,
-          "ece": 0.007363267824283785,
-          "roc_auc": 0.9838486919408844,
-          "average_precision": 0.9775493956256702
-        },
-        "random_forest": {
-          "brier": 0.044023460318519926,
-          "ece": 0.0336387290379358,
-          "roc_auc": 0.9800911901332964,
-          "average_precision": 0.9736785643736802
-        },
-        "catboost": {
-          "brier": 0.039378975215391354,
-          "ece": 0.008502076427423559,
-          "roc_auc": 0.9842231473993873,
-          "average_precision": 0.9776473219809219
+          "brier": 0.006593086375947153,
+          "ece": 0.0012142735068639253,
+          "roc_auc": 0.9770366716165796,
+          "average_precision": 0.49665970621344746
         }
       }
     }
@@ -345,7 +317,7 @@
           "rmse": 41.217268996716044
         },
         "random_forest": {
-          "r2": 0.334195255809566,
+          "r2": 0.3341952558095659,
           "mae": 15.294707914235213,
           "rmse": 50.849165831008115
         },
@@ -378,7 +350,7 @@
         },
         "random_forest": {
           "r2": 0.33298259251504614,
-          "mae": 32.58578573642039,
+          "mae": 32.5857857364204,
           "rmse": 69.26704926147309
         },
         "catboost": {

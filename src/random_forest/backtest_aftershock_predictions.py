@@ -28,6 +28,15 @@ from train_random_forest_aftershock_models import (  # noqa: E402
     REGRESSION_TARGETS,
 )
 
+EVAL_CLASSIFICATION_TARGETS = [
+    "aftershock_24h",
+    "aftershock_within_10km_24h",
+    "aftershock_within_25km_24h",
+    "aftershock_within_50km_24h",
+    "aftershock_beyond_50km_24h",
+]
+
+
 
 DEFAULT_FEATURE_COLUMNS = DEFAULT_MODELS_DIR / "feature_columns.txt"
 DEFAULT_BACKTEST_OUTPUT_DIR = Path("src/outputs/random-forest/backtests_mc_1_0")
@@ -137,7 +146,7 @@ def load_labeled_events(path, test_start_year, test_end_year, minimum_magnitude)
         "magnitude",
         "event_year",
         *REGRESSION_TARGETS,
-        *CLASSIFICATION_TARGETS,
+        *EVAL_CLASSIFICATION_TARGETS,
     }
     missing = sorted(required - set(df.columns))
     if missing:
@@ -206,19 +215,27 @@ def positive_class_probability(model, feature_row):
     return float(probabilities[0, class_positions[1]])
 
 
-def run_predictions(feature_row, models):
-    classification = {}
-    for target in CLASSIFICATION_TARGETS:
-        classification[target] = positive_class_probability(models[target], feature_row)
+def run_predictions_batch(X_test, models):
+    # Predict multiclass zone probabilities
+    mc_model = models["aftershock_spatial_zone_24h"]
+    p = mc_model.predict_proba(X_test) # shape (N, 5)
+    
+    classification_batch = {
+        "aftershock_24h": np.clip(p[:, 1:].sum(axis=1), 0.0, 1.0),
+        "aftershock_within_10km_24h": np.clip(p[:, 1], 0.0, 1.0),
+        "aftershock_within_25km_24h": np.clip(p[:, 1] + p[:, 2], 0.0, 1.0),
+        "aftershock_within_50km_24h": np.clip(p[:, 1] + p[:, 2] + p[:, 3], 0.0, 1.0),
+        "aftershock_beyond_50km_24h": np.clip(p[:, 4], 0.0, 1.0),
+    }
 
-    regression = {}
+    regression_batch = {}
     for target in REGRESSION_TARGETS:
-        prediction = float(models[target].predict(feature_row)[0])
+        prediction = models[target].predict(X_test)
         # Distance regressors are trained in log1p(km) space; back-transform to km.
         if target in LOG_DISTANCE_TARGETS:
-            prediction = float(np.clip(np.expm1(prediction), 0.0, None))
-        regression[target] = prediction
-    return classification, regression
+            prediction = np.clip(np.expm1(prediction), 0.0, None)
+        regression_batch[target] = prediction
+    return classification_batch, regression_batch
 
 
 def build_prediction_record(row, classification, regression, history_rows):
@@ -236,7 +253,7 @@ def build_prediction_record(row, classification, regression, history_rows):
         record[f"actual_{target}"] = (
             None if pd.isna(row[target]) else float(row[target])
         )
-    for target in CLASSIFICATION_TARGETS:
+    for target in EVAL_CLASSIFICATION_TARGETS:
         record[f"actual_{target}"] = int(row[target])
         record[f"predicted_probability_{target}"] = float(classification[target])
     return record
@@ -305,7 +322,7 @@ def regression_metrics(records, target, metrics):
 
 def summarize_records(records, metrics):
     summary = {"classification": {}}
-    for target in CLASSIFICATION_TARGETS:
+    for target in EVAL_CLASSIFICATION_TARGETS:
         y_true = [record[f"actual_{target}"] for record in records]
         y_probability = [
             record[f"predicted_probability_{target}"] for record in records
@@ -342,7 +359,9 @@ def main():
         args.random_seed,
     )
 
-    records = []
+    feature_rows = []
+    history_lens = []
+    print("Computing features for all events...")
     for index, row in sampled.iterrows():
         event = row_to_event(row)
         prediction_history = filter_history_for_prediction(
@@ -356,17 +375,41 @@ def main():
             args,
             feature_columns,
         )
-        classification, regression = run_predictions(feature_row, models)
+        feature_rows.append(feature_row)
+        history_lens.append(len(prediction_history))
+        if (index + 1) % 1000 == 0 or (index + 1) == len(sampled):
+            print(f"Features computed for {index + 1}/{len(sampled)} events...")
+
+    print("Running batch inference...")
+    X_test = pd.concat(feature_rows, ignore_index=True)
+    
+    # Enable multi-threading for Random Forest predict in batch
+    for target, model in models.items():
+        forest = model.named_steps.get("model")
+        if hasattr(forest, "set_params"):
+            forest.set_params(n_jobs=-1)
+
+    classification_batch, regression_batch = run_predictions_batch(X_test, models)
+
+    print("Assembling prediction records...")
+    records = []
+    for index, row in sampled.iterrows():
+        classification = {
+            target: float(classification_batch[target][index])
+            for target in classification_batch
+        }
+        regression = {
+            target: float(regression_batch[target][index])
+            for target in REGRESSION_TARGETS
+        }
         records.append(
             build_prediction_record(
                 row,
                 classification,
                 regression,
-                len(prediction_history),
+                history_lens[index],
             )
         )
-        if (index + 1) % 50 == 0:
-            print(f"Backtested {index + 1}/{len(sampled)} events...")
 
     summary = {
         "config": {
