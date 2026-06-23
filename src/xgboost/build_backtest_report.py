@@ -98,6 +98,25 @@ def reg_scatter(actual, predicted, max_points=1800, seed=42):
     return [{"x": round(float(a), 3), "y": round(float(p), 3)} for a, p in zip(actual, predicted)]
 
 
+def reg_axis_bounds(points, percentile=98, pad=0.05):
+    """Zoom-friendly upper bound for a predicted-vs-actual scatter.
+
+    The distance targets have a thin but extreme tail (actuals reach >1500 km
+    while 90%+ of events sit under ~60 km). Driving the axis off the raw max
+    collapses the dense point cloud into the bottom-left corner. Instead we take
+    a high percentile of the combined actual+predicted values and pad it, so the
+    chart frames where the data actually lives. Returns (lo=0, hi).
+    """
+    if not points:
+        return 0.0, 1.0
+    combined = [v for p in points for v in (p["x"], p["y"])]
+    hi = float(np.percentile(combined, percentile))
+    if hi <= 0:
+        hi = 1.0
+    hi *= (1.0 + pad)
+    return 0.0, round(hi, 3)
+
+
 def kpi_card(label, value, sub):
     return (
         f'<div class="kpi"><div class="kpi-val">{value}</div>'
@@ -267,7 +286,9 @@ def build(backtest_dir, output_path):
             scatter_cards.append(
                 f'<div class="card"><h2>{REG_LABEL.get(target, target)} &mdash; predicted vs actual</h2>'
                 f'<p class="lead">Each point is one event with an observed aftershock; '
-                f'dashed line = perfect prediction ({len(points):,} shown, {unit}).</p>'
+                f'dashed line = perfect prediction. Axes are zoomed to where the data concentrates '
+                f'(p98 of actual+predicted, {unit}) so the cloud isn&#39;t crushed into the corner '
+                f'by the long-distance tail.</p>'
                 f'<div class="chart-box tall"><canvas id="scatter{i}"></canvas></div></div>'
             )
         # Two scatters per row.
@@ -427,9 +448,15 @@ __SCATTER__
 
     scatter_blocks = []
     for i, (target, points) in enumerate(reg_scatters.items()):
-        xs = [p["x"] for p in points]
-        lo, hi = (min(xs), max(xs)) if xs else (0, 1)
         unit = "magnitude" if "mag" in target else "km"
+        # Zoom the axes to where the data lives (p98 of actual+predicted) so the
+        # dense cloud isn't crushed into the corner by the long-distance tail.
+        lo, hi = reg_axis_bounds(points)
+        off_chart = sum(1 for p in points if p["x"] > hi or p["y"] > hi)
+        tail_note = (
+            f" ({off_chart:,} of {len(points):,} points beyond {hi:,.0f} {unit} are off-chart)"
+            if off_chart else ""
+        )
         ideal = (
             "{label:'Perfect',data:[{x:%f,y:%f},{x:%f,y:%f}],borderColor:'#94a3b8',borderDash:[6,4],"
             "borderWidth:1.5,pointRadius:0,showLine:true}" % (lo, lo, hi, hi)
@@ -440,9 +467,11 @@ __SCATTER__
             + json.dumps(points)
             + ",backgroundColor:'rgba(37,99,235,0.22)',pointRadius:2.5},"
             + ideal
-            + "]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},"
-            + "scales:{x:{title:{display:true,text:'actual (%s)'}},y:{title:{display:true,text:'predicted (%s)'}}}}});"
-            % (unit, unit)
+            + "]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'},"
+            f"subtitle:{{display:true,text:'axis zoomed to p98 of data{tail_note}',color:'#94a3b8',font:{{size:11}}}}}},"
+            + "scales:{x:{min:%f,max:%f,title:{display:true,text:'actual (%s)'}},"
+            "y:{min:%f,max:%f,title:{display:true,text:'predicted (%s)'}}}}});"
+            % (lo, hi, unit, lo, hi, unit)
         )
     scatter_js = "\n".join(scatter_blocks)
 
