@@ -59,3 +59,7 @@ local_log10_energy_100km_past_30d
 nearest_recent_event_distance_km_past_30d
 nearest_recent_event_magnitude_past_30d
 nearest_recent_event_age_days_past_30d
+rupture_depth_attenuation
+seis_traffic_ratio_30d
+baths_law_limit
+local_b_value_50km_3y

@@ -30,6 +30,7 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 # Shared feature engineering (single source of truth for the production path).
@@ -134,8 +135,31 @@ def parse_args():
     return parser.parse_args()
 
 
+def run_predictions_batch(X_test, models, classification_targets, regression_targets, log_distance_targets):
+    mc_model = models["aftershock_spatial_zone_24h"]
+    p = mc_model.predict_proba(X_test) # shape (N, 5)
+    p = np.clip(p, 0.0, 1.0)
+    
+    classification_batch = {
+        "aftershock_24h": np.clip(p[:, 1:].sum(axis=1), 0.0, 1.0),
+        "aftershock_within_10km_24h": np.clip(p[:, 1], 0.0, 1.0),
+        "aftershock_within_25km_24h": np.clip(p[:, 1] + p[:, 2], 0.0, 1.0),
+        "aftershock_within_50km_24h": np.clip(p[:, 1] + p[:, 2] + p[:, 3], 0.0, 1.0),
+        "aftershock_beyond_50km_24h": np.clip(p[:, 4], 0.0, 1.0),
+    }
+
+    regression_batch = {}
+    for target in regression_targets:
+        prediction = models[target].predict(X_test)
+        if target in log_distance_targets:
+            prediction = np.clip(np.expm1(prediction), 0.0, None)
+        regression_batch[target] = prediction
+    return classification_batch, regression_batch
+
+
 def backtest_year(year, args, models, history, feature_columns, metric_deps):
     """Run the ensemble over one year's labeled pool; return (summary, records)."""
+    import numpy as np
     labeled = load_labeled_events(
         args.labeled_csv, year, year, args.minimum_magnitude
     )
@@ -145,7 +169,9 @@ def backtest_year(year, args, models, history, feature_columns, metric_deps):
     print(f"  [{year}] pool: {len(sampled)} events "
           f"(prevalence-preserving '{args.sample_mode}').", flush=True)
 
-    records = []
+    feature_rows = []
+    history_lens = []
+    print(f"  [{year}] computing features...", flush=True)
     for index, row in sampled.iterrows():
         event = row_to_event(row)
         prediction_history = filter_history_for_prediction(
@@ -154,20 +180,49 @@ def backtest_year(year, args, models, history, feature_columns, metric_deps):
         feature_row = build_prediction_features(
             prediction_history, event, args, feature_columns
         )
-        classification, regression = run_predictions(
-            feature_row,
-            models,
-            CLASSIFICATION_TARGETS,
-            REGRESSION_TARGETS,
-            LOG_DISTANCE_TARGETS,
-        )
+        feature_rows.append(feature_row)
+        history_lens.append(len(prediction_history))
+        if (index + 1) % 2000 == 0 or (index + 1) == len(sampled):
+            print(f"  [{year}] features computed for {index + 1}/{len(sampled)}...", flush=True)
+
+    print(f"  [{year}] running batch inference...", flush=True)
+    X_test = pd.concat(feature_rows, ignore_index=True)
+
+    # Set threads/n_jobs for max performance in batch
+    for target, model in models.items():
+        if hasattr(model, "set_params"):
+            try:
+                if "catboost" in str(type(model)).lower():
+                    model.set_params(thread_count=-1)
+                else:
+                    model.set_params(n_jobs=-1)
+            except Exception:
+                pass
+
+    classification_batch, regression_batch = run_predictions_batch(
+        X_test,
+        models,
+        CLASSIFICATION_TARGETS,
+        REGRESSION_TARGETS,
+        LOG_DISTANCE_TARGETS,
+    )
+
+    print(f"  [{year}] assembling records...", flush=True)
+    records = []
+    for index, row in sampled.iterrows():
+        classification = {
+            target: float(classification_batch[target][index])
+            for target in classification_batch
+        }
+        regression = {
+            target: float(regression_batch[target][index])
+            for target in REGRESSION_TARGETS
+        }
         records.append(
             build_prediction_record(
-                row, classification, regression, len(prediction_history)
+                row, classification, regression, history_lens[index]
             )
         )
-        if (index + 1) % 1000 == 0:
-            print(f"  [{year}] scored {index + 1}/{len(sampled)}...", flush=True)
 
     summary = {
         "config": {

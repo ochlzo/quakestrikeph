@@ -251,6 +251,29 @@ def run_predictions(feature_row, models):
     return classification, regression
 
 
+def run_predictions_batch(X_test, models):
+    # Predict multiclass zone probabilities
+    mc_model = models["aftershock_spatial_zone_24h"]
+    p = mc_model.predict_proba(X_test) # shape (N, 5)
+    
+    classification_batch = {
+        "aftershock_24h": np.clip(p[:, 1:].sum(axis=1), 0.0, 1.0),
+        "aftershock_within_10km_24h": np.clip(p[:, 1], 0.0, 1.0),
+        "aftershock_within_25km_24h": np.clip(p[:, 1] + p[:, 2], 0.0, 1.0),
+        "aftershock_within_50km_24h": np.clip(p[:, 1] + p[:, 2] + p[:, 3], 0.0, 1.0),
+        "aftershock_beyond_50km_24h": np.clip(p[:, 4], 0.0, 1.0),
+    }
+
+    regression_batch = {}
+    for target in REGRESSION_TARGETS:
+        prediction = models[target].predict(X_test)
+        # Distance regressors are trained in log1p(km) space; back-transform to km.
+        if target in LOG_DISTANCE_TARGETS:
+            prediction = np.clip(np.expm1(prediction), 0.0, None)
+        regression_batch[target] = prediction
+    return classification_batch, regression_batch
+
+
 def build_prediction_record(row, classification, regression, history_rows):
     record = {
         "event_id": row["event_id"],
@@ -372,7 +395,9 @@ def main():
         args.random_seed,
     )
 
-    records = []
+    feature_rows = []
+    history_lens = []
+    print("Computing features for all events...")
     for index, row in sampled.iterrows():
         event = row_to_event(row)
         prediction_history = filter_history_for_prediction(
@@ -386,17 +411,40 @@ def main():
             args,
             feature_columns,
         )
-        classification, regression = run_predictions(feature_row, models)
+        feature_rows.append(feature_row)
+        history_lens.append(len(prediction_history))
+        if (index + 1) % 1000 == 0 or (index + 1) == len(sampled):
+            print(f"Features computed for {index + 1}/{len(sampled)} events...")
+
+    print("Running batch inference...")
+    X_test = pd.concat(feature_rows, ignore_index=True)
+    
+    # Set n_jobs=-1 on XGBoost models for batch prediction
+    for target, model in models.items():
+        if hasattr(model, "set_params"):
+            model.set_params(n_jobs=-1)
+
+    classification_batch, regression_batch = run_predictions_batch(X_test, models)
+
+    print("Assembling prediction records...")
+    records = []
+    for index, row in sampled.iterrows():
+        classification = {
+            target: float(classification_batch[target][index])
+            for target in classification_batch
+        }
+        regression = {
+            target: float(regression_batch[target][index])
+            for target in REGRESSION_TARGETS
+        }
         records.append(
             build_prediction_record(
                 row,
                 classification,
                 regression,
-                len(prediction_history),
+                history_lens[index],
             )
         )
-        if (index + 1) % 50 == 0:
-            print(f"Backtested {index + 1}/{len(sampled)} events...")
 
     summary = {
         "config": {

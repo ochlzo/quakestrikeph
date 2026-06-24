@@ -13,6 +13,7 @@ from feature_engineering import (  # noqa: E402
     LOCAL_RADII_KM,
     NEAREST_RECENT_WINDOW_DAYS,
     RECENT_WINDOWS_DAYS,
+    add_advanced_features,
     add_parent_features,
     add_recent_global_features,
     add_recent_local_features,
@@ -204,6 +205,15 @@ def select_training_columns(df, include_local_history):
             ]
         )
 
+    # Add advanced physical bounds & interaction features
+    feature_columns.extend([
+        "rupture_depth_attenuation",
+        "seis_traffic_ratio_30d",
+        "baths_law_limit",
+    ])
+    if include_local_history:
+        feature_columns.append("local_b_value_50km_3y")
+
     target_columns = [
         "aftershock_spatial_zone_24h",
         "aftershock_24h",
@@ -265,6 +275,7 @@ def main():
     df = add_recent_global_features(df)
     if args.include_local_history:
         df = add_recent_local_features(df)
+    df = add_advanced_features(df)
     df = add_forecast_targets(df, args.forecast_hours)
 
     training_df, feature_columns, target_columns = select_training_columns(

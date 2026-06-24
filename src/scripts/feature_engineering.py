@@ -240,11 +240,32 @@ def compute_global_history_features(history, event_time):
         features[f"events_past_{days}d"] = int(
             ((history["event_time"] >= start_time) & (history["event_time"] < event_time)).sum()
         )
+
+    # Global 5-year average monthly count (seis_traffic_ratio_30d)
+    if history.empty:
+        features["seis_traffic_ratio_30d"] = 1.0
+    else:
+        history_start = history["event_time"].iloc[0]
+        t_avail_days = (event_time - history_start).total_seconds() / 86400.0
+        t_avail_days = max(1.0 / 24.0, min(5 * 365.25, t_avail_days))
+        
+        start_5y = event_time - pd.Timedelta(days=5 * 365.25)
+        c_5y = int((history["event_time"] >= start_5y).sum())
+        
+        if t_avail_days < 30.0:
+            features["seis_traffic_ratio_30d"] = 1.0
+        else:
+            t_avail_months = t_avail_days / 30.4375
+            avg_monthly_count = c_5y / t_avail_months
+            c_30d = features["events_past_30d"]
+            features["seis_traffic_ratio_30d"] = float(c_30d / max(avg_monthly_count, 1e-5))
+
     return features
 
 
 def compute_local_history_features(history, event):
     features = {}
+    features["local_b_value_50km_3y"] = 1.0
     for days in RECENT_WINDOWS_DAYS:
         for radius in LOCAL_RADII_KM:
             radius_token = int(radius)
@@ -327,6 +348,45 @@ def compute_local_history_features(history, event):
                 np.log10(np.nansum(10.0 ** (1.5 * magnitudes)))
             )
 
+    # Calculate local_b_value_50km_3y
+    b_val = 1.0
+    if not history.empty:
+        start_time_3y = event["event_time"] - pd.Timedelta(days=3 * 365.25)
+        candidates_3y = history[
+            (history["event_time"] >= start_time_3y)
+            & (history["event_time"] < event["event_time"])
+        ].copy()
+        
+        if not candidates_3y.empty:
+            # 50km bounding box
+            lat_delta_50 = 50.0 / 111.32
+            lon_scale = max(math.cos(math.radians(event["latitude"])), 0.1)
+            lon_delta_50 = 50.0 / (111.32 * lon_scale)
+            candidates_3y = candidates_3y[
+                (np.abs(candidates_3y["latitude"] - event["latitude"]) <= lat_delta_50)
+                & (np.abs(candidates_3y["longitude"] - event["longitude"]) <= lon_delta_50)
+            ].copy()
+            
+            if not candidates_3y.empty:
+                distances_3y = haversine_km(
+                    event["latitude"],
+                    event["longitude"],
+                    candidates_3y["latitude"].to_numpy(dtype=float),
+                    candidates_3y["longitude"].to_numpy(dtype=float),
+                )
+                candidates_3y["distance_km"] = distances_3y
+                local_3y = candidates_3y[candidates_3y["distance_km"] <= 50.0]
+                if len(local_3y) >= 5:
+                    m_mean = local_3y["magnitude"].mean()
+                    m_min = history["magnitude"].min()
+                    if pd.isna(m_min):
+                        m_min = 1.0
+                    if m_mean > m_min:
+                        b_val = 0.4342944819 / (m_mean - m_min)
+                        b_val = max(0.3, min(3.0, b_val))
+                        
+    features["local_b_value_50km_3y"] = float(b_val)
+
     return features
 
 
@@ -356,6 +416,13 @@ def build_prediction_features(history, event, args, feature_columns):
     features.update(compute_global_history_features(history, event_time))
     features.update(compute_local_history_features(history, event))
 
+    # Rupture depth attenuation (Interaction term)
+    features["rupture_depth_attenuation"] = float(
+        event["magnitude"] * math.exp(-event["depth_km"] / 50.0)
+    )
+    # Bath's Law limit
+    features["baths_law_limit"] = float(event["magnitude"] - 1.2)
+
     missing = sorted(set(feature_columns) - set(features))
     if missing:
         raise ValueError(f"Prediction builder did not create required features: {missing}")
@@ -370,6 +437,13 @@ def add_time_features(df):
     df["event_dayofyear"] = event_time.dt.dayofyear
     df["event_hour"] = event_time.dt.hour
     df["event_weekday"] = event_time.dt.weekday
+    return df
+
+
+def add_advanced_features(df):
+    """Add advanced interaction and physical bound features."""
+    df["rupture_depth_attenuation"] = df["magnitude"] * np.exp(-df["depth_km"] / 50.0)
+    df["baths_law_limit"] = df["magnitude"] - 1.2
     return df
 
 
@@ -436,6 +510,20 @@ def add_recent_global_features(df):
         starts = np.searchsorted(time_ns, time_ns - window_ns, side="left")
         df[f"events_past_{days}d"] = order - starts
 
+    # 5-year window and traffic ratio
+    window_5y_ns = int(5 * 365.25 * 86400 * 1_000_000_000)
+    starts_5y = np.searchsorted(time_ns, time_ns - window_5y_ns, side="left")
+    events_past_5y = order - starts_5y
+
+    time_since_start_days = (time_ns - time_ns[0]) / (86400 * 1_000_000_000)
+    t_avail_days = np.maximum(time_since_start_days, 1.0 / 24.0)
+    t_avail_days = np.minimum(5 * 365.25, t_avail_days)
+    t_avail_months = t_avail_days / 30.4375
+
+    avg_monthly_count = events_past_5y / t_avail_months
+    ratio = df["events_past_30d"] / np.maximum(avg_monthly_count, 1e-5)
+    df["seis_traffic_ratio_30d"] = np.where(t_avail_days < 30.0, 1.0, ratio)
+
     return df
 
 
@@ -471,7 +559,12 @@ def add_recent_local_features(df):
     nearest_distance = np.full(len(df), np.nan)
     nearest_magnitude = np.full(len(df), np.nan)
     nearest_age_days = np.full(len(df), np.nan)
-    max_window_ns = windows_ns[max(RECENT_WINDOWS_DAYS)]
+    
+    # 3y window for local b-value (50km)
+    window_3y_ns = int(3 * 365.25 * 86400 * 1_000_000_000)
+    local_b_value_50km_3y = np.full(len(df), 1.0)
+    
+    max_window_ns = max(windows_ns[max(RECENT_WINDOWS_DAYS)], window_3y_ns)
     max_radius_km = max(LOCAL_RADII_KM)
     max_window_starts = np.searchsorted(time_ns, time_ns - max_window_ns, side="left")
     lat_delta_degrees = max_radius_km / 111.32
@@ -523,6 +616,21 @@ def add_recent_local_features(df):
                 / (86400 * 1_000_000_000)
             )
 
+        # 3-year window for local b-value (50km)
+        window_mask_3y = candidate_times >= time_ns[row_index] - window_3y_ns
+        if window_mask_3y.any():
+            distances_3y = distances[window_mask_3y]
+            magnitudes_3y = candidate_magnitudes[window_mask_3y]
+            mask_50km = distances_3y <= 50.0
+            if mask_50km.any():
+                local_mags = magnitudes_3y[mask_50km]
+                if len(local_mags) >= 5:
+                    m_mean = np.mean(local_mags)
+                    m_min = 1.0 # Completeness threshold
+                    if m_mean > m_min:
+                        b_val = 0.4342944819 / (m_mean - m_min)
+                        local_b_value_50km_3y[row_index] = max(0.3, min(3.0, b_val))
+
         for days in RECENT_WINDOWS_DAYS:
             window_mask = candidate_times >= time_ns[row_index] - windows_ns[days]
             if not window_mask.any():
@@ -553,5 +661,6 @@ def add_recent_local_features(df):
     df[f"nearest_recent_event_distance_km_past_{NEAREST_RECENT_WINDOW_DAYS}d"] = nearest_distance
     df[f"nearest_recent_event_magnitude_past_{NEAREST_RECENT_WINDOW_DAYS}d"] = nearest_magnitude
     df[f"nearest_recent_event_age_days_past_{NEAREST_RECENT_WINDOW_DAYS}d"] = nearest_age_days
+    df["local_b_value_50km_3y"] = local_b_value_50km_3y
 
     return df

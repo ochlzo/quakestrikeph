@@ -71,7 +71,7 @@ FAMILY_DIRS = {
 # and update this dict after any re-train. Random Forest wins no target.
 HYBRID_MODEL_MAPPING = {
     # Classification
-    "aftershock_spatial_zone_24h": "catboost",
+    "aftershock_spatial_zone_24h": "lightgbm",
     # Regression
     "max_aftershock_mag_24h": "catboost",
     "nearest_aftershock_distance_km_24h": "lightgbm",

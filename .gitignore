@@ -54,4 +54,5 @@ src/docs/stacking_oof_fold_reference.md
 src/seis-stacking-ensemble/
 
 # Backup directory
-backup/
+backup/
+dataset/phivolcs_earthquake_2018_2026_latest.csv
