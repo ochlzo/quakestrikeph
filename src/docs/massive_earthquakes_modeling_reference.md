@@ -1,470 +1,595 @@
-# Reference: Improving Extreme Earthquake Prediction through Global-Local Hybrid Learning
+# Improving Extreme Earthquake Prediction: A Guide for the Team
 
-Status: research proposal and modeling reference. This document describes a
-recommended direction for improving SEIS on rare, high-magnitude earthquake
-sequences. It should not be read as a validated production design until the
-validation checklist near the end has been completed.
-
-The current local model is strong on common aftershock-pattern prediction, but
-large initiating earthquakes are rare in the Philippine-only training set. The
-goal of this roadmap is to improve high-magnitude sequence modeling while
-preserving the existing Philippine-local performance.
+> **Status:** Research proposal and modeling roadmap. This is not a validated
+> production design yet. The validation checklist near the end of this document
+> must be completed before anything here is shipped to production.
+>
+> **Audience:** Junior developers on the QuakestrikePH team. No machine learning
+> background assumed. Technical field names and code references are kept but
+> explained in plain language wherever they appear.
 
 ---
 
-# 1. Current Repo Baseline
+## How to Read This Document
 
-The current `mc_1_0` training table is:
+This document tells a story in five parts:
 
-```text
+1. **What we have today** — what the current system does and how it works
+2. **What went wrong** — a real failure on a live earthquake sequence
+3. **Why it went wrong** — the root causes, explained from first principles
+4. **How we fix it** — the recommended plan, plus an alternative approach
+5. **How to build it** — the concrete implementation roadmap and validation checklist
+
+Read it in order. Each section builds on the previous one.
+
+---
+
+## Part 1: What We Have Today
+
+### 1.1 The Dataset
+
+Our current model was trained on a dataset of **124,047 earthquake events** from the
+Philippine record. The file is at:
+
+```
 src/training_set/training_dataset_mc_1_0.csv
 ```
 
-It contains 124,047 events. The rare-event support is thin:
+The `mc_1_0` in the name means **magnitude completeness = 1.0** — we include
+earthquakes as small as M1.0, because PHIVOLCS (the Philippine seismic agency)
+reliably records them down to that level. The more events the model sees, the
+more patterns it can learn.
 
-| Magnitude | Number of Events |
-| --------- | ---------------: |
-| >= 4.0    |            4,888 |
-| >= 5.0    |              632 |
-| >= 6.0    |               82 |
-| >= 7.0    |                8 |
+But here is the problem. Look at how the dataset thins out at the high end:
 
-The largest local training event is M7.4. An M7.8 event is therefore outside the
-observed local training magnitude range.
+| Magnitude   | Number of Events |
+| ----------- | ---------------: |
+| >= 4.0      |            4,888 |
+| >= 5.0      |              632 |
+| >= 6.0      |               82 |
+| >= 7.0      |                **8** |
 
-The current classification target schema is no longer the old independent
-distance-bin setup. It is a single multiclass spatial target:
+The largest earthquake in our training data is **M7.4**. We have trained the
+model almost entirely on small-to-medium earthquakes, with almost nothing at the
+large end. An M7.8 earthquake — bigger than our biggest training example — is
+essentially invisible to the model.
 
-```text
-aftershock_spatial_zone_24h
+### 1.2 What the Model Predicts
+
+Think of the model as an expert guesser. When a new earthquake happens, you feed
+it information about the event and it outputs two kinds of answers.
+
+**Probabilities (classification):** *"What are the chances of aftershocks, and
+where?"*
+
+The model produces all distance-range probabilities from a single unified
+prediction called `aftershock_spatial_zone_24h`. This one internal prediction is
+then translated into the public-facing outputs:
+
+```
+aftershock_24h                  → probability that any aftershock happens in 24h
+aftershock_within_10km_24h      → probability it happens within 10 km
+aftershock_within_25km_24h      → probability it happens within 25 km
+aftershock_within_50km_24h      → probability it happens within 50 km
+aftershock_beyond_50km_24h      → probability it happens beyond 50 km
 ```
 
-The served probabilities are derived from that one model:
+Using a single source for all of these is intentional and important — it keeps
+the five probabilities consistent with each other. If each came from its own
+independent model, they could contradict each other (e.g., "60% within 10km"
+and "20% within 50km" would make no sense).
 
-```text
-aftershock_24h
-aftershock_within_10km_24h
-aftershock_within_25km_24h
-aftershock_within_50km_24h
-aftershock_beyond_50km_24h
+**Estimates (regression):** *"How bad will it be?"*
+
+```
+max_aftershock_mag_24h              → expected maximum aftershock magnitude in 24h
+nearest_aftershock_distance_km_24h  → expected distance to the nearest aftershock
+median_aftershock_distance_km_24h   → median distance across all aftershocks
+p90_aftershock_distance_km_24h      → 90th-percentile distance (how far the outliers go)
 ```
 
-This is important because it avoids incoherent independent distance probabilities
-and preserves a cleaner probability structure for public-facing outputs.
+### 1.3 What the Model Is Built From
 
-The current regression targets are:
+The model reads a set of computed features for each event — numbers that describe
+the earthquake and its local seismic context. Some of these already encode
+known earthquake science:
 
-```text
-max_aftershock_mag_24h
-nearest_aftershock_distance_km_24h
-median_aftershock_distance_km_24h
-p90_aftershock_distance_km_24h
-```
+| Feature | What it means in plain language |
+|---|---|
+| `rupture_depth_attenuation` | How much the depth of the quake weakens its surface impact |
+| `seis_traffic_ratio_30d` | How busy the local area has been seismically in the last 30 days |
+| `baths_law_limit` | A quick estimate of the biggest expected aftershock (mainshock magnitude − 1.2). Note: this is computed from the live event, not a confirmed mainshock label. |
+| `local_b_value_50km_3y` | A measure of how the earthquake frequency varies with magnitude in the local area over the past 3 years |
 
-The feature set already includes several physically motivated or normalized
-features:
-
-```text
-rupture_depth_attenuation
-seis_traffic_ratio_30d
-baths_law_limit
-local_b_value_50km_3y
-```
-
-`baths_law_limit` is currently computed as `event_magnitude - 1.2`. It should be
-interpreted as a current-event Bath's Law proxy, not as a true mainshock feature,
-because a live event is not guaranteed to be the final mainshock of its sequence.
+The model type is a **tree ensemble** — specifically a combination of
+XGBoost, LightGBM, CatBoost, and Random Forest. These are explained further in
+Part 3.
 
 ---
 
-# 2. Problem Statement: Rare Extreme Events
+## Part 2: What Went Wrong
 
-During a live prediction run on the June 8, 2026 Sarangani earthquake sequence,
-the current ensemble showed a major failure on the expected maximum aftershock
-for the initiating large event.
+### 2.1 The Sarangani Sequence (June 8, 2026)
 
-The run was operator-observed during live use. There is no saved prediction JSON
-artifact for this specific run, so it should be treated as legitimate primary
-operator evidence, but not as a fully reproducible benchmark until the same case
-is rerun and saved.
+On June 8, 2026, an M7.8 earthquake struck Sarangani. Our model was running live.
+Here is what it predicted, versus what actually happened:
 
-| Event           | Predicted Maximum Aftershock | Observed Maximum Aftershock |
-| --------------- | ---------------------------: | --------------------------: |
-| M7.8 Mainshock  |                         4.31 |                         6.4 |
-| M4.1 Aftershock |                         5.70 |                         5.5 |
+| Event           | Model Predicted (Max Aftershock) | Actually Observed |
+| --------------- | -------------------------------: | ----------------: |
+| **M7.8 mainshock**  | **M4.31**                    | **M6.4** ← severe miss |
+| M4.1 aftershock |                             M5.70 | M5.5 ✓ (close)    |
 
-The contrast is informative:
+The model was **catastrophically wrong on the M7.8 event** — off by more than
+2 magnitude units. In terms of energy, that is roughly a 1,000× difference.
 
-- The M7.8 initiating event was larger than anything in local training data, and
-  recent-history features were sparse because it started the sequence.
-- The later M4.1 aftershock had the M7.8 event in its history window, so recent
-  counts, local energy, parent/eta context, and nearest-recent-event features
-  became highly informative.
+The model was **reasonably accurate on the M4.1 aftershock** that came later.
 
-This suggests the model is better at recognizing the consequences of a major
-event after it has already happened than estimating sequence productivity from
-the initiating high-magnitude event itself.
+This contrast is the key clue. It tells us exactly where the system breaks down —
+and why.
 
 ---
 
-# 3. Core Limitations
+## Part 3: Why It Went Wrong
 
-## A. Extreme Event Scarcity
+There are three root causes, each building on the previous.
 
-Only eight local training events are M7.0 or larger. That is not enough support
-for supervised learning to robustly learn M7+ aftershock productivity, especially
-for events above the local maximum magnitude.
+### 3.1 Root Cause #1: The Model Has Never Seen a Quake This Big
 
-This affects:
+An analogy:
 
-- maximum expected aftershock magnitude
-- probability of damaging aftershocks
-- aftershock count or productivity
-- wide-area spatial spread of the sequence
+> Imagine you teach someone to estimate house prices by showing them thousands of
+> homes sold between $50,000 and $500,000. Then you ask them to price a $10 million
+> mansion. They have no frame of reference. They will dramatically underestimate it,
+> because they have never seen that price range.
 
-## B. Tree-Ensemble Extrapolation Limits
+Our model has seen 8 earthquakes at M7.0 or above, with the biggest at M7.4.
+When it encounters an M7.8, it is being asked to make a judgment call that is
+entirely outside its experience.
 
-The current ensemble is built from tree-based model families such as XGBoost,
-LightGBM, CatBoost, and Random Forest.
+This directly impacts predictions for:
+- Maximum expected aftershock magnitude
+- Probability of a damaging aftershock
+- Aftershock count / sequence productivity
+- Spatial spread of the aftershock zone
 
-Tree ensembles can model nonlinear structure inside the observed training
-support, but they do not extrapolate smoothly beyond the maximum observed
-magnitude. Once a sample reaches the largest learned magnitude split, larger
-events can fall into the same terminal leaves as merely "large" but still
-in-distribution events. The prediction then reflects the training targets inside
-those leaves, not a physically extrapolated rupture-productivity curve.
+### 3.2 Root Cause #2: Tree Models Cannot Extrapolate
 
-This makes underprediction of M7.8/M8-class sequence severity plausible. However,
-it should be reported as a tested failure mode only after stratified holdout
-analysis by initiating-event magnitude.
+The current model family — XGBoost, LightGBM, CatBoost, Random Forest — are all
+**tree ensembles**. A decision tree works by splitting data into buckets using
+if/else rules learned from training:
 
-## C. History Proxy Dependence
-
-The current feature set is intentionally backward-looking and leakage-safe. That
-is correct for deployment, but it means a first large event in a sequence may
-have relatively little local-history signal.
-
-After the first major event occurs, subsequent events can benefit from strong
-history proxies:
-
-- recent large parent or nearby event
-- elevated local event counts
-- elevated local cumulative energy
-- stronger parent/eta context
-- shorter nearest-recent-event age
-
-This is useful for aftershock monitoring, but insufficient for estimating the
-productivity of the initial large event.
-
-## D. Aggregate Metrics Hide Tail Risk
-
-The 2026 holdout metrics are useful for deployment-style evaluation, but aggregate
-MAE, RMSE, R2, ROC-AUC, and average precision can hide failures on rare M7+
-events. Extreme-event evaluation needs explicit stratification by magnitude and
-sequence type.
-
----
-
-# 4. Motivation for Global Training Data
-
-The rarity of large Philippine earthquakes fundamentally limits local-only
-supervised learning. Carefully selected global earthquake catalogs can increase
-the number of M7+ and M8+ initiating events available for training.
-
-The motivation is strongest for targets tied to sequence severity:
-
-- `max_aftershock_mag_24h`
-- future `max_aftershock_mag_72h`
-- future `aftershock_count_24h` / `aftershock_count_72h`
-- future `m5_plus_aftershock_24h`
-- future `stronger_aftershock_24h`
-
-Empirical laws such as Omori's Law, Gutenberg-Richter scaling, and Bath's Law are
-observed broadly, but regional behavior still matters. Global data should improve
-rare-event support, not erase Philippine-local calibration.
-
----
-
-# 5. Catalog Completeness Problem
-
-The PHIVOLCS-derived local catalog supports an `mc_1_0` modeling path with many
-small earthquakes. A global catalog such as USGS is usually not comparable at
-that same low magnitude threshold across all regions and time periods.
-
-Naively merging PHIVOLCS M1+ data with global M4+ data would distort:
-
-- rolling event counts
-- local event rates
-- cumulative energy summaries
-- local b-value estimates
-- nearest-recent-event features
-
-The global-compatible feature path should therefore impose an explicit magnitude
-completeness threshold. M4.0 is a reasonable starting hypothesis, not a universal
-truth. Completeness should be estimated or documented per catalog, region, and
-time range whenever possible.
-
----
-
-# 6. Recommended Architecture
-
-Use a dual-model research architecture first. Do not immediately ship a hard
-production route at `M_input >= 4.0` until validation proves it improves
-Philippine holdout behavior.
-
-```mermaid
-graph TD
-    A["Live Earthquake Event"] --> B["Build mc_1_0 local features"]
-    A --> C["Build mc_4_0 global-compatible features"]
-
-    B --> D["Local PHIVOLCS model"]
-    C --> E["Global-local hybrid model"]
-
-    D --> F["Calibrated local predictions"]
-    E --> G["Calibrated global-compatible predictions"]
-
-    F --> H{"Router or calibrated blender"}
-    G --> H
-
-    H --> I["Public and internal prediction outputs"]
+```
+Is magnitude > 6.5?
+  YES → Is depth < 30 km?
+         YES → Predicted max aftershock = 5.8
+         NO  → Predicted max aftershock = 5.2
+  NO  → Is magnitude > 5.0? ...
 ```
 
-Recommended serving behavior:
+The problem: **the rules only cover what was seen in training.** Once a new
+earthquake exceeds the highest magnitude split the model ever learned (M7.4 in
+our case), every larger event falls into the same final bucket. The output is
+frozen — it cannot grow to reflect a physically more severe event.
 
-- Keep the local `mc_1_0` model for small and common events.
-- Add a global-compatible `mc_4_0` model for large-event sequence severity.
-- Compare hard routing, soft blending, and magnitude-dependent weighting.
-- Avoid a discontinuous public behavior cliff around M4.0 unless it is clearly
-  validated.
-- Keep output calibration separate for each model path.
+```
+What the model sees vs. reality:
 
-The simplest first experiment is:
-
-```text
-if magnitude >= 4.0:
-    compare local mc_1_0 output vs global-compatible mc_4_0 output
-else:
-    use local mc_1_0 output
+Training max = M7.4
+                     M7.4    M7.8    M8.2
+Tree output:  ───────[5.8]───[5.8]───[5.8]───  ← stuck at the last bucket
+True pattern: ───────[6.4]───[6.6]───[7.0]───  ← should keep growing
 ```
 
-But the production decision should be based on Philippine holdout performance,
-not the threshold alone.
+This is a fundamental limitation of the tree model family. It is not a bug — it
+is how trees are designed. They are excellent at finding patterns *within* the
+training range, but they cannot project beyond it.
+
+> **For the record:** Bath's Law — a 200-year-old empirical rule — simply says:
+> biggest aftershock ≈ mainshock magnitude − 1.2.
+> For M7.8: 7.8 − 1.2 = **M6.6** (actual: **M6.4** ✓).
+> Our model predicted M4.31. A simple physics formula significantly outperformed
+> the ML model on this event. This is a strong signal that physics should anchor
+> our predictions for extreme events.
+
+### 3.3 Root Cause #3: The First Event Has No History to Work With
+
+Many of the model's most useful inputs are backward-looking — they describe what
+has already happened nearby:
+
+- How many earthquakes in the last 30 days?
+- What was the most recent large nearby event?
+- What is the accumulated local seismic energy?
+
+When the **M4.1 aftershock** occurred, the model could see the M7.8 in the recent
+history window. That was a powerful signal — it told the model "a massive event
+just happened nearby." The M4.1 prediction was decent as a result.
+
+But when the **M7.8 itself** struck, the history window was quiet. Nothing
+unusual had happened yet. The model was flying blind, relying only on magnitude,
+depth, and static location context. That is not enough for a once-in-a-decade
+event.
+
+This is sometimes called the **cold start problem** — the same challenge a
+recommendation system faces when a brand-new user has no listening history. There
+is simply no data to work with yet.
+
+### 3.4 Root Cause #4: Aggregate Metrics Hide the Problem
+
+Our evaluation scores (MAE, RMSE, R², AUC) look at average performance across all
+events. With 124,047 events, 8 large earthquakes are a rounding error.
+A perfect score on 124,039 common events can completely hide a catastrophic failure
+on the 8 rare ones.
+
+We need **stratified evaluation** — separate performance metrics per magnitude
+bucket — to see the true failure mode.
 
 ---
 
-# 7. Regional Tectonic Filtering
+## Part 4: How We Fix It
 
-Training data should prioritize tectonic settings comparable to the Philippines,
-especially subduction and island-arc environments.
+The root cause is clear: the model has not seen enough large earthquakes. The fix
+is to show it more of them — from the global record.
 
-Candidate regions:
+### 4.1 Recommended Fix: Bring In Global Training Data
 
-- Japan
-- Sumatra
-- Mariana
-- Kuril-Kamchatka
-- Tonga
-- Chile
-- other well-instrumented subduction-zone catalogs with clear metadata
+Large earthquakes are rare in the Philippines, but they happen regularly elsewhere.
+Japan, Chile, and Sumatra experience M7+ and M8+ events far more often. Their
+seismic records give us what the Philippine-only dataset cannot: **real examples of
+what a massive earthquake sequence looks like.**
 
-Avoid making exclusion rules too absolute. Continental transform and intraplate
-regions may be poor matches, but the better approach is to include tectonic
-metadata and run ablation studies:
+The goal is not to replace Philippine data. It is to supplement it specifically
+for the high-magnitude range where our local data is too thin.
 
-- subduction-only global model
-- all-global model with region metadata
-- Philippines-only model
-- global pretrain plus Philippine fine-tune
-- weighted global-local joint model
+#### 4.1.1 Which Regions to Use
 
-The production model should choose the approach that improves Philippine
-deployment metrics, not the approach that seems geologically intuitive upfront.
+We should prioritize regions with the same **tectonic setting** as the Philippines.
+The Philippines sits on a subduction zone — where one tectonic plate dives under
+another. The same physics governs aftershock behavior in comparable zones:
+
+| Candidate Region | Why It's Relevant |
+|---|---|
+| Japan | Same subduction-zone setting; excellent data quality and density |
+| Sumatra | Very similar tectonic environment to the Philippines |
+| Chile | Subduction zone with some of the largest recorded earthquakes |
+| Mariana / Tonga / Kuril | Pacific Ring of Fire, same plate boundary dynamics |
+
+We should also test continental regions but not assume they are comparable. The
+right approach is to run **ablation studies** — train with and without each region,
+measure the impact on Philippine prediction quality, and let the numbers decide.
+
+#### 4.1.2 The Catalog Completeness Problem
+
+There is a critical data compatibility issue to solve first.
+
+PHIVOLCS records earthquakes down to **M1.0+** reliably. The global USGS catalog
+is generally only reliable at **M4.0+** across all regions and time periods.
+
+If we naively merge both catalogs, we break features like rolling event counts:
+
+- The Philippine model "knows" that 50 earthquakes happened nearby last month
+  (counting everything M1.0+).
+- The global model only "sees" 3 of those (the ones above M4.0).
+- The model thinks the area was nearly silent, when it wasn't.
+
+**The fix:** apply a **magnitude completeness threshold of M4.0** to the global
+data path. All features that count events, compute rates, or estimate local energy
+must be recalculated using only M4.0+ events for the global model. This model
+path is called `mc_4_0` (magnitude completeness = 4.0) to distinguish it from the
+existing `mc_1_0` (Philippine) path.
+
+#### 4.1.3 The Two-Model Architecture
+
+This leads to running two model pipelines:
+
+```
+Any earthquake is reported
+         │
+         ▼
+      ROUTER
+  "Is magnitude >= 4.0?"
+         │
+    YES  │  NO
+         │
+  ┌──────┴──────────────────────────────┐
+  │                                     │
+  ▼                                     ▼
+mc_4_0 path                         mc_1_0 path
+(global-compatible model)           (local Philippine model)
+  - Only counts M4.0+ events           - Counts all M1.0+ events
+  - Trained on Philippines             - Trained on Philippines only
+    + global similar regions           - Strong on common small quakes
+  - Better for rare large quakes
+  │                                     │
+  └──────────────┬──────────────────────┘
+                 │
+                 ▼
+        Calibrated output
+     → served to public / operators
+```
+
+The router runs first and is essentially free to compute — it is just a magnitude
+threshold check. Only one model runs per prediction.
+
+**Important:** the threshold of M4.0 creates a boundary. An M3.9 and an M4.1 are
+physically almost identical but would get routed to different models. To avoid
+jarring discontinuities, use a conservative transition band (e.g., route anything
+≥ M3.8 to `mc_4_0` as well), or keep the local `mc_1_0` path running in parallel
+for comparison until validation confirms a clean cutoff point.
+
+> **Keep calibration separate per path.** Calibration means making the model's
+> confidence scores honest and trustworthy — if the model says "70% chance of a
+> damaging aftershock," we want that to mean 7 in 10 similar events actually had
+> one. Each model path has different biases and needs its own calibration
+> correction step.
+
+#### 4.1.4 Training Strategies to Test
+
+We should not assume that simply mixing global data with Philippine data produces
+the best result. We need to test multiple strategies and pick the one that
+improves Philippine predictions the most:
+
+| Strategy | How It Works | When It Wins |
+|---|---|---|
+| **Local-only `mc_4_0`** | Retrain Philippine-only model at M4.0+ threshold | Baseline comparison |
+| **Global-only `mc_4_0`** | Train entirely on global data | Unlikely to win overall, but useful as a component |
+| **Global + local joint** | Mix both datasets; add a `tectonic_region` feature so the model knows where data comes from | Likely strong starting point |
+| **Global pretrain → PH fine-tune** | Train on global data first, then re-specialize on Philippine data | Best conceptual fit; like how LLMs learn general language then specialize |
+| **Global + local with PH weighting** | Mix both but give Philippine events higher importance during training | Simpler alternative to fine-tuning |
+
+The **global pretrain → Philippine fine-tune** approach is conceptually the most
+robust. Think of it like how a language model learns general English from all of
+the internet, then gets specialized on a specific domain. The model first learns
+"what does an M7.8 sequence look like globally?" and then "how does the Philippines
+specifically behave?"
+
+#### 4.1.5 New Prediction Targets
+
+While the global data approach improves the *accuracy* of existing predictions, we
+should also add new targets that more directly answer "how bad is this sequence?"
+
+**Tier 1 — Add these first:**
+
+| Target | What it predicts |
+|---|---|
+| `aftershock_count_24h` | How many aftershocks in the next 24 hours? |
+| `aftershock_count_72h` | How many in 72 hours? |
+| `max_aftershock_mag_72h` | Biggest aftershock in 3 days? |
+| `m5_plus_aftershock_24h` | Will there be a damaging M5+ aftershock? |
+| `m5_plus_aftershock_72h` | Same, but 72-hour window |
+
+**Tier 2 — Add when Tier 1 is stable:**
+
+| Target | What it predicts |
+|---|---|
+| `stronger_aftershock_24h` | Will the next quake be *bigger* than this one? |
+| `stronger_aftershock_72h` | Same, 72-hour window |
+| `time_to_first_aftershock_if_any` | How soon will the first aftershock arrive? |
+| `nearest_aftershock_distance_band_if_any` | Rough distance band to the nearest aftershock |
+
+> **Note on count targets:** Earthquake counts are not evenly distributed — they
+> are **count data**, heavily skewed (many sequences with 0–2 aftershocks, very
+> few with 50+). Standard regression is not the right tool for this. Use
+> **Poisson regression** or **Tweedie regression** for count targets, or at
+> minimum apply a `log1p(count)` transformation. Using the wrong method here
+> systematically underestimates high-count sequences.
 
 ---
 
-# 8. Target Strategy
+### 4.2 Alternative Fix: Neural Networks for Better Extrapolation
 
-The global-local work should preserve the current multiclass spatial-zone target:
+> **Status:** Alternative option. Not the current focus. Captured here for
+> awareness and future consideration. The global data plan (Section 4.1) is the
+> recommended path.
 
-```text
-aftershock_spatial_zone_24h
+The extrapolation problem (Root Cause #2) can also be partially addressed by
+switching model families. Tree ensembles freeze at the training boundary. Neural
+networks learn smooth continuous functions that can extend beyond it.
+
+```
+Training max = M7.4
+
+Tree output:    ───────[5.8]───[5.8]───[5.8]───  ← frozen
+Neural net:     ───────[6.3]───[6.7]───[7.1]───  ← continues the curve
 ```
 
-This keeps public distance probabilities coherent.
+**Important caveat:** a neural network extrapolates in whatever direction its
+learned curve was heading — not necessarily the physically correct direction. If
+the curve was flattening off at M7.0, the extrapolation will follow that flatten.
+Extrapolation is not automatically *correct* extrapolation.
 
-For massive-earthquake awareness, add targets that directly encode severity and
-sequence productivity:
+The most robust version of this idea is a **Physics-Informed approach**:
 
-## Tier 1 Targets
+1. Compute a physics-based baseline (e.g., Bath's Law: max aftershock ≈ mainshock − 1.2)
+2. Train a neural network to predict the *residual* — how much does this specific
+   event deviate from the physics baseline?
+3. Final prediction = physics baseline + neural network residual
 
-```text
-aftershock_count_24h
-aftershock_count_72h
-max_aftershock_mag_24h
-max_aftershock_mag_72h
-m5_plus_aftershock_24h
-m5_plus_aftershock_72h
-```
+This constrains the extrapolation to follow known seismic laws rather than
+whatever the data happened to suggest. Architecture options for tabular data
+include **TabNet** and **FT-Transformer** — neural network designs purpose-built
+for structured/tabular input like ours.
 
-These are more operationally meaningful than broad radius containment.
+**Why this is secondary to the global data plan:**
 
-## Tier 2 Targets
+- Global data gives the model *real observed examples* of M7.8+ sequences.
+  Neural network extrapolation is still a mathematical approximation.
+- Real data beats mathematical extrapolation. If we can bring in enough global
+  M7+ events, the model no longer needs to extrapolate at all — it is
+  interpolating from seen examples.
+- Neural networks are also harder to tune, interpret, and maintain for a team
+  without deep ML experience. Tree ensembles are more debuggable and well
+  understood by the existing pipeline.
 
-```text
-stronger_aftershock_24h
-stronger_aftershock_72h
-time_to_first_aftershock_if_any
-nearest_aftershock_distance_band_if_any
-```
-
-`stronger_aftershock_*` is especially important for public risk communication,
-but it will be rare and must be framed as relative risk, not a deterministic
-alarm.
-
-## Modeling Notes
-
-- Count targets should use count-aware objectives where possible, such as
-  Poisson, Tweedie, or `log1p(count)` regression.
-- Magnitude escalation targets should be calibrated classifiers, not thresholds
-  inferred from a weak regressor alone.
-- Regression outputs should include uncertainty or prediction intervals for
-  public use.
+This path should be revisited if the global data plan does not close the gap on
+M7+ prediction quality.
 
 ---
 
-# 9. Feature Engineering Improvements
+## Part 5: How to Build It
 
-Some features already exist and should be preserved:
+### 5.1 Implementation Roadmap
 
-```text
-rupture_depth_attenuation
-seis_traffic_ratio_30d
-baths_law_limit
-local_b_value_50km_3y
+#### Stage 1: Collect and Clean Global Catalog
+
+1. Download global earthquake catalog data (USGS Earthquake Catalog, ISC catalog).
+2. Filter by tectonic region — prioritize subduction zones (Japan, Sumatra, Chile,
+   Mariana, Tonga, Kuril).
+3. Normalize schema to match the local pipeline core fields:
+   ```
+   origin_time
+   latitude
+   longitude
+   depth_km
+   magnitude
+   catalog_source
+   tectonic_region
+   ```
+4. Apply and document the `mc_4_0` completeness threshold. Record the threshold
+   per catalog, region, and time range. Do not assume M4.0 is universally correct
+   everywhere — verify where possible.
+
+#### Stage 2: Rebuild Sequence Labels from Scratch
+
+Do **not** import sequence labels from foreign catalogs. Different catalogs define
+"aftershock sequences" differently. Recompute all labels using the same
+forward-window labeling logic already used by the local pipeline, applied to the
+global event records.
+
+Labels to recompute:
 ```
-
-Recommended refinements:
-
-- Rename or document `baths_law_limit` as a current-event proxy, because it is
-  computed from the live event magnitude, not confirmed mainshock magnitude.
-- Add cumulative seismic moment features over recent windows.
-- Add maximum recent magnitude over wider spatial windows for the `mc_4_0` path.
-- Add sequence-age features only when a sequence-initiation rule is explicitly
-  defined without leakage.
-- Add Omori-style decay features only if the triggering event and elapsed time
-  are defined causally from prior events.
-- Consider slab depth, trench distance, tectonic regime, and focal mechanism
-  where available.
-
-Feature definitions must remain identical between training and serving for each
-model path. If there is an `mc_1_0` and `mc_4_0` path, each path needs its own
-saved feature manifest and reproducibility checks.
-
----
-
-# 10. Proposed Training Strategy
-
-## Stage 1: Build a Global-Compatible Catalog
-
-Collect global earthquake sequences from selected tectonic regions. Normalize the
-schema to the same core fields used by the local pipeline:
-
-```text
-origin_time
-latitude
-longitude
-depth_km
-magnitude
-catalog_source
-tectonic_region
-```
-
-Apply a documented completeness threshold, initially `mc_4_0`.
-
-## Stage 2: Rebuild Sequence Labels
-
-Do not import foreign catalog labels directly unless they are produced with a
-compatible definition. Recompute sequence targets with a consistent forward-window
-labeling method wherever possible.
-
-The global labels should align with the current SEIS target contract:
-
-```text
 aftershock_spatial_zone_24h
 aftershock_24h
 max_aftershock_mag_24h
 nearest/median/p90_aftershock_distance_km_24h
 ```
 
-Then extend the target set with count and escalation labels.
+Then extend with the new Tier 1 count and escalation labels.
 
-## Stage 3: Train Candidate Models
+#### Stage 3: Rebuild Features for the mc_4_0 Path
 
-Train and compare:
+All rolling window features must be recomputed using only M4.0+ events for the
+global path. A feature that was previously computed as "count of all earthquakes
+in 30 days" must become "count of M4.0+ earthquakes in 30 days" in the `mc_4_0`
+path. This is not optional — mixing incompatible feature definitions across paths
+will silently corrupt model inputs.
 
-- local-only `mc_1_0`
-- local-only `mc_4_0`
-- global-only `mc_4_0`
-- global + local joint `mc_4_0`
-- global pretrain with Philippine fine-tuning
-- global + local with Philippine sample weighting
+Recommended additions to the feature set:
 
-Train classification, count, and regression targets. Do not limit this work to
-the magnitude regressor.
+| Feature | Why it helps |
+|---|---|
+| Cumulative seismic moment over recent windows | Captures total energy release, not just event count |
+| Maximum recent magnitude over wider spatial windows | Gives the model awareness of the largest recent event in the region |
+| `tectonic_region` label | Lets the model distinguish subduction-zone from transform-fault behavior |
+| Slab depth, trench distance (where available) | Physically motivated for subduction-zone depth patterns |
 
-## Stage 4: Evaluate on Philippine Events Only
+**Save a feature manifest for each model path.** A feature manifest is a saved
+list of every feature, how it is computed, and what parameters it uses. This is
+required for reproducing results and for ensuring training and serving use
+identical feature definitions. Two paths = two manifests.
 
-Evaluation should be deployment-aligned:
+#### Stage 4: Train and Compare Candidate Models
 
-- Philippine temporal holdout only
-- no Sarangani tuning if Sarangani is used as a final stress test
-- metrics stratified by input magnitude bucket
-- metrics stratified by whether the event is an initiating event or already has
-  recent large-event history
-- calibration curves for public probability outputs
-- separate reporting for common-event performance and M6+/M7+ tail behavior
+Train all five strategies listed in Section 4.1.4. Track metrics for:
+- Classification targets (zone, aftershock probability)
+- Regression targets (max magnitude, distances)
+- Count targets (aftershock counts, M5+ escalation)
 
----
+Do not limit evaluation to only the magnitude regressor. The count and escalation
+targets matter equally for public risk communication.
 
-# 11. Required Validation Checklist
+#### Stage 5: Evaluate on Philippine Events Only
 
-Before treating this roadmap as a production model design, complete:
+All evaluation for production decisions must use a **Philippine-only temporal
+holdout** — a time period of Philippine events not seen during training.
 
-1. Rerun and save the Sarangani prediction input and output JSON.
-2. Add a stress-test folder for handpicked major Philippine sequences.
-3. Report metrics for `M < 4`, `M4-M5`, `M5-M6`, `M6-M7`, and `M >= 7`.
-4. Compare local `mc_1_0` vs local/global `mc_4_0` on the same Philippine holdout.
-5. Check whether global data improves `max_aftershock_mag_*` without degrading
-   `aftershock_24h` calibration.
-6. Evaluate count and M5+ escalation targets, not only magnitude regression.
-7. Verify that no future cluster labels or post-event sequence features leak into
-   serving features.
-8. Save model artifacts, feature manifests, commands, and prediction outputs for
-   every stress-test case.
+Required breakdowns:
+- Metrics per magnitude bucket: `M < 4`, `M4–M5`, `M5–M6`, `M6–M7`, `M >= 7`
+- Metrics split by: initiating event vs. event with known large-event history
+- Calibration curves for each model path's probability outputs
+- Stress-test results for major known Philippine sequences (Sarangani required)
 
----
-
-# 12. Expected Benefits
-
-If validated, the global-local framework should:
-
-- improve rare M7+ sequence severity prediction
-- reduce high-magnitude underprediction from local-only tree models
-- improve damaging-aftershock awareness through count and M5+ targets
-- preserve local performance on common Philippine earthquakes
-- keep public probability outputs coherent through the spatial-zone classifier
-- make extreme-event outputs easier to audit through saved stress-test artifacts
+> **Do not tune on Sarangani.** Reserve it as a pure stress test — the same
+> way you would not train a model on your test data. If you tune parameters to
+> fit Sarangani, you will not know how the model performs on the *next* unknown
+> large event.
 
 ---
 
-# Future Work
+### 5.2 Feature Engineering Notes
 
-Potential extensions:
+Some features already exist and should be preserved exactly:
 
-- focal mechanism and moment tensor features
-- tectonic descriptors such as slab depth and trench distance
-- uncertainty intervals for maximum magnitude and count targets
-- conformal prediction or quantile regression for public-facing ranges
-- physics-guided ML that combines empirical seismic laws with statistical
-  learning
-- explicit model cards for disaster-awareness deployment limitations
+```
+rupture_depth_attenuation
+seis_traffic_ratio_30d
+baths_law_limit
+local_b_value_50km_3y
+```
+
+One clarification: `baths_law_limit` is computed as `event_magnitude - 1.2`. This
+is a live-event proxy, not a confirmed mainshock feature. A live event is not
+guaranteed to be the final mainshock of its sequence (a larger event may follow).
+The field name can stay, but the team should document this nuance in comments.
+
+---
+
+## Part 6: Validation Checklist
+
+Complete all items below before treating any part of this roadmap as a production
+model design. Until then, the existing `mc_1_0` Philippine model remains the
+serving model.
+
+- [ ] **Reproduce the Sarangani failure.** Rerun the June 8 prediction using saved
+  inputs and record the output JSON as an official artifact. Right now it is
+  operator-observed only — it needs to be a reproducible benchmark.
+
+- [ ] **Build a stress-test folder.** Create a folder of handpicked major Philippine
+  sequences with saved prediction inputs and expected outputs. This becomes the
+  permanent regression test suite for large-event behavior.
+
+- [ ] **Add stratified magnitude metrics.** Report separate performance numbers for
+  `M < 4`, `M4–M5`, `M5–M6`, `M6–M7`, and `M >= 7`. Aggregate metrics
+  (overall MAE, R², AUC) are not sufficient to catch tail failures.
+
+- [ ] **Compare mc_1_0 vs mc_4_0 on Philippine holdout.** Measure both paths on the
+  same Philippine events. Do not ship `mc_4_0` unless it meaningfully improves
+  M6+/M7+ predictions without degrading common-event accuracy.
+
+- [ ] **Validate that global data improves max-aftershock prediction.** Specifically
+  check that `max_aftershock_mag_*` improves for M6+ initiating events, and
+  that `aftershock_24h` calibration is not degraded on common M2–M4 events.
+
+- [ ] **Evaluate count and M5+ escalation targets.** Do not evaluate only the
+  magnitude regressor. Count and escalation targets are operationally critical
+  and must be measured separately.
+
+- [ ] **Audit all features for data leakage.** Every feature used in training must
+  be computable from information available at prediction time — before the
+  aftershock window opens. Any feature that depends on what happens after the
+  event is leakage and will silently inflate evaluation metrics while
+  producing garbage in production.
+
+- [ ] **Save all artifacts.** For every stress-test case: save the model version,
+  feature manifest, input features, and prediction output JSON. Without these,
+  results cannot be reproduced or compared across model versions.
+
+---
+
+## Appendix: Key Terms Reference
+
+| Term | Plain meaning |
+|---|---|
+| **mc_1_0** | Magnitude completeness = 1.0. The Philippine model that uses all events down to M1.0. |
+| **mc_4_0** | Magnitude completeness = 4.0. The global-compatible model that only uses M4.0+ events. |
+| **Extrapolation** | Predicting beyond the range of values seen in training. Tree models cannot do this. |
+| **Calibration** | Making the model's probability scores honest — "70% confidence" should mean true 70% of the time. |
+| **Cold start** | When a new event has no local history to draw on, weakening the model's feature signal. |
+| **Data leakage** | Accidentally using future information as a training input, making the model look better than it really is. |
+| **Tree ensemble** | A model family (XGBoost, LightGBM, etc.) that learns if/else rules. Accurate inside training range; cannot extrapolate. |
+| **Neural network (tabular)** | A model family that learns smooth functions. Can extrapolate beyond training range, but may not extrapolate correctly without physics constraints. |
+| **Poisson regression** | A regression method designed for count data (how many aftershocks?). More appropriate than standard regression for skewed count targets. |
+| **Bath's Law** | Empirical rule: the largest aftershock is typically ~1.2 magnitude units smaller than the mainshock. A useful physics anchor for large events. |
+| **Fine-tuning** | Train on global data first to learn general patterns, then continue training on Philippine data to specialize. Like learning a skill generally before mastering the local version. |
+| **Feature manifest** | A saved document describing every feature, how it is computed, and what parameters it uses. Required for reproducibility and consistent training/serving behavior. |
+| **Stratified evaluation** | Evaluating model performance separately per subgroup (e.g., per magnitude bucket) rather than as a single aggregate score. |
+| **Ablation study** | Testing with one thing removed to measure its isolated contribution. E.g., train without Japan data to see how much Japan data actually helps. |
