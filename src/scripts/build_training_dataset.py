@@ -36,6 +36,9 @@ FORECAST_HOURS = 24
 # NEAREST_RECENT_WINDOW_DAYS) are imported from feature_engineering above so the
 # batch feature builders and select_training_columns agree on the column names.
 CUMULATIVE_RADII_KM = [10.0, 25.0, 50.0]
+# TODO(training): This metadata contract should live in feature_engineering.py
+# so batch training and per-event prediction use the same category normalization.
+CATALOG_METADATA_COLUMNS = ["catalog_source", "source_region"]
 
 
 
@@ -71,6 +74,8 @@ def parse_args():
 def add_forecast_targets(df, forecast_hours):
     forecast_days = forecast_hours / 24.0
     target_aftershock = np.zeros(len(df), dtype=np.int8)
+    target_aftershock_count = np.zeros(len(df), dtype=np.int32)
+    target_m5_plus_aftershock = np.zeros(len(df), dtype=np.int8)
     target_nearest_distance = np.full(len(df), np.nan)
     target_median_distance = np.full(len(df), np.nan)
     target_p90_distance = np.full(len(df), np.nan)
@@ -124,6 +129,10 @@ def add_forecast_targets(df, forecast_hours):
                 longitudes[future_positions],
             )
             target_aftershock[original_index] = 1
+            target_aftershock_count[original_index] = int(len(future_positions))
+            target_m5_plus_aftershock[original_index] = int(
+                (magnitudes[future_positions] >= 5.0).any()
+            )
             # Robust statistics of the aftershock distance cloud (B). The median
             # and p90 are stable; the old max was almost pure tail (p95 ~ 500 km)
             # and not learnable. Reported back as a range at inference.
@@ -149,6 +158,8 @@ def add_forecast_targets(df, forecast_hours):
 
     df["aftershock_spatial_zone_24h"] = target_spatial_zone
     df["aftershock_24h"] = target_aftershock
+    df["m5_plus_aftershock_24h"] = target_m5_plus_aftershock
+    df["aftershock_count_24h"] = target_aftershock_count
     for radius, values in within_targets.items():
         df[f"aftershock_within_{int(radius)}km_24h"] = values
     df["aftershock_beyond_50km_24h"] = (target_spatial_zone == 4).astype(np.int8)
@@ -159,8 +170,48 @@ def add_forecast_targets(df, forecast_hours):
     return df
 
 
+def normalize_category_value(value):
+    # TODO(training): Move this helper to feature_engineering.py before training
+    # final source-aware models; prediction must normalize categories identically.
+    if pd.isna(value):
+        return "unknown"
+    text = str(value).strip().lower()
+    if not text:
+        return "unknown"
+    cleaned = []
+    previous_underscore = False
+    for ch in text:
+        if ch.isalnum():
+            cleaned.append(ch)
+            previous_underscore = False
+        elif not previous_underscore:
+            cleaned.append("_")
+            previous_underscore = True
+    return "".join(cleaned).strip("_") or "unknown"
 
-def select_training_columns(df, include_local_history):
+
+def add_catalog_metadata_features(df):
+    # TODO(training): Replace this local one-hot implementation with a shared
+    # feature_engineering helper that can also create prediction-time metadata
+    # features from the loaded feature manifest.
+    feature_columns = []
+    for column in CATALOG_METADATA_COLUMNS:
+        if column not in df.columns:
+            continue
+
+        normalized = df[column].map(normalize_category_value)
+        df[column] = normalized
+        categories = sorted(normalized.dropna().unique())
+        for category in categories:
+            feature_column = f"{column}_{category}"
+            df[feature_column] = (normalized == category).astype(np.int8)
+            feature_columns.append(feature_column)
+
+    return df, feature_columns
+
+
+
+def select_training_columns(df, include_local_history, catalog_feature_columns):
     feature_columns = [
         "magnitude",
         "depth_km",
@@ -181,6 +232,7 @@ def select_training_columns(df, include_local_history):
         "event_dayofyear",
         "event_hour",
         "event_weekday",
+        *catalog_feature_columns,
     ]
 
     for days in RECENT_WINDOWS_DAYS:
@@ -217,6 +269,8 @@ def select_training_columns(df, include_local_history):
     target_columns = [
         "aftershock_spatial_zone_24h",
         "aftershock_24h",
+        "m5_plus_aftershock_24h",
+        "aftershock_count_24h",
         *[f"aftershock_within_{int(radius)}km_24h" for radius in CUMULATIVE_RADII_KM],
         "aftershock_beyond_50km_24h",
         "nearest_aftershock_distance_km_24h",
@@ -231,6 +285,9 @@ def select_training_columns(df, include_local_history):
         "year",
         "month",
     ]
+    metadata_columns.extend(
+        column for column in CATALOG_METADATA_COLUMNS if column in df.columns
+    )
 
     selected = df[metadata_columns + feature_columns + target_columns].copy()
     selected["is_strong_link"] = selected["is_strong_link"].astype(str).str.lower().eq("true").astype(int)
@@ -276,11 +333,13 @@ def main():
     if args.include_local_history:
         df = add_recent_local_features(df)
     df = add_advanced_features(df)
+    df, catalog_feature_columns = add_catalog_metadata_features(df)
     df = add_forecast_targets(df, args.forecast_hours)
 
     training_df, feature_columns, target_columns = select_training_columns(
         df,
         args.include_local_history,
+        catalog_feature_columns,
     )
     args.output_csv.parent.mkdir(parents=True, exist_ok=True)
     training_df.to_csv(args.output_csv, index=False)
@@ -291,9 +350,15 @@ def main():
     target_path.write_text("\n".join(target_columns) + "\n", encoding="utf-8")
 
     positives = int(training_df["aftershock_24h"].sum())
+    m5_positives = int(training_df["m5_plus_aftershock_24h"].sum())
     print(f"Wrote {args.output_csv}")
     print(f"Rows: {len(training_df)}")
     print(f"aftershock_24h positives: {positives} ({positives / len(training_df) * 100:.2f}%)")
+    print(
+        "m5_plus_aftershock_24h positives: "
+        f"{m5_positives} ({m5_positives / len(training_df) * 100:.2f}%)"
+    )
+    print(f"aftershock_count_24h mean: {training_df['aftershock_count_24h'].mean():.4f}")
     print(f"Feature columns: {feature_path}")
     print(f"Target columns: {target_path}")
 

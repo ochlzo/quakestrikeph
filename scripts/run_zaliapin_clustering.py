@@ -40,6 +40,7 @@ def compile_executable(executable):
         "g++",
         "-std=c++17",
         "-O2",
+        "-fopenmp",
         "-I",
         "src/zaliapin-ben-zion-clustering",
         *[str(source) for source in CPP_SOURCES],

@@ -232,50 +232,71 @@ is to show it more of them — from the global record.
 
 ### 4.1 Recommended Fix: Bring In Global Training Data
 
-Large earthquakes are rare in the Philippines, but they happen regularly elsewhere.
-Japan, Chile, and Sumatra experience M7+ and M8+ events far more often. Their
-seismic records give us what the Philippine-only dataset cannot: **real examples of
-what a massive earthquake sequence looks like.**
+Large earthquakes are rare in the Philippines, but they happen regularly in
+tectonically comparable regions. Indonesia, Japan, Taiwan, and Papua New Guinea
+provide the first analog pool because they include subduction-zone, island-arc,
+strike-slip, volcanic-arc, and complex multi-plate settings that are closer to the
+Philippines than generic global earthquake regions. Their seismic records give us
+what the Philippine-only dataset cannot: **real examples of what a massive
+earthquake sequence looks like.**
 
 The goal is not to replace Philippine data. It is to supplement it specifically
 for the high-magnitude range where our local data is too thin.
 
 #### 4.1.1 Which Regions to Use
 
-We should prioritize regions with the same **tectonic setting** as the Philippines.
-The Philippines sits on a subduction zone — where one tectonic plate dives under
-another. The same physics governs aftershock behavior in comparable zones:
+We should prioritize regions with the same **tectonic setting** as the Philippines,
+not just regions that are earthquake-prone or inside the Pacific Ring of Fire.
+Country names are only a first-pass filter; final selection should use tectonic
+setting, plate-boundary type, depth behavior, and polygons or bounding boxes.
 
-| Candidate Region | Why It's Relevant |
-|---|---|
-| Japan | Same subduction-zone setting; excellent data quality and density |
-| Sumatra | Very similar tectonic environment to the Philippines |
-| Chile | Subduction zone with some of the largest recorded earthquakes |
-| Mariana / Tonga / Kuril | Pacific Ring of Fire, same plate boundary dynamics |
+| Candidate Region | Priority | Why It's Relevant |
+|---|---|---|
+| Indonesia | Primary analog | Archipelagic subduction setting with volcanic arcs, megathrust segments, strike-slip faults, microplate complexity, and large aftershock sequences. Prioritize Sumatra, Java, Nusa Tenggara, Sulawesi, Molucca, and Banda rather than treating all of Indonesia as equal. |
+| Japan | Primary analog | Island-arc country with multiple subduction systems, volcanic arcs, megathrust earthquakes, crustal faulting, and deep slab seismicity. Prioritize Ryukyu, Nankai, Izu-Bonin, and Japan Trench regions. |
+| Taiwan region | Primary / near-field analog | Tectonically close to the northern Philippine system, with Eurasian-Philippine Sea Plate interaction, arc-continent collision, and strong crustal seismicity. |
+| Papua New Guinea | Primary to secondary analog | Complex convergent plate-boundary zone with subduction, microplates, major faults, island arcs, and frequent large earthquakes. |
+| Solomon Islands / Vanuatu | Secondary analog | Useful island-arc and subduction systems with plate-boundary complexity and frequent large earthquakes. |
+| Tonga-Kermadec | Secondary analog | Strong subduction physics, but less similar to the Philippines' multi-trench archipelago. |
+| New Zealand | Separate labeled class | Useful for Hikurangi subduction and crustal/transform behavior, but should be separated because it includes more continental collision and transform deformation. |
 
-We should also test continental regions but not assume they are comparable. The
-right approach is to run **ablation studies** — train with and without each region,
-measure the impact on Philippine prediction quality, and let the numbers decide.
+Chile, Peru, Mexico, Alaska, California, and Turkey should not be primary analogs
+for this model path. They can be kept as comparison or control groups to test
+whether the model is learning Philippines-like tectonic behavior or just
+"earthquakes in general."
+
+The right approach is to run **ablation studies** — train with and without each
+analog tier or region, measure the impact on Philippine prediction quality, and
+let the numbers decide.
 
 #### 4.1.2 The Catalog Completeness Problem
 
 There is a critical data compatibility issue to solve first.
 
-PHIVOLCS records earthquakes down to **M1.0+** reliably. The global USGS catalog
-is generally only reliable at **M4.0+** across all regions and time periods.
+PHIVOLCS records earthquakes down to **M1.0+** reliably in the Philippines. The
+global USGS catalog can also be downloaded at **M1.0+**, but that does not mean it
+is globally complete at M1.0. Small events are much more completely recorded in
+well-instrumented regions than in remote oceanic or sparse-network regions.
 
-If we naively merge both catalogs, we break features like rolling event counts:
+That bias matters. If an M5 event happens in a dense network, USGS may contain many
+M1-M3 aftershocks. If a similar M5 event happens offshore or in a sparse region,
+many small aftershocks may be missing. A global `mc_1_0` model can therefore learn
+both physical aftershock behavior and catalog visibility.
 
-- The Philippine model "knows" that 50 earthquakes happened nearby last month
-  (counting everything M1.0+).
-- The global model only "sees" 3 of those (the ones above M4.0).
-- The model thinks the area was nearly silent, when it wasn't.
+**Current decision:** keep the global USGS path at **`mc_1_0`** for now so the
+model can learn from smaller detected aftershocks, but treat the output as a
+probability of **USGS-detected aftershock behavior**, not a guarantee that every
+physical small aftershock was observed.
 
-**The fix:** apply a **magnitude completeness threshold of M4.0** to the global
-data path. All features that count events, compute rates, or estimate local energy
-must be recalculated using only M4.0+ events for the global model. This model
-path is called `mc_4_0` (magnitude completeness = 4.0) to distinguish it from the
-existing `mc_1_0` (Philippine) path.
+This keeps both model paths on the same nominal completeness token:
+
+```
+local mc_1_0 path  -> PHIVOLCS M1.0+ history and labels
+USGS mc_1_0 path   -> USGS M1.0+ detected history and labels
+```
+
+The two paths must still keep separate catalogs, feature manifests, model
+directories, and validation reports because their observation biases are different.
 
 #### 4.1.3 The Two-Model Architecture
 
@@ -293,12 +314,12 @@ Any earthquake is reported
   ┌──────┴──────────────────────────────┐
   │                                     │
   ▼                                     ▼
-mc_4_0 path                         mc_1_0 path
-(global-compatible model)           (local Philippine model)
-  - Only counts M4.0+ events           - Counts all M1.0+ events
-  - Trained on Philippines             - Trained on Philippines only
-    + global similar regions           - Strong on common small quakes
-  - Better for rare large quakes
+USGS mc_1_0 path                    local mc_1_0 path
+(global large-event model)          (local Philippine model)
+  - Uses USGS M1.0+ detected events    - Uses PHIVOLCS M1.0+ events
+  - Trained on global similar regions  - Trained on Philippines only
+  - Better coverage of rare large      - Stronger local small-event
+    initiating earthquakes               sequence context
   │                                     │
   └──────────────┬──────────────────────┘
                  │
@@ -311,10 +332,25 @@ The router runs first and is essentially free to compute — it is just a magnit
 threshold check. Only one model runs per prediction.
 
 **Important:** the threshold of M4.0 creates a boundary. An M3.9 and an M4.1 are
-physically almost identical but would get routed to different models. To avoid
-jarring discontinuities, use a conservative transition band (e.g., route anything
-≥ M3.8 to `mc_4_0` as well), or keep the local `mc_1_0` path running in parallel
-for comparison until validation confirms a clean cutoff point.
+physically almost identical but would get routed to different models. During
+validation, run both models for Philippine M4+ events and log both outputs. Ship
+the hard route only after the USGS path improves large-event behavior without
+creating discontinuities near M4.0.
+
+**Public output labels stay unchanged.** The production JSON should continue to
+serve the current labels:
+
+```
+aftershock_24h_probability
+aftershock_distance_probabilities_24h
+estimated_max_aftershock_magnitude_if_aftershock_24h
+estimated_aftershock_distances_km_if_aftershock_24h
+```
+
+New internal target columns may be added for training, but they should not rename
+the existing public output fields unless the product contract is intentionally
+changed. Add route metadata instead, such as `model_route`, `catalog_source`,
+`catalog_mc`, and `model_version`.
 
 > **Keep calibration separate per path.** Calibration means making the model's
 > confidence scores honest and trustworthy — if the model says "70% chance of a
@@ -330,8 +366,8 @@ improves Philippine predictions the most:
 
 | Strategy | How It Works | When It Wins |
 |---|---|---|
-| **Local-only `mc_4_0`** | Retrain Philippine-only model at M4.0+ threshold | Baseline comparison |
-| **Global-only `mc_4_0`** | Train entirely on global data | Unlikely to win overall, but useful as a component |
+| **Local-only `mc_1_0`** | Existing Philippine model using PHIVOLCS M1.0+ data | Baseline and default for M < 4 |
+| **USGS-only `mc_1_0`** | Train entirely on USGS M1.0+ detected data | Useful for M4+ large-event behavior, but needs bias checks |
 | **Global + local joint** | Mix both datasets; add a `tectonic_region` feature so the model knows where data comes from | Likely strong starting point |
 | **Global pretrain → PH fine-tune** | Train on global data first, then re-specialize on Philippine data | Best conceptual fit; like how LLMs learn general language then specialize |
 | **Global + local with PH weighting** | Mix both but give Philippine events higher importance during training | Simpler alternative to fine-tuning |
@@ -432,8 +468,12 @@ M7+ prediction quality.
 #### Stage 1: Collect and Clean Global Catalog
 
 1. Download global earthquake catalog data (USGS Earthquake Catalog, ISC catalog).
-2. Filter by tectonic region — prioritize subduction zones (Japan, Sumatra, Chile,
-   Mariana, Tonga, Kuril).
+2. Filter by tectonic region using the analog strategy in
+   `src/docs/philippines_geology_analog_countries_for_usgs.md`: prioritize
+   Indonesia, Japan, Taiwan region, and Papua New Guinea; use Solomon Islands,
+   Vanuatu, Tonga-Kermadec, and selected New Zealand regions as labeled secondary
+   analogs; keep Chile/Peru/Mexico/Alaska/California/Turkey as comparison or
+   control groups, not primary training analogs.
 3. Normalize schema to match the local pipeline core fields:
    ```
    origin_time
@@ -444,9 +484,10 @@ M7+ prediction quality.
    catalog_source
    tectonic_region
    ```
-4. Apply and document the `mc_4_0` completeness threshold. Record the threshold
-   per catalog, region, and time range. Do not assume M4.0 is universally correct
-   everywhere — verify where possible.
+4. Apply and document the USGS `mc_1_0` download threshold, plus the known
+   completeness caveat: M1.0+ is a detected-event threshold, not a guarantee of
+   global completeness. Record the catalog source, region, and time range for
+   every pull.
 
 #### Stage 2: Rebuild Sequence Labels from Scratch
 
@@ -465,13 +506,13 @@ nearest/median/p90_aftershock_distance_km_24h
 
 Then extend with the new Tier 1 count and escalation labels.
 
-#### Stage 3: Rebuild Features for the mc_4_0 Path
+#### Stage 3: Rebuild Features for the USGS mc_1_0 Path
 
-All rolling window features must be recomputed using only M4.0+ events for the
-global path. A feature that was previously computed as "count of all earthquakes
-in 30 days" must become "count of M4.0+ earthquakes in 30 days" in the `mc_4_0`
-path. This is not optional — mixing incompatible feature definitions across paths
-will silently corrupt model inputs.
+All rolling window features must be recomputed from the USGS M1.0+ detected-event
+history for the global path. A feature that means "count of all detected
+earthquakes in 30 days" must be computed from the same catalog source used by that
+model path. Mixing PHIVOLCS-derived local counts with USGS-trained models, or
+USGS-derived counts with the local model, will silently corrupt model inputs.
 
 Recommended additions to the feature set:
 
@@ -551,9 +592,10 @@ serving model.
   `M < 4`, `M4–M5`, `M5–M6`, `M6–M7`, and `M >= 7`. Aggregate metrics
   (overall MAE, R², AUC) are not sufficient to catch tail failures.
 
-- [ ] **Compare mc_1_0 vs mc_4_0 on Philippine holdout.** Measure both paths on the
-  same Philippine events. Do not ship `mc_4_0` unless it meaningfully improves
-  M6+/M7+ predictions without degrading common-event accuracy.
+- [ ] **Compare local mc_1_0 vs USGS mc_1_0 on Philippine holdout.** Measure both
+  paths on the same Philippine M4+ events. Do not ship the M4+ USGS route unless
+  it meaningfully improves M6+/M7+ predictions without degrading common-event
+  probability calibration.
 
 - [ ] **Validate that global data improves max-aftershock prediction.** Specifically
   check that `max_aftershock_mag_*` improves for M6+ initiating events, and
@@ -579,8 +621,8 @@ serving model.
 
 | Term | Plain meaning |
 |---|---|
-| **mc_1_0** | Magnitude completeness = 1.0. The Philippine model that uses all events down to M1.0. |
-| **mc_4_0** | Magnitude completeness = 4.0. The global-compatible model that only uses M4.0+ events. |
+| **local mc_1_0** | Magnitude completeness = 1.0 using the PHIVOLCS catalog. This remains the default path for smaller Philippine events. |
+| **USGS mc_1_0** | Magnitude completeness/download threshold = 1.0 using USGS detected events. This is the proposed route for M4+ events, with explicit catalog-completeness caveats. |
 | **Extrapolation** | Predicting beyond the range of values seen in training. Tree models cannot do this. |
 | **Calibration** | Making the model's probability scores honest — "70% confidence" should mean true 70% of the time. |
 | **Cold start** | When a new event has no local history to draw on, weakening the model's feature signal. |

@@ -38,6 +38,9 @@ DEFAULT_HISTORICAL_CSV = Path("dataset/phivolcs_earthquake_2018_2026.csv")
 DEFAULT_MIN_MAGNITUDE = 1.0
 DEFAULT_B_VALUE = 1.0
 DEFAULT_FRACTAL_DIMENSION = 1.6
+# TODO(training): Make eta0/history defaults route-specific before training
+# source-aware production models. The Philippines combined and USGS analog
+# clustered runs use different GMM eta0 thresholds and historical catalogs.
 DEFAULT_LOG10_ETA0 = -5.468679834899335
 # Split parameter for the Zaliapin-Ben-Zion rescaled (T, R) coordinates. q = 0.5
 # weights the temporal and spatial components equally; their sum reconstructs
@@ -117,6 +120,9 @@ def normalize_raw_catalog(df):
     if missing:
         raise ValueError(f"CSV is missing required raw columns: {missing}")
 
+    # TODO(training): Preserve optional catalog metadata columns here
+    # (catalog_source, source_region) so prediction-time feature generation can
+    # match the source/region one-hot features emitted during training.
     normalized = renamed[list(required)].copy()
     normalized["event_time"] = parse_origin_time(normalized["origin_time"])
     for column in ["latitude", "longitude", "depth_km", "magnitude"]:
@@ -155,6 +161,10 @@ def load_feature_columns(feature_columns_path):
         if line.strip()
     ]
 
+
+# TODO(training): Move the catalog/source-region category normalization and
+# one-hot feature construction from build_training_dataset.py into this shared
+# module so train-time and prediction-time metadata features use one definition.
 
 # --- Per-event builders (serving) -------------------------------------------
 def compute_parent_features(history, event, b_value, fractal_dimension, log10_eta0,
@@ -423,6 +433,9 @@ def build_prediction_features(history, event, args, feature_columns):
     # Bath's Law limit
     features["baths_law_limit"] = float(event["magnitude"] - 1.2)
 
+    # TODO(training): Populate catalog_source_* and source_region_* one-hot
+    # features from event/route metadata before training models that include
+    # those columns in their feature manifests.
     missing = sorted(set(feature_columns) - set(features))
     if missing:
         raise ValueError(f"Prediction builder did not create required features: {missing}")

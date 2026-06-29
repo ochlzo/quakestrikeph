@@ -28,6 +28,9 @@ REGRESSION_TARGETS = [
     "median_aftershock_distance_km_24h",
     "p90_aftershock_distance_km_24h",
 ]
+# TODO(training): Add explicit training for m5_plus_aftershock_24h and
+# aftershock_count_24h. The count target should use a LightGBM Poisson/Tweedie
+# objective, not the current generic regression path.
 # Distance regressors are trained in log1p(km) space because the distance cloud
 # is heavily right-skewed (p95 ~ 500 km). The saved model therefore predicts
 # log1p(km); callers (and the metrics below) apply expm1 to recover kilometres.
@@ -276,6 +279,8 @@ def train_classifier(target, train, validation, test, feature_columns, output_di
 
     results = []
 
+    # TODO(training): Add a real binary classifier for m5_plus_aftershock_24h;
+    # it is not derivable from the current spatial-zone classifier.
     # Virtual target 1: aftershock_24h (any aftershock)
     # Virtual target 1: aftershock_24h (any aftershock)
     y_true_val_any = (validation[target] > 0).astype(int).to_numpy()
@@ -377,6 +382,9 @@ def train_regressor(target, train, validation, test, feature_columns, output_dir
         print(f"Skipping {target}; one split has no positive aftershock targets.")
         return None
 
+    # TODO(training): Split count-target training from positive-case-only
+    # magnitude/distance regression so aftershock_count_24h trains on all rows,
+    # keeps zeros, and uses a Poisson/Tweedie objective.
     # Heavy-tailed distance targets are learned in log1p(km) space; magnitude is
     # left on its natural scale.
     use_log = target in LOG_DISTANCE_TARGETS

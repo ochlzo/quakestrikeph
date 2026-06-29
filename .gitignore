@@ -56,3 +56,19 @@ src/seis-stacking-ensemble/
 # Backup directory
 backup/
 dataset/phivolcs_earthquake_2018_2026_latest.csv
+dataset/usgs_analog_m1_deduped.csv
+dataset/usgs_indonesia_m1.csv
+dataset/usgs_japan_m1.csv
+dataset/usgs_new_zealand_m1.csv
+dataset/usgs_philippines_m1.csv
+dataset/usgs_taiwan_m1.csv
+dataset/usgs_papua_new_guinea_m1.csv
+dataset/usgs_solomon_islands_m1.csv
+dataset/usgs_tonga_kermadec_m1.csv
+dataset/usgs_vanuatu_m1.csv
+
+docs/plans/
+examples/
+
+src/training_set/philippines_phivolcs_usgs_m1
+src/training_set/usgs_analog_m1_deduped

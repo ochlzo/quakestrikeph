@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <map>
 #include <stdexcept>
@@ -90,7 +91,11 @@ std::vector<NeighborResult> compute_nearest_neighbors(
     double fractal_dimension) {
     std::vector<NeighborResult> results(events.size());
     const auto terms = precompute_terms(events, b_value);
-    for (std::size_t j = 0; j < events.size(); ++j) {
+    #pragma omp parallel for schedule(dynamic, 128)
+    for (std::ptrdiff_t j_signed = 0;
+         j_signed < static_cast<std::ptrdiff_t>(events.size());
+         ++j_signed) {
+        const auto j = static_cast<std::size_t>(j_signed);
         results[j].event_id = events[j].event_id;
         if (j == 0) {
             continue;
