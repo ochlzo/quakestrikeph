@@ -1,0 +1,35 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Python and tooling
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.venv/
+workers/.venv/
+
+# Local model and bootstrap evidence
+model-artifacts/
+bootstrap-snapshots/
+datasets/
+data/
+database/initialization/bootstrap-readiness*.json
+database/initialization/source-snapshots/
+
+# Local runtime output
+*.log
+*.pid
+*.sqlite
+*.sqlite3
+
+# Editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

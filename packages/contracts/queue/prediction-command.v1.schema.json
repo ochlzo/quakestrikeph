@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quakestrike.local/contracts/queue/prediction-command.v1.schema.json",
+  "title": "QuakeStrike PH prediction command v1",
+  "description": "Stable identifiers for one durable prediction dispatch.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "message_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "dispatch_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "job_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "correlation_id": {
+      "type": "string",
+      "format": "uuid"
+    }
+  },
+  "required": [
+    "message_version",
+    "dispatch_id",
+    "job_id",
+    "correlation_id"
+  ]
+}
