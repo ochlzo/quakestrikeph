@@ -1,0 +1,371 @@
+"""SQLAlchemy Core mappings for the Phase 2 ingestion foundation."""
+
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    Table,
+    Text,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.dialects.postgresql import ENUM, JSONB, UUID
+
+from quakestrike.infrastructure.database.metadata import metadata
+
+INGESTION_RUN_STATUSES = (
+    "pending",
+    "running",
+    "retry_wait",
+    "succeeded",
+    "failed",
+    "cancelled",
+)
+PREDICTION_JOB_STATUSES = INGESTION_RUN_STATUSES
+DISPATCH_STATUSES = ("pending", "dispatching", "enqueued", "retry_wait", "stopped")
+
+ingestion_run_status = ENUM(*INGESTION_RUN_STATUSES, name="ingestion_run_status", create_type=False)
+prediction_job_status = ENUM(
+    *PREDICTION_JOB_STATUSES, name="prediction_job_status", create_type=False
+)
+dispatch_status = ENUM(*DISPATCH_STATUSES, name="dispatch_status", create_type=False)
+
+
+def _nonblank(column: str) -> str:
+    return f"{column} = btrim({column}) AND {column} <> ''"
+
+
+ingestion_runs = Table(
+    "ingestion_runs",
+    metadata,
+    Column("run_id", UUID(as_uuid=True), primary_key=True),
+    Column("trigger_type", Text, nullable=False),
+    Column("status", ingestion_run_status, nullable=False, server_default="pending"),
+    Column("requested_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("started_at", DateTime(timezone=True)),
+    Column("attempt_count", Integer, nullable=False, server_default="0"),
+    Column("lease_expires_at", DateTime(timezone=True)),
+    Column("worker_execution_id", UUID(as_uuid=True)),
+    Column("finished_at", DateTime(timezone=True)),
+    Column("events_found", Integer, nullable=False, server_default="0"),
+    Column("events_inserted", Integer, nullable=False, server_default="0"),
+    Column("events_revised", Integer, nullable=False, server_default="0"),
+    Column("events_unchanged", Integer, nullable=False, server_default="0"),
+    Column("events_rejected", Integer, nullable=False, server_default="0"),
+    Column("error_code", Text),
+    Column("error_message", Text),
+    Column("correlation_id", UUID(as_uuid=True), nullable=False),
+    CheckConstraint(
+        "trigger_type IN ('scheduled', 'manual', 'backfill')", name="ck_ingestion_runs_trigger_type"
+    ),
+    CheckConstraint("attempt_count >= 0", name="ck_ingestion_runs_attempt_count_nonnegative"),
+    CheckConstraint(
+        "events_found >= 0 AND events_inserted >= 0 AND events_revised >= 0 "
+        "AND events_unchanged >= 0 AND events_rejected >= 0",
+        name="ck_ingestion_runs_counters_nonnegative",
+    ),
+    CheckConstraint(
+        "(error_code IS NULL OR (error_code = btrim(error_code) AND error_code <> '')) "
+        "AND (error_message IS NULL OR "
+        "(error_message = btrim(error_message) AND error_message <> ''))",
+        name="ck_ingestion_runs_errors_nonblank",
+    ),
+    CheckConstraint(
+        "(status = 'running' AND started_at IS NOT NULL AND lease_expires_at IS NOT NULL "
+        "AND worker_execution_id IS NOT NULL AND finished_at IS NULL) OR "
+        "(status <> 'running' AND lease_expires_at IS NULL AND worker_execution_id IS NULL)",
+        name="ck_ingestion_runs_running_lease",
+    ),
+    CheckConstraint(
+        "(status IN ('succeeded', 'failed', 'cancelled') AND finished_at IS NOT NULL) OR "
+        "(status IN ('pending', 'running', 'retry_wait') AND finished_at IS NULL)",
+        name="ck_ingestion_runs_finished_state",
+    ),
+    CheckConstraint(
+        "status <> 'pending' OR started_at IS NULL",
+        name="ck_ingestion_runs_pending_not_started",
+    ),
+    CheckConstraint(
+        "finished_at IS NULL OR started_at IS NULL OR finished_at >= started_at",
+        name="ck_ingestion_runs_finish_order",
+    ),
+)
+Index(
+    "uq_ingestion_runs_one_active",
+    ingestion_runs.c.status.is_not(None),
+    unique=True,
+    postgresql_where=ingestion_runs.c.status.in_(("pending", "running", "retry_wait")),
+)
+Index(
+    "ix_ingestion_runs_running_lease",
+    ingestion_runs.c.lease_expires_at,
+    postgresql_where=ingestion_runs.c.status == "running",
+)
+
+earthquake_events = Table(
+    "earthquake_events",
+    metadata,
+    Column("event_id", UUID(as_uuid=True), primary_key=True),
+    Column(
+        "first_seen_run_id",
+        UUID(as_uuid=True),
+        ForeignKey("ingestion_runs.run_id", onupdate="RESTRICT", ondelete="RESTRICT"),
+        nullable=False,
+    ),
+    Column(
+        "last_seen_run_id",
+        UUID(as_uuid=True),
+        ForeignKey("ingestion_runs.run_id", onupdate="RESTRICT", ondelete="RESTRICT"),
+        nullable=False,
+    ),
+    Column(
+        "superseded_by_event_id",
+        UUID(as_uuid=True),
+        ForeignKey("earthquake_events.event_id", onupdate="RESTRICT", ondelete="RESTRICT"),
+    ),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint(
+        "superseded_by_event_id IS NULL OR superseded_by_event_id <> event_id",
+        name="ck_earthquake_events_no_self_supersession",
+    ),
+)
+Index("ix_earthquake_events_first_seen_run_id", earthquake_events.c.first_seen_run_id)
+Index("ix_earthquake_events_last_seen_run_id", earthquake_events.c.last_seen_run_id)
+Index("ix_earthquake_events_superseded_by_event_id", earthquake_events.c.superseded_by_event_id)
+
+earthquake_event_revisions = Table(
+    "earthquake_event_revisions",
+    metadata,
+    Column("event_revision_id", UUID(as_uuid=True), primary_key=True),
+    Column(
+        "event_id",
+        UUID(as_uuid=True),
+        ForeignKey("earthquake_events.event_id", onupdate="RESTRICT", ondelete="RESTRICT"),
+        nullable=False,
+    ),
+    Column("revision_number", Integer, nullable=False),
+    Column(
+        "ingestion_run_id",
+        UUID(as_uuid=True),
+        ForeignKey("ingestion_runs.run_id", onupdate="RESTRICT", ondelete="RESTRICT"),
+        nullable=False,
+    ),
+    Column("source_bulletin_id", Text),
+    Column("source_event_group_id", Text),
+    Column("source_url", Text, nullable=False),
+    Column("source_time_precision", Text, nullable=False),
+    Column("event_time", DateTime(timezone=True), nullable=False),
+    Column("latitude", Numeric(9, 6), nullable=False),
+    Column("longitude", Numeric(10, 6), nullable=False),
+    Column("depth_km", Numeric(10, 3), nullable=False),
+    Column("magnitude", Numeric(5, 2), nullable=False),
+    Column("location_description", Text, nullable=False),
+    Column("origin", Text),
+    Column("ingested_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("event_id", "revision_number", name="uq_event_revisions_event_revision"),
+    CheckConstraint("revision_number >= 1", name="ck_event_revisions_revision_number"),
+    CheckConstraint(
+        "source_bulletin_id IS NOT NULL OR source_event_group_id IS NOT NULL",
+        name="ck_event_revisions_source_identifier",
+    ),
+    CheckConstraint(
+        "source_bulletin_id IS NULL OR "
+        "(source_bulletin_id = btrim(source_bulletin_id) AND source_bulletin_id <> '' "
+        "AND source_bulletin_id = upper(source_bulletin_id))",
+        name="ck_event_revisions_bulletin_id",
+    ),
+    CheckConstraint(
+        "source_event_group_id IS NULL OR "
+        "(source_event_group_id = btrim(source_event_group_id) AND source_event_group_id <> '' "
+        "AND source_event_group_id = upper(source_event_group_id))",
+        name="ck_event_revisions_group_id",
+    ),
+    CheckConstraint(_nonblank("source_url"), name="ck_event_revisions_source_url_nonblank"),
+    CheckConstraint(
+        "source_time_precision IN ('minute', 'second')",
+        name="ck_event_revisions_time_precision",
+    ),
+    CheckConstraint("latitude BETWEEN -90 AND 90", name="ck_event_revisions_latitude"),
+    CheckConstraint("longitude BETWEEN -180 AND 180", name="ck_event_revisions_longitude"),
+    CheckConstraint("depth_km >= 0", name="ck_event_revisions_depth"),
+    CheckConstraint(
+        "latitude NOT IN ('NaN'::numeric, 'Infinity'::numeric, '-Infinity'::numeric) "
+        "AND longitude NOT IN ('NaN'::numeric, 'Infinity'::numeric, '-Infinity'::numeric) "
+        "AND depth_km NOT IN ('NaN'::numeric, 'Infinity'::numeric, '-Infinity'::numeric) "
+        "AND magnitude NOT IN ('NaN'::numeric, 'Infinity'::numeric, '-Infinity'::numeric)",
+        name="ck_event_revisions_observations_finite",
+    ),
+    CheckConstraint(_nonblank("location_description"), name="ck_event_revisions_location_nonblank"),
+    CheckConstraint(
+        "origin IS NULL OR origin IN ('TECTONIC', 'VOLCANIC', 'TECTONIC-VOLCANIC')",
+        name="ck_event_revisions_origin",
+    ),
+)
+Index(
+    "uq_event_revisions_source_bulletin_id",
+    earthquake_event_revisions.c.source_bulletin_id,
+    unique=True,
+    postgresql_where=earthquake_event_revisions.c.source_bulletin_id.is_not(None),
+)
+Index(
+    "ix_event_revisions_source_event_group_id",
+    earthquake_event_revisions.c.source_event_group_id,
+)
+Index("ix_event_revisions_ingestion_run_id", earthquake_event_revisions.c.ingestion_run_id)
+
+model_releases = Table(
+    "model_releases",
+    metadata,
+    Column("model_release_id", UUID(as_uuid=True), primary_key=True),
+    Column("version_label", Text, nullable=False, unique=True),
+    Column("artifact_manifest_uri", Text, nullable=False),
+    Column("artifact_manifest_hash", Text, nullable=False),
+    Column("input_schema_version", Text, nullable=False),
+    Column("output_schema_version", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint(_nonblank("version_label"), name="ck_model_releases_version_label_nonblank"),
+    CheckConstraint(
+        _nonblank("artifact_manifest_uri"), name="ck_model_releases_manifest_uri_nonblank"
+    ),
+    CheckConstraint(
+        "artifact_manifest_hash ~ '^[0-9a-f]{64}$'",
+        name="ck_model_releases_manifest_hash",
+    ),
+    CheckConstraint(
+        _nonblank("input_schema_version"), name="ck_model_releases_input_schema_nonblank"
+    ),
+    CheckConstraint(
+        _nonblank("output_schema_version"), name="ck_model_releases_output_schema_nonblank"
+    ),
+)
+
+prediction_jobs = Table(
+    "prediction_jobs",
+    metadata,
+    Column("job_id", UUID(as_uuid=True), primary_key=True),
+    Column(
+        "event_revision_id",
+        UUID(as_uuid=True),
+        ForeignKey(
+            "earthquake_event_revisions.event_revision_id",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    ),
+    Column(
+        "model_release_id",
+        UUID(as_uuid=True),
+        ForeignKey("model_releases.model_release_id", onupdate="RESTRICT", ondelete="RESTRICT"),
+        nullable=False,
+    ),
+    Column("input_snapshot_hash", Text, nullable=False),
+    Column("input_snapshot_json", JSONB, nullable=False),
+    Column("idempotency_key", Text, nullable=False, unique=True),
+    Column("status", prediction_job_status, nullable=False, server_default="pending"),
+    Column("requested_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("next_attempt_at", DateTime(timezone=True)),
+    Column("completed_at", DateTime(timezone=True)),
+    Column("last_error_code", Text),
+    Column("last_error_message", Text),
+    Column("correlation_id", UUID(as_uuid=True), nullable=False),
+    UniqueConstraint(
+        "event_revision_id",
+        "model_release_id",
+        "input_snapshot_hash",
+        name="uq_prediction_jobs_revision_release_snapshot",
+    ),
+    CheckConstraint("input_snapshot_hash ~ '^[0-9a-f]{64}$'", name="ck_prediction_jobs_hash"),
+    CheckConstraint(
+        "jsonb_typeof(input_snapshot_json) = 'object'",
+        name="ck_prediction_jobs_snapshot_object",
+    ),
+    CheckConstraint(_nonblank("idempotency_key"), name="ck_prediction_jobs_idempotency_nonblank"),
+    CheckConstraint(
+        "(status = 'retry_wait' AND next_attempt_at IS NOT NULL) OR "
+        "(status <> 'retry_wait' AND next_attempt_at IS NULL)",
+        name="ck_prediction_jobs_retry_schedule",
+    ),
+    CheckConstraint(
+        "(status IN ('succeeded', 'failed', 'cancelled') AND completed_at IS NOT NULL) OR "
+        "(status IN ('pending', 'running', 'retry_wait') AND completed_at IS NULL)",
+        name="ck_prediction_jobs_completion_state",
+    ),
+    CheckConstraint(
+        "(last_error_code IS NULL OR (last_error_code = btrim(last_error_code) "
+        "AND last_error_code <> '')) AND "
+        "(last_error_message IS NULL OR (last_error_message = btrim(last_error_message) "
+        "AND last_error_message <> ''))",
+        name="ck_prediction_jobs_errors_nonblank",
+    ),
+)
+Index("ix_prediction_jobs_model_release_id", prediction_jobs.c.model_release_id)
+Index(
+    "ix_prediction_jobs_revision_release_requested",
+    prediction_jobs.c.event_revision_id,
+    prediction_jobs.c.model_release_id,
+    prediction_jobs.c.requested_at.desc(),
+)
+
+job_dispatches = Table(
+    "job_dispatches",
+    metadata,
+    Column("dispatch_id", UUID(as_uuid=True), primary_key=True),
+    Column(
+        "ingestion_run_id",
+        UUID(as_uuid=True),
+        ForeignKey("ingestion_runs.run_id", onupdate="RESTRICT", ondelete="RESTRICT"),
+        unique=True,
+    ),
+    Column(
+        "prediction_job_id",
+        UUID(as_uuid=True),
+        ForeignKey("prediction_jobs.job_id", onupdate="RESTRICT", ondelete="RESTRICT"),
+        unique=True,
+    ),
+    Column("alert_job_id", UUID(as_uuid=True), unique=True),
+    Column("status", dispatch_status, nullable=False, server_default="pending"),
+    Column("next_dispatch_at", DateTime(timezone=True), server_default=func.now()),
+    Column("last_dispatched_at", DateTime(timezone=True)),
+    Column("attempt_count", Integer, nullable=False, server_default="0"),
+    Column("lease_expires_at", DateTime(timezone=True)),
+    Column("dispatch_token", UUID(as_uuid=True)),
+    Column("last_error", Text),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint(
+        "num_nonnulls(ingestion_run_id, prediction_job_id, alert_job_id) = 1",
+        name="ck_job_dispatches_exactly_one_target",
+    ),
+    CheckConstraint("alert_job_id IS NULL", name="ck_job_dispatches_alert_target_deferred"),
+    CheckConstraint("attempt_count >= 0", name="ck_job_dispatches_attempt_count_nonnegative"),
+    CheckConstraint(
+        "(status = 'dispatching' AND next_dispatch_at IS NULL "
+        "AND lease_expires_at IS NOT NULL AND dispatch_token IS NOT NULL) OR "
+        "(status IN ('pending', 'retry_wait') AND next_dispatch_at IS NOT NULL "
+        "AND lease_expires_at IS NULL AND dispatch_token IS NULL) OR "
+        "(status IN ('enqueued', 'stopped') AND next_dispatch_at IS NULL "
+        "AND lease_expires_at IS NULL AND dispatch_token IS NULL)",
+        name="ck_job_dispatches_state_claim",
+    ),
+    CheckConstraint(
+        "last_error IS NULL OR (last_error = btrim(last_error) AND last_error <> '')",
+        name="ck_job_dispatches_last_error_nonblank",
+    ),
+)
+Index(
+    "ix_job_dispatches_ready",
+    job_dispatches.c.next_dispatch_at,
+    job_dispatches.c.dispatch_id,
+    postgresql_where=job_dispatches.c.status.in_(("pending", "retry_wait")),
+)
+Index(
+    "ix_job_dispatches_dispatching_lease",
+    job_dispatches.c.lease_expires_at,
+    postgresql_where=job_dispatches.c.status == "dispatching",
+)

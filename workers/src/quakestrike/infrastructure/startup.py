@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from quakestrike.application.startup import GateResult, StartupGate
+from quakestrike.infrastructure.database.migration_state import AlembicMigrationStateGate
 from quakestrike.infrastructure.health import (
     PostgresConnectivityHealthCheck,
     RedisConnectivityHealthCheck,
@@ -28,14 +29,12 @@ def phase_one_startup_gates(
     *,
     database_gate: StartupGate | None = None,
     redis_gate: StartupGate | None = None,
+    migration_gate: StartupGate | None = None,
 ) -> tuple[StartupGate, ...]:
     """Return the fail-closed gates required by the Phase 1 contract."""
 
     return (
-        UnavailableStartupGate(
-            name="migration-state",
-            reason="The migration-state adapter is deferred to Phase 2.",
-        ),
+        migration_gate or AlembicMigrationStateGate(settings),
         UnavailableStartupGate(
             name="model-release",
             reason="Model-release verification is deferred to Phase 3.",

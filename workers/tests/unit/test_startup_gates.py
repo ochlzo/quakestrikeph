@@ -18,6 +18,10 @@ def valid_settings() -> Settings:
 def phase_one_test_gates() -> tuple:
     return phase_one_startup_gates(
         valid_settings(),
+        migration_gate=UnavailableStartupGate(
+            name="migration-state",
+            reason="Test migration database is unavailable.",
+        ),
         database_gate=UnavailableStartupGate(
             name="postgres-connectivity",
             reason="Test database is unavailable.",

@@ -36,6 +36,7 @@ packages = ["src/quakestrike"]
 addopts = ["-ra"]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = ["integration: requires an isolated PostgreSQL 16 database"]
 
 [tool.ruff]
 target-version = "py312"

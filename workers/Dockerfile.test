@@ -1,0 +1,20 @@
+FROM python:3.12.14-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254
+
+ARG UV_VERSION=0.11.32
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_LINK_MODE=copy
+
+WORKDIR /workspace
+
+RUN pip install --no-cache-dir "uv==${UV_VERSION}"
+
+COPY workers/pyproject.toml workers/uv.lock ./workers/
+RUN uv sync --project workers --frozen
+
+COPY workers ./workers
+COPY packages ./packages
+COPY .env.example ./.env.example
+
+ENTRYPOINT ["uv", "run", "--project", "workers", "--frozen", "--no-sync"]

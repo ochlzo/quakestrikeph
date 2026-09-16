@@ -5,9 +5,9 @@ and alert platform. It is designed to ingest PHIVOLCS bulletins, preserve
 event revisions, build versioned prediction inputs, publish approved public
 information, and support protected review and alert workflows.
 
-> Current repository status: this checkout contains the first Python worker
-> scaffold and local PostgreSQL/Redis infrastructure. The web applications,
-> Backend API, database migrations, model registration, bootstrap workflow,
+> Current repository status: this checkout contains the Python worker
+> scaffold, the six-table ingestion migration, and local PostgreSQL/Redis
+> infrastructure. The web applications, Backend API, model registration, bootstrap workflow,
 > prediction execution, and alert delivery are planned work. The Phase 1
 > worker entry points fail closed until their later startup gates exist.
 
@@ -31,7 +31,7 @@ The image is a quick system view, not a replacement for those documents.
 | Scheduler Beat | Creates one durable ingestion run on the five-minute schedule. | Entry point exists; durable scheduling is planned. |
 | Dispatcher | Claims PostgreSQL dispatch records and publishes identifier-only commands to Redis. | Entry point and queue configuration exist; durable dispatch is planned. |
 | Data Ingestor | Retrieves, validates, reconciles, and persists PHIVOLCS events and revisions. | Entry point exists; ingestion behavior is planned. |
-| PostgreSQL | Source of truth for events, revisions, runs, jobs, dispatches, audits, and other durable records. | Pinned local service exists; migrations are planned. |
+| PostgreSQL | Source of truth for events, revisions, runs, jobs, dispatches, audits, and other durable records. | The first six-table migration and transaction adapters are implemented. |
 | Redis | Carries typed Celery commands between worker processes. | Pinned local service and queue contracts exist. |
 | Prediction Worker | Loads the verified `SEIS 1.0` artifacts and records forecast results. | Deferred. |
 | Alert Worker | Creates and delivers approved SMS alert jobs. | Deferred. |
@@ -131,7 +131,19 @@ git diff --check
 ```
 
 These checks do not need live PHIVOLCS access. The current test suite uses
-sanitized inputs and in-memory fakes for health checks.
+sanitized inputs and in-memory fakes for health checks. PostgreSQL integration
+tests skip unless `TEST_DATABASE_URL` points to an isolated test database.
+
+Run the Phase 2 PostgreSQL tests without publishing a database port:
+
+```powershell
+docker compose -p quakestrike-phase2-test -f infrastructure/compose.integration.yml up -d --wait postgres-test
+docker compose -p quakestrike-phase2-test -f infrastructure/compose.integration.yml run --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration
+docker compose -p quakestrike-phase2-test -f infrastructure/compose.integration.yml down -v
+```
+
+The final command removes only the disposable `quakestrike-phase2-test`
+project and its volume.
 
 ## Start PostgreSQL and Redis locally
 
@@ -151,6 +163,16 @@ as returning `PONG`. The Compose service names are `postgres` and `redis`.
 Those names work from containers on the private Compose network. A Python
 process running directly on the host cannot use them unless the team adds a
 separate local development override with deliberate port mappings.
+
+Apply and inspect migrations from a container attached to an isolated test
+database with:
+
+```powershell
+docker compose -p quakestrike-phase2-test -f infrastructure/compose.integration.yml run --rm test-runner alembic -c workers/alembic.ini upgrade head
+docker compose -p quakestrike-phase2-test -f infrastructure/compose.integration.yml run --rm test-runner alembic -c workers/alembic.ini current
+docker compose -p quakestrike-phase2-test -f infrastructure/compose.integration.yml run --rm test-runner alembic -c workers/alembic.ini downgrade base
+docker compose -p quakestrike-phase2-test -f infrastructure/compose.integration.yml run --rm test-runner alembic -c workers/alembic.ini upgrade head
+```
 
 Stop the services without deleting their named volumes with:
 
@@ -174,10 +196,10 @@ uv run --project workers quakestrike-dispatcher
 uv run --project workers quakestrike-ingestor
 ```
 
-The last four commands are expected to return exit code `2` for now. Phase 1
-deliberately reports the migration-state, model-release, and bootstrap-
-readiness gates as unavailable, then refuses to perform work. This protects a
-partially initialized environment from running as if it were ready.
+The last four commands are expected to return exit code `2` until later phases
+implement every gate. The migration-state gate now checks the Alembic revision
+without changing the database. Model-release and bootstrap-readiness gates
+still fail closed.
 
 Build the current worker image with:
 

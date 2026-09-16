@@ -44,6 +44,16 @@ The base Compose file keeps those services on an internal network and does not
 publish host ports. It is safe for local service storage, but it is not a
 complete worker orchestration file yet.
 
+Database integration tests use a separate Compose project and private network:
+
+```powershell
+docker compose -p quakestrike-phase2-test -f infrastructure/compose.integration.yml up -d --wait postgres-test
+docker compose -p quakestrike-phase2-test -f infrastructure/compose.integration.yml run --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration
+docker compose -p quakestrike-phase2-test -f infrastructure/compose.integration.yml down -v
+```
+
+Never reuse the normal development Compose project name for this cleanup.
+
 ## Branches and commits
 
 Create a branch from the current integration branch. Use a short prefix that

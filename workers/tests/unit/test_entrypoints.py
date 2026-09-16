@@ -19,6 +19,10 @@ def test_entrypoint_refuses_work_when_phase_one_gates_are_unavailable(capsys) ->
         settings_factory=lambda: settings,
         gate_factory=lambda current_settings: phase_one_startup_gates(
             current_settings,
+            migration_gate=UnavailableStartupGate(
+                name="migration-state",
+                reason="Test migration database is unavailable.",
+            ),
             database_gate=UnavailableStartupGate(
                 name="postgres-connectivity",
                 reason="Test database is unavailable.",
