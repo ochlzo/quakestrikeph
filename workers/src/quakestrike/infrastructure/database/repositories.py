@@ -96,6 +96,10 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                     .values(last_seen_run_id=request.ingestion_run_id, updated_at=func.now())
                 )
             else:
+                if request.revision is None:
+                    raise ValueError(
+                        "A revision-less event transaction requires an existing event."
+                    )
                 session.execute(
                     insert(earthquake_events).values(
                         event_id=request.event_id,
@@ -196,6 +200,9 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                     prediction_created=False,
                 )
 
+            if not revision_created:
+                raise ValueError("A replay cannot add prediction work to an existing revision.")
+
             session.execute(
                 insert(prediction_jobs).values(
                     job_id=prediction.job_id,
@@ -245,22 +252,6 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
             cls._validate_revision_match(by_id, request)
             return by_id
         if revision.source_bulletin_id is None:
-            same_run_revision = session.execute(
-                select(earthquake_event_revisions)
-                .where(
-                    earthquake_event_revisions.c.event_id == request.event_id,
-                    earthquake_event_revisions.c.ingestion_run_id == request.ingestion_run_id,
-                    earthquake_event_revisions.c.source_bulletin_id.is_(None),
-                    earthquake_event_revisions.c.source_event_group_id
-                    == revision.source_event_group_id,
-                )
-                .order_by(earthquake_event_revisions.c.revision_number.desc())
-                .limit(1)
-            ).one_or_none()
-            if same_run_revision is not None and cls._revision_content_matches(
-                same_run_revision, request
-            ):
-                return same_run_revision
             latest_for_event = session.execute(
                 select(earthquake_event_revisions)
                 .where(earthquake_event_revisions.c.event_id == request.event_id)

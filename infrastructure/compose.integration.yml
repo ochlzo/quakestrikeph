@@ -18,7 +18,7 @@ services:
       driver: local
       options:
         max-size: "20m"
-        max-file: "2"
+        max-file: "5"
 
   test-runner:
     build:
@@ -31,6 +31,11 @@ services:
     depends_on:
       postgres-test:
         condition: service_healthy
+    logging:
+      driver: local
+      options:
+        max-size: "20m"
+        max-file: "5"
 
 volumes:
   phase2_postgres_data:

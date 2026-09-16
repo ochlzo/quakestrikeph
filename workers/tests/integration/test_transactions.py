@@ -413,3 +413,158 @@ def test_later_observation_refreshes_event_timestamp(migrated_engine) -> None:
         row = connection.execute(select(earthquake_events)).one()
     assert row.last_seen_run_id == later_run
     assert row.updated_at > old
+
+
+def test_revisionless_unknown_event_is_rejected_without_creating_an_identity(
+    migrated_engine,
+) -> None:
+    run_id, _ = _seed_run_and_release(migrated_engine)
+
+    with pytest.raises(ValueError, match="requires an existing event"):
+        _transactions(migrated_engine).process_event(
+            EventTransactionRequest(event_id=uuid4(), ingestion_run_id=run_id)
+        )
+
+    with migrated_engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(earthquake_events)) == 0
+
+
+def test_revisionless_existing_event_updates_last_seen_run(migrated_engine) -> None:
+    first_run_id, release_id = _seed_run_and_release(migrated_engine)
+    transactions = _transactions(migrated_engine)
+    request = _event_request(first_run_id, release_id)
+    transactions.process_event(request)
+    later_run_id = uuid4()
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            insert(ingestion_runs).values(
+                run_id=later_run_id,
+                trigger_type="backfill",
+                status="succeeded",
+                started_at=NOW,
+                finished_at=NOW,
+                correlation_id=uuid4(),
+            )
+        )
+
+    result = transactions.process_event(
+        EventTransactionRequest(event_id=request.event_id, ingestion_run_id=later_run_id)
+    )
+
+    assert result.event_created is False
+    assert result.event_revision_id is None
+    with migrated_engine.connect() as connection:
+        assert (
+            connection.scalar(
+                select(earthquake_events.c.last_seen_run_id).where(
+                    earthquake_events.c.event_id == request.event_id
+                )
+            )
+            == later_run_id
+        )
+
+
+def test_group_only_revert_after_a_changed_revision_creates_a_new_revision(migrated_engine) -> None:
+    run_id, release_id = _seed_run_and_release(migrated_engine)
+    transactions = _transactions(migrated_engine)
+    event_id = uuid4()
+    first_revision = replace(_revision(run_id), source_bulletin_id=None)
+    first = transactions.process_event(
+        _event_request(run_id, release_id, event_id=event_id, revision=first_revision)
+    )
+    changed_revision = replace(
+        _revision(run_id),
+        source_bulletin_id="2026_0831_1610_B1",
+        source_event_group_id="2026_0831_1610",
+        magnitude=Decimal("4.30"),
+    )
+    later_run_id = uuid4()
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            insert(ingestion_runs).values(
+                run_id=later_run_id,
+                trigger_type="backfill",
+                status="succeeded",
+                started_at=NOW,
+                finished_at=NOW,
+                correlation_id=uuid4(),
+            )
+        )
+    changed = transactions.process_event(
+        _event_request(
+            later_run_id,
+            release_id,
+            event_id=event_id,
+            revision=replace(changed_revision, ingestion_run_id=later_run_id),
+            prediction=PredictionWorkRequest(
+                job_id=uuid4(),
+                dispatch_id=uuid4(),
+                model_release_id=release_id,
+                input_snapshot_hash="c" * 64,
+                input_snapshot_json={"anchor_magnitude": 4.3},
+                idempotency_key=str(uuid4()),
+                correlation_id=uuid4(),
+            ),
+        )
+    )
+    reverted = transactions.process_event(
+        _event_request(
+            run_id,
+            release_id,
+            event_id=event_id,
+            revision=replace(first_revision, event_revision_id=uuid4()),
+            prediction=PredictionWorkRequest(
+                job_id=uuid4(),
+                dispatch_id=uuid4(),
+                model_release_id=release_id,
+                input_snapshot_hash="d" * 64,
+                input_snapshot_json={"anchor_magnitude": 4.2},
+                idempotency_key=str(uuid4()),
+                correlation_id=uuid4(),
+            ),
+        )
+    )
+
+    assert first.revision_number == 1
+    assert changed.revision_number == 2
+    assert reverted.revision_number == 3
+    assert reverted.revision_created is True
+    assert reverted.prediction_created is True
+
+
+def test_replay_cannot_add_first_prediction_job_to_an_existing_revision(migrated_engine) -> None:
+    run_id, release_id = _seed_run_and_release(migrated_engine)
+    transactions = _transactions(migrated_engine)
+    revision = _revision(run_id)
+    event_id = uuid4()
+    transactions.process_event(
+        EventTransactionRequest(
+            event_id=event_id,
+            ingestion_run_id=run_id,
+            revision=revision,
+        )
+    )
+    prediction = PredictionWorkRequest(
+        job_id=uuid4(),
+        dispatch_id=uuid4(),
+        model_release_id=release_id,
+        input_snapshot_hash="b" * 64,
+        input_snapshot_json={"anchor_magnitude": 4.2},
+        idempotency_key=str(uuid4()),
+        correlation_id=uuid4(),
+    )
+
+    with pytest.raises(ValueError, match="cannot add prediction work"):
+        transactions.process_event(
+            EventTransactionRequest(
+                event_id=event_id,
+                ingestion_run_id=run_id,
+                revision=replace(revision, event_revision_id=uuid4()),
+                prediction=prediction,
+            )
+        )
+
+    with migrated_engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(earthquake_event_revisions)) == 1
+        assert connection.scalar(select(func.count()).select_from(prediction_jobs)) == 0
+        assert connection.scalar(select(func.count()).select_from(job_dispatches)) == 0
