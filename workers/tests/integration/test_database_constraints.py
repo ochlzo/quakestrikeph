@@ -9,6 +9,7 @@ from sqlalchemy import delete, insert, inspect, update
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from quakestrike.infrastructure.database.tables import (
+    earthquake_bulletin_event_identities,
     earthquake_event_revisions,
     earthquake_events,
     ingestion_runs,
@@ -55,6 +56,12 @@ def parents(migrated_engine) -> dict[str, UUID]:
                 event_id=ids["event"],
                 first_seen_run_id=ids["run"],
                 last_seen_run_id=ids["run"],
+            )
+        )
+        connection.execute(
+            insert(earthquake_bulletin_event_identities).values(
+                source_bulletin_id="2026_0831_1609_B1",
+                event_id=ids["event"],
             )
         )
         connection.execute(
@@ -170,13 +177,15 @@ def test_revision_rejects_nonfinite_observations(migrated_engine, parents, colum
         )
 
 
-def test_revision_identity_constraints_and_group_index(migrated_engine, parents) -> None:
-    _failed(
-        migrated_engine,
-        insert(earthquake_event_revisions).values(
-            **_revision_values(parents, source_bulletin_id="2026_0831_1609_B1")
-        ),
-    )
+def test_revision_identity_map_allows_enrichment_and_rejects_cross_event_rows(
+    migrated_engine, parents
+) -> None:
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            insert(earthquake_event_revisions).values(
+                **_revision_values(parents, source_bulletin_id="2026_0831_1609_B1")
+            )
+        )
     _failed(
         migrated_engine,
         insert(earthquake_event_revisions).values(
@@ -190,14 +199,34 @@ def test_revision_identity_constraints_and_group_index(migrated_engine, parents)
                     parents,
                     source_bulletin_id=None,
                     source_event_group_id="2026_0831_1609",
+                    revision_number=3,
                 )
             )
         )
+        other_event_id = uuid4()
+        connection.execute(
+            insert(earthquake_events).values(
+                event_id=other_event_id,
+                first_seen_run_id=parents["run"],
+                last_seen_run_id=parents["run"],
+            )
+        )
+    _failed(
+        migrated_engine,
+        insert(earthquake_event_revisions).values(
+            **_revision_values(
+                parents,
+                event_id=other_event_id,
+                revision_number=1,
+                source_bulletin_id="2026_0831_1609_B1",
+            )
+        ),
+    )
     indexes = {
         item["name"]: item
         for item in inspect(migrated_engine).get_indexes("earthquake_event_revisions")
     }
-    assert indexes["uq_event_revisions_source_bulletin_id"]["unique"] is True
+    assert indexes["ix_event_revisions_source_bulletin_id"]["unique"] is False
     assert indexes["ix_event_revisions_source_event_group_id"]["unique"] is False
 
 

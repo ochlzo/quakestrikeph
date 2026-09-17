@@ -1,14 +1,24 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from quakestrike.application.persistence import EventTransactionResult, RunCounters
-from quakestrike.application.reconciliation import ReconcileCurrentCatalog
-from quakestrike.domain.source_rows import CatalogParseResult, NormalizedSourceRow
+from quakestrike.application.phivolcs import CatalogRetrievalLeaseLost
+from quakestrike.application.reconciliation import (
+    ReconcileCurrentCatalog,
+    ReconciliationDiagnostic,
+)
+from quakestrike.domain.source_rows import (
+    CatalogParseResult,
+    DiagnosticCode,
+    NormalizedSourceRow,
+    RejectedSourceRow,
+    SourceDiagnostic,
+)
 
 NOW = datetime(2026, 9, 17, tzinfo=UTC)
 
@@ -17,8 +27,18 @@ class _Retriever:
     def __init__(self, parsed: CatalogParseResult) -> None:
         self.parsed = parsed
 
-    def retrieve_current_catalog(self) -> CatalogParseResult:
+    def retrieve_current_catalog(self, *, heartbeat=None) -> CatalogParseResult:
+        if heartbeat is not None and not heartbeat():
+            raise CatalogRetrievalLeaseLost()
         return self.parsed
+
+
+class _Reporter:
+    def __init__(self) -> None:
+        self.diagnostics: list[ReconciliationDiagnostic] = []
+
+    def report(self, diagnostic: ReconciliationDiagnostic) -> None:
+        self.diagnostics.append(diagnostic)
 
 
 class _Store:
@@ -27,11 +47,17 @@ class _Store:
         self.candidates = candidates
         self.checkpoints: list[tuple[str, str, UUID | None]] = []
         self.requests = []
+        self.heartbeats = 0
+        self.heartbeat_times: list[datetime] = []
+        self.claimed_at: datetime | None = None
 
-    def claim_run(self, *_args):
+    def claim_run(self, _run_id, _token, now):
+        self.claimed_at = now
         return SimpleNamespace()
 
-    def heartbeat_run(self, *_args) -> bool:
+    def heartbeat_run(self, _run_id, _token, now) -> bool:
+        self.heartbeats += 1
+        self.heartbeat_times.append(now)
         return True
 
     def checkpoint_input(self, _run_id, _token, key, outcome, event_id) -> bool:
@@ -46,7 +72,7 @@ class _Store:
 
     def process_event(self, request):
         self.requests.append(request)
-        return EventTransactionResult(
+        result = EventTransactionResult(
             event_id=request.event_id,
             event_revision_id=request.revision.event_revision_id,
             revision_number=1,
@@ -56,6 +82,15 @@ class _Store:
             revision_created=True,
             prediction_created=False,
         )
+        outcome = (
+            "inserted"
+            if result.event_created
+            else "revised"
+            if result.revision_created
+            else "unchanged"
+        )
+        self.checkpoint_input(None, None, request.input_key, outcome, result.event_id)
+        return result
 
     def counters_for_run(self, *_args):
         return RunCounters(1, 1, 0, 0, 0)
@@ -81,11 +116,12 @@ def _row(*, bulletin="2025_0102_0304_B1", group="2025_0102_0304") -> NormalizedS
     )
 
 
-def _execute(store: _Store, row: NormalizedSourceRow) -> _Store:
+def _execute(store: _Store, row: NormalizedSourceRow, reporter: _Reporter | None = None) -> _Store:
     values = iter(uuid4() for _ in range(20))
     result = ReconcileCurrentCatalog(
         store=store,
         retriever=_Retriever(CatalogParseResult((row,), ())),
+        diagnostic_reporter=reporter or _Reporter(),
         now=lambda: NOW,
         new_uuid=lambda: next(values),
     ).execute(uuid4())
@@ -144,3 +180,133 @@ def test_ambiguous_group_fallback_rejects_the_row() -> None:
 
     assert store.requests == []
     assert store.checkpoints[0][1:] == ("rejected", None)
+
+
+def test_retrieval_heartbeats_before_row_processing_and_stops_on_a_lost_lease() -> None:
+    store = _Store()
+    values = iter(uuid4() for _ in range(20))
+    moments = iter(
+        (
+            NOW,
+            NOW + timedelta(minutes=14),
+            NOW + timedelta(minutes=28),
+            NOW + timedelta(minutes=29),
+            NOW + timedelta(minutes=30),
+        )
+    )
+
+    class _LongRetriever:
+        def retrieve_current_catalog(self, *, heartbeat):
+            assert heartbeat() is True
+            assert heartbeat() is True
+            return CatalogParseResult((_row(),), ())
+
+    result = ReconcileCurrentCatalog(
+        store=store,
+        retriever=_LongRetriever(),
+        diagnostic_reporter=_Reporter(),
+        now=lambda: next(moments),
+        new_uuid=lambda: next(values),
+    ).execute(uuid4())
+
+    assert result.status == "succeeded"
+    assert store.heartbeats >= 3
+    assert store.claimed_at is not None
+    assert max(store.heartbeat_times) - store.claimed_at > timedelta(minutes=15)
+
+
+def test_lost_lease_during_retrieval_does_not_process_rows() -> None:
+    store = _Store()
+
+    class _LeaseLosingRetriever:
+        def retrieve_current_catalog(self, *, heartbeat):
+            assert heartbeat() is True
+            raise CatalogRetrievalLeaseLost()
+
+    result = ReconcileCurrentCatalog(
+        store=store,
+        retriever=_LeaseLosingRetriever(),
+        diagnostic_reporter=_Reporter(),
+        now=lambda: NOW,
+    ).execute(uuid4())
+
+    assert result.status == "lease_lost"
+    assert store.requests == []
+
+
+def test_row_diagnostics_keep_run_and_input_correlation() -> None:
+    reporter = _Reporter()
+    row = _row().with_detail_enrichment(
+        detail_occurred_at=None,
+        origin=None,
+        diagnostics=(SourceDiagnostic(DiagnosticCode.DETAIL_FETCH_FAILED),),
+    )
+    store = _execute(_Store(), row, reporter)
+
+    assert reporter.diagnostics[0].code == "DETAIL_FETCH_FAILED"
+    assert reporter.diagnostics[0].run_id
+    assert reporter.diagnostics[0].input_key.startswith("row:")
+    assert store.checkpoints[0][1] == "inserted"
+
+
+def test_parser_and_ambiguous_fallback_rejections_emit_their_safe_codes() -> None:
+    reporter = _Reporter()
+    store = _Store(
+        candidates=(
+            SimpleNamespace(
+                event_id=uuid4(),
+                source_event_group_id="2025_0102_0304",
+                latitude=Decimal("10"),
+                longitude=Decimal("125"),
+                magnitude=Decimal("4.2"),
+            ),
+            SimpleNamespace(
+                event_id=uuid4(),
+                source_event_group_id="2025_0102_0304",
+                latitude=Decimal("10"),
+                longitude=Decimal("125"),
+                magnitude=Decimal("4.2"),
+            ),
+        )
+    )
+    values = iter(uuid4() for _ in range(20))
+    ReconcileCurrentCatalog(
+        store=store,
+        retriever=_Retriever(
+            CatalogParseResult(
+                (_row(),),
+                (RejectedSourceRow(8, SourceDiagnostic(DiagnosticCode.INVALID_SOURCE_URL)),),
+            )
+        ),
+        diagnostic_reporter=reporter,
+        now=lambda: NOW,
+        new_uuid=lambda: next(values),
+    ).execute(uuid4())
+
+    assert {item.code for item in reporter.diagnostics} == {
+        "INVALID_SOURCE_URL",
+        "AMBIGUOUS_FALLBACK",
+    }
+
+
+def test_unexpected_persistence_error_uses_a_safe_retry_transition() -> None:
+    class _FailingStore(_Store):
+        def process_event(self, _request):
+            raise RuntimeError("database password leaked")
+
+        def fail_run(self, *_args, **_kwargs):
+            self.failure = (_args, _kwargs)
+            return "retry_wait"
+
+    store = _FailingStore()
+    result = ReconcileCurrentCatalog(
+        store=store,
+        retriever=_Retriever(CatalogParseResult((_row(),), ())),
+        diagnostic_reporter=_Reporter(),
+        now=lambda: NOW,
+    ).execute(uuid4())
+
+    assert result.status == "retry_wait"
+    assert store.checkpoints == []
+    assert store.failure[0][3] == "RECONCILIATION_PERSISTENCE_FAILURE"
+    assert "password" not in store.failure[0][4]

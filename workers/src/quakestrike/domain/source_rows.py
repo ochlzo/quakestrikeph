@@ -62,7 +62,7 @@ class SourceIdentity:
     """Canonical PHIVOLCS bulletin identity extracted from a source link."""
 
     source_url: str
-    source_bulletin_id: str
+    source_bulletin_id: str | None
     source_event_group_id: str
 
 

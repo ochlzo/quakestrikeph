@@ -32,6 +32,12 @@ _RECOGNIZED_BULLETIN_PATH = re.compile(
     r"(?P<bulletin>(?P<group>\d{4}_\d{3,4}_\d{4,8})_B[A-Z0-9]+)\.(?:html?|pdf|jpe?g)$",
     re.IGNORECASE,
 )
+_RECOGNIZED_GROUP_ONLY_PATH = re.compile(
+    r"^/\d{4}_Earthquake_(?:Information|Bulletins)/"
+    r"(?:January|February|March|April|May|June|July|August|September|October|November|December)/"
+    r"(?P<group>\d{4}_\d{3,4}_\d{4,8})\.(?:html?|pdf|jpe?g)$",
+    re.IGNORECASE,
+)
 
 
 class BulletinUrlRejected(ValueError):
@@ -60,11 +66,14 @@ def canonicalize_bulletin_url(page_url: str, href: str, event_year: int | None) 
 
     path = _canonical_path(parsed.path)
     path = _repair_path(path, page_url, event_year)
-    recognized = _RECOGNIZED_BULLETIN_PATH.fullmatch(path)
-    if recognized is None:
+    recognized_bulletin = _RECOGNIZED_BULLETIN_PATH.fullmatch(path)
+    recognized_group = _RECOGNIZED_GROUP_ONLY_PATH.fullmatch(path)
+    if recognized_bulletin is None and recognized_group is None:
         raise BulletinUrlRejected("bulletin URL does not match a recognized bulletin path")
-    bulletin_id = recognized.group("bulletin").upper()
-    group_id = recognized.group("group").upper()
+    bulletin_id = (
+        recognized_bulletin.group("bulletin").upper() if recognized_bulletin is not None else None
+    )
+    group_id = (recognized_bulletin or recognized_group).group("group").upper()
 
     return SourceIdentity(
         source_url=urlunsplit(("https", OFFICIAL_HOST, path, "", "")),

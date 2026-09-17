@@ -59,6 +59,7 @@ class EventTransactionRequest:
     event_id: UUID
     ingestion_run_id: UUID
     worker_execution_id: UUID | None = None
+    input_key: str | None = None
     revision: EventRevisionRequest | None = None
     prediction: PredictionWorkRequest | None = None
 

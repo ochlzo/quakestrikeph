@@ -119,6 +119,11 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                 )
 
             if request.revision is None:
+                self._checkpoint_outcome(
+                    session,
+                    request,
+                    "inserted" if not event_exists else "unchanged",
+                )
                 return EventTransactionResult(
                     event_id=request.event_id,
                     event_revision_id=None,
@@ -142,6 +147,24 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                     )
                     + 1
                 )
+                if revision.source_bulletin_id is not None:
+                    mapped_event_id = session.scalar(
+                        select(earthquake_bulletin_event_identities.c.event_id)
+                        .where(
+                            earthquake_bulletin_event_identities.c.source_bulletin_id
+                            == revision.source_bulletin_id
+                        )
+                        .with_for_update()
+                    )
+                    if mapped_event_id is not None and mapped_event_id != request.event_id:
+                        raise ValueError("The bulletin ID already belongs to another event.")
+                    if mapped_event_id is None:
+                        session.execute(
+                            insert(earthquake_bulletin_event_identities).values(
+                                source_bulletin_id=revision.source_bulletin_id,
+                                event_id=request.event_id,
+                            )
+                        )
                 session.execute(
                     insert(earthquake_event_revisions).values(
                         event_revision_id=revision.event_revision_id,
@@ -161,30 +184,21 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                         origin=revision.origin,
                     )
                 )
-                if revision.source_bulletin_id is not None:
-                    mapped_event_id = session.scalar(
-                        select(earthquake_bulletin_event_identities.c.event_id)
-                        .where(
-                            earthquake_bulletin_event_identities.c.source_bulletin_id
-                            == revision.source_bulletin_id
-                        )
-                        .with_for_update()
-                    )
-                    if mapped_event_id is not None and mapped_event_id != request.event_id:
-                        raise ValueError("The bulletin ID already belongs to another event.")
-                    if mapped_event_id is None:
-                        session.execute(
-                            insert(earthquake_bulletin_event_identities).values(
-                                source_bulletin_id=revision.source_bulletin_id,
-                                event_id=request.event_id,
-                            )
-                        )
                 revision_id = revision.event_revision_id
             else:
                 revision_id = existing_revision.event_revision_id
                 revision_number = existing_revision.revision_number
 
             if request.prediction is None:
+                self._checkpoint_outcome(
+                    session,
+                    request,
+                    "inserted"
+                    if not event_exists
+                    else "revised"
+                    if revision_created
+                    else "unchanged",
+                )
                 return EventTransactionResult(
                     event_id=request.event_id,
                     event_revision_id=revision_id,
@@ -217,6 +231,15 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
             if existing_prediction is not None:
                 if existing_prediction.input_snapshot_json != dict(prediction.input_snapshot_json):
                     raise ValueError("The snapshot hash already identifies different content.")
+                self._checkpoint_outcome(
+                    session,
+                    request,
+                    "inserted"
+                    if not event_exists
+                    else "revised"
+                    if revision_created
+                    else "unchanged",
+                )
                 return EventTransactionResult(
                     event_id=request.event_id,
                     event_revision_id=revision_id,
@@ -247,6 +270,11 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                     dispatch_id=prediction.dispatch_id,
                     prediction_job_id=prediction.job_id,
                 )
+            )
+            self._checkpoint_outcome(
+                session,
+                request,
+                "inserted" if not event_exists else "revised" if revision_created else "unchanged",
             )
             return EventTransactionResult(
                 event_id=request.event_id,
@@ -281,6 +309,21 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                 and run.next_attempt_at is not None
                 and run.next_attempt_at > now
             ):
+                return None
+            if run.attempt_count >= _MAX_ATTEMPTS:
+                session.execute(
+                    update(ingestion_runs)
+                    .where(ingestion_runs.c.run_id == run_id)
+                    .values(
+                        status="failed",
+                        lease_expires_at=None,
+                        worker_execution_id=None,
+                        next_attempt_at=None,
+                        finished_at=now,
+                        error_code="LEASE_EXPIRED_ATTEMPT_LIMIT",
+                        error_message="The processing lease expired after the allowed attempts.",
+                    )
+                )
                 return None
             attempts = run.attempt_count + 1
             session.execute(
@@ -555,6 +598,29 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
         )
         if claimed is None:
             raise ValueError("The ingestion run lease is no longer owned by this worker.")
+
+    @staticmethod
+    def _checkpoint_outcome(
+        session: Session,
+        request: EventTransactionRequest,
+        outcome: str,
+    ) -> None:
+        """Commit an accepted row's result with its event transaction when requested."""
+
+        if request.input_key is None:
+            return
+        if request.worker_execution_id is None:
+            raise ValueError("An input checkpoint requires a fenced worker execution.")
+        session.execute(
+            pg_insert(ingestion_run_inputs)
+            .values(
+                run_id=request.ingestion_run_id,
+                input_key=request.input_key,
+                outcome=outcome,
+                event_id=request.event_id,
+            )
+            .on_conflict_do_nothing(index_elements=["run_id", "input_key"])
+        )
 
     @staticmethod
     def _validate_revision_match(existing, request: EventTransactionRequest) -> None:

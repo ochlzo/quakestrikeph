@@ -101,6 +101,17 @@ def test_canonicalize_bulletin_url_normalizes_percent_encoding_and_discards_frag
     )
 
 
+def test_canonicalize_bulletin_url_accepts_only_the_recognized_group_only_shape() -> None:
+    identity = canonicalize_bulletin_url(
+        "https://earthquake.phivolcs.dost.gov.ph/",
+        "2025_Earthquake_Information/January/2025_0102_0304.html",
+        2025,
+    )
+
+    assert identity.source_bulletin_id is None
+    assert identity.source_event_group_id == "2025_0102_0304"
+
+
 @pytest.mark.parametrize(
     "href",
     [

@@ -10,8 +10,10 @@ from typing import Protocol
 
 import requests
 
+from quakestrike.application.phivolcs import CatalogRetrievalError, CatalogRetrievalLeaseLost
 from quakestrike.domain.source_rows import CatalogParseResult, DiagnosticCode, SourceDiagnostic
 from quakestrike.infrastructure.phivolcs.parser import (
+    CatalogStructuralError,
     ParsedDetail,
     parse_current_catalog,
     parse_detail_page,
@@ -64,19 +66,28 @@ class PhivolcsCatalogClient:
         self._detail_delay_seconds = detail_delay_seconds
         self._sleep = sleep
 
-    def retrieve_current_catalog(self) -> CatalogParseResult:
+    def retrieve_current_catalog(
+        self, *, heartbeat: Callable[[], bool] | None = None
+    ) -> CatalogParseResult:
         """Fetch the complete current catalog and enrich its valid rows in order."""
 
-        catalog_body = self._fetch_html(self._catalog_url)
-        parsed = parse_current_catalog(catalog_body, self._catalog_url)
+        self._heartbeat(heartbeat)
+        try:
+            catalog_body = self._fetch_html(self._catalog_url, heartbeat=heartbeat)
+            parsed = parse_current_catalog(catalog_body, self._catalog_url)
+        except PhivolcsTransportError as error:
+            raise CatalogRetrievalError(error.category) from error
+        except CatalogStructuralError as error:
+            raise CatalogRetrievalError("catalog_structure") from error
         details: dict[str, ParsedDetail] = {}
         enriched_rows = []
         for row in parsed.accepted_rows:
+            self._heartbeat(heartbeat)
             detail = details.get(row.source_url)
             if detail is None:
                 if details and self._detail_delay_seconds:
                     self._sleep(self._detail_delay_seconds)
-                detail = self._fetch_detail(row.source_url)
+                detail = self._fetch_detail(row.source_url, heartbeat=heartbeat)
                 details[row.source_url] = detail
             enriched_rows.append(
                 row.with_detail_enrichment(
@@ -87,7 +98,9 @@ class PhivolcsCatalogClient:
             )
         return replace(parsed, accepted_rows=tuple(enriched_rows))
 
-    def _fetch_detail(self, url: str) -> ParsedDetail:
+    def _fetch_detail(
+        self, url: str, *, heartbeat: Callable[[], bool] | None = None
+    ) -> ParsedDetail:
         suffix = PurePosixPath(url).suffix.casefold()
         if suffix in {".pdf", ".jpg", ".jpeg"}:
             return ParsedDetail(
@@ -100,7 +113,9 @@ class PhivolcsCatalogClient:
                 ),
             )
         try:
-            return parse_detail_page(self._fetch_html(url))
+            return parse_detail_page(self._fetch_html(url, heartbeat=heartbeat))
+        except CatalogRetrievalLeaseLost:
+            raise
         except PhivolcsTransportError as error:
             code = (
                 DiagnosticCode.DETAIL_NON_HTML_RESPONSE
@@ -113,7 +128,7 @@ class PhivolcsCatalogClient:
                 (SourceDiagnostic(code),),
             )
 
-    def _fetch_html(self, url: str) -> bytes:
+    def _fetch_html(self, url: str, *, heartbeat: Callable[[], bool] | None = None) -> bytes:
         response: ResponseLike | None = None
         try:
             response = self._session.get(
@@ -143,6 +158,7 @@ class PhivolcsCatalogClient:
             chunks: list[bytes] = []
             total = 0
             for chunk in response.iter_content(chunk_size=8192):  # type: ignore[union-attr]
+                self._heartbeat(heartbeat)
                 if not chunk:
                     continue
                 total += len(chunk)
@@ -159,3 +175,8 @@ class PhivolcsCatalogClient:
         finally:
             if response is not None:
                 response.close()
+
+    @staticmethod
+    def _heartbeat(heartbeat: Callable[[], bool] | None) -> None:
+        if heartbeat is not None and not heartbeat():
+            raise CatalogRetrievalLeaseLost()

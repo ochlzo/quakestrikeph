@@ -29,6 +29,11 @@ def upgrade() -> None:
             onupdate="RESTRICT",
             ondelete="RESTRICT",
         ),
+        sa.UniqueConstraint(
+            "source_bulletin_id",
+            "event_id",
+            name="uq_bulletin_event_identities_bulletin_event",
+        ),
         sa.CheckConstraint(
             "source_bulletin_id = btrim(source_bulletin_id) AND source_bulletin_id <> '' "
             "AND source_bulletin_id = upper(source_bulletin_id)",
@@ -44,6 +49,15 @@ def upgrade() -> None:
         "ix_bulletin_event_identities_event_id",
         "earthquake_bulletin_event_identities",
         ["event_id"],
+    )
+    op.create_foreign_key(
+        "fk_event_revisions_bulletin_event_identity",
+        "earthquake_event_revisions",
+        "earthquake_bulletin_event_identities",
+        ["source_bulletin_id", "event_id"],
+        ["source_bulletin_id", "event_id"],
+        onupdate="RESTRICT",
+        ondelete="RESTRICT",
     )
     op.drop_index("uq_event_revisions_source_bulletin_id", table_name="earthquake_event_revisions")
     op.create_index(
@@ -92,6 +106,11 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_ingestion_run_inputs_run_outcome", table_name="ingestion_run_inputs")
     op.drop_table("ingestion_run_inputs")
+    op.drop_constraint(
+        "fk_event_revisions_bulletin_event_identity",
+        "earthquake_event_revisions",
+        type_="foreignkey",
+    )
     op.drop_index("ix_event_revisions_source_bulletin_id", table_name="earthquake_event_revisions")
     op.create_index(
         "uq_event_revisions_source_bulletin_id",
@@ -100,7 +119,9 @@ def downgrade() -> None:
         unique=True,
         postgresql_where=sa.text("source_bulletin_id IS NOT NULL"),
     )
-    op.drop_index("ix_bulletin_event_identities_event_id", table_name="earthquake_bulletin_event_identities")
+    op.drop_index(
+        "ix_bulletin_event_identities_event_id", table_name="earthquake_bulletin_event_identities"
+    )
     op.drop_table("earthquake_bulletin_event_identities")
     op.drop_constraint("ck_ingestion_runs_retry_schedule", "ingestion_runs", type_="check")
     op.drop_column("ingestion_runs", "next_attempt_at")

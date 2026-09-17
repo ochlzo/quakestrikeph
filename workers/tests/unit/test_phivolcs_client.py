@@ -5,8 +5,9 @@ from pathlib import Path
 import pytest
 import requests
 
+from quakestrike.application.phivolcs import CatalogRetrievalError, CatalogRetrievalLeaseLost
 from quakestrike.domain.source_rows import DiagnosticCode, SourceTimePrecision
-from quakestrike.infrastructure.phivolcs.client import PhivolcsCatalogClient, PhivolcsTransportError
+from quakestrike.infrastructure.phivolcs.client import PhivolcsCatalogClient
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "phivolcs"
 CATALOG_URL = "https://earthquake.phivolcs.dost.gov.ph/"
@@ -119,7 +120,7 @@ def test_oversized_or_terminal_catalog_response_stops_the_retrieval() -> None:
         detail_delay_seconds=0,
     )
 
-    with pytest.raises(PhivolcsTransportError):
+    with pytest.raises(CatalogRetrievalError):
         client.retrieve_current_catalog()
 
     dishonest = ScriptedResponse(b"x" * 10_001)
@@ -132,7 +133,7 @@ def test_oversized_or_terminal_catalog_response_stops_the_retrieval() -> None:
         read_timeout_seconds=4,
         detail_delay_seconds=0,
     )
-    with pytest.raises(PhivolcsTransportError):
+    with pytest.raises(CatalogRetrievalError):
         dishonest_client.retrieve_current_catalog()
 
 
@@ -161,7 +162,7 @@ def test_detail_tls_failure_keeps_valid_catalog_data_and_catalog_tls_failure_sto
         read_timeout_seconds=4,
         detail_delay_seconds=0,
     )
-    with pytest.raises(PhivolcsTransportError):
+    with pytest.raises(CatalogRetrievalError):
         failing_catalog.retrieve_current_catalog()
 
 
@@ -216,3 +217,57 @@ def test_detail_requests_are_sequential_with_a_delay_only_between_unique_urls() 
 
     assert len(session.calls) == 3
     assert pauses == [0.1]
+
+
+def test_retrieval_heartbeats_between_catalog_and_each_detail_request() -> None:
+    catalog = (FIXTURES / "current_catalog_duplicate_detail.html").read_text(encoding="utf-8")
+    catalog = catalog.replace(
+        '2025_0102_0304_B1.html">02 January 2025 - 11:05 AM',
+        '2025_0102_0305_B1.html">02 January 2025 - 11:05 AM',
+    )
+    client = PhivolcsCatalogClient(
+        catalog_url=CATALOG_URL,
+        session=ScriptedSession(
+            [
+                ScriptedResponse(catalog.encode()),
+                ScriptedResponse((FIXTURES / "bulletin_detail.html").read_bytes()),
+                ScriptedResponse((FIXTURES / "bulletin_detail.html").read_bytes()),
+            ]
+        ),
+        max_response_bytes=10_000,
+        connect_timeout_seconds=3,
+        read_timeout_seconds=4,
+        detail_delay_seconds=0,
+    )
+    heartbeats = 0
+
+    def heartbeat() -> bool:
+        nonlocal heartbeats
+        heartbeats += 1
+        return True
+
+    client.retrieve_current_catalog(heartbeat=heartbeat)
+
+    assert heartbeats >= 5
+
+
+def test_retrieval_stops_when_the_lease_is_lost_before_a_detail_request() -> None:
+    client = PhivolcsCatalogClient(
+        catalog_url=CATALOG_URL,
+        session=ScriptedSession(
+            [ScriptedResponse((FIXTURES / "current_catalog.html").read_bytes())]
+        ),
+        max_response_bytes=10_000,
+        connect_timeout_seconds=3,
+        read_timeout_seconds=4,
+        detail_delay_seconds=0,
+    )
+    calls = 0
+
+    def heartbeat() -> bool:
+        nonlocal calls
+        calls += 1
+        return calls < 3
+
+    with pytest.raises(CatalogRetrievalLeaseLost):
+        client.retrieve_current_catalog(heartbeat=heartbeat)

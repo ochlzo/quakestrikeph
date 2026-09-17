@@ -25,7 +25,7 @@ Create enum types before their tables in the migration that first uses them. Add
 
 | DFD store | Tables | Purpose |
 | --- | --- | --- |
-| D1 Earthquake data | `ingestion_runs`, `earthquake_events`, `earthquake_event_revisions` | Source runs, stable events, and immutable observed revisions. |
+| D1 Earthquake data | `ingestion_runs`, `ingestion_run_inputs`, `earthquake_events`, `earthquake_bulletin_event_identities`, `earthquake_event_revisions` | Source runs, durable input outcomes, stable events, bulletin identity mappings, and immutable observed revisions. |
 | D2 Forecast and model records | `model_releases`, `prediction_jobs`, `prediction_attempts`, `forecasts`, `job_dispatches` | Model provenance, work, results, and durable queue submission. |
 | D3 Accounts and access | `users`, `user_role_assignments`, `user_alert_preferences`, `saved_pins` | Identity mapping, roles, consent, and locations. |
 | D4 Reviews and alerts | `forecast_reviews`, `alert_jobs`, `alert_recipients`, `alert_delivery_attempts` | Publication and SMS authorization/delivery evidence. |
@@ -119,6 +119,7 @@ status ingestion_run_status = 'pending'
 requested_at timestamptz = now()
 started_at timestamptz?
 attempt_count integer = 0
+next_attempt_at timestamptz?
 lease_expires_at timestamptz?
 worker_execution_id uuid?
 finished_at timestamptz?
@@ -176,7 +177,18 @@ ingested_at timestamptz = now()
 
 `UNIQUE (event_id, revision_number)`, with number at least 1. Both source IDs may be individually null but not together. `source_event_group_id` is indexed and never unique. URL is canonical and required but not globally unique. Precision is `minute` or `second`; known origin is `TECTONIC`, `VOLCANIC`, or `TECTONIC-VOLCANIC`. Coordinates obey pin ranges, depth is nonnegative, and magnitude need not be positive.
 
-The same canonical `source_bulletin_id` may appear on several immutable revisions only when all occurrences belong to one `event_id`. `earthquake_bulletin_event_identities` owns this invariant: `source_bulletin_id` is its primary key and it references the single stable event. It makes exact lookup unambiguous and prevents concurrent transactions from attaching one bulletin ID to different events. The revision table indexes `source_bulletin_id`; it no longer has a global unique index because a later detail enrichment can append a revision for the same bulletin.
+The same canonical `source_bulletin_id` may appear on several immutable revisions only when all occurrences belong to one `event_id`. A composite foreign key from `(source_bulletin_id, event_id)` to `earthquake_bulletin_event_identities` enforces this rule for every direct insert as well as repository writes. The revision table indexes `source_bulletin_id`; it has no global unique index because a later detail enrichment can append a revision for the same bulletin.
+
+### `earthquake_bulletin_event_identities`
+
+One canonical PHIVOLCS bulletin ID maps to one stable QuakeStrike event.
+
+```text
+source_bulletin_id text PK
+event_id uuid
+```
+
+`source_bulletin_id` is uppercase and nonblank. `event_id` references `earthquake_events`. The primary key makes exact lookup unambiguous, while `UNIQUE (source_bulletin_id, event_id)` provides the parent key for the revision table's composite foreign key. A revision with a null bulletin ID does not use this mapping.
 
 ### `ingestion_run_inputs`
 
@@ -485,6 +497,9 @@ Every FK uses `ON UPDATE RESTRICT`. Required child references have one parent; o
 | `earthquake_events.first_seen_run_id`, `.last_seen_run_id` | `ingestion_runs` | RESTRICT |
 | `earthquake_events.superseded_by_event_id` | `earthquake_events` | RESTRICT |
 | `earthquake_event_revisions.event_id`, `.ingestion_run_id` | `earthquake_events`, `ingestion_runs` | RESTRICT |
+| `earthquake_event_revisions.(source_bulletin_id, event_id)` | `earthquake_bulletin_event_identities.(source_bulletin_id, event_id)` | RESTRICT |
+| `earthquake_bulletin_event_identities.event_id` | `earthquake_events` | RESTRICT |
+| `ingestion_run_inputs.run_id`, `.event_id` | `ingestion_runs`, `earthquake_events` | RESTRICT |
 | `prediction_jobs.event_revision_id`, `.model_release_id` | `earthquake_event_revisions`, `model_releases` | RESTRICT |
 | `prediction_attempts.job_id`; `forecasts.job_id` | `prediction_jobs` | RESTRICT |
 | `forecasts.supersedes_forecast_id` | `forecasts` | RESTRICT |
@@ -503,7 +518,7 @@ The composite review FK uses PostgreSQL `MATCH SIMPLE`: an automatic job has nul
 
 PK and UQ constraints create indexes; do not duplicate an index already covered by a useful left prefix. Index every remaining FK lookup column and the composite review FK. Add indexes for these query paths:
 
-- Active role assignment partial uniqueness; revision group ID and partial bulletin-ID uniqueness. `UNIQUE (event_id, revision_number)` supports latest revision by reverse scan.
+- Active role assignment partial uniqueness; revision group ID and non-unique bulletin-ID lookup. `UNIQUE (event_id, revision_number)` supports latest revision by reverse scan.
 - `prediction_jobs(event_revision_id, model_release_id, requested_at DESC)`; `forecast_reviews(visibility_status, updated_at DESC)`.
 - Dispatch `next_dispatch_at, dispatch_id` for pending/retry-wait and `lease_expires_at` for dispatching; target UQs support job lookup.
 - Prediction running-attempt lease and partial running-job uniqueness; active ingestion/alert processing leases.

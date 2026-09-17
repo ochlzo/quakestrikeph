@@ -5,6 +5,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Numeric,
@@ -159,6 +160,11 @@ earthquake_bulletin_event_identities = Table(
         "AND source_bulletin_id <> '' AND source_bulletin_id = upper(source_bulletin_id)",
         name="ck_bulletin_event_identities_bulletin_id",
     ),
+    UniqueConstraint(
+        "source_bulletin_id",
+        "event_id",
+        name="uq_bulletin_event_identities_bulletin_event",
+    ),
 )
 Index("ix_bulletin_event_identities_event_id", earthquake_bulletin_event_identities.c.event_id)
 
@@ -192,6 +198,16 @@ earthquake_event_revisions = Table(
     Column("origin", Text),
     Column("ingested_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("event_id", "revision_number", name="uq_event_revisions_event_revision"),
+    ForeignKeyConstraint(
+        ["source_bulletin_id", "event_id"],
+        [
+            "earthquake_bulletin_event_identities.source_bulletin_id",
+            "earthquake_bulletin_event_identities.event_id",
+        ],
+        onupdate="RESTRICT",
+        ondelete="RESTRICT",
+        name="fk_event_revisions_bulletin_event_identity",
+    ),
     CheckConstraint("revision_number >= 1", name="ck_event_revisions_revision_number"),
     CheckConstraint(
         "source_bulletin_id IS NOT NULL OR source_event_group_id IS NOT NULL",
@@ -231,9 +247,8 @@ earthquake_event_revisions = Table(
     ),
 )
 Index(
-    "uq_event_revisions_source_bulletin_id",
+    "ix_event_revisions_source_bulletin_id",
     earthquake_event_revisions.c.source_bulletin_id,
-    unique=True,
     postgresql_where=earthquake_event_revisions.c.source_bulletin_id.is_not(None),
 )
 Index(

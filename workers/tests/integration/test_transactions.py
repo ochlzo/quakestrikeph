@@ -21,6 +21,7 @@ from quakestrike.infrastructure.database.repositories import SqlAlchemyIngestion
 from quakestrike.infrastructure.database.tables import (
     earthquake_event_revisions,
     earthquake_events,
+    ingestion_run_inputs,
     ingestion_runs,
     job_dispatches,
     model_releases,
@@ -33,6 +34,11 @@ NOW = datetime(2026, 9, 16, tzinfo=UTC)
 
 def _transactions(engine) -> SqlAlchemyIngestionTransactions:
     return SqlAlchemyIngestionTransactions(create_session_factory(engine))
+
+
+def _database_now(engine) -> datetime:
+    with engine.connect() as connection:
+        return connection.scalar(select(func.now()))
 
 
 def test_overlapping_active_run_requests_return_one_run_and_dispatch(migrated_engine) -> None:
@@ -291,6 +297,14 @@ def test_same_bulletin_enrichment_appends_a_revision_and_unchanged_replay_is_a_n
     enriched = replace(
         request,
         revision=replace(request.revision, event_revision_id=uuid4(), origin="TECTONIC"),
+        prediction=replace(
+            request.prediction,
+            job_id=uuid4(),
+            dispatch_id=uuid4(),
+            input_snapshot_hash="c" * 64,
+            idempotency_key=str(uuid4()),
+            correlation_id=uuid4(),
+        ),
     )
     changed = transactions.process_event(enriched)
     replay = transactions.process_event(
@@ -601,22 +615,21 @@ def test_run_claim_fences_a_stale_execution_from_completion(migrated_engine) -> 
     )
     transactions.create_run_with_dispatch(request)
     first_token = uuid4()
-    first = transactions.claim_run(request.run_id, first_token, NOW)
+    now = _database_now(migrated_engine)
+    first = transactions.claim_run(request.run_id, first_token, now)
     assert first is not None
 
     second_token = uuid4()
-    second = transactions.claim_run(request.run_id, second_token, NOW + timedelta(minutes=16))
+    later = now + timedelta(minutes=16)
+    second = transactions.claim_run(request.run_id, second_token, later)
     assert second is not None
     assert second.attempt_count == 2
-    assert (
-        transactions.heartbeat_run(request.run_id, first_token, NOW + timedelta(minutes=16))
-        is False
-    )
+    assert transactions.heartbeat_run(request.run_id, first_token, later) is False
     assert (
         transactions.complete_run(
             request.run_id,
             first_token,
-            NOW + timedelta(minutes=16),
+            later,
             transactions.counters_for_run(request.run_id, second_token),
         )
         is False
@@ -624,7 +637,7 @@ def test_run_claim_fences_a_stale_execution_from_completion(migrated_engine) -> 
     assert transactions.complete_run(
         request.run_id,
         second_token,
-        NOW + timedelta(minutes=16),
+        later,
         transactions.counters_for_run(request.run_id, second_token),
     )
 
@@ -639,7 +652,7 @@ def test_checkpoints_derive_counters_without_double_counting_redelivery(migrated
     )
     transactions.create_run_with_dispatch(request)
     token = uuid4()
-    assert transactions.claim_run(request.run_id, token, NOW) is not None
+    assert transactions.claim_run(request.run_id, token, _database_now(migrated_engine)) is not None
 
     assert transactions.checkpoint_input(
         request.run_id, token, "rejected:1:INVALID_SOURCE_URL", "rejected", None
@@ -664,11 +677,12 @@ def test_retryable_run_failure_uses_three_delays_then_stops(migrated_engine) -> 
         correlation_id=uuid4(),
     )
     transactions.create_run_with_dispatch(request)
+    now = _database_now(migrated_engine)
     moments = (
-        NOW,
-        NOW + timedelta(seconds=31),
-        NOW + timedelta(minutes=2, seconds=32),
-        NOW + timedelta(minutes=12, seconds=33),
+        now,
+        now + timedelta(seconds=31),
+        now + timedelta(minutes=2, seconds=32),
+        now + timedelta(minutes=12, seconds=33),
     )
     statuses = []
     for moment in moments:
@@ -686,3 +700,73 @@ def test_retryable_run_failure_uses_three_delays_then_stops(migrated_engine) -> 
         )
 
     assert statuses == ["retry_wait", "retry_wait", "retry_wait", "failed"]
+
+
+def test_expired_worker_leases_stop_after_the_fourth_claim(migrated_engine) -> None:
+    transactions = _transactions(migrated_engine)
+    request = RunDispatchRequest(
+        run_id=uuid4(),
+        dispatch_id=uuid4(),
+        trigger_type="manual",
+        correlation_id=uuid4(),
+    )
+    transactions.create_run_with_dispatch(request)
+    now = _database_now(migrated_engine)
+
+    for attempt in range(4):
+        claim = transactions.claim_run(
+            request.run_id,
+            uuid4(),
+            now + timedelta(minutes=16 * attempt),
+        )
+        assert claim is not None
+        assert claim.attempt_count == attempt + 1
+
+    assert transactions.claim_run(request.run_id, uuid4(), now + timedelta(minutes=64)) is None
+    with migrated_engine.connect() as connection:
+        run = connection.execute(
+            select(ingestion_runs.c.status, ingestion_runs.c.error_code).where(
+                ingestion_runs.c.run_id == request.run_id
+            )
+        ).one()
+    assert run.status == "failed"
+    assert run.error_code == "LEASE_EXPIRED_ATTEMPT_LIMIT"
+
+
+def test_event_checkpoint_keeps_the_original_outcome_across_a_replay(migrated_engine) -> None:
+    transactions = _transactions(migrated_engine)
+    request = RunDispatchRequest(
+        run_id=uuid4(),
+        dispatch_id=uuid4(),
+        trigger_type="manual",
+        correlation_id=uuid4(),
+    )
+    transactions.create_run_with_dispatch(request)
+    token = uuid4()
+    assert transactions.claim_run(request.run_id, token, _database_now(migrated_engine))
+    revision = _revision(request.run_id)
+    event_request = EventTransactionRequest(
+        event_id=uuid4(),
+        ingestion_run_id=request.run_id,
+        worker_execution_id=token,
+        input_key="row:crash-replay",
+        revision=revision,
+    )
+
+    inserted = transactions.process_event(event_request)
+    replay = transactions.process_event(
+        replace(event_request, revision=replace(revision, event_revision_id=uuid4()))
+    )
+    counters = transactions.counters_for_run(request.run_id, token)
+
+    assert inserted.event_created is True
+    assert replay.revision_created is False
+    assert counters.events_inserted == 1
+    assert counters.events_unchanged == 0
+    with migrated_engine.connect() as connection:
+        checkpoint = connection.execute(
+            select(ingestion_run_inputs.c.outcome).where(
+                ingestion_run_inputs.c.run_id == request.run_id
+            )
+        ).scalar_one()
+    assert checkpoint == "inserted"
