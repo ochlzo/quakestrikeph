@@ -124,6 +124,8 @@ class PhivolcsCatalogClient:
             )
             if 300 <= response.status_code < 400:
                 raise PhivolcsTransportError("redirect")
+            if response.status_code == 429 or response.status_code >= 500:
+                raise PhivolcsTransportError("transient_http")
             if response.status_code >= 400:
                 raise PhivolcsTransportError("http_status")
             content_type = (
@@ -148,8 +150,12 @@ class PhivolcsCatalogClient:
                     raise PhivolcsTransportError("oversized")
                 chunks.append(chunk)
             return b"".join(chunks)
-        except requests.RequestException as error:
+        except requests.exceptions.SSLError as error:
+            raise PhivolcsTransportError("tls") from error
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as error:
             raise PhivolcsTransportError("request_failed") from error
+        except requests.RequestException as error:
+            raise PhivolcsTransportError("request_failure") from error
         finally:
             if response is not None:
                 response.close()

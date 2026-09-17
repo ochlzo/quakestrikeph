@@ -14,7 +14,9 @@ EXPECTED_TABLES = {
     "alembic_version",
     "ingestion_runs",
     "earthquake_events",
+    "earthquake_bulletin_event_identities",
     "earthquake_event_revisions",
+    "ingestion_run_inputs",
     "model_releases",
     "prediction_jobs",
     "job_dispatches",
@@ -68,7 +70,7 @@ def test_migration_gate_is_ready_at_head_and_read_only_when_revision_is_stale(
     settings = _settings(str(migrated_engine.url))
     ready = AlembicMigrationStateGate(settings, engine=migrated_engine).check()
     assert ready.ready is True
-    assert ready.details["current_revision"] == "20260916_01"
+    assert ready.details["current_revision"] == "20260917_02"
 
     with migrated_engine.begin() as connection:
         connection.execute(text("UPDATE alembic_version SET version_num = 'stale_revision'"))
@@ -79,4 +81,4 @@ def test_migration_gate_is_ready_at_head_and_read_only_when_revision_is_stale(
             connection.scalar(text("SELECT version_num FROM alembic_version")) == "stale_revision"
         )
     with migrated_engine.begin() as connection:
-        connection.execute(text("UPDATE alembic_version SET version_num = '20260916_01'"))
+        connection.execute(text("UPDATE alembic_version SET version_num = '20260917_02'"))

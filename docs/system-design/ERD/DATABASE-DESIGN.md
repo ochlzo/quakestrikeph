@@ -1,6 +1,6 @@
 # QuakeStrike PH database design
 
-Status: authoritative intended PostgreSQL contract, not evidence that migrations have run. This specification consolidates the schema rules, table purposes, accepted decisions, and relationships into one implementation contract. It contains 19 tables. The [ERD](ERD.png) shows their shape; this file controls fields, constraints, transactions, and ownership. [ADR 0003](../../adr/0003-schema-specification-controls-database-contracts.md) establishes that precedence. The [architecture specification](../ARCHITECTURE/ARCHITECTURE.md) describes the modules that use them.
+Status: authoritative intended PostgreSQL contract, not evidence that migrations have run. This specification consolidates the schema rules, table purposes, accepted decisions, and relationships into one implementation contract. It contains 21 tables. The [ERD](ERD.png) shows their shape; this file controls fields, constraints, transactions, and ownership. [ADR 0003](../../adr/0003-schema-specification-controls-database-contracts.md) establishes that precedence. The [architecture specification](../ARCHITECTURE/ARCHITECTURE.md) describes the modules that use them.
 
 ## Conventions and data stores
 
@@ -134,6 +134,8 @@ correlation_id uuid
 
 `trigger_type` is `scheduled`, `manual`, or `backfill`; `status` is `pending`, `running`, `retry_wait`, `succeeded`, `failed`, or `cancelled`. Counts are nonnegative and summarize distinct normalized inputs, not deliveries. Running needs start time, lease, and execution token. Terminal states need `finished_at`, no earlier than start; `retry_wait` remains unfinished. One Beat process ticks every five minutes and uses PostgreSQL locking plus active-run state to avoid overlapping logical runs. Run and dispatch are created together. A catalog-level structural failure, empty but structurally valid current page, or conflicting duplicate bulletin ID fails the run. Invalid or ambiguous individual rows increment `events_rejected` while valid rows continue. Counters are checkpointed without double-counting. See [scheduler](../../adr/0007-five-minute-single-scheduler-polling.md) and [failure scope](../../adr/0017-input-normalization-and-source-freshness.md).
 
+`next_attempt_at` is set only while a run is `retry_wait`. The first processing attempt and up to three retry attempts retain the same `run_id`; retry delays are 30 seconds, 2 minutes, and 10 minutes. `ingestion_run_inputs` records each distinct normalized input and its final row outcome once per run. The Ingestor derives aggregate counters from those checkpoints before it completes the run, so redelivery cannot increment a counter twice.
+
 ### `earthquake_events`
 
 Stable QuakeStrike event identity. Ordinary PHIVOLCS corrections preserve `event_id` and append a revision; supersession is only for confirmed duplicate identities.
@@ -172,7 +174,23 @@ origin text?
 ingested_at timestamptz = now()
 ```
 
-`UNIQUE (event_id, revision_number)`, with number at least 1. Both source IDs may be individually null but not together. Canonical uppercase `source_bulletin_id` is unique for PHIVOLCS when present; `source_event_group_id` is indexed, never unique. URL is canonical and required but not globally unique. Precision is `minute` or `second`; known origin is `TECTONIC`, `VOLCANIC`, or `TECTONIC-VOLCANIC`. Coordinates obey pin ranges, depth is nonnegative, and magnitude need not be positive.
+`UNIQUE (event_id, revision_number)`, with number at least 1. Both source IDs may be individually null but not together. `source_event_group_id` is indexed and never unique. URL is canonical and required but not globally unique. Precision is `minute` or `second`; known origin is `TECTONIC`, `VOLCANIC`, or `TECTONIC-VOLCANIC`. Coordinates obey pin ranges, depth is nonnegative, and magnitude need not be positive.
+
+The same canonical `source_bulletin_id` may appear on several immutable revisions only when all occurrences belong to one `event_id`. `earthquake_bulletin_event_identities` owns this invariant: `source_bulletin_id` is its primary key and it references the single stable event. It makes exact lookup unambiguous and prevents concurrent transactions from attaching one bulletin ID to different events. The revision table indexes `source_bulletin_id`; it no longer has a global unique index because a later detail enrichment can append a revision for the same bulletin.
+
+### `ingestion_run_inputs`
+
+One durable input checkpoint for each distinct normalized catalog row or parser-rejected row in an ingestion run.
+
+```text
+run_id uuid PK
+input_key text PK
+outcome text
+event_id uuid?
+created_at timestamptz = now()
+```
+
+`outcome` is `inserted`, `revised`, `unchanged`, or `rejected`. Rejected inputs have no event; all other outcomes reference the event that was visible in the page. The checkpoint stores a SHA-256-derived input key or a bounded parser-row key, never raw source HTML, exception text, or an untrusted URL.
 
 Match exact bulletin ID first. A group fallback may attach a revision only when exactly one existing event has the same group, latitude and longitude differences each at most `0.25` degrees, and magnitude difference at most `1.0`. Timestamp, group alone, and identical observations are not identity keys. Missing both IDs, unmatched or ambiguous fallback, or an unrecognizable URL rejects that row; a conflicting duplicate bulletin ID fails the run. When detail retrieval fails, a valid catalog row keeps its minute timestamp and nullable origin with a diagnostic. Detail seconds are accepted only if date, hour, and minute agree with the catalog. Later changes to origin, precision, or URL append a revision. Serialize insertion per event. See [identity](../../adr/0013-revision-level-source-identifiers.md), [fallback](../../adr/0015-source-less-fallback-reconciliation.md), and [enrichment](../../adr/0020-detail-page-enrichment.md).
 

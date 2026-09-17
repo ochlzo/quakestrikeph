@@ -58,6 +58,7 @@ class PredictionWorkRequest:
 class EventTransactionRequest:
     event_id: UUID
     ingestion_run_id: UUID
+    worker_execution_id: UUID | None = None
     revision: EventRevisionRequest | None = None
     prediction: PredictionWorkRequest | None = None
 
@@ -72,6 +73,26 @@ class EventTransactionResult:
     event_created: bool
     revision_created: bool
     prediction_created: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RunClaim:
+    """A worker's fenced right to process one logical ingestion run."""
+
+    run_id: UUID
+    worker_execution_id: UUID
+    attempt_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class RunCounters:
+    """Absolute counters computed from durable per-input checkpoints."""
+
+    events_found: int
+    events_inserted: int
+    events_revised: int
+    events_unchanged: int
+    events_rejected: int
 
 
 class IngestionTransactions(Protocol):

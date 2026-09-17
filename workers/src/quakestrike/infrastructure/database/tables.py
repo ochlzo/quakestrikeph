@@ -48,6 +48,7 @@ ingestion_runs = Table(
     Column("requested_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("started_at", DateTime(timezone=True)),
     Column("attempt_count", Integer, nullable=False, server_default="0"),
+    Column("next_attempt_at", DateTime(timezone=True)),
     Column("lease_expires_at", DateTime(timezone=True)),
     Column("worker_execution_id", UUID(as_uuid=True)),
     Column("finished_at", DateTime(timezone=True)),
@@ -84,6 +85,11 @@ ingestion_runs = Table(
         "(status IN ('succeeded', 'failed', 'cancelled') AND finished_at IS NOT NULL) OR "
         "(status IN ('pending', 'running', 'retry_wait') AND finished_at IS NULL)",
         name="ck_ingestion_runs_finished_state",
+    ),
+    CheckConstraint(
+        "(status = 'retry_wait' AND next_attempt_at IS NOT NULL) OR "
+        "(status <> 'retry_wait' AND next_attempt_at IS NULL)",
+        name="ck_ingestion_runs_retry_schedule",
     ),
     CheckConstraint(
         "status <> 'pending' OR started_at IS NULL",
@@ -137,6 +143,24 @@ earthquake_events = Table(
 Index("ix_earthquake_events_first_seen_run_id", earthquake_events.c.first_seen_run_id)
 Index("ix_earthquake_events_last_seen_run_id", earthquake_events.c.last_seen_run_id)
 Index("ix_earthquake_events_superseded_by_event_id", earthquake_events.c.superseded_by_event_id)
+
+earthquake_bulletin_event_identities = Table(
+    "earthquake_bulletin_event_identities",
+    metadata,
+    Column("source_bulletin_id", Text, primary_key=True),
+    Column(
+        "event_id",
+        UUID(as_uuid=True),
+        ForeignKey("earthquake_events.event_id", onupdate="RESTRICT", ondelete="RESTRICT"),
+        nullable=False,
+    ),
+    CheckConstraint(
+        "source_bulletin_id = btrim(source_bulletin_id) "
+        "AND source_bulletin_id <> '' AND source_bulletin_id = upper(source_bulletin_id)",
+        name="ck_bulletin_event_identities_bulletin_id",
+    ),
+)
+Index("ix_bulletin_event_identities_event_id", earthquake_bulletin_event_identities.c.event_id)
 
 earthquake_event_revisions = Table(
     "earthquake_event_revisions",
@@ -217,6 +241,43 @@ Index(
     earthquake_event_revisions.c.source_event_group_id,
 )
 Index("ix_event_revisions_ingestion_run_id", earthquake_event_revisions.c.ingestion_run_id)
+
+ingestion_run_inputs = Table(
+    "ingestion_run_inputs",
+    metadata,
+    Column(
+        "run_id",
+        UUID(as_uuid=True),
+        ForeignKey("ingestion_runs.run_id", onupdate="RESTRICT", ondelete="RESTRICT"),
+        primary_key=True,
+    ),
+    Column("input_key", Text, primary_key=True),
+    Column("outcome", Text, nullable=False),
+    Column(
+        "event_id",
+        UUID(as_uuid=True),
+        ForeignKey("earthquake_events.event_id", onupdate="RESTRICT", ondelete="RESTRICT"),
+    ),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint(
+        "input_key = btrim(input_key) AND input_key <> ''",
+        name="ck_ingestion_run_inputs_key_nonblank",
+    ),
+    CheckConstraint(
+        "outcome IN ('inserted', 'revised', 'unchanged', 'rejected')",
+        name="ck_ingestion_run_inputs_outcome",
+    ),
+    CheckConstraint(
+        "(outcome = 'rejected' AND event_id IS NULL) OR "
+        "(outcome <> 'rejected' AND event_id IS NOT NULL)",
+        name="ck_ingestion_run_inputs_outcome_event",
+    ),
+)
+Index(
+    "ix_ingestion_run_inputs_run_outcome",
+    ingestion_run_inputs.c.run_id,
+    ingestion_run_inputs.c.outcome,
+)
 
 model_releases = Table(
     "model_releases",

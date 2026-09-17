@@ -281,26 +281,47 @@ def test_group_only_event_delivery_reuses_original_revision(migrated_engine) -> 
         assert connection.scalar(select(func.count()).select_from(job_dispatches)) == 1
 
 
-def test_revision_identity_collision_rolls_back_observation(migrated_engine) -> None:
+def test_same_bulletin_enrichment_appends_a_revision_and_unchanged_replay_is_a_no_op(
+    migrated_engine,
+) -> None:
     run_id, release_id = _seed_run_and_release(migrated_engine)
     transactions = _transactions(migrated_engine)
     request = _event_request(run_id, release_id)
     transactions.process_event(request)
-    with migrated_engine.connect() as connection:
-        before = connection.execute(
-            select(earthquake_events.c.last_seen_run_id, earthquake_events.c.updated_at)
-        ).one()
-    conflicting = replace(
+    enriched = replace(
         request,
-        revision=replace(request.revision, magnitude=Decimal("9.99")),
+        revision=replace(request.revision, event_revision_id=uuid4(), origin="TECTONIC"),
     )
-    with pytest.raises(ValueError, match="different content"):
-        transactions.process_event(conflicting)
+    changed = transactions.process_event(enriched)
+    replay = transactions.process_event(
+        replace(enriched, revision=replace(enriched.revision, event_revision_id=uuid4()))
+    )
+
+    assert changed.revision_created is True
+    assert changed.revision_number == 2
+    assert replay.revision_created is False
+    assert replay.event_revision_id == changed.event_revision_id
     with migrated_engine.connect() as connection:
-        after = connection.execute(
-            select(earthquake_events.c.last_seen_run_id, earthquake_events.c.updated_at)
-        ).one()
-        assert after == before
+        assert connection.scalar(select(func.count()).select_from(earthquake_event_revisions)) == 2
+
+
+def test_same_bulletin_cannot_be_attached_to_a_different_event(migrated_engine) -> None:
+    run_id, release_id = _seed_run_and_release(migrated_engine)
+    transactions = _transactions(migrated_engine)
+    original = _event_request(run_id, release_id)
+    transactions.process_event(original)
+
+    with pytest.raises(ValueError, match="belongs to another event"):
+        transactions.process_event(
+            _event_request(
+                run_id,
+                release_id,
+                event_id=uuid4(),
+                revision=replace(_revision(run_id), event_revision_id=uuid4()),
+            )
+        )
+    with migrated_engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(earthquake_events)) == 1
         assert connection.scalar(select(func.count()).select_from(earthquake_event_revisions)) == 1
 
 
@@ -568,3 +589,100 @@ def test_replay_cannot_add_first_prediction_job_to_an_existing_revision(migrated
         assert connection.scalar(select(func.count()).select_from(earthquake_event_revisions)) == 1
         assert connection.scalar(select(func.count()).select_from(prediction_jobs)) == 0
         assert connection.scalar(select(func.count()).select_from(job_dispatches)) == 0
+
+
+def test_run_claim_fences_a_stale_execution_from_completion(migrated_engine) -> None:
+    transactions = _transactions(migrated_engine)
+    request = RunDispatchRequest(
+        run_id=uuid4(),
+        dispatch_id=uuid4(),
+        trigger_type="manual",
+        correlation_id=uuid4(),
+    )
+    transactions.create_run_with_dispatch(request)
+    first_token = uuid4()
+    first = transactions.claim_run(request.run_id, first_token, NOW)
+    assert first is not None
+
+    second_token = uuid4()
+    second = transactions.claim_run(request.run_id, second_token, NOW + timedelta(minutes=16))
+    assert second is not None
+    assert second.attempt_count == 2
+    assert (
+        transactions.heartbeat_run(request.run_id, first_token, NOW + timedelta(minutes=16))
+        is False
+    )
+    assert (
+        transactions.complete_run(
+            request.run_id,
+            first_token,
+            NOW + timedelta(minutes=16),
+            transactions.counters_for_run(request.run_id, second_token),
+        )
+        is False
+    )
+    assert transactions.complete_run(
+        request.run_id,
+        second_token,
+        NOW + timedelta(minutes=16),
+        transactions.counters_for_run(request.run_id, second_token),
+    )
+
+
+def test_checkpoints_derive_counters_without_double_counting_redelivery(migrated_engine) -> None:
+    transactions = _transactions(migrated_engine)
+    request = RunDispatchRequest(
+        run_id=uuid4(),
+        dispatch_id=uuid4(),
+        trigger_type="manual",
+        correlation_id=uuid4(),
+    )
+    transactions.create_run_with_dispatch(request)
+    token = uuid4()
+    assert transactions.claim_run(request.run_id, token, NOW) is not None
+
+    assert transactions.checkpoint_input(
+        request.run_id, token, "rejected:1:INVALID_SOURCE_URL", "rejected", None
+    )
+    assert not transactions.checkpoint_input(
+        request.run_id, token, "rejected:1:INVALID_SOURCE_URL", "rejected", None
+    )
+    assert transactions.checkpoint_input(
+        request.run_id, token, "rejected:2:INVALID_CATALOG_ROW", "rejected", None
+    )
+    counters = transactions.counters_for_run(request.run_id, token)
+    assert counters.events_found == 2
+    assert counters.events_rejected == 2
+
+
+def test_retryable_run_failure_uses_three_delays_then_stops(migrated_engine) -> None:
+    transactions = _transactions(migrated_engine)
+    request = RunDispatchRequest(
+        run_id=uuid4(),
+        dispatch_id=uuid4(),
+        trigger_type="manual",
+        correlation_id=uuid4(),
+    )
+    transactions.create_run_with_dispatch(request)
+    moments = (
+        NOW,
+        NOW + timedelta(seconds=31),
+        NOW + timedelta(minutes=2, seconds=32),
+        NOW + timedelta(minutes=12, seconds=33),
+    )
+    statuses = []
+    for moment in moments:
+        token = uuid4()
+        assert transactions.claim_run(request.run_id, token, moment) is not None
+        statuses.append(
+            transactions.fail_run(
+                request.run_id,
+                token,
+                moment,
+                "CATALOG_TRANSPORT_FAILURE",
+                "The current catalog could not be retrieved.",
+                retryable=True,
+            )
+        )
+
+    assert statuses == ["retry_wait", "retry_wait", "retry_wait", "failed"]

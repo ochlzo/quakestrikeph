@@ -2,22 +2,28 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import func, insert, select, text, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from quakestrike.application.persistence import (
     EventTransactionRequest,
     EventTransactionResult,
     IngestionTransactions,
+    RunClaim,
+    RunCounters,
     RunDispatchRequest,
     RunDispatchResult,
 )
 from quakestrike.infrastructure.database.engine import SessionFactory
 from quakestrike.infrastructure.database.tables import (
+    earthquake_bulletin_event_identities,
     earthquake_event_revisions,
     earthquake_events,
+    ingestion_run_inputs,
     ingestion_runs,
     job_dispatches,
     prediction_jobs,
@@ -27,6 +33,9 @@ _SCHEDULE_LOCK_KEY = 5_173_835_459
 # PostgreSQL keeps two-int advisory locks separate from one-bigint locks. The first
 # key reserves an event namespace, so these locks cannot overlap the scheduler lock.
 _EVENT_LOCK_NAMESPACE = 1_906_202_609
+_RUN_LEASE_DURATION = timedelta(minutes=15)
+_MAX_ATTEMPTS = 4
+_RETRY_DELAYS = (timedelta(seconds=30), timedelta(minutes=2), timedelta(minutes=10))
 
 
 class SqlAlchemyIngestionTransactions(IngestionTransactions):
@@ -87,6 +96,7 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
             raise ValueError("The revision and event transaction must use the same ingestion run.")
 
         with self._session_factory() as session, session.begin():
+            self._assert_run_lease(session, request)
             self._lock_event_identity(session, request.event_id)
             event_exists = self._lock_event(session, request.event_id)
             if event_exists:
@@ -151,6 +161,24 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                         origin=revision.origin,
                     )
                 )
+                if revision.source_bulletin_id is not None:
+                    mapped_event_id = session.scalar(
+                        select(earthquake_bulletin_event_identities.c.event_id)
+                        .where(
+                            earthquake_bulletin_event_identities.c.source_bulletin_id
+                            == revision.source_bulletin_id
+                        )
+                        .with_for_update()
+                    )
+                    if mapped_event_id is not None and mapped_event_id != request.event_id:
+                        raise ValueError("The bulletin ID already belongs to another event.")
+                    if mapped_event_id is None:
+                        session.execute(
+                            insert(earthquake_bulletin_event_identities).values(
+                                source_bulletin_id=revision.source_bulletin_id,
+                                event_id=request.event_id,
+                            )
+                        )
                 revision_id = revision.event_revision_id
             else:
                 revision_id = existing_revision.event_revision_id
@@ -231,6 +259,215 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                 prediction_created=True,
             )
 
+    def claim_run(self, run_id: UUID, worker_execution_id: UUID, now: datetime) -> RunClaim | None:
+        """Claim a pending, due retry, or expired run lease with a new execution token."""
+
+        with self._session_factory() as session, session.begin():
+            run = session.execute(
+                select(ingestion_runs).where(ingestion_runs.c.run_id == run_id).with_for_update()
+            ).one_or_none()
+            if run is None:
+                return None
+            if run.status in {"succeeded", "failed", "cancelled"}:
+                return None
+            if (
+                run.status == "running"
+                and run.lease_expires_at is not None
+                and run.lease_expires_at > now
+            ):
+                return None
+            if (
+                run.status == "retry_wait"
+                and run.next_attempt_at is not None
+                and run.next_attempt_at > now
+            ):
+                return None
+            attempts = run.attempt_count + 1
+            session.execute(
+                update(ingestion_runs)
+                .where(ingestion_runs.c.run_id == run_id)
+                .values(
+                    status="running",
+                    started_at=run.started_at or now,
+                    attempt_count=attempts,
+                    next_attempt_at=None,
+                    lease_expires_at=now + _RUN_LEASE_DURATION,
+                    worker_execution_id=worker_execution_id,
+                    finished_at=None,
+                    error_code=None,
+                    error_message=None,
+                )
+            )
+            return RunClaim(
+                run_id=run_id,
+                worker_execution_id=worker_execution_id,
+                attempt_count=attempts,
+            )
+
+    def heartbeat_run(self, run_id: UUID, worker_execution_id: UUID, now: datetime) -> bool:
+        """Extend an owned, unexpired lease. A stale execution cannot revive itself."""
+
+        with self._session_factory() as session, session.begin():
+            result = session.execute(
+                update(ingestion_runs)
+                .where(ingestion_runs.c.run_id == run_id)
+                .where(ingestion_runs.c.status == "running")
+                .where(ingestion_runs.c.worker_execution_id == worker_execution_id)
+                .where(ingestion_runs.c.lease_expires_at >= now)
+                .values(lease_expires_at=now + _RUN_LEASE_DURATION)
+            )
+            return result.rowcount == 1
+
+    def checkpoint_input(
+        self,
+        run_id: UUID,
+        worker_execution_id: UUID,
+        input_key: str,
+        outcome: str,
+        event_id: UUID | None,
+    ) -> bool:
+        """Persist a distinct input outcome once, fenced by the current run lease."""
+
+        with self._session_factory() as session, session.begin():
+            self._assert_owned_run(session, run_id, worker_execution_id)
+            result = session.execute(
+                pg_insert(ingestion_run_inputs)
+                .values(run_id=run_id, input_key=input_key, outcome=outcome, event_id=event_id)
+                .on_conflict_do_nothing(index_elements=["run_id", "input_key"])
+            )
+            return result.rowcount == 1
+
+    def counters_for_run(self, run_id: UUID, worker_execution_id: UUID) -> RunCounters:
+        """Read absolute counters from checkpoints rather than incrementing mutable totals."""
+
+        with self._session_factory() as session, session.begin():
+            self._assert_owned_run(session, run_id, worker_execution_id)
+            outcomes = session.execute(
+                select(ingestion_run_inputs.c.outcome, func.count())
+                .where(ingestion_run_inputs.c.run_id == run_id)
+                .group_by(ingestion_run_inputs.c.outcome)
+            ).all()
+            counts = dict(outcomes)
+            return RunCounters(
+                events_found=sum(counts.values()),
+                events_inserted=counts.get("inserted", 0),
+                events_revised=counts.get("revised", 0),
+                events_unchanged=counts.get("unchanged", 0),
+                events_rejected=counts.get("rejected", 0),
+            )
+
+    def complete_run(
+        self, run_id: UUID, worker_execution_id: UUID, now: datetime, counters: RunCounters
+    ) -> bool:
+        """Commit a terminal success only when the caller still owns the lease."""
+
+        with self._session_factory() as session, session.begin():
+            result = session.execute(
+                update(ingestion_runs)
+                .where(ingestion_runs.c.run_id == run_id)
+                .where(ingestion_runs.c.status == "running")
+                .where(ingestion_runs.c.worker_execution_id == worker_execution_id)
+                .where(ingestion_runs.c.lease_expires_at >= now)
+                .values(
+                    status="succeeded",
+                    lease_expires_at=None,
+                    worker_execution_id=None,
+                    finished_at=now,
+                    events_found=counters.events_found,
+                    events_inserted=counters.events_inserted,
+                    events_revised=counters.events_revised,
+                    events_unchanged=counters.events_unchanged,
+                    events_rejected=counters.events_rejected,
+                )
+            )
+            return result.rowcount == 1
+
+    def fail_run(
+        self,
+        run_id: UUID,
+        worker_execution_id: UUID,
+        now: datetime,
+        error_code: str,
+        error_message: str,
+        *,
+        retryable: bool,
+    ) -> str | None:
+        """Release an owned run into bounded retry or a terminal failure."""
+
+        if not error_code or not error_message or len(error_message) > 2000:
+            raise ValueError("Run errors must be nonblank, bounded safe text.")
+        with self._session_factory() as session, session.begin():
+            run = session.execute(
+                select(ingestion_runs)
+                .where(ingestion_runs.c.run_id == run_id)
+                .where(ingestion_runs.c.status == "running")
+                .where(ingestion_runs.c.worker_execution_id == worker_execution_id)
+                .where(ingestion_runs.c.lease_expires_at >= now)
+                .with_for_update()
+            ).one_or_none()
+            if run is None:
+                return None
+            if retryable and run.attempt_count < _MAX_ATTEMPTS:
+                retry_delay = _RETRY_DELAYS[run.attempt_count - 1]
+                session.execute(
+                    update(ingestion_runs)
+                    .where(ingestion_runs.c.run_id == run_id)
+                    .values(
+                        status="retry_wait",
+                        lease_expires_at=None,
+                        worker_execution_id=None,
+                        next_attempt_at=now + retry_delay,
+                        error_code=error_code,
+                        error_message=error_message,
+                    )
+                )
+                return "retry_wait"
+            session.execute(
+                update(ingestion_runs)
+                .where(ingestion_runs.c.run_id == run_id)
+                .values(
+                    status="failed",
+                    lease_expires_at=None,
+                    worker_execution_id=None,
+                    next_attempt_at=None,
+                    finished_at=now,
+                    error_code=error_code,
+                    error_message=error_message,
+                )
+            )
+            return "failed"
+
+    def find_event_by_bulletin_id(self, source_bulletin_id: str) -> UUID | None:
+        with self._session_factory() as session:
+            return session.scalar(
+                select(earthquake_bulletin_event_identities.c.event_id).where(
+                    earthquake_bulletin_event_identities.c.source_bulletin_id == source_bulletin_id
+                )
+            )
+
+    def find_group_candidates(self, source_event_group_id: str):
+        """Return one latest matching-group observation per stable event."""
+
+        with self._session_factory() as session:
+            rows = session.execute(
+                select(
+                    earthquake_event_revisions.c.event_id,
+                    earthquake_event_revisions.c.source_event_group_id,
+                    earthquake_event_revisions.c.latitude,
+                    earthquake_event_revisions.c.longitude,
+                    earthquake_event_revisions.c.magnitude,
+                )
+                .where(earthquake_event_revisions.c.source_event_group_id == source_event_group_id)
+                .order_by(
+                    earthquake_event_revisions.c.event_id,
+                    earthquake_event_revisions.c.revision_number.desc(),
+                )
+            ).all()
+        latest: dict[UUID, object] = {}
+        for row in rows:
+            latest.setdefault(row.event_id, row)
+        return tuple(latest.values())
+
     @staticmethod
     def _lock_event_identity(session: Session, event_id: UUID) -> None:
         lock_key = int.from_bytes(event_id.bytes[:4], byteorder="big", signed=True)
@@ -266,14 +503,58 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
             ):
                 return latest_for_event
             return None
-        by_bulletin = session.execute(
-            select(earthquake_event_revisions).where(
-                earthquake_event_revisions.c.source_bulletin_id == revision.source_bulletin_id
+        mapped_event_id = session.scalar(
+            select(earthquake_bulletin_event_identities.c.event_id)
+            .where(
+                earthquake_bulletin_event_identities.c.source_bulletin_id
+                == revision.source_bulletin_id
             )
+            .with_for_update()
+        )
+        if mapped_event_id is not None and mapped_event_id != request.event_id:
+            raise ValueError("The bulletin ID already belongs to another event.")
+        if mapped_event_id is None:
+            return None
+        latest_by_bulletin = session.execute(
+            select(earthquake_event_revisions)
+            .where(earthquake_event_revisions.c.event_id == request.event_id)
+            .where(earthquake_event_revisions.c.source_bulletin_id == revision.source_bulletin_id)
+            .order_by(earthquake_event_revisions.c.revision_number.desc())
+            .limit(1)
         ).one_or_none()
-        if by_bulletin is not None:
-            cls._validate_revision_match(by_bulletin, request)
-        return by_bulletin
+        if latest_by_bulletin is not None and cls._revision_content_matches(
+            latest_by_bulletin, request
+        ):
+            return latest_by_bulletin
+        return None
+
+    @staticmethod
+    def _assert_run_lease(session: Session, request: EventTransactionRequest) -> None:
+        if request.worker_execution_id is None:
+            return
+        claimed = session.scalar(
+            select(ingestion_runs.c.run_id)
+            .where(ingestion_runs.c.run_id == request.ingestion_run_id)
+            .where(ingestion_runs.c.status == "running")
+            .where(ingestion_runs.c.worker_execution_id == request.worker_execution_id)
+            .where(ingestion_runs.c.lease_expires_at >= func.now())
+            .with_for_update()
+        )
+        if claimed is None:
+            raise ValueError("The ingestion run lease is no longer owned by this worker.")
+
+    @staticmethod
+    def _assert_owned_run(session: Session, run_id: UUID, worker_execution_id: UUID) -> None:
+        claimed = session.scalar(
+            select(ingestion_runs.c.run_id)
+            .where(ingestion_runs.c.run_id == run_id)
+            .where(ingestion_runs.c.status == "running")
+            .where(ingestion_runs.c.worker_execution_id == worker_execution_id)
+            .where(ingestion_runs.c.lease_expires_at >= func.now())
+            .with_for_update()
+        )
+        if claimed is None:
+            raise ValueError("The ingestion run lease is no longer owned by this worker.")
 
     @staticmethod
     def _validate_revision_match(existing, request: EventTransactionRequest) -> None:

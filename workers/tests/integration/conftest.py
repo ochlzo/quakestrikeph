@@ -40,7 +40,8 @@ def clean_database(migrated_engine: Engine) -> Iterator[None]:
     with migrated_engine.begin() as connection:
         connection.execute(
             text(
-                "TRUNCATE job_dispatches, prediction_jobs, model_releases, "
-                "earthquake_event_revisions, earthquake_events, ingestion_runs CASCADE"
+                "TRUNCATE ingestion_run_inputs, earthquake_bulletin_event_identities, "
+                "job_dispatches, prediction_jobs, model_releases, earthquake_event_revisions, "
+                "earthquake_events, ingestion_runs CASCADE"
             )
         )
