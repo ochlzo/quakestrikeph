@@ -24,6 +24,12 @@ SAFE_CONTEXT_FIELDS = frozenset(
         "gate",
         "reason",
         "status",
+        "exception_type",
+        "created",
+        "claimed",
+        "enqueued",
+        "retry_wait",
+        "stopped",
     }
 )
 IDENTIFIER_FIELDS = frozenset(
@@ -67,8 +73,6 @@ class JsonFormatter(logging.Formatter):
                 if key in context:
                     payload[key] = context[key]
 
-        if record.exc_info:
-            payload["exception"] = self.formatException(record.exc_info)
         return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
 
 
@@ -113,6 +117,37 @@ def log_event(
             "context": _safe_context(context or {}),
         },
     )
+
+
+def log_exception_event(
+    logger: logging.Logger,
+    level: int,
+    message: str,
+    *,
+    event_code: str,
+    error: BaseException,
+    context: Mapping[str, object] | None = None,
+) -> None:
+    """Emit a structured failure without serializing exception text or traces."""
+
+    safe_context = dict(context or {})
+    safe_context["exception_type"] = safe_exception_type(error)
+    log_event(
+        logger,
+        level,
+        message,
+        event_code=event_code,
+        context=safe_context,
+    )
+
+
+def safe_exception_type(error: BaseException) -> str:
+    """Return only a bounded class name suitable for operational diagnostics."""
+
+    name = type(error).__name__
+    if name and len(name) <= 100 and name.isidentifier():
+        return name
+    return "UnknownError"
 
 
 def _safe_context(context: Mapping[str, object]) -> dict[str, str | int | float | bool]:

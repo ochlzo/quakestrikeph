@@ -1,10 +1,15 @@
 from __future__ import annotations
 
-from quakestrike.infrastructure.queues.celery_app import create_celery_app
+from datetime import timedelta
+
+from quakestrike.infrastructure.queues.celery_app import (
+    DURABLE_INGESTION_TICK,
+    create_celery_app,
+)
 from quakestrike.infrastructure.settings import Settings
 
 
-def test_celery_configuration_preserves_poll_interval_without_scheduling_work() -> None:
+def test_celery_configuration_declares_one_durable_five_minute_poll() -> None:
     settings = Settings(
         _env_file=None,
         database_url="postgresql+psycopg://worker:secret@postgres:5432/quakestrike",
@@ -15,9 +20,14 @@ def test_celery_configuration_preserves_poll_interval_without_scheduling_work() 
 
     app = create_celery_app(settings)
 
-    assert app.conf.beat_schedule == {}
+    assert set(app.conf.beat_schedule) == {"durable-ingestion-tick"}
+    schedule = app.conf.beat_schedule["durable-ingestion-tick"]
+    assert schedule["task"] == DURABLE_INGESTION_TICK
+    assert schedule["schedule"] == timedelta(seconds=300)
+    assert schedule["args"] == ()
+    assert app.conf.beat_scheduler == "quakestrike.scheduler.beat:DurableBeatScheduler"
     assert app.conf.quakestrike_poll_interval_seconds == 300
-    assert "quakestrike.scheduler.beat.create_ingestion_run" not in app.conf.task_routes
+    assert DURABLE_INGESTION_TICK not in app.conf.task_routes
     assert (
         app.conf.task_routes["quakestrike.data_ingestor.worker.process_ingestion"]["queue"]
         == "ingestion"

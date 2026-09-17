@@ -84,3 +84,17 @@ def test_settings_reject_invalid_values(field: str, value: object) -> None:
 
     with pytest.raises(ValidationError):
         Settings(**values)
+
+
+def test_settings_reject_dispatcher_batches_above_ten() -> None:
+    values: dict[str, object] = {
+        "_env_file": None,
+        "database_url": "postgresql+psycopg://worker:secret@postgres:5432/quakestrike",
+        "redis_url": "redis://redis:6379/0",
+        "phivolcs_catalog_url": "https://example.invalid/phivolcs/catalog",
+        "model_release_id": "00000000-0000-0000-0000-000000000001",
+        "dispatcher_batch_size": 11,
+    }
+
+    with pytest.raises(ValidationError, match="dispatcher_batch_size"):
+        Settings(**values)

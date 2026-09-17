@@ -8,9 +8,10 @@ information, and support protected review and alert workflows.
 > Current repository status: this checkout contains the Python worker
 > scaffold, the six-table ingestion migration, and local PostgreSQL/Redis
 > infrastructure. Phase 3 model packaging, registration, and release verification
-> are implemented. The web applications, Backend API, bootstrap workflow,
-> prediction execution, and alert delivery are planned work. The Phase 1
-> worker entry points fail closed until their later startup gates exist.
+> are implemented. Scheduled durable ingestion dispatch is implemented through
+> Phase 7. The web applications, Backend API, bootstrap workflow, prediction
+> execution, and alert delivery are planned work. Worker entry points still fail
+> closed until their later startup gates exist.
 
 ## Architecture
 
@@ -29,8 +30,8 @@ The image is a quick system view, not a replacement for those documents.
 | Component | Responsibility | Status in this repository |
 | --- | --- | --- |
 | PHIVOLCS source | Provides earthquake bulletins and bulletin details. | External dependency. The adapter is planned beyond the current scaffold. |
-| Scheduler Beat | Creates one durable ingestion run on the five-minute schedule. | Entry point exists; durable scheduling is planned. |
-| Dispatcher | Claims PostgreSQL dispatch records and publishes identifier-only commands to Redis. | Entry point and queue configuration exist; durable dispatch is planned. |
+| Scheduler Beat | Creates one durable ingestion run on the five-minute schedule. | One local schedule creates or reuses the PostgreSQL run and dispatch atomically. |
+| Dispatcher | Claims PostgreSQL dispatch records and publishes identifier-only commands to Redis. | Bounded leased claims, acceptance fencing, retry, and expired-claim recovery are implemented. |
 | Data Ingestor | Retrieves, validates, reconciles, and persists PHIVOLCS events and revisions. | Entry point exists; ingestion behavior is planned. |
 | PostgreSQL | Source of truth for events, revisions, runs, jobs, dispatches, audits, and other durable records. | The first six-table migration and transaction adapters are implemented. |
 | Redis | Carries typed Celery commands between worker processes. | Pinned local service and queue contracts exist. |
@@ -184,9 +185,9 @@ docker compose --env-file .env -f infrastructure/compose.yml down
 Do not use `docker compose down -v` as a normal cleanup command. It deletes the
 local PostgreSQL and Redis volumes.
 
-## Validate the Phase 1 scaffold
+## Validate the worker entry points
 
-The command-line entry point and the three worker entry points are read-only
+The command-line entry point and the three worker entry points are fail-closed
 checks at this stage:
 
 ```powershell
@@ -198,9 +199,8 @@ uv run --project workers quakestrike-ingestor
 ```
 
 The last four commands are expected to return exit code `2` until later phases
-implement every gate. The migration-state gate now checks the Alembic revision
-without changing the database. Model-release and bootstrap-readiness gates
-still fail closed.
+implement every gate. The scheduler and dispatcher runtimes are wired, but the
+model-release and bootstrap-readiness gates still fail closed.
 
 Build the current worker image with:
 
@@ -209,7 +209,7 @@ docker build -f workers/Dockerfile -t quakestrike-workers:local workers
 ```
 
 The image is a build artifact for the worker scaffold. A complete Compose
-worker service will be added with the later scheduler and ingestion phases.
+worker service will be added with the later ingestion and deployment phases.
 
 ## SEIS 1.0 local release
 

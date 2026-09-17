@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     dispatcher_batch_size: int = Field(
         default=10,
         ge=1,
-        le=100,
+        le=10,
         validation_alias=AliasChoices("DISPATCHER_BATCH_SIZE", "dispatcher_batch_size"),
     )
     dispatch_lease_seconds: int = Field(

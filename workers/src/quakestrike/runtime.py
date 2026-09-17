@@ -8,12 +8,17 @@ from collections.abc import Callable, Iterable
 from pydantic import ValidationError
 
 from quakestrike.application.startup import StartupGate, evaluate_startup_gates
-from quakestrike.infrastructure.logging.json_logging import configure_logging, log_event
+from quakestrike.infrastructure.logging.json_logging import (
+    configure_logging,
+    log_event,
+    log_exception_event,
+)
 from quakestrike.infrastructure.settings import Settings
 from quakestrike.infrastructure.startup import phase_one_startup_gates
 
 SettingsFactory = Callable[[], Settings]
 GateFactory = Callable[[Settings], Iterable[StartupGate]]
+RuntimeRunner = Callable[[Settings], int | None]
 
 
 def run_service(
@@ -22,6 +27,7 @@ def run_service(
     settings_factory: SettingsFactory = Settings,
     gate_factory: GateFactory = phase_one_startup_gates,
     command: str | None = None,
+    runtime: RuntimeRunner | None = None,
 ) -> int:
     """Validate settings and startup gates before allowing service work."""
 
@@ -29,12 +35,12 @@ def run_service(
         settings = settings_factory()
     except ValidationError as error:
         logger = configure_logging(service_name)
-        log_event(
+        log_exception_event(
             logger,
             logging.ERROR,
             "service configuration is invalid",
             event_code="configuration_invalid",
-            context={"reason": _safe_validation_summary(error)},
+            error=error,
         )
         return 2
 
@@ -70,19 +76,33 @@ def run_service(
         )
         return 2
 
-    log_event(
-        logger,
-        logging.ERROR,
-        "service runtime is not implemented in Phase 1",
-        event_code="phase_one_runtime_deferred",
-        context={"reason": command or service_name},
-    )
-    return 2
+    if runtime is None:
+        log_event(
+            logger,
+            logging.ERROR,
+            "service runtime is not implemented in Phase 1",
+            event_code="phase_one_runtime_deferred",
+            context={"reason": command or service_name},
+        )
+        return 2
 
-
-def _safe_validation_summary(error: ValidationError) -> str:
-    messages = []
-    for item in error.errors(include_url=False):
-        location = ".".join(str(part) for part in item.get("loc", ()))
-        messages.append(f"{location}: {item.get('msg', 'invalid value')}")
-    return "; ".join(messages)[:500]
+    try:
+        result = runtime(settings)
+    except KeyboardInterrupt:
+        log_event(
+            logger,
+            logging.INFO,
+            "service stopped by operator",
+            event_code="service_stopped",
+        )
+        return 0
+    except Exception as error:
+        log_exception_event(
+            logger,
+            logging.ERROR,
+            "service runtime failed",
+            event_code="service_runtime_failed",
+            error=error,
+        )
+        return 1
+    return 0 if result is None else result
