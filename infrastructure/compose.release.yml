@@ -10,7 +10,7 @@ services:
       MODEL_RELEASE_ID: ${MODEL_RELEASE_ID:?Set MODEL_RELEASE_ID in .env}
       MODEL_ARTIFACT_DIRECTORY: /app/model-artifacts
     volumes:
-      - ${MODEL_ARTIFACT_HOST_DIRECTORY:-../workers/model-artifacts}:/app/model-artifacts:ro
+      - ${MODEL_ARTIFACT_HOST_DIRECTORY:-../model-artifacts}:/app/model-artifacts:ro
     networks:
       - private-data
     depends_on:

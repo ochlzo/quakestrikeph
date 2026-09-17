@@ -223,9 +223,7 @@ command needs the source package on the host. The release initialization
 container runs migrations and registration on the private network:
 
 ```powershell
-$env:MODEL_ARTIFACT_DIRECTORY = "workers/model-artifacts"
 uv run --project workers quakestrike package-model-release --source-package "C:\Projects\quakestrikeph\redo\quakestrikeph-training\baselines\attempt-2\stratified-baseline-02\chosen-models\balanced-selection-anchor-exploratory-01"
-Remove-Item Env:MODEL_ARTIFACT_DIRECTORY
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml up -d --wait postgres redis
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml build release-init
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init alembic -c alembic.ini upgrade head

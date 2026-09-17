@@ -70,6 +70,6 @@ def test_rendered_future_mount_is_a_read_only_host_bind(tmp_path: Path) -> None:
     )
     volume = combined["services"]["mount-check"]["volumes"][0]
     assert volume["type"] == "bind"
-    assert Path(volume["source"]).resolve() == (root / "workers" / "model-artifacts").resolve()
+    assert Path(volume["source"]).resolve() == (root / "model-artifacts").resolve()
     assert volume["target"] == "/app/model-artifacts"
     assert volume["read_only"] is True
