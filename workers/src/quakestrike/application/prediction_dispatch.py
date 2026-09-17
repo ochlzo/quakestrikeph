@@ -29,17 +29,65 @@ class PredictionPublisher(Protocol):
         """Publish one IDs-only prediction command."""
 
 
+@dataclass(frozen=True, slots=True)
+class PredictionDispatchClaim:
+    """A database-backed claim held while a command is published."""
+
+    dispatch: PredictionDispatch
+    token: UUID
+
+
+class PredictionDispatchStore(Protocol):
+    """Durable lifecycle operations for one prediction dispatch row."""
+
+    def claim(self, dispatch: PredictionDispatch) -> PredictionDispatchClaim | None:
+        """Claim a ready dispatch, or return none for an unavailable row."""
+
+    def mark_enqueued(self, claim: PredictionDispatchClaim) -> None:
+        """Record broker acceptance for the current claim."""
+
+    def mark_retry(self, claim: PredictionDispatchClaim, error: Exception) -> None:
+        """Make a failed publication retryable under the current claim."""
+
+
+class PredictionDispatchLifecycle(Protocol):
+    """Post-commit boundary used by the ingestion application flow."""
+
+    def dispatch(self, dispatch: PredictionDispatch) -> bool:
+        """Claim, publish, and record the durable dispatch outcome."""
+
+
+class DurablePredictionDispatcher:
+    """Coordinate durable dispatch state around an IDs-only queue publisher."""
+
+    def __init__(self, store: PredictionDispatchStore, publisher: PredictionPublisher) -> None:
+        self._store = store
+        self._publisher = publisher
+
+    def dispatch(self, dispatch: PredictionDispatch) -> bool:
+        claim = self._store.claim(dispatch)
+        if claim is None:
+            return False
+        try:
+            self._publisher.publish(claim.dispatch)
+        except Exception as error:
+            self._store.mark_retry(claim, error)
+            raise
+        self._store.mark_enqueued(claim)
+        return True
+
+
 def publish_prediction_after_commit(
     result: EventTransactionResult,
     *,
     correlation_id: UUID,
-    publisher: PredictionPublisher,
+    dispatcher: PredictionDispatchLifecycle,
 ) -> bool:
-    """Publish only newly created work after the database transaction returns.
+    """Dispatch only newly created work after the database transaction returns.
 
     A replay that observes an existing job deliberately does not publish a
-    second command.  Queue failures propagate to the caller; the durable job
-    and dispatch remain available for the dispatcher to retry.
+    second command.  The lifecycle claims and updates the durable dispatch
+    around the queue publication.
     """
 
     if (
@@ -48,27 +96,26 @@ def publish_prediction_after_commit(
         or result.dispatch_id is None
     ):
         return False
-    publisher.publish(
+    return dispatcher.dispatch(
         PredictionDispatch(
             dispatch_id=result.dispatch_id,
             job_id=result.prediction_job_id,
             correlation_id=correlation_id,
         )
     )
-    return True
 
 
 def process_feature_event_and_publish_prediction(
     transactions: IngestionTransactions,
     request: FeatureEventTransactionRequest,
-    publisher: PredictionPublisher,
+    dispatcher: PredictionDispatchLifecycle,
 ) -> EventTransactionResult:
-    """Persist feature work, then publish a new dispatch after commit."""
+    """Persist feature work, then run its durable dispatch after commit."""
 
     result = transactions.process_event_with_features(request)
     publish_prediction_after_commit(
         result,
         correlation_id=request.correlation_id,
-        publisher=publisher,
+        dispatcher=dispatcher,
     )
     return result

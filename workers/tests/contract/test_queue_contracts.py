@@ -8,9 +8,14 @@ import pytest
 from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
+from quakestrike.application.prediction_dispatch import PredictionDispatch
 from quakestrike.infrastructure.queues.contracts import (
     IngestionCommandV1,
     PredictionCommandV1,
+)
+from quakestrike.infrastructure.queues.prediction_publisher import (
+    PREDICTION_TASK_NAME,
+    CeleryPredictionPublisher,
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -53,6 +58,38 @@ def test_prediction_binding_matches_v1_schema() -> None:
     )
     assert payload["message_version"] == 1
     assert set(payload) == {"message_version", "dispatch_id", "job_id", "correlation_id"}
+
+
+def test_celery_prediction_publisher_emits_the_v1_identifier_command() -> None:
+    class RecordingCeleryApp:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def send_task(self, name: str, **kwargs: object) -> None:
+            self.calls.append((name, kwargs))
+
+    app = RecordingCeleryApp()
+    publisher = CeleryPredictionPublisher(app)  # type: ignore[arg-type]
+    dispatch = PredictionDispatch(uuid4(), uuid4(), uuid4())
+
+    publisher.publish(dispatch)
+
+    assert app.calls == [
+        (
+            PREDICTION_TASK_NAME,
+            {
+                "args": [
+                    {
+                        "message_version": 1,
+                        "dispatch_id": str(dispatch.dispatch_id),
+                        "job_id": str(dispatch.job_id),
+                        "correlation_id": str(dispatch.correlation_id),
+                    }
+                ],
+                "queue": "prediction",
+            },
+        )
+    ]
 
 
 @pytest.mark.parametrize("model", [IngestionCommandV1, PredictionCommandV1])

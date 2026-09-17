@@ -12,6 +12,7 @@ from quakestrike.application.features import (
     PredictionSnapshotRequest,
     decide_prediction_snapshot,
 )
+from quakestrike.application.model_releases import ModelReleaseVerifier
 from quakestrike.application.persistence import (
     EventTransactionRequest,
     EventTransactionResult,
@@ -50,8 +51,14 @@ _EVENT_LOCK_NAMESPACE = 1_906_202_609
 class SqlAlchemyIngestionTransactions(IngestionTransactions):
     """Keep each logical creation operation inside one database transaction."""
 
-    def __init__(self, session_factory: SessionFactory) -> None:
+    def __init__(
+        self,
+        session_factory: SessionFactory,
+        *,
+        model_release_verifier: ModelReleaseVerifier | None = None,
+    ) -> None:
         self._session_factory = session_factory
+        self._model_release_verifier = model_release_verifier
 
     def create_run_with_dispatch(self, request: RunDispatchRequest) -> RunDispatchResult:
         with self._session_factory() as session, session.begin():
@@ -115,6 +122,8 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
         if request.revision.ingestion_run_id != request.ingestion_run_id:
             raise ValueError("The revision and event transaction must use the same ingestion run.")
 
+        model_release_verified = self._is_model_release_verified(request.model_release_id)
+
         with self._session_factory() as session, session.begin():
             event_created = self._lock_or_create_event(
                 session,
@@ -128,6 +137,18 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
             )
             existing_revision = self._find_existing_revision(session, base_request)
             if existing_revision is not None:
+                if not model_release_verified:
+                    return self._result(
+                        request.event_id,
+                        existing_revision.event_revision_id,
+                        existing_revision.revision_number,
+                        event_created,
+                        False,
+                        None,
+                        None,
+                        False,
+                        PredictionSkipReason.MODEL_RELEASE_UNAVAILABLE.value,
+                    )
                 existing_prediction = self._find_latest_prediction(
                     session,
                     existing_revision.event_revision_id,
@@ -167,29 +188,32 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
             snapshot = None
             skip_reason = gate.skip_reason
             if skip_reason is None:
-                schema_version = session.scalar(
-                    select(model_releases.c.input_schema_version).where(
-                        model_releases.c.model_release_id == request.model_release_id
-                    )
-                )
-                if schema_version != INPUT_SCHEMA_VERSION:
+                if not model_release_verified:
                     skip_reason = PredictionSkipReason.MODEL_RELEASE_UNAVAILABLE.value
                 else:
-                    selection = SqlAlchemyFeatureHistoryQuery.select_prior_history_in_session(
-                        session,
-                        anchor,
-                        coverage=request.history_coverage,
-                    )
-                    decided = decide_prediction_snapshot(
-                        PredictionSnapshotRequest(
-                            anchor=anchor,
-                            history=selection.observations,
-                            coverage=selection.coverage,
-                            input_schema_version=schema_version,
+                    schema_version = session.scalar(
+                        select(model_releases.c.input_schema_version).where(
+                            model_releases.c.model_release_id == request.model_release_id
                         )
                     )
-                    snapshot = decided.snapshot
-                    skip_reason = decided.decision.skip_reason
+                    if schema_version != INPUT_SCHEMA_VERSION:
+                        skip_reason = PredictionSkipReason.MODEL_RELEASE_UNAVAILABLE.value
+                    else:
+                        selection = SqlAlchemyFeatureHistoryQuery.select_prior_history_in_session(
+                            session,
+                            anchor,
+                            coverage=request.history_coverage,
+                        )
+                        decided = decide_prediction_snapshot(
+                            PredictionSnapshotRequest(
+                                anchor=anchor,
+                                history=selection.observations,
+                                coverage=selection.coverage,
+                                input_schema_version=schema_version,
+                            )
+                        )
+                        snapshot = decided.snapshot
+                        skip_reason = decided.decision.skip_reason
 
             revision = replace(request.revision, prediction_skip_reason=skip_reason)
             revision_number = self._next_revision_number(session, request.event_id)
@@ -642,3 +666,11 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
             ).scalar_one_or_none()
             is not None
         )
+
+    def _is_model_release_verified(self, release_id: UUID) -> bool:
+        if self._model_release_verifier is None:
+            return False
+        try:
+            return self._model_release_verifier.is_verified(release_id)
+        except Exception:
+            return False

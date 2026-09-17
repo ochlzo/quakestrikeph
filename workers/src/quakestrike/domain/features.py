@@ -56,6 +56,16 @@ class PredictionSkipReason(StrEnum):
     MODEL_RELEASE_UNAVAILABLE = "model_release_unavailable"
 
 
+_HISTORY_SKIP_REASONS: Final[frozenset[str]] = frozenset(
+    {
+        PredictionSkipReason.HISTORY_COVERAGE_UNAVAILABLE.value,
+        PredictionSkipReason.INCOMPLETE_FEATURE_HISTORY.value,
+        PredictionSkipReason.HISTORY_STARTS_AFTER_REQUIRED_WINDOW.value,
+        PredictionSkipReason.HISTORY_ENDS_BEFORE_ANCHOR.value,
+    }
+)
+
+
 @dataclass(frozen=True, slots=True)
 class FeatureObservation:
     """A validated observation used by the feature builder.
@@ -169,7 +179,7 @@ def evaluate_history_readiness(
             ready=False,
             required_start=required_start,
             required_end=anchor_time,
-            reason=(coverage.reason or PredictionSkipReason.INCOMPLETE_FEATURE_HISTORY.value),
+            reason=_approved_history_skip_reason(coverage.reason),
         )
     if coverage.start is None:
         return HistoryReadiness(
@@ -434,6 +444,12 @@ def _normalize_feature_values(features: Mapping[str, object]) -> dict[str, objec
         else:
             normalized[name] = _json_number(value, name)
     return normalized
+
+
+def _approved_history_skip_reason(reason: str | None) -> str:
+    if reason in _HISTORY_SKIP_REASONS:
+        return reason
+    return PredictionSkipReason.INCOMPLETE_FEATURE_HISTORY.value
 
 
 def _json_number(value: object, name: str) -> int | float:

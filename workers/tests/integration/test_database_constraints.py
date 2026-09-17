@@ -5,7 +5,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import delete, insert, inspect, update
+from sqlalchemy import delete, insert, inspect, select, update
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from quakestrike.infrastructure.database.tables import (
@@ -20,6 +20,19 @@ from quakestrike.infrastructure.database.tables import (
 pytestmark = pytest.mark.integration
 NOW = datetime(2026, 9, 16, tzinfo=UTC)
 HASH = "a" * 64
+VALID_SNAPSHOT = {
+    "anchor_magnitude": 4.2,
+    "anchor_depth_km": 10,
+    "anchor_latitude": 14.123456,
+    "anchor_longitude": 121.123456,
+    "anchor_time_is_minute_precision": 1,
+    "catalog_m1_plus_count_past_1h": 0,
+    "catalog_m1_plus_count_past_24h": 0,
+    "catalog_m1_plus_count_past_7d": 0,
+    "local_m1_plus_count_past_24h_within_50km": 0,
+    "local_m1_plus_count_past_24h_within_100km": 0,
+}
+VALID_SNAPSHOT_HASH = "644baaa1a8d7368eac18d1a505ebebc533d17bc13742e6f8634d65726ebb6c35"
 
 
 def _failed(engine, statement) -> None:
@@ -114,8 +127,8 @@ def _job_values(parents: dict[str, UUID], **changes):
         "job_id": uuid4(),
         "event_revision_id": parents["revision"],
         "model_release_id": parents["release"],
-        "input_snapshot_hash": HASH,
-        "input_snapshot_json": {"anchor_magnitude": 4.2},
+        "input_snapshot_hash": VALID_SNAPSHOT_HASH,
+        "input_snapshot_json": dict(VALID_SNAPSHOT),
         "idempotency_key": str(uuid4()),
         "correlation_id": uuid4(),
     }
@@ -213,6 +226,110 @@ def test_revision_identity_constraints_and_group_index(migrated_engine, parents)
 )
 def test_prediction_job_validation_constraints(migrated_engine, parents, changes) -> None:
     _failed(migrated_engine, insert(prediction_jobs).values(**_job_values(parents, **changes)))
+
+
+@pytest.mark.parametrize(
+    "snapshot",
+    [
+        {"anchor_magnitude": 4.2},
+        {**VALID_SNAPSHOT, "unexpected": 0},
+        {key: value for key, value in VALID_SNAPSHOT.items() if key != "anchor_depth_km"},
+    ],
+)
+def test_prediction_job_rejects_placeholder_extra_and_missing_snapshots(
+    migrated_engine,
+    parents,
+    snapshot,
+) -> None:
+    _failed(
+        migrated_engine,
+        insert(prediction_jobs).values(
+            **_job_values(
+                parents,
+                input_snapshot_json=snapshot,
+                input_snapshot_hash=VALID_SNAPSHOT_HASH,
+            )
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "snapshot",
+    [
+        {**VALID_SNAPSHOT, "anchor_depth_km": -1},
+        {**VALID_SNAPSHOT, "anchor_latitude": 90.000001},
+        {**VALID_SNAPSHOT, "anchor_longitude": -180.000001},
+        {**VALID_SNAPSHOT, "catalog_m1_plus_count_past_24h": -1},
+        {**VALID_SNAPSHOT, "catalog_m1_plus_count_past_7d": 1.5},
+        {**VALID_SNAPSHOT, "anchor_time_is_minute_precision": 2},
+        {**VALID_SNAPSHOT, "anchor_magnitude": "4.2"},
+    ],
+)
+def test_prediction_job_rejects_invalid_snapshot_types_and_ranges(
+    migrated_engine,
+    parents,
+    snapshot,
+) -> None:
+    _failed(
+        migrated_engine,
+        insert(prediction_jobs).values(
+            **_job_values(
+                parents,
+                input_snapshot_json=snapshot,
+                input_snapshot_hash=VALID_SNAPSHOT_HASH,
+            )
+        ),
+    )
+
+
+def test_prediction_job_accepts_a_valid_snapshot_through_direct_sql(
+    migrated_engine,
+    parents,
+) -> None:
+    values = _job_values(parents)
+
+    with migrated_engine.begin() as connection:
+        connection.execute(insert(prediction_jobs).values(**values))
+        stored = connection.execute(
+            select(
+                prediction_jobs.c.input_snapshot_json,
+                prediction_jobs.c.input_snapshot_hash,
+            ).where(prediction_jobs.c.job_id == values["job_id"])
+        ).one()
+
+    assert stored.input_snapshot_json == VALID_SNAPSHOT
+    assert stored.input_snapshot_hash == VALID_SNAPSHOT_HASH
+
+
+def test_prediction_job_snapshot_and_hash_cannot_be_updated(
+    migrated_engine,
+    parents,
+) -> None:
+    values = _job_values(parents)
+    with migrated_engine.begin() as connection:
+        connection.execute(insert(prediction_jobs).values(**values))
+
+    _failed(
+        migrated_engine,
+        update(prediction_jobs)
+        .where(prediction_jobs.c.job_id == values["job_id"])
+        .values(input_snapshot_json={**VALID_SNAPSHOT, "anchor_magnitude": 4.3}),
+    )
+    _failed(
+        migrated_engine,
+        update(prediction_jobs)
+        .where(prediction_jobs.c.job_id == values["job_id"])
+        .values(input_snapshot_hash="b" * 64),
+    )
+
+
+def test_prediction_job_rejects_a_schema_bound_hash_mismatch(migrated_engine, parents) -> None:
+    _failed(
+        migrated_engine,
+        insert(prediction_jobs).values(
+            **_job_values(parents, input_snapshot_hash="b" * 64),
+        ),
+    )
 
 
 def test_prediction_job_idempotency_constraints(migrated_engine, parents) -> None:

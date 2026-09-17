@@ -14,6 +14,7 @@ from quakestrike.application.persistence import (
     FeatureEventTransactionRequest,
 )
 from quakestrike.application.prediction_dispatch import (
+    DurablePredictionDispatcher,
     process_feature_event_and_publish_prediction,
 )
 from quakestrike.domain.features import (
@@ -22,6 +23,9 @@ from quakestrike.domain.features import (
     feature_snapshot_hash,
 )
 from quakestrike.infrastructure.database.engine import create_session_factory
+from quakestrike.infrastructure.database.prediction_dispatch import (
+    SqlAlchemyPredictionDispatchStore,
+)
 from quakestrike.infrastructure.database.repositories import SqlAlchemyIngestionTransactions
 from quakestrike.infrastructure.database.tables import (
     earthquake_event_revisions,
@@ -36,8 +40,19 @@ pytestmark = pytest.mark.integration
 NOW = datetime(2026, 9, 16, 12, 0, tzinfo=UTC)
 
 
-def _transactions(engine) -> SqlAlchemyIngestionTransactions:
-    return SqlAlchemyIngestionTransactions(create_session_factory(engine))
+class VerifiedReleaseGate:
+    def __init__(self, release_id):
+        self.release_id = release_id
+
+    def is_verified(self, release_id) -> bool:
+        return release_id == self.release_id
+
+
+def _transactions(engine, release_id=None) -> SqlAlchemyIngestionTransactions:
+    return SqlAlchemyIngestionTransactions(
+        create_session_factory(engine),
+        model_release_verifier=VerifiedReleaseGate(release_id) if release_id is not None else None,
+    )
 
 
 def _seed_run_and_release(engine):
@@ -189,6 +204,69 @@ def test_below_m1_and_incomplete_history_retain_revisions_without_prediction_wor
     assert reasons == ["magnitude_below_m1", "history_starts_after_required_window"]
 
 
+def test_custom_incomplete_history_reason_is_mapped_and_revision_is_retained(
+    migrated_engine,
+) -> None:
+    run_id, release_id = _seed_run_and_release(migrated_engine)
+    request = _feature_request(
+        run_id,
+        release_id,
+        coverage=HistoryCoverage(
+            NOW - timedelta(days=7),
+            NOW,
+            False,
+            reason="source_feed_gap",
+        ),
+    )
+
+    result = _transactions(migrated_engine).process_event_with_features(request)
+
+    assert result.prediction_created is False
+    assert result.prediction_skip_reason == "incomplete_feature_history"
+    assert _counts(migrated_engine) == {"events": 1, "revisions": 1, "jobs": 0, "dispatches": 0}
+
+
+def test_unconfigured_schema_compatible_release_cannot_create_prediction_work(
+    migrated_engine,
+) -> None:
+    run_id, configured_release_id = _seed_run_and_release(migrated_engine)
+    other_release_id = uuid4()
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            insert(model_releases).values(
+                model_release_id=other_release_id,
+                version_label="SEIS 2.0",
+                artifact_manifest_uri="model-artifacts/seis-2.0/manifest.json",
+                artifact_manifest_hash="b" * 64,
+                input_schema_version=INPUT_SCHEMA_VERSION,
+                output_schema_version="quakestrike.prediction-output.v1",
+            )
+        )
+    _insert_history_event(
+        migrated_engine,
+        run_id,
+        _revision(
+            run_id,
+            event_time=NOW - timedelta(hours=1),
+            bulletin_id="2026_0916_1100_B1",
+        ),
+    )
+
+    class VerifiedReleaseGate:
+        def is_verified(self, release_id) -> bool:
+            return release_id == configured_release_id
+
+    transactions = SqlAlchemyIngestionTransactions(
+        create_session_factory(migrated_engine),
+        model_release_verifier=VerifiedReleaseGate(),
+    )
+    result = transactions.process_event_with_features(_feature_request(run_id, other_release_id))
+
+    assert result.prediction_created is False
+    assert result.prediction_skip_reason == "model_release_unavailable"
+    assert _counts(migrated_engine) == {"events": 2, "revisions": 2, "jobs": 0, "dispatches": 0}
+
+
 def test_eligible_revision_stores_complete_snapshot_and_prediction_dispatch(
     migrated_engine,
 ) -> None:
@@ -203,7 +281,7 @@ def test_eligible_revision_stores_complete_snapshot_and_prediction_dispatch(
             precision="second",
         ),
     )
-    result = _transactions(migrated_engine).process_event_with_features(
+    result = _transactions(migrated_engine, release_id).process_event_with_features(
         _feature_request(run_id, release_id)
     )
 
@@ -264,12 +342,63 @@ def test_publish_failure_after_commit_leaves_durable_prediction_work(migrated_en
 
     with pytest.raises(RuntimeError, match="Redis is unavailable"):
         process_feature_event_and_publish_prediction(
-            _transactions(migrated_engine),
+            _transactions(migrated_engine, release_id),
             _feature_request(run_id, release_id),
-            FailingPublisher(),
+            DurablePredictionDispatcher(
+                SqlAlchemyPredictionDispatchStore(create_session_factory(migrated_engine)),
+                FailingPublisher(),
+            ),
         )
 
     assert _counts(migrated_engine) == {"events": 2, "revisions": 2, "jobs": 1, "dispatches": 1}
+    with migrated_engine.connect() as connection:
+        dispatch = connection.execute(select(job_dispatches)).one()
+    assert dispatch.status == "retry_wait"
+    assert dispatch.next_dispatch_at is not None
+    assert dispatch.lease_expires_at is None
+    assert dispatch.dispatch_token is None
+    assert dispatch.last_error == "RuntimeError: Redis is unavailable"
+
+
+class RecordingPublisher:
+    def __init__(self) -> None:
+        self.messages = []
+
+    def publish(self, dispatch) -> None:
+        self.messages.append(dispatch)
+
+
+def test_successful_prediction_publication_records_enqueued_state(migrated_engine) -> None:
+    run_id, release_id = _seed_run_and_release(migrated_engine)
+    _insert_history_event(
+        migrated_engine,
+        run_id,
+        _revision(
+            run_id,
+            event_time=NOW - timedelta(hours=1),
+            bulletin_id="2026_0916_1100_B1",
+        ),
+    )
+    publisher = RecordingPublisher()
+
+    result = process_feature_event_and_publish_prediction(
+        _transactions(migrated_engine, release_id),
+        _feature_request(run_id, release_id),
+        DurablePredictionDispatcher(
+            SqlAlchemyPredictionDispatchStore(create_session_factory(migrated_engine)),
+            publisher,
+        ),
+    )
+
+    assert result.prediction_created is True
+    assert len(publisher.messages) == 1
+    with migrated_engine.connect() as connection:
+        dispatch = connection.execute(select(job_dispatches)).one()
+    assert dispatch.status == "enqueued"
+    assert dispatch.last_dispatched_at is not None
+    assert dispatch.next_dispatch_at is None
+    assert dispatch.lease_expires_at is None
+    assert dispatch.dispatch_token is None
 
 
 def test_duplicate_delivery_reuses_work_and_later_revision_gets_own_job(
@@ -285,7 +414,7 @@ def test_duplicate_delivery_reuses_work_and_later_revision_gets_own_job(
             bulletin_id="2026_0916_1100_B1",
         ),
     )
-    transactions = _transactions(migrated_engine)
+    transactions = _transactions(migrated_engine, release_id)
     first_request = _feature_request(run_id, release_id)
     first = transactions.process_event_with_features(first_request)
     replay = transactions.process_event_with_features(

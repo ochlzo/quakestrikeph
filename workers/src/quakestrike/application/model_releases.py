@@ -23,3 +23,10 @@ class ModelReleaseRegistry(Protocol):
 
     def get(self, release_id: UUID) -> ModelReleaseRecord | None:
         """Read a release without changing the registry."""
+
+
+class ModelReleaseVerifier(Protocol):
+    """Read-only proof that one configured release passed startup checks."""
+
+    def is_verified(self, release_id: UUID) -> bool:
+        """Return whether this exact release is configured and verified."""

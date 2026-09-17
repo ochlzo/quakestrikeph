@@ -34,6 +34,23 @@ prediction_job_status = ENUM(
 )
 dispatch_status = ENUM(*DISPATCH_STATUSES, name="dispatch_status", create_type=False)
 
+FEATURE_SNAPSHOT_SCHEMA_VERSION = "quakestrike.prediction-input.v1"
+FEATURE_SNAPSHOT_KEYS = (
+    "anchor_magnitude",
+    "anchor_depth_km",
+    "anchor_latitude",
+    "anchor_longitude",
+    "anchor_time_is_minute_precision",
+    "catalog_m1_plus_count_past_1h",
+    "catalog_m1_plus_count_past_24h",
+    "catalog_m1_plus_count_past_7d",
+    "local_m1_plus_count_past_24h_within_50km",
+    "local_m1_plus_count_past_24h_within_100km",
+)
+_FEATURE_SNAPSHOT_KEYS_ARRAY = (
+    "ARRAY[" + ", ".join(f"'{key}'" for key in FEATURE_SNAPSHOT_KEYS) + "]"
+)
+
 
 def _nonblank(column: str) -> str:
     return f"{column} = btrim({column}) AND {column} <> ''"
@@ -293,6 +310,64 @@ prediction_jobs = Table(
     CheckConstraint(
         "jsonb_typeof(input_snapshot_json) = 'object'",
         name="ck_prediction_jobs_snapshot_object",
+    ),
+    CheckConstraint(
+        "CASE WHEN jsonb_typeof(input_snapshot_json) = 'object' THEN "
+        f"input_snapshot_json ?& {_FEATURE_SNAPSHOT_KEYS_ARRAY} "
+        f"AND input_snapshot_json - {_FEATURE_SNAPSHOT_KEYS_ARRAY} = '{{}}'::jsonb "
+        "ELSE FALSE END",
+        name="ck_prediction_jobs_snapshot_keys",
+    ),
+    CheckConstraint(
+        "CASE WHEN jsonb_typeof(input_snapshot_json -> 'anchor_magnitude') = 'number' THEN "
+        "(input_snapshot_json ->> 'anchor_magnitude')::numeric NOT IN "
+        "('NaN'::numeric, 'Infinity'::numeric, '-Infinity'::numeric) "
+        "AND (input_snapshot_json ->> 'anchor_magnitude')::numeric BETWEEN -999.99 AND 999.99 "
+        "ELSE FALSE END "
+        "AND CASE WHEN jsonb_typeof(input_snapshot_json -> 'anchor_depth_km') = 'number' THEN "
+        "(input_snapshot_json ->> 'anchor_depth_km')::numeric NOT IN "
+        "('NaN'::numeric, 'Infinity'::numeric, '-Infinity'::numeric) "
+        "AND (input_snapshot_json ->> 'anchor_depth_km')::numeric BETWEEN 0 AND 9999999.999 "
+        "ELSE FALSE END "
+        "AND CASE WHEN jsonb_typeof(input_snapshot_json -> 'anchor_latitude') = 'number' THEN "
+        "(input_snapshot_json ->> 'anchor_latitude')::numeric NOT IN "
+        "('NaN'::numeric, 'Infinity'::numeric, '-Infinity'::numeric) "
+        "AND (input_snapshot_json ->> 'anchor_latitude')::numeric BETWEEN -90 AND 90 "
+        "ELSE FALSE END "
+        "AND CASE WHEN jsonb_typeof(input_snapshot_json -> 'anchor_longitude') = 'number' THEN "
+        "(input_snapshot_json ->> 'anchor_longitude')::numeric NOT IN "
+        "('NaN'::numeric, 'Infinity'::numeric, '-Infinity'::numeric) "
+        "AND (input_snapshot_json ->> 'anchor_longitude')::numeric BETWEEN -180 AND 180 "
+        "ELSE FALSE END "
+        "AND CASE WHEN jsonb_typeof(input_snapshot_json -> "
+        "'anchor_time_is_minute_precision') = 'number' THEN "
+        "(input_snapshot_json ->> 'anchor_time_is_minute_precision') ~ '^[01]$' "
+        "ELSE FALSE END "
+        "AND CASE WHEN jsonb_typeof(input_snapshot_json -> "
+        "'catalog_m1_plus_count_past_1h') = 'number' THEN "
+        "(input_snapshot_json ->> 'catalog_m1_plus_count_past_1h') ~ '^[0-9]+$' "
+        "ELSE FALSE END "
+        "AND CASE WHEN jsonb_typeof(input_snapshot_json -> "
+        "'catalog_m1_plus_count_past_24h') = 'number' THEN "
+        "(input_snapshot_json ->> 'catalog_m1_plus_count_past_24h') ~ '^[0-9]+$' "
+        "ELSE FALSE END "
+        "AND CASE WHEN jsonb_typeof(input_snapshot_json -> "
+        "'catalog_m1_plus_count_past_7d') = 'number' THEN "
+        "(input_snapshot_json ->> 'catalog_m1_plus_count_past_7d') ~ '^[0-9]+$' "
+        "ELSE FALSE END "
+        "AND CASE WHEN jsonb_typeof(input_snapshot_json -> "
+        "'local_m1_plus_count_past_24h_within_50km') = 'number' THEN "
+        "(input_snapshot_json ->> 'local_m1_plus_count_past_24h_within_50km') ~ '^[0-9]+$' "
+        "ELSE FALSE END "
+        "AND CASE WHEN jsonb_typeof(input_snapshot_json -> "
+        "'local_m1_plus_count_past_24h_within_100km') = 'number' THEN "
+        "(input_snapshot_json ->> 'local_m1_plus_count_past_24h_within_100km') ~ '^[0-9]+$' "
+        "ELSE FALSE END",
+        name="ck_prediction_jobs_snapshot_value_types",
+    ),
+    CheckConstraint(
+        "input_snapshot_hash = quakestrike_prediction_input_snapshot_sha256(input_snapshot_json)",
+        name="ck_prediction_jobs_snapshot_hash",
     ),
     CheckConstraint(_nonblank("idempotency_key"), name="ck_prediction_jobs_idempotency_nonblank"),
     CheckConstraint(

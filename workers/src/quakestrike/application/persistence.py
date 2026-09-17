@@ -77,7 +77,6 @@ class FeatureEventTransactionRequest:
     history_coverage: HistoryCoverage | None = None
     job_id: UUID | None = None
     dispatch_id: UUID | None = None
-    correlation_id: UUID | None = None
     idempotency_key: str | None = None
 
 
