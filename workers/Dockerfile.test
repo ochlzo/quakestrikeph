@@ -11,12 +11,13 @@ WORKDIR /workspace
 RUN pip install --no-cache-dir "uv==${UV_VERSION}"
 
 COPY workers/pyproject.toml workers/uv.lock ./workers/
-RUN uv sync --project workers --frozen
+RUN uv sync --project workers --frozen --no-install-project
 
 COPY workers ./workers
 COPY packages ./packages
 COPY infrastructure/compose.yml ./infrastructure/compose.yml
 COPY .dockerignore ./.dockerignore
 COPY .env.example ./.env.example
+RUN uv sync --project workers --frozen
 
 ENTRYPOINT ["uv", "run", "--project", "workers", "--frozen", "--no-sync"]
