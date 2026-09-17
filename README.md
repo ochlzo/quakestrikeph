@@ -7,7 +7,8 @@ information, and support protected review and alert workflows.
 
 > Current repository status: this checkout contains the Python worker
 > scaffold, the six-table ingestion migration, and local PostgreSQL/Redis
-> infrastructure. The web applications, Backend API, model registration, bootstrap workflow,
+> infrastructure. Phase 3 model packaging, registration, and release verification
+> are implemented. The web applications, Backend API, bootstrap workflow,
 > prediction execution, and alert delivery are planned work. The Phase 1
 > worker entry points fail closed until their later startup gates exist.
 
@@ -209,6 +210,47 @@ docker build -f workers/Dockerfile -t quakestrike-workers:local workers
 
 The image is a build artifact for the worker scaffold. A complete Compose
 worker service will be added with the later scheduler and ingestion phases.
+
+## SEIS 1.0 local release
+
+The selected training package is
+`C:\Projects\quakestrikeph\redo\quakestrikeph-training\baselines\attempt-2\stratified-baseline-02\chosen-models\balanced-selection-anchor-exploratory-01`.
+From the repository root, copy `.env.example` to `.env` if needed. Set
+`POSTGRES_PASSWORD` and the password in `DATABASE_URL` to the same value.
+Keep `DATABASE_URL` pointed at `postgres:5432`, the private Compose service.
+Set `MODEL_RELEASE_ID` to the reviewed manifest's release ID. The package
+command needs the source package on the host. The release initialization
+container runs migrations and registration on the private network:
+
+```powershell
+$env:MODEL_ARTIFACT_DIRECTORY = "workers/model-artifacts"
+uv run --project workers quakestrike package-model-release --source-package "C:\Projects\quakestrikeph\redo\quakestrikeph-training\baselines\attempt-2\stratified-baseline-02\chosen-models\balanced-selection-anchor-exploratory-01"
+Remove-Item Env:MODEL_ARTIFACT_DIRECTORY
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml up -d --wait postgres redis
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml build release-init
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init alembic -c alembic.ini upgrade head
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike register-model-release
+docker compose --env-file .env -f infrastructure/compose.yml exec -T postgres psql -U quakestrike -d quakestrike -Atc "SELECT count(*) FROM model_releases;"
+```
+
+The final command prints `1` on a fresh local database. Run the registration
+command again to check replay; the count remains `1`. If you change
+`POSTGRES_USER` or `POSTGRES_DB`, use those values in the `psql` command.
+The release initialization container is an operator command, not a running
+worker service. It mounts the host artifact bundle read-only.
+
+The reviewed policy is
+`workers/model-release-manifests/seis-1.0/manifest.json`. The package command
+checks its exact canonical bytes and all eight weight hashes before publishing
+the local bundle. Registration checks the existing bundle, then inserts the
+immutable PostgreSQL release row. An exact replay succeeds without changing the
+row; reuse of a release ID or version label with changed data fails. Startup
+checks the configured ID, reviewed policy, bundle, weights, and row without
+changing them. Any failed check blocks service work. Model weights remain
+outside Git and worker image builds. Future
+worker services must bind the host path set by
+`MODEL_ARTIFACT_HOST_DIRECTORY` to `/app/model-artifacts` read-only. Inside
+those containers, set `MODEL_ARTIFACT_DIRECTORY=/app/model-artifacts`.
 
 ## Development rules
 

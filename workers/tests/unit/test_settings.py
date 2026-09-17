@@ -6,6 +6,7 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
+from quakestrike.infrastructure.models.packaging import SEIS_RELEASE_ID
 from quakestrike.infrastructure.settings import Settings
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -38,6 +39,7 @@ def test_example_environment_file_is_valid() -> None:
 
     assert settings.ingestor_concurrency == 1
     assert settings.database_url.startswith("postgresql+psycopg://")
+    assert settings.model_release_id == SEIS_RELEASE_ID
 
 
 def test_settings_require_database_and_redis_urls() -> None:

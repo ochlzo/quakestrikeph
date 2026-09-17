@@ -21,6 +21,9 @@ COPY --chown=quakestrike:quakestrike pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY --chown=quakestrike:quakestrike src ./src
+COPY --chown=quakestrike:quakestrike model-release-manifests ./model-release-manifests
+COPY --chown=quakestrike:quakestrike alembic.ini ./alembic.ini
+COPY --chown=quakestrike:quakestrike migrations ./migrations
 RUN uv sync --frozen --no-dev
 
 

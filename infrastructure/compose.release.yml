@@ -1,0 +1,18 @@
+services:
+  release-init:
+    build:
+      context: ../workers
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      REDIS_URL: ${REDIS_URL:?Set REDIS_URL in .env}
+      PHIVOLCS_CATALOG_URL: ${PHIVOLCS_CATALOG_URL:?Set PHIVOLCS_CATALOG_URL in .env}
+      MODEL_RELEASE_ID: ${MODEL_RELEASE_ID:?Set MODEL_RELEASE_ID in .env}
+      MODEL_ARTIFACT_DIRECTORY: /app/model-artifacts
+    volumes:
+      - ${MODEL_ARTIFACT_HOST_DIRECTORY:-../workers/model-artifacts}:/app/model-artifacts:ro
+    networks:
+      - private-data
+    depends_on:
+      postgres:
+        condition: service_healthy

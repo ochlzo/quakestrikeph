@@ -51,3 +51,8 @@ volumes:
 networks:
   private-data:
     internal: true
+
+# Contract for Phase 5 worker services. It is intentionally not attached to a
+# service until those workers exist, but every consumer must use this read-only mount.
+x-future-worker-artifact-mount:
+  - ${MODEL_ARTIFACT_HOST_DIRECTORY:-../workers/model-artifacts}:/app/model-artifacts:ro

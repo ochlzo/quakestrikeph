@@ -1,8 +1,28 @@
 from __future__ import annotations
 
+import hashlib
+import json
+from dataclasses import replace
+from pathlib import Path
+from uuid import UUID
+
+import pytest
+from sqlalchemy.exc import OperationalError
+
 from quakestrike.application.startup import evaluate_startup_gates
+from quakestrike.infrastructure import startup
+from quakestrike.infrastructure.models import release_manifest
+from quakestrike.infrastructure.models.release_manifest import (
+    TRACKED_RELEASE_MANIFEST,
+    VerifiedReleaseManifest,
+    model_release_record,
+)
 from quakestrike.infrastructure.settings import Settings
-from quakestrike.infrastructure.startup import UnavailableStartupGate, phase_one_startup_gates
+from quakestrike.infrastructure.startup import (
+    ModelReleaseStartupGate,
+    UnavailableStartupGate,
+    phase_one_startup_gates,
+)
 
 
 def valid_settings() -> Settings:
@@ -31,6 +51,25 @@ def phase_one_test_gates() -> tuple:
             reason="Test Redis is unavailable.",
         ),
     )
+
+
+def verified_manifest(settings: Settings) -> VerifiedReleaseManifest:
+    return VerifiedReleaseManifest(
+        release_id=settings.model_release_id,
+        version_label="SEIS 1.0",
+        input_schema_version="input.v1",
+        output_schema_version="output.v1",
+        manifest_uri="seis-1.0/manifest.json",
+        manifest_hash="a" * 64,
+        artifact_paths=("models/example.bin",),
+    )
+
+
+class TrackingEngine:
+    disposed = False
+
+    def dispose(self) -> None:
+        self.disposed = True
 
 
 def test_phase_one_gates_are_read_only_and_fail_closed() -> None:
@@ -62,3 +101,188 @@ def test_startup_report_exposes_sanitized_gate_details() -> None:
         "redis-connectivity",
     ]
     assert "DATABASE_URL" not in str(serialized)
+
+
+def test_model_release_gate_returns_a_safe_failure_when_database_is_unavailable(
+    monkeypatch,
+) -> None:
+    settings = valid_settings()
+    manifest = verified_manifest(settings)
+    monkeypatch.setattr(startup, "load_verified_release_manifest", lambda *_, **__: manifest)
+    monkeypatch.setattr(
+        startup,
+        "create_database_engine",
+        lambda _: (_ for _ in ()).throw(OperationalError("SELECT 1", {}, Exception("down"))),
+    )
+
+    result = ModelReleaseStartupGate(settings).check()
+
+    assert result.ready is False
+    assert result.reason == "Model release verification failed."
+
+
+def test_model_release_gate_is_ready_for_a_matching_manifest_and_registration(
+    monkeypatch,
+) -> None:
+    settings = valid_settings()
+    manifest = verified_manifest(settings)
+    engine = TrackingEngine()
+    monkeypatch.setattr(startup, "load_verified_release_manifest", lambda *_, **__: manifest)
+    monkeypatch.setattr(startup, "create_database_engine", lambda _: engine)
+    monkeypatch.setattr(startup, "create_session_factory", lambda received: received)
+    monkeypatch.setattr(
+        startup,
+        "SqlAlchemyModelReleaseRegistry",
+        lambda _: type(
+            "Registry", (), {"get": lambda self, release_id: model_release_record(manifest)}
+        )(),
+    )
+
+    result = ModelReleaseStartupGate(settings).check()
+
+    assert result.ready is True
+    assert result.reason == "Model release verified."
+    assert engine.disposed is True
+
+
+def test_model_release_gate_is_not_ready_when_the_registered_row_differs(
+    monkeypatch,
+) -> None:
+    settings = valid_settings()
+    manifest = verified_manifest(settings)
+    engine = TrackingEngine()
+    stored = replace(model_release_record(manifest), artifact_manifest_hash="b" * 64)
+    monkeypatch.setattr(startup, "load_verified_release_manifest", lambda *_, **__: manifest)
+    monkeypatch.setattr(startup, "create_database_engine", lambda _: engine)
+    monkeypatch.setattr(startup, "create_session_factory", lambda received: received)
+    monkeypatch.setattr(
+        startup,
+        "SqlAlchemyModelReleaseRegistry",
+        lambda _: type("Registry", (), {"get": lambda self, release_id: stored})(),
+    )
+
+    result = ModelReleaseStartupGate(settings).check()
+
+    assert result.ready is False
+    assert result.reason == "Model release verification failed."
+    assert engine.disposed is True
+
+
+def test_model_release_gate_disposes_the_engine_when_the_registry_query_fails(
+    monkeypatch,
+) -> None:
+    settings = valid_settings()
+    manifest = verified_manifest(settings)
+    engine = TrackingEngine()
+
+    def query_failure(_release_id):
+        raise OperationalError("SELECT model_releases", {}, Exception("down"))
+
+    monkeypatch.setattr(startup, "load_verified_release_manifest", lambda *_, **__: manifest)
+    monkeypatch.setattr(startup, "create_database_engine", lambda _: engine)
+    monkeypatch.setattr(startup, "create_session_factory", lambda received: received)
+    monkeypatch.setattr(
+        startup,
+        "SqlAlchemyModelReleaseRegistry",
+        lambda _: type(
+            "Registry", (), {"get": lambda self, release_id: query_failure(release_id)}
+        )(),
+    )
+
+    result = ModelReleaseStartupGate(settings).check()
+
+    assert result.ready is False
+    assert result.reason == "Model release verification failed."
+    assert engine.disposed is True
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "configured_id",
+        "missing_manifest",
+        "changed_manifest",
+        "missing_artifact",
+        "changed_artifact",
+    ],
+)
+def test_startup_report_rejects_unverified_bundle_before_database_work(
+    tmp_path: Path, monkeypatch, damage: str
+) -> None:
+    bundle = tmp_path / "seis-1.0"
+    document = json.loads(TRACKED_RELEASE_MANIFEST.read_bytes())
+    route_name, route = next(iter(document["routes"].items()))
+    route["targets"] = [route["targets"][0]]
+    document["routes"] = {route_name: route}
+    artifact_path = route["targets"][0]["artifact_path"]
+    artifact = bundle / artifact_path
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"fixture weight")
+    document["artifacts"] = [
+        {"path": artifact_path, "sha256": hashlib.sha256(b"fixture weight").hexdigest()}
+    ]
+    manifest = bundle / "manifest.json"
+    manifest.write_bytes(
+        json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
+            "utf-8"
+        )
+    )
+    policy = tmp_path / "approved.json"
+    policy.write_bytes(manifest.read_bytes())
+    monkeypatch.setattr(release_manifest, "TRACKED_RELEASE_MANIFEST", policy)
+    settings = valid_settings().model_copy(
+        update={
+            "model_release_id": UUID("2f532893-7a25-4f18-814c-91d66f38dac4"),
+            "model_artifact_directory": tmp_path,
+        }
+    )
+    if damage == "configured_id":
+        settings = settings.model_copy(update={"model_release_id": UUID(int=1)})
+    elif damage == "missing_manifest":
+        (bundle / "manifest.json").unlink()
+    elif damage == "changed_manifest":
+        (bundle / "manifest.json").write_bytes(b"changed")
+    elif damage == "missing_artifact":
+        artifact.unlink()
+    elif damage == "changed_artifact":
+        artifact.write_bytes(b"changed")
+    before = {
+        str(path.relative_to(tmp_path)): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    }
+    monkeypatch.setattr(
+        startup,
+        "create_database_engine",
+        lambda _: (_ for _ in ()).throw(AssertionError("database reached")),
+    )
+
+    report = evaluate_startup_gates((ModelReleaseStartupGate(settings),))
+
+    assert report.ready is False
+    assert report.failed_gate_names == ("model-release",)
+    assert {
+        str(path.relative_to(tmp_path)): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    } == before
+
+
+def test_startup_report_rejects_absent_registration(monkeypatch) -> None:
+    settings = valid_settings()
+    manifest = verified_manifest(settings)
+    engine = TrackingEngine()
+    monkeypatch.setattr(startup, "load_verified_release_manifest", lambda *_, **__: manifest)
+    monkeypatch.setattr(startup, "create_database_engine", lambda _: engine)
+    monkeypatch.setattr(startup, "create_session_factory", lambda received: received)
+    monkeypatch.setattr(
+        startup,
+        "SqlAlchemyModelReleaseRegistry",
+        lambda _: type("Registry", (), {"get": lambda self, release_id: None})(),
+    )
+
+    report = evaluate_startup_gates((ModelReleaseStartupGate(settings),))
+
+    assert report.ready is False
+    assert report.failed_gate_names == ("model-release",)
+    assert engine.disposed is True

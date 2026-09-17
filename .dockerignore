@@ -7,6 +7,10 @@
 **/.pytest_cache
 **/.ruff_cache
 model-artifacts
+**/model-artifacts
 bootstrap-snapshots
+**/bootstrap-snapshots
 datasets
+**/datasets
 data
+**/data
