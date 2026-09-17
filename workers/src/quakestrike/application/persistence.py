@@ -10,6 +10,10 @@ from typing import Protocol
 from uuid import UUID
 
 
+class FatalIdentityConflict(ValueError):
+    """A durable source identity is already mapped to another stable event."""
+
+
 @dataclass(frozen=True, slots=True)
 class RunDispatchRequest:
     run_id: UUID
@@ -82,6 +86,7 @@ class RunClaim:
 
     run_id: UUID
     worker_execution_id: UUID
+    correlation_id: UUID
     attempt_count: int
 
 

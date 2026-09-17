@@ -702,7 +702,66 @@ def test_retryable_run_failure_uses_three_delays_then_stops(migrated_engine) -> 
     assert statuses == ["retry_wait", "retry_wait", "retry_wait", "failed"]
 
 
-def test_expired_worker_leases_stop_after_the_fourth_claim(migrated_engine) -> None:
+def test_terminal_run_failure_persists_checkpoint_derived_counters(migrated_engine) -> None:
+    transactions = _transactions(migrated_engine)
+    request = RunDispatchRequest(
+        run_id=uuid4(),
+        dispatch_id=uuid4(),
+        trigger_type="manual",
+        correlation_id=uuid4(),
+    )
+    transactions.create_run_with_dispatch(request)
+    token = uuid4()
+    assert transactions.claim_run(request.run_id, token, _database_now(migrated_engine)) is not None
+
+    transactions.process_event(
+        EventTransactionRequest(
+            event_id=uuid4(),
+            ingestion_run_id=request.run_id,
+            worker_execution_id=token,
+            input_key="row:accepted",
+            revision=_revision(request.run_id),
+        )
+    )
+    assert transactions.checkpoint_input(
+        request.run_id, token, "rejected:2:INVALID_SOURCE_URL", "rejected", None
+    )
+
+    assert (
+        transactions.fail_run(
+            request.run_id,
+            token,
+            _database_now(migrated_engine),
+            "CATALOG_STRUCTURE_INVALID",
+            "The current catalog does not contain a valid event table.",
+            retryable=False,
+        )
+        == "failed"
+    )
+
+    with migrated_engine.connect() as connection:
+        run = connection.execute(
+            select(
+                ingestion_runs.c.status,
+                ingestion_runs.c.events_found,
+                ingestion_runs.c.events_inserted,
+                ingestion_runs.c.events_revised,
+                ingestion_runs.c.events_unchanged,
+                ingestion_runs.c.events_rejected,
+            ).where(ingestion_runs.c.run_id == request.run_id)
+        ).one()
+
+    assert run.status == "failed"
+    assert run.events_found == 2
+    assert run.events_inserted == 1
+    assert run.events_revised == 0
+    assert run.events_unchanged == 0
+    assert run.events_rejected == 1
+
+
+def test_expired_worker_leases_stop_after_the_fourth_claim_and_preserve_counters(
+    migrated_engine,
+) -> None:
     transactions = _transactions(migrated_engine)
     request = RunDispatchRequest(
         run_id=uuid4(),
@@ -713,7 +772,27 @@ def test_expired_worker_leases_stop_after_the_fourth_claim(migrated_engine) -> N
     transactions.create_run_with_dispatch(request)
     now = _database_now(migrated_engine)
 
-    for attempt in range(4):
+    first_token = uuid4()
+    first_claim = transactions.claim_run(request.run_id, first_token, now)
+    assert first_claim is not None
+    transactions.process_event(
+        EventTransactionRequest(
+            event_id=uuid4(),
+            ingestion_run_id=request.run_id,
+            worker_execution_id=first_token,
+            input_key="row:accepted-before-lease-expiry",
+            revision=_revision(request.run_id),
+        )
+    )
+    assert transactions.checkpoint_input(
+        request.run_id,
+        first_token,
+        "rejected:2:INVALID_SOURCE_URL",
+        "rejected",
+        None,
+    )
+
+    for attempt in range(1, 4):
         claim = transactions.claim_run(
             request.run_id,
             uuid4(),
@@ -725,12 +804,19 @@ def test_expired_worker_leases_stop_after_the_fourth_claim(migrated_engine) -> N
     assert transactions.claim_run(request.run_id, uuid4(), now + timedelta(minutes=64)) is None
     with migrated_engine.connect() as connection:
         run = connection.execute(
-            select(ingestion_runs.c.status, ingestion_runs.c.error_code).where(
-                ingestion_runs.c.run_id == request.run_id
-            )
+            select(
+                ingestion_runs.c.status,
+                ingestion_runs.c.error_code,
+                ingestion_runs.c.events_found,
+                ingestion_runs.c.events_inserted,
+                ingestion_runs.c.events_rejected,
+            ).where(ingestion_runs.c.run_id == request.run_id)
         ).one()
     assert run.status == "failed"
     assert run.error_code == "LEASE_EXPIRED_ATTEMPT_LIMIT"
+    assert run.events_found == 2
+    assert run.events_inserted == 1
+    assert run.events_rejected == 1
 
 
 def test_event_checkpoint_keeps_the_original_outcome_across_a_replay(migrated_engine) -> None:

@@ -26,6 +26,7 @@ class StructuredReconciliationDiagnosticReporter(ReconciliationDiagnosticReporte
             context={
                 "run_id": diagnostic.run_id,
                 "worker_execution_id": diagnostic.worker_execution_id,
+                "correlation_id": diagnostic.correlation_id,
                 "input_key": diagnostic.input_key,
             },
         )

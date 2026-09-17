@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from quakestrike.application.persistence import (
     EventTransactionRequest,
     EventTransactionResult,
+    FatalIdentityConflict,
     IngestionTransactions,
     RunClaim,
     RunCounters,
@@ -148,16 +149,11 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                     + 1
                 )
                 if revision.source_bulletin_id is not None:
-                    mapped_event_id = session.scalar(
-                        select(earthquake_bulletin_event_identities.c.event_id)
-                        .where(
-                            earthquake_bulletin_event_identities.c.source_bulletin_id
-                            == revision.source_bulletin_id
-                        )
-                        .with_for_update()
+                    mapped_event_id = self._locked_bulletin_owner(
+                        session,
+                        revision.source_bulletin_id,
+                        request.event_id,
                     )
-                    if mapped_event_id is not None and mapped_event_id != request.event_id:
-                        raise ValueError("The bulletin ID already belongs to another event.")
                     if mapped_event_id is None:
                         session.execute(
                             insert(earthquake_bulletin_event_identities).values(
@@ -311,6 +307,7 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
             ):
                 return None
             if run.attempt_count >= _MAX_ATTEMPTS:
+                counter_values = self._counter_values_from_checkpoints(session, run_id)
                 session.execute(
                     update(ingestion_runs)
                     .where(ingestion_runs.c.run_id == run_id)
@@ -322,6 +319,7 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                         finished_at=now,
                         error_code="LEASE_EXPIRED_ATTEMPT_LIMIT",
                         error_message="The processing lease expired after the allowed attempts.",
+                        **counter_values,
                     )
                 )
                 return None
@@ -344,6 +342,7 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
             return RunClaim(
                 run_id=run_id,
                 worker_execution_id=worker_execution_id,
+                correlation_id=run.correlation_id,
                 attempt_count=attempts,
             )
 
@@ -377,27 +376,16 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                 pg_insert(ingestion_run_inputs)
                 .values(run_id=run_id, input_key=input_key, outcome=outcome, event_id=event_id)
                 .on_conflict_do_nothing(index_elements=["run_id", "input_key"])
+                .returning(ingestion_run_inputs.c.run_id)
             )
-            return result.rowcount == 1
+            return result.scalar_one_or_none() is not None
 
     def counters_for_run(self, run_id: UUID, worker_execution_id: UUID) -> RunCounters:
         """Read absolute counters from checkpoints rather than incrementing mutable totals."""
 
         with self._session_factory() as session, session.begin():
             self._assert_owned_run(session, run_id, worker_execution_id)
-            outcomes = session.execute(
-                select(ingestion_run_inputs.c.outcome, func.count())
-                .where(ingestion_run_inputs.c.run_id == run_id)
-                .group_by(ingestion_run_inputs.c.outcome)
-            ).all()
-            counts = dict(outcomes)
-            return RunCounters(
-                events_found=sum(counts.values()),
-                events_inserted=counts.get("inserted", 0),
-                events_revised=counts.get("revised", 0),
-                events_unchanged=counts.get("unchanged", 0),
-                events_rejected=counts.get("rejected", 0),
-            )
+            return self._counters_from_checkpoints(session, run_id)
 
     def complete_run(
         self, run_id: UUID, worker_execution_id: UUID, now: datetime, counters: RunCounters
@@ -450,6 +438,7 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
             ).one_or_none()
             if run is None:
                 return None
+            counter_values = self._counter_values_from_checkpoints(session, run_id)
             if retryable and run.attempt_count < _MAX_ATTEMPTS:
                 retry_delay = _RETRY_DELAYS[run.attempt_count - 1]
                 session.execute(
@@ -462,6 +451,7 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                         next_attempt_at=now + retry_delay,
                         error_code=error_code,
                         error_message=error_message,
+                        **counter_values,
                     )
                 )
                 return "retry_wait"
@@ -476,6 +466,7 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                     finished_at=now,
                     error_code=error_code,
                     error_message=error_message,
+                    **counter_values,
                 )
             )
             return "failed"
@@ -546,16 +537,11 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
             ):
                 return latest_for_event
             return None
-        mapped_event_id = session.scalar(
-            select(earthquake_bulletin_event_identities.c.event_id)
-            .where(
-                earthquake_bulletin_event_identities.c.source_bulletin_id
-                == revision.source_bulletin_id
-            )
-            .with_for_update()
+        mapped_event_id = cls._locked_bulletin_owner(
+            session,
+            revision.source_bulletin_id,
+            request.event_id,
         )
-        if mapped_event_id is not None and mapped_event_id != request.event_id:
-            raise ValueError("The bulletin ID already belongs to another event.")
         if mapped_event_id is None:
             return None
         latest_by_bulletin = session.execute(
@@ -570,6 +556,21 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
         ):
             return latest_by_bulletin
         return None
+
+    @staticmethod
+    def _locked_bulletin_owner(
+        session: Session,
+        source_bulletin_id: str,
+        event_id: UUID,
+    ) -> UUID | None:
+        mapped_event_id = session.scalar(
+            select(earthquake_bulletin_event_identities.c.event_id)
+            .where(earthquake_bulletin_event_identities.c.source_bulletin_id == source_bulletin_id)
+            .with_for_update()
+        )
+        if mapped_event_id is not None and mapped_event_id != event_id:
+            raise FatalIdentityConflict("The bulletin ID already belongs to another event.")
+        return mapped_event_id
 
     @staticmethod
     def _assert_run_lease(session: Session, request: EventTransactionRequest) -> None:
@@ -598,6 +599,33 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
         )
         if claimed is None:
             raise ValueError("The ingestion run lease is no longer owned by this worker.")
+
+    @staticmethod
+    def _counters_from_checkpoints(session: Session, run_id: UUID) -> RunCounters:
+        outcomes = session.execute(
+            select(ingestion_run_inputs.c.outcome, func.count())
+            .where(ingestion_run_inputs.c.run_id == run_id)
+            .group_by(ingestion_run_inputs.c.outcome)
+        ).all()
+        counts = dict(outcomes)
+        return RunCounters(
+            events_found=sum(counts.values()),
+            events_inserted=counts.get("inserted", 0),
+            events_revised=counts.get("revised", 0),
+            events_unchanged=counts.get("unchanged", 0),
+            events_rejected=counts.get("rejected", 0),
+        )
+
+    @classmethod
+    def _counter_values_from_checkpoints(cls, session: Session, run_id: UUID) -> dict[str, int]:
+        counters = cls._counters_from_checkpoints(session, run_id)
+        return {
+            "events_found": counters.events_found,
+            "events_inserted": counters.events_inserted,
+            "events_revised": counters.events_revised,
+            "events_unchanged": counters.events_unchanged,
+            "events_rejected": counters.events_rejected,
+        }
 
     @staticmethod
     def _checkpoint_outcome(

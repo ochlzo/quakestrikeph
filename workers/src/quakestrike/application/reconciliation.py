@@ -10,7 +10,12 @@ from datetime import UTC, datetime
 from typing import Protocol
 from uuid import UUID, uuid4
 
-from quakestrike.application.persistence import EventRevisionRequest, EventTransactionRequest
+from quakestrike.application.persistence import (
+    EventRevisionRequest,
+    EventTransactionRequest,
+    FatalIdentityConflict,
+    RunClaim,
+)
 from quakestrike.application.phivolcs import (
     CatalogRetrievalError,
     CatalogRetrievalLeaseLost,
@@ -46,6 +51,7 @@ class ReconciliationDiagnostic:
 
     run_id: UUID
     worker_execution_id: UUID
+    correlation_id: UUID
     input_key: str
     code: str
 
@@ -59,7 +65,9 @@ class ReconciliationDiagnosticReporter(Protocol):
 class ReconciliationStore(Protocol):
     """Persistence boundary for Phase 5 orchestration."""
 
-    def claim_run(self, run_id: UUID, worker_execution_id: UUID, now: datetime): ...
+    def claim_run(
+        self, run_id: UUID, worker_execution_id: UUID, now: datetime
+    ) -> RunClaim | None: ...
 
     def heartbeat_run(self, run_id: UUID, worker_execution_id: UUID, now: datetime) -> bool: ...
 
@@ -123,36 +131,52 @@ class ReconcileCurrentCatalog:
             return ReconciliationRunResult(status="not_claimed", claimed=False)
         try:
             parsed = self._retriever.retrieve_current_catalog(
-                heartbeat=lambda: self._store.heartbeat_run(run_id, execution_id, self._now())
+                heartbeat=lambda: self._store.heartbeat_run(
+                    claim.run_id, claim.worker_execution_id, self._now()
+                )
             )
             rows = coalesce_catalog_rows(parsed)
             for rejected in parsed.rejected_rows:
                 input_key = _rejected_input_key(rejected.row_number, rejected.diagnostic.code)
                 checkpointed = self._store.checkpoint_input(
-                    run_id,
-                    execution_id,
+                    claim.run_id,
+                    claim.worker_execution_id,
                     input_key,
                     "rejected",
                     None,
                 )
                 if checkpointed:
-                    self._report_diagnostic(run_id, execution_id, input_key, rejected.diagnostic)
+                    self._report_diagnostic(claim, input_key, rejected.diagnostic)
             for row in rows:
-                self._process_row(run_id, execution_id, row)
-                if not self._store.heartbeat_run(run_id, execution_id, self._now()):
+                self._process_row(claim, row)
+                if not self._store.heartbeat_run(
+                    claim.run_id, claim.worker_execution_id, self._now()
+                ):
                     return ReconciliationRunResult(status="lease_lost", claimed=True)
-            counters = self._store.counters_for_run(run_id, execution_id)
-            completed = self._store.complete_run(run_id, execution_id, self._now(), counters)
+            counters = self._store.counters_for_run(claim.run_id, claim.worker_execution_id)
+            completed = self._store.complete_run(
+                claim.run_id, claim.worker_execution_id, self._now(), counters
+            )
             return ReconciliationRunResult(
                 status="succeeded" if completed else "lease_lost", claimed=True
             )
         except DuplicateBulletinConflict:
             status = self._store.fail_run(
-                run_id,
-                execution_id,
+                claim.run_id,
+                claim.worker_execution_id,
                 self._now(),
                 "CONFLICTING_DUPLICATE_BULLETIN",
                 "The catalog contains conflicting values for one bulletin ID.",
+                retryable=False,
+            )
+            return ReconciliationRunResult(status=status or "lease_lost", claimed=True)
+        except FatalIdentityConflict:
+            status = self._store.fail_run(
+                claim.run_id,
+                claim.worker_execution_id,
+                self._now(),
+                "BULLETIN_EVENT_IDENTITY_CONFLICT",
+                "The bulletin identity conflicts with the existing event mapping.",
                 retryable=False,
             )
             return ReconciliationRunResult(status=status or "lease_lost", claimed=True)
@@ -161,8 +185,8 @@ class ReconcileCurrentCatalog:
         except CatalogRetrievalError as error:
             if error.category == "catalog_structure":
                 status = self._store.fail_run(
-                    run_id,
-                    execution_id,
+                    claim.run_id,
+                    claim.worker_execution_id,
                     self._now(),
                     "CATALOG_STRUCTURE_INVALID",
                     "The current catalog does not contain a valid event table.",
@@ -171,8 +195,8 @@ class ReconcileCurrentCatalog:
                 return ReconciliationRunResult(status=status or "lease_lost", claimed=True)
             retryable = error.category in {"request_failed", "transient_http"}
             status = self._store.fail_run(
-                run_id,
-                execution_id,
+                claim.run_id,
+                claim.worker_execution_id,
                 self._now(),
                 "CATALOG_TRANSPORT_FAILURE",
                 "The current catalog could not be retrieved.",
@@ -181,8 +205,8 @@ class ReconcileCurrentCatalog:
             return ReconciliationRunResult(status=status or "lease_lost", claimed=True)
         except Exception:
             status = self._store.fail_run(
-                run_id,
-                execution_id,
+                claim.run_id,
+                claim.worker_execution_id,
                 self._now(),
                 "RECONCILIATION_PERSISTENCE_FAILURE",
                 "The run could not persist reconciliation progress.",
@@ -190,10 +214,14 @@ class ReconcileCurrentCatalog:
             )
             return ReconciliationRunResult(status=status or "lease_lost", claimed=True)
 
-    def _process_row(self, run_id: UUID, execution_id: UUID, row: NormalizedSourceRow) -> None:
+    def _process_row(
+        self,
+        claim: RunClaim,
+        row: NormalizedSourceRow,
+    ) -> None:
         input_key = normalized_input_key(row)
         for diagnostic in row.diagnostics:
-            self._report_diagnostic(run_id, execution_id, input_key, diagnostic)
+            self._report_diagnostic(claim, input_key, diagnostic)
         existing_event_id = (
             self._store.find_event_by_bulletin_id(row.source_bulletin_id)
             if row.source_bulletin_id is not None
@@ -216,24 +244,28 @@ class ReconcileCurrentCatalog:
             if decision.action is ReconciliationAction.ATTACH:
                 existing_event_id = decision.event_id
             elif row.source_bulletin_id is None:
-                if self._store.checkpoint_input(run_id, execution_id, input_key, "rejected", None):
-                    self._report_rejection(run_id, execution_id, input_key, decision.rejection_code)
+                if self._store.checkpoint_input(
+                    claim.run_id, claim.worker_execution_id, input_key, "rejected", None
+                ):
+                    self._report_rejection(claim, input_key, decision.rejection_code)
                 return
             elif decision.rejection_code == "AMBIGUOUS_FALLBACK":
-                if self._store.checkpoint_input(run_id, execution_id, input_key, "rejected", None):
-                    self._report_rejection(run_id, execution_id, input_key, decision.rejection_code)
+                if self._store.checkpoint_input(
+                    claim.run_id, claim.worker_execution_id, input_key, "rejected", None
+                ):
+                    self._report_rejection(claim, input_key, decision.rejection_code)
                 return
 
         event_id = existing_event_id or self._new_uuid()
         self._store.process_event(
             EventTransactionRequest(
                 event_id=event_id,
-                ingestion_run_id=run_id,
-                worker_execution_id=execution_id,
+                ingestion_run_id=claim.run_id,
+                worker_execution_id=claim.worker_execution_id,
                 input_key=input_key,
                 revision=EventRevisionRequest(
                     event_revision_id=self._new_uuid(),
-                    ingestion_run_id=run_id,
+                    ingestion_run_id=claim.run_id,
                     source_bulletin_id=row.source_bulletin_id,
                     source_event_group_id=row.source_event_group_id,
                     source_url=row.source_url,
@@ -251,24 +283,34 @@ class ReconcileCurrentCatalog:
 
     def _report_diagnostic(
         self,
-        run_id: UUID,
-        execution_id: UUID,
+        claim: RunClaim,
         input_key: str,
         diagnostic: SourceDiagnostic,
     ) -> None:
         self._diagnostic_reporter.report(
-            ReconciliationDiagnostic(run_id, execution_id, input_key, diagnostic.code.value)
+            ReconciliationDiagnostic(
+                claim.run_id,
+                claim.worker_execution_id,
+                claim.correlation_id,
+                input_key,
+                diagnostic.code.value,
+            )
         )
 
     def _report_rejection(
         self,
-        run_id: UUID,
-        execution_id: UUID,
+        claim: RunClaim,
         input_key: str,
         code: str | None,
     ) -> None:
         self._diagnostic_reporter.report(
-            ReconciliationDiagnostic(run_id, execution_id, input_key, code or "REJECTED_ROW")
+            ReconciliationDiagnostic(
+                claim.run_id,
+                claim.worker_execution_id,
+                claim.correlation_id,
+                input_key,
+                code or "REJECTED_ROW",
+            )
         )
 
 

@@ -293,6 +293,7 @@ Index(
     ingestion_run_inputs.c.run_id,
     ingestion_run_inputs.c.outcome,
 )
+Index("ix_ingestion_run_inputs_event_id", ingestion_run_inputs.c.event_id)
 
 model_releases = Table(
     "model_releases",

@@ -323,11 +323,15 @@ def test_foreign_keys_restrict_invalid_parents_updates_and_deletes(
     )
 
 
-def test_queue_partial_indexes_exist(migrated_engine) -> None:
+def test_ingestion_and_dispatch_indexes_exist(migrated_engine) -> None:
     run_indexes = {item["name"] for item in inspect(migrated_engine).get_indexes("ingestion_runs")}
+    input_indexes = {
+        item["name"] for item in inspect(migrated_engine).get_indexes("ingestion_run_inputs")
+    }
     dispatch_indexes = {
         item["name"] for item in inspect(migrated_engine).get_indexes("job_dispatches")
     }
     assert "uq_ingestion_runs_one_active" in run_indexes
     assert "ix_ingestion_runs_running_lease" in run_indexes
+    assert "ix_ingestion_run_inputs_event_id" in input_indexes
     assert {"ix_job_dispatches_ready", "ix_job_dispatches_dispatching_lease"} <= dispatch_indexes

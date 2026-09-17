@@ -5,8 +5,8 @@ services:
       POSTGRES_DB: quakestrike_test
       POSTGRES_USER: quakestrike_test
       POSTGRES_PASSWORD: integration-only
-    volumes:
-      - phase2_postgres_data:/var/lib/postgresql/data
+    tmpfs:
+      - /var/lib/postgresql/data
     networks:
       - phase2-test
     healthcheck:
@@ -36,9 +36,6 @@ services:
       options:
         max-size: "20m"
         max-file: "5"
-
-volumes:
-  phase2_postgres_data:
 
 networks:
   phase2-test:

@@ -41,6 +41,7 @@ def test_structured_logging_emits_json_with_operational_identifiers() -> None:
 
 def test_reconciliation_diagnostic_logger_includes_run_and_input_correlation() -> None:
     output = io.StringIO()
+    correlation_id = uuid4()
     reporter = StructuredReconciliationDiagnosticReporter(
         configure_logging("data-ingestor", level="INFO", stream=output)
     )
@@ -49,6 +50,7 @@ def test_reconciliation_diagnostic_logger_includes_run_and_input_correlation() -
         ReconciliationDiagnostic(
             run_id=uuid4(),
             worker_execution_id=uuid4(),
+            correlation_id=correlation_id,
             input_key="row:abc123",
             code="DETAIL_FETCH_FAILED",
         )
@@ -57,4 +59,5 @@ def test_reconciliation_diagnostic_logger_includes_run_and_input_correlation() -
     record = json.loads(output.getvalue())
     assert record["event_code"] == "DETAIL_FETCH_FAILED"
     assert record["context"]["input_key"] == "row:abc123"
+    assert record["context"]["correlation_id"] == str(correlation_id)
     assert "run_id" in record["context"]

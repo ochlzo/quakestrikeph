@@ -6,7 +6,12 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
-from quakestrike.application.persistence import EventTransactionResult, RunCounters
+from quakestrike.application.persistence import (
+    EventTransactionResult,
+    FatalIdentityConflict,
+    RunClaim,
+    RunCounters,
+)
 from quakestrike.application.phivolcs import CatalogRetrievalLeaseLost
 from quakestrike.application.reconciliation import (
     ReconcileCurrentCatalog,
@@ -21,6 +26,7 @@ from quakestrike.domain.source_rows import (
 )
 
 NOW = datetime(2026, 9, 17, tzinfo=UTC)
+CORRELATION_ID = UUID("00000000-0000-0000-0000-000000000002")
 
 
 class _Retriever:
@@ -51,9 +57,14 @@ class _Store:
         self.heartbeat_times: list[datetime] = []
         self.claimed_at: datetime | None = None
 
-    def claim_run(self, _run_id, _token, now):
+    def claim_run(self, run_id, token, now):
         self.claimed_at = now
-        return SimpleNamespace()
+        return RunClaim(
+            run_id=run_id,
+            worker_execution_id=token,
+            correlation_id=CORRELATION_ID,
+            attempt_count=1,
+        )
 
     def heartbeat_run(self, _run_id, _token, now) -> bool:
         self.heartbeats += 1
@@ -245,6 +256,7 @@ def test_row_diagnostics_keep_run_and_input_correlation() -> None:
 
     assert reporter.diagnostics[0].code == "DETAIL_FETCH_FAILED"
     assert reporter.diagnostics[0].run_id
+    assert reporter.diagnostics[0].correlation_id == CORRELATION_ID
     assert reporter.diagnostics[0].input_key.startswith("row:")
     assert store.checkpoints[0][1] == "inserted"
 
@@ -310,3 +322,26 @@ def test_unexpected_persistence_error_uses_a_safe_retry_transition() -> None:
     assert store.checkpoints == []
     assert store.failure[0][3] == "RECONCILIATION_PERSISTENCE_FAILURE"
     assert "password" not in store.failure[0][4]
+
+
+def test_fatal_identity_conflict_fails_the_run_with_a_safe_terminal_error() -> None:
+    class _IdentityConflictStore(_Store):
+        def process_event(self, _request):
+            raise FatalIdentityConflict("mapped event id and secret payload disagree")
+
+        def fail_run(self, *_args, **_kwargs):
+            self.failure = (_args, _kwargs)
+            return "failed"
+
+    store = _IdentityConflictStore()
+    result = ReconcileCurrentCatalog(
+        store=store,
+        retriever=_Retriever(CatalogParseResult((_row(),), ())),
+        diagnostic_reporter=_Reporter(),
+        now=lambda: NOW,
+    ).execute(uuid4())
+
+    assert result.status == "failed"
+    assert store.failure[0][3] == "BULLETIN_EVENT_IDENTITY_CONFLICT"
+    assert store.failure[1]["retryable"] is False
+    assert "secret" not in store.failure[0][4]
