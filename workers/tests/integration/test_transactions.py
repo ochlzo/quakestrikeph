@@ -28,6 +28,7 @@ from quakestrike.infrastructure.database.tables import (
     model_releases,
     prediction_jobs,
 )
+from quakestrike.scheduler.beat import run_scheduled_ingestion_tick
 
 pytestmark = pytest.mark.integration
 NOW = datetime(2026, 9, 16, tzinfo=UTC)
@@ -67,6 +68,42 @@ def test_overlapping_active_run_requests_return_one_run_and_dispatch(migrated_en
     assert {result.run_id for result in results} == {results[0].run_id}
     assert {result.dispatch_id for result in results} == {results[0].dispatch_id}
     assert sorted(result.created for result in results) == [False, True]
+    with migrated_engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(ingestion_runs)) == 1
+        assert connection.scalar(select(func.count()).select_from(job_dispatches)) == 1
+
+
+@pytest.mark.parametrize("active_status", ["running", "retry_wait"])
+def test_scheduled_tick_reuses_running_or_retry_wait_work(
+    migrated_engine,
+    active_status: str,
+) -> None:
+    transactions = _transactions(migrated_engine)
+    original = run_scheduled_ingestion_tick(transactions, clock=lambda: NOW)
+    values: dict[str, object] = {"status": active_status}
+    if active_status == "running":
+        values.update(
+            started_at=NOW,
+            lease_expires_at=NOW + timedelta(minutes=15),
+            worker_execution_id=uuid4(),
+        )
+    else:
+        values["next_attempt_at"] = NOW + timedelta(seconds=30)
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            update(ingestion_runs)
+            .where(ingestion_runs.c.run_id == original.run_id)
+            .values(**values)
+        )
+
+    replay = run_scheduled_ingestion_tick(
+        transactions,
+        clock=lambda: NOW + timedelta(minutes=5),
+    )
+
+    assert replay.run_id == original.run_id
+    assert replay.dispatch_id == original.dispatch_id
+    assert replay.created is False
     with migrated_engine.connect() as connection:
         assert connection.scalar(select(func.count()).select_from(ingestion_runs)) == 1
         assert connection.scalar(select(func.count()).select_from(job_dispatches)) == 1

@@ -8,10 +8,15 @@ import pytest
 from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
+from quakestrike.application.ingestion_dispatch import IngestionDispatch
 from quakestrike.application.prediction_dispatch import PredictionDispatch
 from quakestrike.infrastructure.queues.contracts import (
     IngestionCommandV1,
     PredictionCommandV1,
+)
+from quakestrike.infrastructure.queues.ingestion_publisher import (
+    INGESTION_TASK_NAME,
+    CeleryIngestionPublisher,
 )
 from quakestrike.infrastructure.queues.prediction_publisher import (
     PREDICTION_TASK_NAME,
@@ -87,6 +92,38 @@ def test_celery_prediction_publisher_emits_the_v1_identifier_command() -> None:
                     }
                 ],
                 "queue": "prediction",
+            },
+        )
+    ]
+
+
+def test_celery_ingestion_publisher_emits_the_v1_identifier_command() -> None:
+    class RecordingCeleryApp:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def send_task(self, name: str, **kwargs: object) -> None:
+            self.calls.append((name, kwargs))
+
+    app = RecordingCeleryApp()
+    publisher = CeleryIngestionPublisher(app)  # type: ignore[arg-type]
+    dispatch = IngestionDispatch(uuid4(), uuid4(), uuid4())
+
+    publisher.publish(dispatch)
+
+    assert app.calls == [
+        (
+            INGESTION_TASK_NAME,
+            {
+                "args": [
+                    {
+                        "message_version": 1,
+                        "dispatch_id": str(dispatch.dispatch_id),
+                        "run_id": str(dispatch.run_id),
+                        "correlation_id": str(dispatch.correlation_id),
+                    }
+                ],
+                "queue": "ingestion",
             },
         )
     ]
