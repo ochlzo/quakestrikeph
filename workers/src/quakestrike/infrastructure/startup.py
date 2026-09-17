@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from quakestrike.application.startup import GateResult, StartupGate
+from quakestrike.application.model_releases import ModelReleaseVerifier
+from quakestrike.application.startup import (
+    GateResult,
+    ModelReleaseVerificationGate,
+    StartupGate,
+)
 from quakestrike.infrastructure.database.engine import (
     create_database_engine,
     create_session_factory,
@@ -72,6 +78,23 @@ class ModelReleaseStartupGate:
                 name=self.name, ready=False, reason="Model release verification failed."
             )
         return GateResult(name=self.name, ready=True, reason="Model release verified.")
+
+
+@dataclass(frozen=True, slots=True)
+class ConfiguredModelReleaseVerifier(ModelReleaseVerifier):
+    """Bind feature work to the configured release and its startup proof."""
+
+    settings: Settings
+    startup_gate: ModelReleaseVerificationGate | None = None
+
+    def is_verified(self, release_id: UUID) -> bool:
+        if release_id != self.settings.model_release_id:
+            return False
+        gate = self.startup_gate or ModelReleaseStartupGate(self.settings)
+        try:
+            return gate.check().ready
+        except Exception:
+            return False
 
 
 def phase_one_startup_gates(
