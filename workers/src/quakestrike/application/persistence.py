@@ -80,6 +80,8 @@ class FeatureEventTransactionRequest:
     revision: EventRevisionRequest
     model_release_id: UUID
     correlation_id: UUID
+    worker_execution_id: UUID | None = None
+    input_key: str | None = None
     history_coverage: HistoryCoverage | None = None
     job_id: UUID | None = None
     dispatch_id: UUID | None = None

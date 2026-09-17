@@ -12,8 +12,8 @@ from uuid import UUID, uuid4
 
 from quakestrike.application.persistence import (
     EventRevisionRequest,
-    EventTransactionRequest,
     FatalIdentityConflict,
+    FeatureEventTransactionRequest,
     RunClaim,
 )
 from quakestrike.application.phivolcs import (
@@ -84,7 +84,7 @@ class ReconciliationStore(Protocol):
 
     def find_group_candidates(self, source_event_group_id: str) -> Iterable[object]: ...
 
-    def process_event(self, request: EventTransactionRequest): ...
+    def process_event_with_features(self, request: FeatureEventTransactionRequest): ...
 
     def counters_for_run(self, run_id: UUID, worker_execution_id: UUID): ...
 
@@ -113,12 +113,14 @@ class ReconcileCurrentCatalog:
         store: ReconciliationStore,
         retriever: CurrentCatalogRetriever,
         diagnostic_reporter: ReconciliationDiagnosticReporter,
+        model_release_id: UUID,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         new_uuid: Callable[[], UUID] = uuid4,
     ) -> None:
         self._store = store
         self._retriever = retriever
         self._diagnostic_reporter = diagnostic_reporter
+        self._model_release_id = model_release_id
         self._now = now
         self._new_uuid = new_uuid
 
@@ -257,12 +259,14 @@ class ReconcileCurrentCatalog:
                 return
 
         event_id = existing_event_id or self._new_uuid()
-        self._store.process_event(
-            EventTransactionRequest(
+        self._store.process_event_with_features(
+            FeatureEventTransactionRequest(
                 event_id=event_id,
                 ingestion_run_id=claim.run_id,
                 worker_execution_id=claim.worker_execution_id,
                 input_key=input_key,
+                model_release_id=self._model_release_id,
+                correlation_id=claim.correlation_id,
                 revision=EventRevisionRequest(
                     event_revision_id=self._new_uuid(),
                     ingestion_run_id=claim.run_id,

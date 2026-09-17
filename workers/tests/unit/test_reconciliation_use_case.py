@@ -27,6 +27,7 @@ from quakestrike.domain.source_rows import (
 
 NOW = datetime(2026, 9, 17, tzinfo=UTC)
 CORRELATION_ID = UUID("00000000-0000-0000-0000-000000000002")
+MODEL_RELEASE_ID = UUID("00000000-0000-0000-0000-000000000003")
 
 
 class _Retriever:
@@ -81,7 +82,7 @@ class _Store:
     def find_group_candidates(self, _group_id):
         return self.candidates
 
-    def process_event(self, request):
+    def process_event_with_features(self, request):
         self.requests.append(request)
         result = EventTransactionResult(
             event_id=request.event_id,
@@ -133,6 +134,7 @@ def _execute(store: _Store, row: NormalizedSourceRow, reporter: _Reporter | None
         store=store,
         retriever=_Retriever(CatalogParseResult((row,), ())),
         diagnostic_reporter=reporter or _Reporter(),
+        model_release_id=MODEL_RELEASE_ID,
         now=lambda: NOW,
         new_uuid=lambda: next(values),
     ).execute(uuid4())
@@ -145,6 +147,10 @@ def test_exact_bulletin_match_uses_existing_event_without_group_fallback() -> No
     store = _execute(_Store(exact_event_id=event_id), _row())
 
     assert store.requests[0].event_id == event_id
+    assert store.requests[0].model_release_id == MODEL_RELEASE_ID
+    assert store.requests[0].correlation_id == CORRELATION_ID
+    assert store.requests[0].worker_execution_id is not None
+    assert store.requests[0].input_key.startswith("row:")
     assert store.checkpoints[0][1] == "revised"
 
 
@@ -216,6 +222,7 @@ def test_retrieval_heartbeats_before_row_processing_and_stops_on_a_lost_lease() 
         store=store,
         retriever=_LongRetriever(),
         diagnostic_reporter=_Reporter(),
+        model_release_id=MODEL_RELEASE_ID,
         now=lambda: next(moments),
         new_uuid=lambda: next(values),
     ).execute(uuid4())
@@ -238,6 +245,7 @@ def test_lost_lease_during_retrieval_does_not_process_rows() -> None:
         store=store,
         retriever=_LeaseLosingRetriever(),
         diagnostic_reporter=_Reporter(),
+        model_release_id=MODEL_RELEASE_ID,
         now=lambda: NOW,
     ).execute(uuid4())
 
@@ -291,6 +299,7 @@ def test_parser_and_ambiguous_fallback_rejections_emit_their_safe_codes() -> Non
             )
         ),
         diagnostic_reporter=reporter,
+        model_release_id=MODEL_RELEASE_ID,
         now=lambda: NOW,
         new_uuid=lambda: next(values),
     ).execute(uuid4())
@@ -303,7 +312,7 @@ def test_parser_and_ambiguous_fallback_rejections_emit_their_safe_codes() -> Non
 
 def test_unexpected_persistence_error_uses_a_safe_retry_transition() -> None:
     class _FailingStore(_Store):
-        def process_event(self, _request):
+        def process_event_with_features(self, _request):
             raise RuntimeError("database password leaked")
 
         def fail_run(self, *_args, **_kwargs):
@@ -315,6 +324,7 @@ def test_unexpected_persistence_error_uses_a_safe_retry_transition() -> None:
         store=store,
         retriever=_Retriever(CatalogParseResult((_row(),), ())),
         diagnostic_reporter=_Reporter(),
+        model_release_id=MODEL_RELEASE_ID,
         now=lambda: NOW,
     ).execute(uuid4())
 
@@ -326,7 +336,7 @@ def test_unexpected_persistence_error_uses_a_safe_retry_transition() -> None:
 
 def test_fatal_identity_conflict_fails_the_run_with_a_safe_terminal_error() -> None:
     class _IdentityConflictStore(_Store):
-        def process_event(self, _request):
+        def process_event_with_features(self, _request):
             raise FatalIdentityConflict("mapped event id and secret payload disagree")
 
         def fail_run(self, *_args, **_kwargs):
@@ -338,6 +348,7 @@ def test_fatal_identity_conflict_fails_the_run_with_a_safe_terminal_error() -> N
         store=store,
         retriever=_Retriever(CatalogParseResult((_row(),), ())),
         diagnostic_reporter=_Reporter(),
+        model_release_id=MODEL_RELEASE_ID,
         now=lambda: NOW,
     ).execute(uuid4())
 

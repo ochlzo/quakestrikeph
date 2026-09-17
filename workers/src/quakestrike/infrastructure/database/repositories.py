@@ -160,20 +160,71 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
         model_release_verified = self._is_model_release_verified(request.model_release_id)
 
         with self._session_factory() as session, session.begin():
+            base_request = EventTransactionRequest(
+                event_id=request.event_id,
+                ingestion_run_id=request.ingestion_run_id,
+                worker_execution_id=request.worker_execution_id,
+                input_key=request.input_key,
+                revision=request.revision,
+            )
+            self._assert_run_lease(session, base_request)
+
+            def finish(result: EventTransactionResult) -> EventTransactionResult:
+                self._checkpoint_outcome(
+                    session,
+                    base_request,
+                    (
+                        "inserted"
+                        if result.event_created
+                        else "revised"
+                        if result.revision_created
+                        else "unchanged"
+                    ),
+                )
+                return result
+
             event_created = self._lock_or_create_event(
                 session,
                 request.event_id,
                 request.ingestion_run_id,
             )
-            base_request = EventTransactionRequest(
-                event_id=request.event_id,
-                ingestion_run_id=request.ingestion_run_id,
-                revision=request.revision,
-            )
             existing_revision = self._find_existing_revision(session, base_request)
             if existing_revision is not None:
                 if not model_release_verified:
-                    return EventTransactionResult(
+                    return finish(
+                        EventTransactionResult(
+                            event_id=request.event_id,
+                            event_revision_id=existing_revision.event_revision_id,
+                            revision_number=existing_revision.revision_number,
+                            prediction_job_id=None,
+                            dispatch_id=None,
+                            event_created=event_created,
+                            revision_created=False,
+                            prediction_created=False,
+                            prediction_skip_reason=PredictionSkipReason.MODEL_RELEASE_UNAVAILABLE.value,
+                        )
+                    )
+                existing_prediction = self._find_latest_prediction(
+                    session,
+                    existing_revision.event_revision_id,
+                    request.model_release_id,
+                )
+                if existing_prediction is not None:
+                    return finish(
+                        EventTransactionResult(
+                            event_id=request.event_id,
+                            event_revision_id=existing_revision.event_revision_id,
+                            revision_number=existing_revision.revision_number,
+                            prediction_job_id=existing_prediction.job_id,
+                            dispatch_id=existing_prediction.dispatch_id,
+                            event_created=event_created,
+                            revision_created=False,
+                            prediction_created=False,
+                            prediction_skip_reason=None,
+                        )
+                    )
+                return finish(
+                    EventTransactionResult(
                         event_id=request.event_id,
                         event_revision_id=existing_revision.event_revision_id,
                         revision_number=existing_revision.revision_number,
@@ -182,35 +233,8 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                         event_created=event_created,
                         revision_created=False,
                         prediction_created=False,
-                        prediction_skip_reason=PredictionSkipReason.MODEL_RELEASE_UNAVAILABLE.value,
+                        prediction_skip_reason=existing_revision.prediction_skip_reason,
                     )
-                existing_prediction = self._find_latest_prediction(
-                    session,
-                    existing_revision.event_revision_id,
-                    request.model_release_id,
-                )
-                if existing_prediction is not None:
-                    return EventTransactionResult(
-                        event_id=request.event_id,
-                        event_revision_id=existing_revision.event_revision_id,
-                        revision_number=existing_revision.revision_number,
-                        prediction_job_id=existing_prediction.job_id,
-                        dispatch_id=existing_prediction.dispatch_id,
-                        event_created=event_created,
-                        revision_created=False,
-                        prediction_created=False,
-                        prediction_skip_reason=None,
-                    )
-                return EventTransactionResult(
-                    event_id=request.event_id,
-                    event_revision_id=existing_revision.event_revision_id,
-                    revision_number=existing_revision.revision_number,
-                    prediction_job_id=None,
-                    dispatch_id=None,
-                    event_created=event_created,
-                    revision_created=False,
-                    prediction_created=False,
-                    prediction_skip_reason=existing_revision.prediction_skip_reason,
                 )
 
             anchor = observation_from_revision_request(request.event_id, request.revision)
@@ -260,16 +284,18 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
             )
             revision_id = revision.event_revision_id
             if snapshot is None:
-                return EventTransactionResult(
-                    event_id=request.event_id,
-                    event_revision_id=revision_id,
-                    revision_number=revision_number,
-                    prediction_job_id=None,
-                    dispatch_id=None,
-                    event_created=event_created,
-                    revision_created=True,
-                    prediction_created=False,
-                    prediction_skip_reason=skip_reason,
+                return finish(
+                    EventTransactionResult(
+                        event_id=request.event_id,
+                        event_revision_id=revision_id,
+                        revision_number=revision_number,
+                        prediction_job_id=None,
+                        dispatch_id=None,
+                        event_created=event_created,
+                        revision_created=True,
+                        prediction_created=False,
+                        prediction_skip_reason=skip_reason,
+                    )
                 )
 
             prediction = PredictionWorkRequest(
@@ -285,16 +311,18 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                 correlation_id=request.correlation_id,
             )
             self._insert_prediction_work(session, prediction, revision_id)
-            return EventTransactionResult(
-                event_id=request.event_id,
-                event_revision_id=revision_id,
-                revision_number=revision_number,
-                prediction_job_id=prediction.job_id,
-                dispatch_id=prediction.dispatch_id,
-                event_created=event_created,
-                revision_created=True,
-                prediction_created=True,
-                prediction_skip_reason=None,
+            return finish(
+                EventTransactionResult(
+                    event_id=request.event_id,
+                    event_revision_id=revision_id,
+                    revision_number=revision_number,
+                    prediction_job_id=prediction.job_id,
+                    dispatch_id=prediction.dispatch_id,
+                    event_created=event_created,
+                    revision_created=True,
+                    prediction_created=True,
+                    prediction_skip_reason=None,
+                )
             )
 
     def claim_run(self, run_id: UUID, worker_execution_id: UUID, now: datetime) -> RunClaim | None:
@@ -358,6 +386,26 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                 worker_execution_id=worker_execution_id,
                 correlation_id=run.correlation_id,
                 attempt_count=attempts,
+            )
+
+    def ingestion_command_matches(
+        self, dispatch_id: UUID, run_id: UUID, correlation_id: UUID
+    ) -> bool:
+        """Confirm that a queue command names one existing ingestion dispatch and run."""
+
+        with self._session_factory() as session:
+            return (
+                session.scalar(
+                    select(job_dispatches.c.dispatch_id)
+                    .join(
+                        ingestion_runs,
+                        ingestion_runs.c.run_id == job_dispatches.c.ingestion_run_id,
+                    )
+                    .where(job_dispatches.c.dispatch_id == dispatch_id)
+                    .where(job_dispatches.c.ingestion_run_id == run_id)
+                    .where(ingestion_runs.c.correlation_id == correlation_id)
+                )
+                is not None
             )
 
     def heartbeat_run(self, run_id: UUID, worker_execution_id: UUID, now: datetime) -> bool:
