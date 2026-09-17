@@ -16,6 +16,7 @@ from quakestrike.application.persistence import (
     PredictionWorkRequest,
     RunDispatchRequest,
 )
+from quakestrike.domain.features import INPUT_SCHEMA_VERSION, create_feature_snapshot
 from quakestrike.infrastructure.database.engine import create_session_factory
 from quakestrike.infrastructure.database.repositories import SqlAlchemyIngestionTransactions
 from quakestrike.infrastructure.database.tables import (
@@ -87,6 +88,33 @@ def _revision(run_id):
     )
 
 
+def _prediction(release_id, *, magnitude: str = "4.20", job_id=None, dispatch_id=None):
+    snapshot = create_feature_snapshot(
+        {
+            "anchor_magnitude": magnitude,
+            "anchor_depth_km": "10.000",
+            "anchor_latitude": "14.123456",
+            "anchor_longitude": "121.123456",
+            "anchor_time_is_minute_precision": 1,
+            "catalog_m1_plus_count_past_1h": 0,
+            "catalog_m1_plus_count_past_24h": 0,
+            "catalog_m1_plus_count_past_7d": 0,
+            "local_m1_plus_count_past_24h_within_50km": 0,
+            "local_m1_plus_count_past_24h_within_100km": 0,
+        },
+        input_schema_version=INPUT_SCHEMA_VERSION,
+    )
+    return PredictionWorkRequest(
+        job_id=job_id or uuid4(),
+        dispatch_id=dispatch_id or uuid4(),
+        model_release_id=release_id,
+        input_snapshot_hash=snapshot.sha256,
+        input_snapshot_json=snapshot.values,
+        idempotency_key=str(uuid4()),
+        correlation_id=uuid4(),
+    )
+
+
 def test_event_revision_prediction_and_dispatch_commit_together(migrated_engine) -> None:
     run_id = uuid4()
     release_id = uuid4()
@@ -107,20 +135,12 @@ def test_event_revision_prediction_and_dispatch_commit_together(migrated_engine)
                 version_label="SEIS 1.0",
                 artifact_manifest_uri="model-artifacts/manifest.json",
                 artifact_manifest_hash="a" * 64,
-                input_schema_version="1",
+                input_schema_version=INPUT_SCHEMA_VERSION,
                 output_schema_version="1",
             )
         )
     revision = _revision(run_id)
-    prediction = PredictionWorkRequest(
-        job_id=uuid4(),
-        dispatch_id=uuid4(),
-        model_release_id=release_id,
-        input_snapshot_hash="b" * 64,
-        input_snapshot_json={"anchor_magnitude": 4.2},
-        idempotency_key=str(uuid4()),
-        correlation_id=uuid4(),
-    )
+    prediction = _prediction(release_id)
     _transactions(migrated_engine).process_event(
         EventTransactionRequest(
             event_id=uuid4(),
@@ -150,15 +170,7 @@ def test_event_transaction_failure_rolls_back_event_and_revision(migrated_engine
             )
         )
     revision = _revision(run_id)
-    prediction = PredictionWorkRequest(
-        job_id=uuid4(),
-        dispatch_id=uuid4(),
-        model_release_id=uuid4(),
-        input_snapshot_hash="c" * 64,
-        input_snapshot_json={"anchor_magnitude": 4.2},
-        idempotency_key=str(uuid4()),
-        correlation_id=uuid4(),
-    )
+    prediction = _prediction(uuid4())
     with pytest.raises(IntegrityError):
         _transactions(migrated_engine).process_event(
             EventTransactionRequest(
@@ -195,7 +207,7 @@ def _seed_run_and_release(engine):
                 version_label="SEIS 1.0",
                 artifact_manifest_uri="model-artifacts/manifest.json",
                 artifact_manifest_hash="a" * 64,
-                input_schema_version="1",
+                input_schema_version=INPUT_SCHEMA_VERSION,
                 output_schema_version="1",
             )
         )
@@ -204,15 +216,7 @@ def _seed_run_and_release(engine):
 
 def _event_request(run_id, release_id, *, event_id=None, revision=None, prediction=None):
     revision = revision or _revision(run_id)
-    prediction = prediction or PredictionWorkRequest(
-        job_id=uuid4(),
-        dispatch_id=uuid4(),
-        model_release_id=release_id,
-        input_snapshot_hash="b" * 64,
-        input_snapshot_json={"anchor_magnitude": 4.2},
-        idempotency_key=str(uuid4()),
-        correlation_id=uuid4(),
-    )
+    prediction = prediction or _prediction(release_id)
     return EventTransactionRequest(
         event_id=event_id or uuid4(),
         ingestion_run_id=run_id,
@@ -314,10 +318,10 @@ def test_supplied_prediction_identity_collision_rolls_back(migrated_engine) -> N
         source_bulletin_id="2026_0831_1609_B2",
         source_url="https://earthquake.phivolcs.dost.gov.ph/example-b2",
     )
-    conflicting_prediction = replace(
-        original.prediction,
-        dispatch_id=uuid4(),
-        input_snapshot_hash="c" * 64,
+    conflicting_prediction = _prediction(
+        release_id,
+        magnitude="4.30",
+        job_id=original.prediction.job_id,
     )
     with pytest.raises(ValueError, match="job ID"):
         transactions.process_event(
@@ -351,15 +355,7 @@ def test_concurrent_event_revisions_are_serial_and_duplicate_safe(migrated_engin
             release_id,
             event_id=event_id,
             revision=changed_revision,
-            prediction=PredictionWorkRequest(
-                job_id=uuid4(),
-                dispatch_id=uuid4(),
-                model_release_id=release_id,
-                input_snapshot_hash="c" * 64,
-                input_snapshot_json={"anchor_magnitude": 4.3},
-                idempotency_key=str(uuid4()),
-                correlation_id=uuid4(),
-            ),
+            prediction=_prediction(release_id, magnitude="4.30"),
         ),
     ]
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -496,15 +492,7 @@ def test_group_only_revert_after_a_changed_revision_creates_a_new_revision(migra
             release_id,
             event_id=event_id,
             revision=replace(changed_revision, ingestion_run_id=later_run_id),
-            prediction=PredictionWorkRequest(
-                job_id=uuid4(),
-                dispatch_id=uuid4(),
-                model_release_id=release_id,
-                input_snapshot_hash="c" * 64,
-                input_snapshot_json={"anchor_magnitude": 4.3},
-                idempotency_key=str(uuid4()),
-                correlation_id=uuid4(),
-            ),
+            prediction=_prediction(release_id, magnitude="4.30"),
         )
     )
     reverted = transactions.process_event(
@@ -513,15 +501,7 @@ def test_group_only_revert_after_a_changed_revision_creates_a_new_revision(migra
             release_id,
             event_id=event_id,
             revision=replace(first_revision, event_revision_id=uuid4()),
-            prediction=PredictionWorkRequest(
-                job_id=uuid4(),
-                dispatch_id=uuid4(),
-                model_release_id=release_id,
-                input_snapshot_hash="d" * 64,
-                input_snapshot_json={"anchor_magnitude": 4.2},
-                idempotency_key=str(uuid4()),
-                correlation_id=uuid4(),
-            ),
+            prediction=_prediction(release_id),
         )
     )
 
@@ -544,15 +524,7 @@ def test_replay_cannot_add_first_prediction_job_to_an_existing_revision(migrated
             revision=revision,
         )
     )
-    prediction = PredictionWorkRequest(
-        job_id=uuid4(),
-        dispatch_id=uuid4(),
-        model_release_id=release_id,
-        input_snapshot_hash="b" * 64,
-        input_snapshot_json={"anchor_magnitude": 4.2},
-        idempotency_key=str(uuid4()),
-        correlation_id=uuid4(),
-    )
+    prediction = _prediction(release_id)
 
     with pytest.raises(ValueError, match="cannot add prediction work"):
         transactions.process_event(

@@ -25,3 +25,7 @@ Each prediction job stores one immutable canonical JSON feature snapshot in
 serialization includes the input-schema identity and uses stable key ordering
 and normalized values. The snapshot is created before the prediction job and
 dispatch row are committed together.
+
+The event revision stores a nullable `prediction_skip_reason` when a valid
+revision does not create prediction work. The reason is part of the immutable
+revision decision, rather than a fabricated or zero-filled prediction job.

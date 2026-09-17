@@ -9,6 +9,8 @@ from decimal import Decimal
 from typing import Protocol
 from uuid import UUID
 
+from quakestrike.domain.features import HistoryCoverage
+
 
 @dataclass(frozen=True, slots=True)
 class RunDispatchRequest:
@@ -41,6 +43,7 @@ class EventRevisionRequest:
     magnitude: Decimal
     location_description: str
     origin: str | None = None
+    prediction_skip_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +66,22 @@ class EventTransactionRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class FeatureEventTransactionRequest:
+    """Revision input plus the evidence needed to decide prediction work."""
+
+    event_id: UUID
+    ingestion_run_id: UUID
+    revision: EventRevisionRequest
+    model_release_id: UUID
+    correlation_id: UUID
+    history_coverage: HistoryCoverage | None = None
+    job_id: UUID | None = None
+    dispatch_id: UUID | None = None
+    correlation_id: UUID | None = None
+    idempotency_key: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class EventTransactionResult:
     event_id: UUID
     event_revision_id: UUID | None
@@ -72,6 +91,7 @@ class EventTransactionResult:
     event_created: bool
     revision_created: bool
     prediction_created: bool
+    prediction_skip_reason: str | None = None
 
 
 class IngestionTransactions(Protocol):
@@ -82,3 +102,8 @@ class IngestionTransactions(Protocol):
 
     def process_event(self, request: EventTransactionRequest) -> EventTransactionResult:
         """Lock or create an event and atomically add its dependent work."""
+
+    def process_event_with_features(
+        self, request: FeatureEventTransactionRequest
+    ) -> EventTransactionResult:
+        """Build the snapshot and persist all eligible work in one transaction."""

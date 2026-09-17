@@ -166,6 +166,7 @@ earthquake_event_revisions = Table(
     Column("magnitude", Numeric(5, 2), nullable=False),
     Column("location_description", Text, nullable=False),
     Column("origin", Text),
+    Column("prediction_skip_reason", Text),
     Column("ingested_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("event_id", "revision_number", name="uq_event_revisions_event_revision"),
     CheckConstraint("revision_number >= 1", name="ck_event_revisions_revision_number"),
@@ -205,6 +206,13 @@ earthquake_event_revisions = Table(
         "origin IS NULL OR origin IN ('TECTONIC', 'VOLCANIC', 'TECTONIC-VOLCANIC')",
         name="ck_event_revisions_origin",
     ),
+    CheckConstraint(
+        "prediction_skip_reason IS NULL OR prediction_skip_reason IN ("
+        "'magnitude_below_m1', 'history_coverage_unavailable', "
+        "'incomplete_feature_history', 'history_starts_after_required_window', "
+        "'history_ends_before_anchor', 'model_release_unavailable')",
+        name="ck_event_revisions_prediction_skip_reason",
+    ),
 )
 Index(
     "uq_event_revisions_source_bulletin_id",
@@ -217,6 +225,7 @@ Index(
     earthquake_event_revisions.c.source_event_group_id,
 )
 Index("ix_event_revisions_ingestion_run_id", earthquake_event_revisions.c.ingestion_run_id)
+Index("ix_event_revisions_event_time", earthquake_event_revisions.c.event_time)
 
 model_releases = Table(
     "model_releases",
