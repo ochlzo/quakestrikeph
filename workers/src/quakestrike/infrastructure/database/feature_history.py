@@ -61,7 +61,7 @@ class SqlAlchemyFeatureHistoryQuery:
             .where(
                 revisions.c.event_id != anchor.event_id,
                 revisions.c.event_time >= lower_bound,
-                revisions.c.event_time <= anchor.event_time,
+                revisions.c.event_time < anchor.event_time,
             )
             .order_by(revisions.c.event_time.asc(), revisions.c.event_revision_id.asc())
         ).mappings()

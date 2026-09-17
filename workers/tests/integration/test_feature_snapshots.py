@@ -12,6 +12,7 @@ from quakestrike.application.persistence import (
     EventRevisionRequest,
     EventTransactionRequest,
     FeatureEventTransactionRequest,
+    PredictionWorkRequest,
 )
 from quakestrike.application.prediction_dispatch import (
     DurablePredictionDispatcher,
@@ -23,6 +24,10 @@ from quakestrike.domain.features import (
     feature_snapshot_hash,
 )
 from quakestrike.infrastructure.database.engine import create_session_factory
+from quakestrike.infrastructure.database.feature_history import (
+    SqlAlchemyFeatureHistoryQuery,
+    observation_from_revision_request,
+)
 from quakestrike.infrastructure.database.prediction_dispatch import (
     SqlAlchemyPredictionDispatchStore,
 )
@@ -51,7 +56,7 @@ class VerifiedReleaseGate:
 def _transactions(engine, release_id=None) -> SqlAlchemyIngestionTransactions:
     return SqlAlchemyIngestionTransactions(
         create_session_factory(engine),
-        model_release_verifier=VerifiedReleaseGate(release_id) if release_id is not None else None,
+        model_release_verifier=VerifiedReleaseGate(release_id),
     )
 
 
@@ -265,6 +270,98 @@ def test_unconfigured_schema_compatible_release_cannot_create_prediction_work(
     assert result.prediction_created is False
     assert result.prediction_skip_reason == "model_release_unavailable"
     assert _counts(migrated_engine) == {"events": 2, "revisions": 2, "jobs": 0, "dispatches": 0}
+
+
+def test_generic_prediction_work_for_an_unverified_release_retains_the_revision(
+    migrated_engine,
+) -> None:
+    run_id, release_id = _seed_run_and_release(migrated_engine)
+
+    class RejectedReleaseGate:
+        def is_verified(self, release_id) -> bool:
+            return False
+
+    revision = _revision(
+        run_id,
+        event_time=NOW,
+        bulletin_id="2026_0916_1200_B1",
+    )
+    snapshot = {
+        "anchor_magnitude": 4.2,
+        "anchor_depth_km": 10,
+        "anchor_latitude": 14,
+        "anchor_longitude": 121,
+        "anchor_time_is_minute_precision": 0,
+        "catalog_m1_plus_count_past_1h": 0,
+        "catalog_m1_plus_count_past_24h": 0,
+        "catalog_m1_plus_count_past_7d": 0,
+        "local_m1_plus_count_past_24h_within_50km": 0,
+        "local_m1_plus_count_past_24h_within_100km": 0,
+    }
+    request = EventTransactionRequest(
+        event_id=uuid4(),
+        ingestion_run_id=run_id,
+        revision=revision,
+        prediction=PredictionWorkRequest(
+            job_id=uuid4(),
+            dispatch_id=uuid4(),
+            model_release_id=release_id,
+            input_snapshot_hash=feature_snapshot_hash(snapshot),
+            input_snapshot_json=snapshot,
+            idempotency_key=str(uuid4()),
+            correlation_id=uuid4(),
+        ),
+    )
+
+    result = SqlAlchemyIngestionTransactions(
+        create_session_factory(migrated_engine),
+        model_release_verifier=RejectedReleaseGate(),
+    ).process_event(request)
+
+    assert result.prediction_created is False
+    assert result.prediction_skip_reason == "model_release_unavailable"
+    assert _counts(migrated_engine) == {"events": 1, "revisions": 1, "jobs": 0, "dispatches": 0}
+
+
+def test_prior_history_query_excludes_observations_at_the_anchor_timestamp(
+    migrated_engine,
+) -> None:
+    run_id, _ = _seed_run_and_release(migrated_engine)
+    earlier_event_id = _insert_history_event(
+        migrated_engine,
+        run_id,
+        _revision(
+            run_id,
+            event_time=NOW - timedelta(seconds=1),
+            bulletin_id="2026_0916_115959_B1",
+        ),
+    )
+    same_time_event_id = _insert_history_event(
+        migrated_engine,
+        run_id,
+        _revision(
+            run_id,
+            event_time=NOW,
+            bulletin_id="2026_0916_120000_B1",
+        ),
+    )
+    anchor = observation_from_revision_request(
+        uuid4(),
+        _revision(
+            run_id,
+            event_time=NOW,
+            bulletin_id="2026_0916_120000_B2",
+        ),
+    )
+
+    selection = SqlAlchemyFeatureHistoryQuery(
+        create_session_factory(migrated_engine)
+    ).select_prior_history(anchor)
+
+    assert {observation.event_id for observation in selection.observations} == {earlier_event_id}
+    assert same_time_event_id not in {
+        observation.event_id for observation in selection.observations
+    }
 
 
 def test_eligible_revision_stores_complete_snapshot_and_prediction_dispatch(

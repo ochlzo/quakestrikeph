@@ -85,7 +85,14 @@ def upgrade() -> None:
                         convert_to(
                             '{"features":{' || (
                                 SELECT string_agg(
-                                    to_json(key)::text || ':' || value,
+                                    to_json(key)::text || ':' || CASE
+                                        WHEN jsonb_typeof($1 -> key) = 'number' THEN CASE
+                                            WHEN value::numeric = trunc(value::numeric)
+                                                THEN trunc(value::numeric)::text
+                                            ELSE value::double precision::text
+                                        END
+                                        ELSE value
+                                    END,
                                     ',' ORDER BY key COLLATE "C"
                                 )
                                 FROM jsonb_each_text($1) AS feature(key, value)

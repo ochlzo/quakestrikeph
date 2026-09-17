@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import delete, insert, inspect, select, update
+from sqlalchemy import delete, insert, inspect, select, text, update
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
+from quakestrike.domain.features import feature_snapshot_hash
 from quakestrike.infrastructure.database.tables import (
     earthquake_event_revisions,
     earthquake_events,
@@ -299,6 +301,41 @@ def test_prediction_job_accepts_a_valid_snapshot_through_direct_sql(
 
     assert stored.input_snapshot_json == VALID_SNAPSHOT
     assert stored.input_snapshot_hash == VALID_SNAPSHOT_HASH
+
+
+def test_prediction_job_hash_normalizes_valid_numeric_lexemes(
+    migrated_engine,
+    parents,
+) -> None:
+    snapshot = {
+        **VALID_SNAPSHOT,
+        "anchor_latitude": 90.0,
+        "anchor_longitude": 0.000001,
+    }
+    raw_snapshot = json.dumps(snapshot, separators=(",", ":")).replace(
+        '"anchor_longitude":1e-06',
+        '"anchor_longitude":0.000001',
+    )
+    values = _job_values(
+        parents,
+        input_snapshot_hash=feature_snapshot_hash(snapshot),
+    )
+
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO prediction_jobs (
+                    job_id, event_revision_id, model_release_id, input_snapshot_hash,
+                    input_snapshot_json, idempotency_key, correlation_id
+                ) VALUES (
+                    :job_id, :event_revision_id, :model_release_id, :input_snapshot_hash,
+                    CAST(:input_snapshot_json AS jsonb), :idempotency_key, :correlation_id
+                )
+                """
+            ),
+            {**values, "input_snapshot_json": raw_snapshot},
+        )
 
 
 def test_prediction_job_snapshot_and_hash_cannot_be_updated(

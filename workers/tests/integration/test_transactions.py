@@ -32,8 +32,16 @@ pytestmark = pytest.mark.integration
 NOW = datetime(2026, 9, 16, tzinfo=UTC)
 
 
+class VerifiedReleaseGate:
+    def is_verified(self, release_id) -> bool:
+        return True
+
+
 def _transactions(engine) -> SqlAlchemyIngestionTransactions:
-    return SqlAlchemyIngestionTransactions(create_session_factory(engine))
+    return SqlAlchemyIngestionTransactions(
+        create_session_factory(engine),
+        model_release_verifier=VerifiedReleaseGate(),
+    )
 
 
 def test_overlapping_active_run_requests_return_one_run_and_dispatch(migrated_engine) -> None:
