@@ -4,6 +4,7 @@ import logging
 from uuid import UUID
 
 import pytest
+from celery.exceptions import Reject
 
 from quakestrike.application.reconciliation import ReconciliationRunResult
 from quakestrike.data_ingestor.worker import (
@@ -114,17 +115,29 @@ def test_ingestor_app_registers_the_routed_task_with_the_identifier_only_payload
     app.tasks[INGESTION_TASK_NAME].run(_payload())
 
     assert received == [_payload()]
+    assert app.tasks[INGESTION_TASK_NAME].acks_late is True
+    assert app.tasks[INGESTION_TASK_NAME].reject_on_worker_lost is True
+    assert app.tasks[INGESTION_TASK_NAME].acks_on_failure_or_timeout is False
 
 
 def test_ingestor_task_replaces_unexpected_error_details_with_a_safe_failure(caplog) -> None:
     def fail(_payload: object) -> None:
         raise RuntimeError("database password must-not-leak")
 
-    with pytest.raises(RuntimeError, match="Ingestion command processing failed"):
+    with pytest.raises(Reject) as rejected:
         execute_ingestion_task(
             _payload(),
             command_handler=fail,
             logger=logging.getLogger("data-ingestor"),
         )
 
+    assert rejected.value.requeue is True
+    assert rejected.value.reason == "Ingestion command processing failed."
     assert "must-not-leak" not in caplog.text
+    assert caplog.records[-1].context == {
+        "message_version": 1,
+        "dispatch_id": str(DISPATCH_ID),
+        "run_id": str(RUN_ID),
+        "correlation_id": str(CORRELATION_ID),
+        "exception_type": "RuntimeError",
+    }

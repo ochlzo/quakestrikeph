@@ -8,6 +8,7 @@ from typing import Protocol
 from uuid import UUID
 
 from celery import Celery
+from celery.exceptions import Reject
 from pydantic import ValidationError
 
 from quakestrike.application.reconciliation import (
@@ -153,7 +154,12 @@ def create_ingestor_app(
     app = create_celery_app(settings)
     handler = command_handler or (lambda payload: process_ingestion_delivery(settings, payload))
 
-    @app.task(name=INGESTION_TASK_NAME)
+    @app.task(
+        name=INGESTION_TASK_NAME,
+        acks_late=True,
+        reject_on_worker_lost=True,
+        acks_on_failure_or_timeout=False,
+    )
     def process_ingestion(payload: object) -> object:
         return execute_ingestion_task(
             payload,
@@ -181,8 +187,18 @@ def execute_ingestion_task(
             "Ingestion command processing failed.",
             event_code="ingestion_command_processing_failed",
             error=error,
+            context=_validated_command_context(payload),
         )
-        raise RuntimeError("Ingestion command processing failed.") from None
+        raise Reject("Ingestion command processing failed.", requeue=True) from None
+
+
+def _validated_command_context(payload: object) -> dict[str, object]:
+    if not isinstance(payload, Mapping):
+        return {}
+    try:
+        return parse_ingestion_command(payload).to_message()
+    except ValidationError:
+        return {}
 
 
 def run_ingestor(settings: Settings) -> int:

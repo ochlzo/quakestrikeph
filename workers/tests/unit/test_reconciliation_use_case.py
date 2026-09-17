@@ -17,6 +17,7 @@ from quakestrike.application.reconciliation import (
     ReconcileCurrentCatalog,
     ReconciliationDiagnostic,
 )
+from quakestrike.domain.features import HistoryCoverage
 from quakestrike.domain.source_rows import (
     CatalogParseResult,
     DiagnosticCode,
@@ -28,6 +29,7 @@ from quakestrike.domain.source_rows import (
 NOW = datetime(2026, 9, 17, tzinfo=UTC)
 CORRELATION_ID = UUID("00000000-0000-0000-0000-000000000002")
 MODEL_RELEASE_ID = UUID("00000000-0000-0000-0000-000000000003")
+HISTORY_COVERAGE = HistoryCoverage(NOW - timedelta(days=8), NOW, True)
 
 
 class _Retriever:
@@ -135,6 +137,7 @@ def _execute(store: _Store, row: NormalizedSourceRow, reporter: _Reporter | None
         retriever=_Retriever(CatalogParseResult((row,), ())),
         diagnostic_reporter=reporter or _Reporter(),
         model_release_id=MODEL_RELEASE_ID,
+        history_coverage=HISTORY_COVERAGE,
         now=lambda: NOW,
         new_uuid=lambda: next(values),
     ).execute(uuid4())
@@ -151,6 +154,7 @@ def test_exact_bulletin_match_uses_existing_event_without_group_fallback() -> No
     assert store.requests[0].correlation_id == CORRELATION_ID
     assert store.requests[0].worker_execution_id is not None
     assert store.requests[0].input_key.startswith("row:")
+    assert store.requests[0].history_coverage == HISTORY_COVERAGE
     assert store.checkpoints[0][1] == "revised"
 
 

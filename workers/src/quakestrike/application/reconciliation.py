@@ -21,6 +21,7 @@ from quakestrike.application.phivolcs import (
     CatalogRetrievalLeaseLost,
     CurrentCatalogRetriever,
 )
+from quakestrike.domain.features import HistoryCoverage
 from quakestrike.domain.reconciliation import (
     EventCandidate,
     ReconciliationAction,
@@ -114,6 +115,7 @@ class ReconcileCurrentCatalog:
         retriever: CurrentCatalogRetriever,
         diagnostic_reporter: ReconciliationDiagnosticReporter,
         model_release_id: UUID,
+        history_coverage: HistoryCoverage | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         new_uuid: Callable[[], UUID] = uuid4,
     ) -> None:
@@ -121,6 +123,7 @@ class ReconcileCurrentCatalog:
         self._retriever = retriever
         self._diagnostic_reporter = diagnostic_reporter
         self._model_release_id = model_release_id
+        self._history_coverage = history_coverage
         self._now = now
         self._new_uuid = new_uuid
 
@@ -267,6 +270,7 @@ class ReconcileCurrentCatalog:
                 input_key=input_key,
                 model_release_id=self._model_release_id,
                 correlation_id=claim.correlation_id,
+                history_coverage=self._history_coverage,
                 revision=EventRevisionRequest(
                     event_revision_id=self._new_uuid(),
                     ingestion_run_id=claim.run_id,
