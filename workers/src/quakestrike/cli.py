@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import sys
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -15,12 +18,21 @@ from quakestrike.application.bootstrap import (
     BootstrapEvidenceConflict,
 )
 from quakestrike.application.persistence import ActiveIngestionRun, RunIdentityConflict
-from quakestrike.infrastructure.bootstrap import BootstrapSnapshotError
+from quakestrike.application.startup import evaluate_startup_gates
+from quakestrike.infrastructure.bootstrap import (
+    BootstrapSnapshotError,
+    write_startup_readiness_manifest,
+)
 from quakestrike.infrastructure.database.engine import (
     create_database_engine,
     create_session_factory,
 )
 from quakestrike.infrastructure.database.model_releases import SqlAlchemyModelReleaseRegistry
+from quakestrike.infrastructure.logging.json_logging import (
+    configure_logging,
+    log_event,
+    log_exception_event,
+)
 from quakestrike.infrastructure.models.packaging import package_selected_release
 from quakestrike.infrastructure.models.release_manifest import (
     SELECTED_RELEASE_MANIFEST_URI,
@@ -28,7 +40,10 @@ from quakestrike.infrastructure.models.release_manifest import (
     model_release_record,
 )
 from quakestrike.infrastructure.settings import Settings
-from quakestrike.infrastructure.startup import bootstrap_operation
+from quakestrike.infrastructure.startup import (
+    bootstrap_operation,
+    phase_one_startup_gates,
+)
 from quakestrike.runtime import run_service
 
 
@@ -56,6 +71,8 @@ def main() -> int:
         return _run_bootstrap(args.snapshot, args.run_manifest)
     if args.command == "bootstrap-recover":
         return _run_bootstrap_recover(args.run_manifest)
+    if args.command == "startup-check":
+        return _run_startup_check(args.run_manifest)
     if args.command == "bootstrap-readiness":
         return _run_bootstrap_readiness(args.run_manifest)
     if args.command == "package-model-release":
@@ -88,6 +105,75 @@ def main() -> int:
             parser.error("model-release registration failed")
         return 0
     return run_service("cli", command=args.command)
+
+
+def _run_startup_check(requested_manifest_path: Path | None) -> int:
+    """Evaluate all read-only gates and persist the operator proof."""
+
+    try:
+        settings = Settings()
+        manifest_path = (requested_manifest_path or settings.bootstrap_run_manifest).resolve()
+        if requested_manifest_path is not None:
+            settings = settings.model_copy(update={"bootstrap_run_manifest": manifest_path})
+        logger = configure_logging("startup-check", level=settings.log_level, stream=sys.stderr)
+        report = evaluate_startup_gates(phase_one_startup_gates(settings))
+        for result in report.results:
+            log_event(
+                logger,
+                logging.INFO if result.ready else logging.WARNING,
+                "startup gate evaluated",
+                event_code="startup_gate_result",
+                context={
+                    "gate": result.name,
+                    "reason": result.reason,
+                    "status": "ready" if result.ready else "not_ready",
+                },
+            )
+        if not report.ready:
+            log_event(
+                logger,
+                logging.ERROR,
+                "startup readiness failed",
+                event_code="startup_not_ready",
+                context={"reason": ", ".join(report.failed_gate_names)},
+            )
+        write_startup_readiness_manifest(
+            manifest_path,
+            report,
+            checked_at=datetime.now(UTC),
+        )
+        output = report.as_dict()
+        output["manifest_path"] = str(manifest_path)
+        _print_json(output)
+        return 0 if report.ready else 2
+    except ValidationError as error:
+        logger = configure_logging("startup-check", stream=sys.stderr)
+        log_exception_event(
+            logger,
+            logging.ERROR,
+            "startup check configuration is invalid",
+            event_code="configuration_invalid",
+            error=error,
+        )
+        _print_json(
+            {
+                "ready": False,
+                "failed_gate_names": ["configuration"],
+                "results": [],
+            }
+        )
+        return 2
+    except Exception as error:
+        logger = configure_logging("startup-check", stream=sys.stderr)
+        log_exception_event(
+            logger,
+            logging.ERROR,
+            "startup check failed",
+            event_code="startup_check_failed",
+            error=error,
+        )
+        _print_json({"status": "failed", "reason": "startup check failed"})
+        return 1
 
 
 def _run_bootstrap(snapshot_path: Path, requested_manifest_path: Path | None) -> int:

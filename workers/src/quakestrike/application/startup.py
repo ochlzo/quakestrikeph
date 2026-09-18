@@ -79,9 +79,21 @@ class StartupReport:
 def evaluate_startup_gates(gates: Iterable[StartupGate]) -> StartupReport:
     """Evaluate all gates and fail closed when none are configured."""
 
-    results = tuple(gate.check() for gate in gates)
+    results: list[GateResult] = []
+    for gate in gates:
+        try:
+            results.append(gate.check())
+        except Exception as error:
+            results.append(
+                GateResult(
+                    name=getattr(gate, "name", "startup-gate"),
+                    ready=False,
+                    reason="Startup gate failed safely.",
+                    details={"error_type": _safe_error_type(error)},
+                )
+            )
     if results:
-        return StartupReport(results)
+        return StartupReport(tuple(results))
 
     return StartupReport(
         (
@@ -92,3 +104,8 @@ def evaluate_startup_gates(gates: Iterable[StartupGate]) -> StartupReport:
             ),
         )
     )
+
+
+def _safe_error_type(error: BaseException) -> str:
+    name = type(error).__name__
+    return name if name and len(name) <= 100 and name.isidentifier() else "UnknownError"

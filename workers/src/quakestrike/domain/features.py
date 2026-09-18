@@ -258,10 +258,45 @@ def strictly_before(observation: FeatureObservation, anchor: FeatureObservation)
     precision observations in that minute can be ordered normally.
     """
 
-    if observation.event_time >= anchor.event_time:
-        return False
-    same_minute = _utc_minute(observation.event_time) == _utc_minute(anchor.event_time)
-    return not (same_minute and "minute" in (observation.time_precision, anchor.time_precision))
+    return _strictly_before_time(
+        observation,
+        anchor.event_time,
+        anchor_time_precision=anchor.time_precision,
+    )
+
+
+def select_usable_history(
+    anchor_time: datetime,
+    history: Sequence[FeatureObservation],
+    *,
+    anchor_time_precision: str = "minute",
+    excluded_event_id: object | None = None,
+) -> tuple[FeatureObservation, ...]:
+    """Apply the shared history rules without constructing anchor features.
+
+    This is the readiness seam for a declared prediction boundary.  The
+    boundary has no event identity, so callers may omit ``excluded_event_id``.
+    """
+
+    _require_aware_datetime(anchor_time, "anchor_time")
+    if anchor_time_precision not in {"minute", "second"}:
+        raise ValueError("anchor_time_precision must be 'minute' or 'second'")
+    if len({row.event_id for row in history}) != len(history):
+        raise ValueError("history must contain at most one observation per event")
+
+    lower_bound = anchor_time - HISTORY_WINDOW
+    return tuple(
+        row
+        for row in history
+        if row.event_id != excluded_event_id
+        and _as_decimal(row.magnitude, "magnitude") >= MINIMUM_PREDICTION_MAGNITUDE
+        and lower_bound <= row.event_time
+        and _strictly_before_time(
+            row,
+            anchor_time,
+            anchor_time_precision=anchor_time_precision,
+        )
+    )
 
 
 def haversine_distance_km(first: FeatureObservation, second: FeatureObservation) -> float:
@@ -285,16 +320,12 @@ def build_features(
 ) -> dict[str, object]:
     """Build the ten observation-only features for one anchor."""
 
-    if len({row.event_id for row in history}) != len(history):
-        raise ValueError("history must contain at most one observation per event")
-
-    eligible_history = [
-        row
-        for row in history
-        if row.event_id != anchor.event_id
-        and _as_decimal(row.magnitude, "magnitude") >= MINIMUM_PREDICTION_MAGNITUDE
-        and strictly_before(row, anchor)
-    ]
+    eligible_history = select_usable_history(
+        anchor.event_time,
+        history,
+        anchor_time_precision=anchor.time_precision,
+        excluded_event_id=anchor.event_id,
+    )
     values: dict[str, object] = {
         "anchor_magnitude": _json_number(anchor.magnitude, "anchor_magnitude"),
         "anchor_depth_km": _json_number(anchor.depth_km, "anchor_depth_km"),
@@ -477,6 +508,18 @@ def _as_decimal(value: object, name: str) -> Decimal:
 def _require_aware_datetime(value: datetime, name: str) -> None:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"{name} must include a timezone offset")
+
+
+def _strictly_before_time(
+    observation: FeatureObservation,
+    anchor_time: datetime,
+    *,
+    anchor_time_precision: str,
+) -> bool:
+    if observation.event_time >= anchor_time:
+        return False
+    same_minute = _utc_minute(observation.event_time) == _utc_minute(anchor_time)
+    return not (same_minute and "minute" in (observation.time_precision, anchor_time_precision))
 
 
 def _utc_minute(value: datetime) -> datetime:

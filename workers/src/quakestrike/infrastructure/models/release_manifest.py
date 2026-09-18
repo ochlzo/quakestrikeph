@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from pathlib import Path
 from uuid import UUID
 
@@ -35,6 +36,7 @@ class VerifiedReleaseManifest:
     manifest_uri: str
     manifest_hash: str
     artifact_paths: tuple[str, ...]
+    artifact_hashes: dict[str, str] = dataclass_field(default_factory=dict)
 
 
 def model_release_record(manifest: VerifiedReleaseManifest) -> ModelReleaseRecord:
@@ -97,7 +99,7 @@ def load_verified_release_manifest(
     _validate_provenance(document["provenance"])
     if not isinstance(document["postprocessing"], dict):
         raise ManifestValidationError("The postprocessing metadata must be an object.")
-    artifact_paths = _validate_routes_and_artifacts(
+    artifact_paths, artifact_hashes = _validate_routes_and_artifacts(
         manifest_path.parent, document["routes"], document["artifacts"]
     )
     return VerifiedReleaseManifest(
@@ -108,6 +110,7 @@ def load_verified_release_manifest(
         manifest_uri=manifest_uri,
         manifest_hash=hashlib.sha256(raw_bytes).hexdigest(),
         artifact_paths=artifact_paths,
+        artifact_hashes=artifact_hashes,
     )
 
 
@@ -213,7 +216,7 @@ def _validate_provenance(value: object) -> None:
 
 def _validate_routes_and_artifacts(
     root: Path, routes: object, artifacts: object
-) -> tuple[str, ...]:
+) -> tuple[tuple[str, ...], dict[str, str]]:
     if not isinstance(routes, dict) or not routes:
         raise ManifestValidationError("The routes must be a nonempty object.")
     if not isinstance(artifacts, list) or not artifacts:
@@ -343,4 +346,4 @@ def _validate_routes_and_artifacts(
             declared_by_route.add(artifact_path)
     if declared_by_route != set(artifact_hashes):
         raise ManifestValidationError("Every declared artifact must be used by one route target.")
-    return tuple(artifact_hashes)
+    return tuple(artifact_hashes), artifact_hashes

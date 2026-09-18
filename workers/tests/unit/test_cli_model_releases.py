@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from uuid import UUID
@@ -8,6 +9,7 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from quakestrike import cli
+from quakestrike.application.startup import GateResult
 from quakestrike.infrastructure.models.release_manifest import (
     ManifestValidationError,
     VerifiedReleaseManifest,
@@ -234,7 +236,7 @@ def test_register_cli_disposes_engine_on_database_failure(monkeypatch, capsys) -
     assert "private database" not in output
 
 
-@pytest.mark.parametrize("command", ["config-check", "startup-check"])
+@pytest.mark.parametrize("command", ["config-check"])
 def test_existing_read_only_commands_still_delegate_to_service_runtime(
     monkeypatch, command: str
 ) -> None:
@@ -248,3 +250,131 @@ def test_existing_read_only_commands_still_delegate_to_service_runtime(
 
     assert cli.main() == 7
     assert captured == {"service": "cli", "command": command}
+
+
+def test_startup_check_writes_json_readiness_to_manifest_and_stdout(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    manifest_path = tmp_path / "bootstrap-readiness.json"
+    settings = type(
+        "StartupSettings",
+        (),
+        {"bootstrap_run_manifest": manifest_path, "log_level": "INFO"},
+    )()
+
+    class Gate:
+        def __init__(self, name: str, ready: bool = True) -> None:
+            self.name = name
+            self.ready = ready
+
+        def check(self):  # type: ignore[no-untyped-def]
+            details = {}
+            if self.name == "model-release" and self.ready:
+                details = {
+                    "release_id": str(UUID(int=1)),
+                    "version_label": "SEIS 1.0",
+                    "manifest_uri": "seis-1.0/manifest.json",
+                    "manifest_hash": "a" * 64,
+                    "input_schema_version": "input.v1",
+                    "output_schema_version": "output.v1",
+                    "artifact_hashes": '{"model.bin": "bbbb"}',
+                }
+            return GateResult(
+                name=self.name,
+                ready=self.ready,
+                reason="ready" if self.ready else "not ready",
+                details=details,
+            )
+
+    monkeypatch.setattr(cli, "Settings", lambda: settings)
+    monkeypatch.setattr(
+        cli,
+        "phase_one_startup_gates",
+        lambda _settings: tuple(
+            Gate(name)
+            for name in (
+                "migration-state",
+                "model-release",
+                "bootstrap-readiness",
+                "postgres-connectivity",
+                "redis-connectivity",
+            )
+        ),
+    )
+    monkeypatch.setattr(sys, "argv", ["quakestrike", "startup-check"])
+
+    assert cli.main() == 0
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert output["ready"] is True
+    assert output["failed_gate_names"] == []
+    assert manifest["readiness"]["ready"] is True
+    assert manifest["readiness"]["model_release"]["version_label"] == "SEIS 1.0"
+    assert captured.err != ""
+
+
+def test_startup_check_returns_two_and_records_failed_gate(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    settings = type(
+        "StartupSettings",
+        (),
+        {"bootstrap_run_manifest": tmp_path / "bootstrap-readiness.json", "log_level": "INFO"},
+    )()
+
+    class FailedGate:
+        name = "redis-connectivity"
+
+        def check(self):  # type: ignore[no-untyped-def]
+            return GateResult(
+                name=self.name,
+                ready=False,
+                reason="Redis connectivity is unavailable.",
+            )
+
+    monkeypatch.setattr(cli, "Settings", lambda: settings)
+    monkeypatch.setattr(cli, "phase_one_startup_gates", lambda _settings: (FailedGate(),))
+    monkeypatch.setattr(sys, "argv", ["quakestrike", "startup-check"])
+
+    assert cli.main() == 2
+    capsys.readouterr()
+    manifest = json.loads(settings.bootstrap_run_manifest.read_text(encoding="utf-8"))
+    assert manifest["readiness"]["ready"] is False
+    assert manifest["readiness"]["failed_gate_names"] == ["redis-connectivity"]
+
+
+def test_startup_check_returns_one_when_readiness_manifest_cannot_be_written(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    settings = type(
+        "StartupSettings",
+        (),
+        {"bootstrap_run_manifest": tmp_path / "bootstrap-readiness.json", "log_level": "INFO"},
+    )()
+
+    class ReadyGate:
+        name = "migration-state"
+
+        def check(self):  # type: ignore[no-untyped-def]
+            return GateResult(name=self.name, ready=True, reason="ready")
+
+    monkeypatch.setattr(cli, "Settings", lambda: settings)
+    monkeypatch.setattr(cli, "phase_one_startup_gates", lambda _settings: (ReadyGate(),))
+    monkeypatch.setattr(
+        cli,
+        "write_startup_readiness_manifest",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("private path")),
+    )
+    monkeypatch.setattr(sys, "argv", ["quakestrike", "startup-check"])
+
+    assert cli.main() == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output == {"reason": "startup check failed", "status": "failed"}

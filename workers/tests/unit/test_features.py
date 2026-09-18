@@ -20,6 +20,7 @@ from quakestrike.domain.features import (
     evaluate_history_readiness,
     feature_snapshot_hash,
     haversine_distance_km,
+    select_usable_history,
 )
 
 NOW = datetime(2026, 9, 16, 12, 0, tzinfo=UTC)
@@ -88,6 +89,21 @@ def test_second_precision_events_in_the_same_minute_are_ordered_but_minute_preci
     values = build_features(anchor, [second_before, minute_before])
 
     assert values["catalog_m1_plus_count_past_1h"] == 1
+
+
+def test_readiness_history_uses_feature_rules_without_building_anchor_features() -> None:
+    anchor_time = NOW
+    history = [
+        _observation("lower-bound", anchor_time - timedelta(days=7)),
+        _observation("same-minute", anchor_time.replace(second=0), precision="minute"),
+        _observation("usable", anchor_time - timedelta(minutes=2)),
+        _observation("below-m1", anchor_time - timedelta(minutes=3), magnitude="0.99"),
+        _observation("future", anchor_time + timedelta(seconds=1)),
+    ]
+
+    usable = select_usable_history(anchor_time, history, anchor_time_precision="minute")
+
+    assert [row.event_id for row in usable] == ["lower-bound", "usable"]
 
 
 def test_local_distance_uses_project_radius_and_inclusive_boundary() -> None:
