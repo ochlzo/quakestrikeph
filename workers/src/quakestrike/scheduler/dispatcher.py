@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import logging
+import os
 import signal
+import tempfile
+from pathlib import Path
 from threading import Event
 
 from quakestrike.application.dispatch import DispatchBatchResult, DurableDispatcher
@@ -18,6 +21,8 @@ from quakestrike.infrastructure.queues.ingestion_publisher import CeleryIngestio
 from quakestrike.infrastructure.queues.prediction_publisher import CeleryPredictionPublisher
 from quakestrike.infrastructure.settings import Settings
 from quakestrike.runtime import run_service
+
+SCAN_HEALTH_MARKER = Path(tempfile.gettempdir()) / "quakestrike-dispatcher-scan"
 
 
 def run_dispatch_loop(
@@ -44,6 +49,7 @@ def run_dispatch_loop(
                 error=error,
             )
         else:
+            SCAN_HEALTH_MARKER.write_text(str(os.getpid()), encoding="ascii")
             _log_scan_result(logger, result)
 
         if stop_event.wait(poll_interval_seconds):
@@ -55,6 +61,7 @@ def run_dispatcher(settings: Settings, *, stop_event: Event | None = None) -> in
 
     shutdown = stop_event if stop_event is not None else Event()
     logger = logging.getLogger("scheduler-dispatcher")
+    SCAN_HEALTH_MARKER.unlink(missing_ok=True)
     engine = create_database_engine(settings.database_url)
     previous_handlers = _install_shutdown_handlers(shutdown)
     try:
@@ -79,6 +86,7 @@ def run_dispatcher(settings: Settings, *, stop_event: Event | None = None) -> in
             logger=logger,
         )
     finally:
+        SCAN_HEALTH_MARKER.unlink(missing_ok=True)
         _restore_shutdown_handlers(previous_handlers)
         engine.dispose()
     return 0

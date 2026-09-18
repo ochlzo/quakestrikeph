@@ -53,7 +53,7 @@ running the same tests on the host without those variables skips them.
 
 ```powershell
 docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test redis-test
-docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --build --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration
 docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v
 ```
 

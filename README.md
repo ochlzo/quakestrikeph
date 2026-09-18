@@ -83,7 +83,11 @@ uv sync --project workers --frozen
 
 Edit `.env` before continuing:
 
-- Set `POSTGRES_PASSWORD` and use the same password in `DATABASE_URL`.
+- Set distinct `POSTGRES_PASSWORD`, `MIGRATION_DB_PASSWORD`, and
+  `WORKER_DB_PASSWORD`. Match the last two in `MIGRATION_DATABASE_URL` and
+  `DATABASE_URL`, respectively.
+- Set `WORKER_IMAGE_TAG` to the tested Git commit SHA. Keep the previous tested
+  image tag available for rollback; do not prune it during enablement.
 - Keep `DATABASE_URL` pointed at `postgres:5432` and `REDIS_URL` at
   `redis:6379`; these are private Compose service names.
 - Set `PHIVOLCS_CATALOG_URL` to the official HTTPS catalog URL.
@@ -115,30 +119,39 @@ edit the collected snapshot.
 
 ```powershell
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml up -d --wait postgres redis
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml build release-init
+& infrastructure/scripts/build-worker-image.ps1
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml exec -T postgres sh /opt/quakestrike/provision-roles.sh create
 ```
 
 The services stay on a private Docker network. PostgreSQL uses a persistent
-Docker volume. The containers do not run migrations or import history for you.
+Docker volume. The image command requires a clean checkout at the full SHA
+configured in `.env` and refuses to replace an existing image tag. Keep the
+previous tested image tag for rollback. The containers do not run migrations
+or import history for you.
 
 ### 5. Initialize the database and model release
 
 ```powershell
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init alembic -c alembic.ini upgrade head
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike migrate
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml exec -T postgres sh /opt/quakestrike/provision-roles.sh grant-worker
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike register-model-release
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike verify-model-release
 ```
 
 Registration verifies the packaged model before storing its immutable release
-reference. An exact repeat is safe.
+reference. Role provisioning and grants are explicit, repeatable actions. The
+init container uses the migration role; long-running workers use the worker
+role, which can read model releases but cannot change the registry or schema.
+An exact registration repeat is safe.
 
 ### 6. Import history and check readiness
 
-Mount the ignored snapshot directory into the one-off initialization container:
+The ignored snapshot directory is mounted into the one-off initialization
+container and read-only into the runtime services:
 
 ```powershell
-$evidencePath = (Resolve-Path bootstrap-snapshots).Path
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm --volume "${evidencePath}:/app/bootstrap-snapshots" release-init quakestrike bootstrap --snapshot /app/bootstrap-snapshots/input.json --run-manifest /app/bootstrap-snapshots/bootstrap-readiness.json
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm --volume "${evidencePath}:/app/bootstrap-snapshots" release-init quakestrike startup-check --run-manifest /app/bootstrap-snapshots/bootstrap-readiness.json
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike bootstrap --snapshot /app/bootstrap-snapshots/input.json --run-manifest /app/bootstrap-snapshots/bootstrap-readiness.json
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike startup-check --run-manifest /app/bootstrap-snapshots/bootstrap-readiness.json
 ```
 
 The last command exits with `0` and prints `"ready": true` when all gates
@@ -156,7 +169,45 @@ against the fresh database: it names a run from the old database. A fresh
 manifest gets a new run identity. You do not need to scrape again while the
 snapshot remains valid and available.
 
-### 7. Stop local services
+### 7. Start consumers, then enable Beat
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml up -d --wait dispatcher
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml up -d --wait data-ingestor
+& infrastructure/scripts/enable-beat.ps1
+```
+
+The Beat enable command checks both consumer health states before starting it.
+Compose also enforces both as healthy dependencies and the command checks again
+after Beat becomes healthy, stopping it if a consumer failed during startup. Each process
+also evaluates its read-only startup gates. Beat waits for the strictly next
+UTC wall-clock boundary of `POLL_INTERVAL_SECONDS` (five minutes by default).
+It does not poll on startup or replay missed boundaries. Beat has no automatic
+restart policy; enable it explicitly again after a stack restart.
+
+For one early poll, use the separate operator command. It first checks both
+consumer health states and then checks readiness before creating or reusing a
+durable run and dispatch. A reused run may have been created by Beat.
+The command runs inside the Dispatcher container so it can verify that the
+Dispatcher process is still alive; calling it in the init container fails closed.
+
+```powershell
+& infrastructure/scripts/poll-now.ps1
+```
+
+Each action prints a bounded result. Inspect recent durable work with:
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml exec postgres psql -U quakestrike -d quakestrike -c "SELECT run_id, trigger_type, status, requested_at, events_found, events_rejected FROM ingestion_runs ORDER BY requested_at DESC LIMIT 5;"
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml exec postgres psql -U quakestrike -d quakestrike -c "SELECT dispatch_id, ingestion_run_id, prediction_job_id, status, attempt_count FROM job_dispatches ORDER BY created_at DESC LIMIT 10;"
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml logs --tail 100 dispatcher data-ingestor beat
+```
+
+Use your configured `POSTGRES_USER` and `POSTGRES_DB` if they differ from the
+example. The ignored bootstrap readiness manifest retains the source and
+release proof.
+
+### 8. Stop local services
 
 ```powershell
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml down

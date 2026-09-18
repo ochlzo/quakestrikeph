@@ -5,8 +5,11 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-quakestrike}
       POSTGRES_USER: ${POSTGRES_USER:-quakestrike}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-development-only}
+      MIGRATION_DB_PASSWORD: ${MIGRATION_DB_PASSWORD:?Set MIGRATION_DB_PASSWORD in .env}
+      WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD:?Set WORKER_DB_PASSWORD in .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./postgres/provision-roles.sh:/opt/quakestrike/provision-roles.sh:ro
     networks:
       - private-data
     restart: unless-stopped

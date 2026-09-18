@@ -10,6 +10,7 @@ from redis import Redis
 from sqlalchemy import select, update
 
 from quakestrike.application.ingestion_dispatch import DurableIngestionDispatcher
+from quakestrike.application.scheduling import ScheduleIngestionPoll
 from quakestrike.infrastructure.database.engine import create_session_factory
 from quakestrike.infrastructure.database.ingestion_dispatch import (
     SqlAlchemyIngestionDispatchStore,
@@ -33,6 +34,24 @@ NOW = datetime(2026, 9, 17, 8, 0, tzinfo=UTC)
 class AllowAllReleaseVerifier:
     def is_verified(self, _release_id) -> bool:  # type: ignore[no-untyped-def]
         return True
+
+
+def test_manual_poll_reuses_the_active_scheduled_run(migrated_engine) -> None:
+    transactions = SqlAlchemyIngestionTransactions(
+        create_session_factory(migrated_engine),
+        model_release_verifier=AllowAllReleaseVerifier(),  # type: ignore[arg-type]
+    )
+    scheduled = run_scheduled_ingestion_tick(transactions, clock=lambda: NOW)
+    manual = ScheduleIngestionPoll(transactions, trigger_type="manual", clock=lambda: NOW).execute()
+
+    assert scheduled.created is True
+    assert manual.created is False
+    assert (manual.run_id, manual.dispatch_id) == (scheduled.run_id, scheduled.dispatch_id)
+    with migrated_engine.connect() as connection:
+        rows = connection.execute(select(ingestion_runs.c.trigger_type)).all()
+        dispatch_count = connection.execute(select(job_dispatches.c.dispatch_id)).all()
+    assert rows == [("scheduled",)]
+    assert len(dispatch_count) == 1
 
 
 def test_beat_to_postgres_to_real_redis_ingestion_command(migrated_engine) -> None:

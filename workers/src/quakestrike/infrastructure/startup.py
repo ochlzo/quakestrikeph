@@ -211,11 +211,12 @@ class BootstrapReadinessStartupGate:
                 reason=readiness.reason,
                 details=readiness.details,
             )
-        except (BootstrapSnapshotError, OSError, SQLAlchemyError, ValueError):
+        except (BootstrapSnapshotError, OSError, SQLAlchemyError, ValueError) as error:
             return GateResult(
                 name=self.name,
                 ready=False,
                 reason="Bootstrap readiness evidence is unavailable or invalid.",
+                details={"error_type": type(error).__name__},
             )
 
 

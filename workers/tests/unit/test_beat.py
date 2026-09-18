@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import io
 import json
+from datetime import UTC, datetime
 
 from celery import Celery
 
 from quakestrike.infrastructure.logging.json_logging import configure_logging
 from quakestrike.infrastructure.queues.celery_app import (
     DURABLE_INGESTION_TICK,
+    UtcBoundarySchedule,
     create_celery_app,
 )
 from quakestrike.infrastructure.settings import Settings
@@ -37,6 +39,24 @@ def test_due_beat_entry_runs_local_tick_without_publishing_a_task() -> None:
     scheduler.apply_entry(entry)
 
     assert ticks == ["created"]
+
+
+def test_new_beat_scheduler_waits_for_the_next_boundary_before_writing() -> None:
+    now = [datetime(2026, 9, 18, 12, 2, tzinfo=UTC)]
+    writes: list[str] = []
+    app = create_celery_app(_settings(), ingestion_tick=lambda: writes.append("run"))
+    app.now = lambda: now[0]  # type: ignore[method-assign]
+    app.conf.beat_schedule["durable-ingestion-tick"]["schedule"] = UtcBoundarySchedule(
+        300, nowfun=lambda: now[0]
+    )
+    scheduler = DurableBeatScheduler(app)
+
+    assert scheduler.tick() > 0
+    assert writes == []
+
+    now[0] = datetime(2026, 9, 18, 12, 5, tzinfo=UTC)
+    scheduler.tick()
+    assert writes == ["run"]
 
 
 def test_scheduler_can_be_constructed_by_celery_with_the_configured_class() -> None:

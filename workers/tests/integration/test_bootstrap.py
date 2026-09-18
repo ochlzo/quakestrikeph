@@ -263,7 +263,7 @@ def test_bootstrap_is_resumable_and_keeps_prediction_dispatch_in_scope(
     gate = BootstrapReadinessStartupGate(
         Settings(
             _env_file=None,
-            database_url=str(migrated_engine.url),
+            database_url=migrated_engine.url.render_as_string(hide_password=False),
             redis_url="redis://redis:6379/0",
             phivolcs_catalog_url="https://example.invalid/phivolcs/catalog",
             model_release_id=release_id,

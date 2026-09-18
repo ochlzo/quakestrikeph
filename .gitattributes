@@ -1,1 +1,2 @@
 workers/src/quakestrike/infrastructure/phivolcs/phivolcs_intermediate.pem text eol=lf
+infrastructure/postgres/*.sh text eol=lf

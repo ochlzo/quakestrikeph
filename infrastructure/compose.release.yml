@@ -1,18 +1,103 @@
+x-worker-environment: &worker-environment
+  DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+  REDIS_URL: ${REDIS_URL:?Set REDIS_URL in .env}
+  PHIVOLCS_CATALOG_URL: ${PHIVOLCS_CATALOG_URL:?Set PHIVOLCS_CATALOG_URL in .env}
+  MODEL_RELEASE_ID: ${MODEL_RELEASE_ID:?Set MODEL_RELEASE_ID in .env}
+  MODEL_ARTIFACT_DIRECTORY: /app/model-artifacts
+  BOOTSTRAP_RUN_MANIFEST: /app/bootstrap-snapshots/bootstrap-readiness.json
+  BOOTSTRAP_REQUIRED_AVAILABLE_THROUGH: ${BOOTSTRAP_REQUIRED_AVAILABLE_THROUGH:?Set BOOTSTRAP_REQUIRED_AVAILABLE_THROUGH in .env}
+  POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-300}
+  DISPATCHER_POLL_INTERVAL_SECONDS: ${DISPATCHER_POLL_INTERVAL_SECONDS:-5}
+
+x-worker-volumes: &worker-volumes
+  - ${MODEL_ARTIFACT_HOST_DIRECTORY:-../model-artifacts}:/app/model-artifacts:ro
+  - ../bootstrap-snapshots:/app/bootstrap-snapshots:ro
+
+x-worker-logging: &worker-logging
+  driver: local
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   release-init:
-    build:
-      context: ../workers
-      dockerfile: Dockerfile
+    profiles: ["init"]
+    image: quakestrike-workers:${WORKER_IMAGE_TAG:?Set WORKER_IMAGE_TAG to the tested Git commit SHA}
+    command: ["quakestrike", "config-check"]
     environment:
-      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
-      REDIS_URL: ${REDIS_URL:?Set REDIS_URL in .env}
-      PHIVOLCS_CATALOG_URL: ${PHIVOLCS_CATALOG_URL:?Set PHIVOLCS_CATALOG_URL in .env}
-      MODEL_RELEASE_ID: ${MODEL_RELEASE_ID:?Set MODEL_RELEASE_ID in .env}
-      MODEL_ARTIFACT_DIRECTORY: /app/model-artifacts
+      <<: *worker-environment
+      DATABASE_URL: ${MIGRATION_DATABASE_URL:?Set MIGRATION_DATABASE_URL in .env}
     volumes:
       - ${MODEL_ARTIFACT_HOST_DIRECTORY:-../model-artifacts}:/app/model-artifacts:ro
-    networks:
-      - private-data
+      - ../bootstrap-snapshots:/app/bootstrap-snapshots
+    networks: [private-data]
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    logging: *worker-logging
+
+  dispatcher:
+    image: quakestrike-workers:${WORKER_IMAGE_TAG:?Set WORKER_IMAGE_TAG to the tested Git commit SHA}
+    command: ["quakestrike-dispatcher"]
+    environment: *worker-environment
+    volumes: *worker-volumes
+    networks: [private-data]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "uv", "run", "--frozen", "--no-dev", "--no-sync", "quakestrike", "health-dispatcher"]
+      interval: 10s
+      timeout: 8s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    mem_limit: 512m
+    logging: *worker-logging
+
+  data-ingestor:
+    image: quakestrike-workers:${WORKER_IMAGE_TAG:?Set WORKER_IMAGE_TAG to the tested Git commit SHA}
+    command: ["quakestrike-ingestor"]
+    environment: *worker-environment
+    volumes: *worker-volumes
+    networks: [private-data]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "uv", "run", "--frozen", "--no-dev", "--no-sync", "quakestrike", "health-ingestor"]
+      interval: 10s
+      timeout: 8s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    mem_limit: 512m
+    logging: *worker-logging
+
+  beat:
+    profiles: ["beat"]
+    image: quakestrike-workers:${WORKER_IMAGE_TAG:?Set WORKER_IMAGE_TAG to the tested Git commit SHA}
+    command: ["quakestrike-beat"]
+    environment: *worker-environment
+    volumes: *worker-volumes
+    networks: [private-data]
+    depends_on:
+      dispatcher:
+        condition: service_healthy
+      data-ingestor:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "uv", "run", "--frozen", "--no-dev", "--no-sync", "quakestrike", "health-beat"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+      start_period: 60s
+    restart: "no"
+    mem_limit: 512m
+    logging: *worker-logging

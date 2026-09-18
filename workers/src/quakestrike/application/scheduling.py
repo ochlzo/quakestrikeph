@@ -29,10 +29,14 @@ class ScheduleIngestionPoll:
         *,
         clock: Clock = lambda: datetime.now(UTC),
         id_factory: IdFactory = uuid4,
+        trigger_type: str = "scheduled",
     ) -> None:
         self._store = store
         self._clock = clock
         self._id_factory = id_factory
+        if trigger_type not in {"scheduled", "manual"}:
+            raise ValueError("Unsupported polling trigger type.")
+        self._trigger_type = trigger_type
 
     def execute(self) -> RunDispatchResult:
         requested_at = self._clock()
@@ -40,7 +44,7 @@ class ScheduleIngestionPoll:
             RunDispatchRequest(
                 run_id=self._id_factory(),
                 dispatch_id=self._id_factory(),
-                trigger_type="scheduled",
+                trigger_type=self._trigger_type,
                 correlation_id=self._id_factory(),
                 requested_at=requested_at,
             )

@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import io
 import logging
+import os
+from pathlib import Path
 
 from quakestrike.application.dispatch import (
     DispatchBatchResult,
     DispatchTargetCounts,
 )
 from quakestrike.infrastructure.logging.json_logging import configure_logging
+from quakestrike.scheduler import dispatcher as dispatcher_module
 from quakestrike.scheduler.dispatcher import run_dispatch_loop
 
 
@@ -54,6 +57,31 @@ def test_dispatcher_loop_scans_then_waits_at_the_configured_interval() -> None:
 
     assert dispatcher.calls == 1
     assert stop_event.waits == [5]
+
+
+def test_dispatcher_marker_only_follows_a_successful_scan(monkeypatch, tmp_path: Path) -> None:
+    marker = tmp_path / "scan"
+    monkeypatch.setattr(dispatcher_module, "SCAN_HEALTH_MARKER", marker)
+    run_dispatch_loop(
+        OneScanDispatcher(),
+        poll_interval_seconds=5,
+        stop_event=StopAfterWait(),  # type: ignore[arg-type]
+        logger=logging.getLogger("test-dispatcher"),
+    )
+    assert marker.read_text(encoding="ascii") == str(os.getpid())
+    marker.unlink()
+
+    class FailingDispatcher:
+        def dispatch_due(self) -> DispatchBatchResult:
+            raise RuntimeError("scan failed")
+
+    run_dispatch_loop(
+        FailingDispatcher(),  # type: ignore[arg-type]
+        poll_interval_seconds=5,
+        stop_event=StopAfterWait(),  # type: ignore[arg-type]
+        logger=logging.getLogger("test-dispatcher"),
+    )
+    assert not marker.exists()
 
 
 def test_dispatcher_scan_logging_labels_target_counts() -> None:

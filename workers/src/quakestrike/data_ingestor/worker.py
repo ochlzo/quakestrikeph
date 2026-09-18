@@ -214,6 +214,8 @@ def run_ingestor(settings: Settings) -> int:
             INGESTION_QUEUE,
             "--concurrency",
             str(settings.ingestor_concurrency),
+            "--hostname",
+            "data-ingestor@%h",
         ]
     )
     return 0

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import sys
 from collections.abc import Callable
@@ -13,6 +12,7 @@ from pathlib import Path
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
+from quakestrike import operator_runtime, operator_setup
 from quakestrike.application.bootstrap import (
     BootstrapCommandResult,
     BootstrapEvidenceConflict,
@@ -23,27 +23,17 @@ from quakestrike.infrastructure.bootstrap import (
     BootstrapSnapshotError,
     write_startup_readiness_manifest,
 )
-from quakestrike.infrastructure.database.engine import (
-    create_database_engine,
-    create_session_factory,
-)
-from quakestrike.infrastructure.database.model_releases import SqlAlchemyModelReleaseRegistry
 from quakestrike.infrastructure.logging.json_logging import (
     configure_logging,
     log_event,
     log_exception_event,
-)
-from quakestrike.infrastructure.models.packaging import package_selected_release
-from quakestrike.infrastructure.models.release_manifest import (
-    SELECTED_RELEASE_MANIFEST_URI,
-    load_verified_release_manifest,
-    model_release_record,
 )
 from quakestrike.infrastructure.settings import Settings
 from quakestrike.infrastructure.startup import (
     bootstrap_operation,
     phase_one_startup_gates,
 )
+from quakestrike.operator_output import print_json as _print_json
 from quakestrike.runtime import run_service
 
 
@@ -59,12 +49,20 @@ def main() -> int:
             "bootstrap-readiness",
             "package-model-release",
             "register-model-release",
+            "verify-model-release",
+            "poll-now",
+            "migrate",
+            "health-dispatcher",
+            "health-ingestor",
+            "health-beat",
         ),
     )
     parser.add_argument("--source-package", type=Path)
     parser.add_argument("--snapshot", type=Path)
     parser.add_argument("--run-manifest", type=Path)
     args = parser.parse_args()
+    if args.command == "migrate":
+        return operator_setup.migrate()
     if args.command == "bootstrap":
         if args.snapshot is None:
             parser.error("bootstrap requires --snapshot")
@@ -78,32 +76,15 @@ def main() -> int:
     if args.command == "package-model-release":
         if args.source_package is None:
             parser.error("package-model-release requires --source-package")
-        try:
-            settings = Settings()
-            package_selected_release(args.source_package, settings.model_artifact_directory)
-        except (OSError, ValueError):
-            parser.error("model-release packaging failed")
-        return 0
+        return operator_setup.package_model_release(args.source_package)
     if args.command == "register-model-release":
-        try:
-            settings = Settings()
-            release = load_verified_release_manifest(
-                settings.model_artifact_directory,
-                SELECTED_RELEASE_MANIFEST_URI,
-                require_selected_policy=True,
-            )
-            if release.release_id != settings.model_release_id:
-                parser.error("MODEL_RELEASE_ID does not match the local release manifest")
-            engine = create_database_engine(settings.database_url)
-            try:
-                SqlAlchemyModelReleaseRegistry(create_session_factory(engine)).register(
-                    model_release_record(release)
-                )
-            finally:
-                engine.dispose()
-        except (OSError, SQLAlchemyError, ValueError):
-            parser.error("model-release registration failed")
-        return 0
+        return operator_setup.register_model_release()
+    if args.command == "verify-model-release":
+        return operator_setup.verify_model_release()
+    if args.command == "poll-now":
+        return operator_runtime.immediate_poll()
+    if args.command in {"health-dispatcher", "health-ingestor", "health-beat"}:
+        return operator_runtime.worker_health(args.command)
     return run_service("cli", command=args.command)
 
 
@@ -267,10 +248,6 @@ def _run_bootstrap_command(
     except Exception:
         _print_json({"status": "failed", "reason": failure_reason})
         return 1
-
-
-def _print_json(value: object) -> None:
-    print(json.dumps(value, sort_keys=True, ensure_ascii=True, default=str))
 
 
 if __name__ == "__main__":
