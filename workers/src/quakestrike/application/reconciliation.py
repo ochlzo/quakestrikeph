@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 
 from quakestrike.application.persistence import (
     EventRevisionRequest,
+    EventTransactionResult,
     FatalIdentityConflict,
     FeatureEventTransactionRequest,
     RunClaim,
@@ -123,6 +124,7 @@ class ReconcileSourceRows:
         history_coverage: HistoryCoverage | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         new_uuid: Callable[[], UUID] = uuid4,
+        event_reporter: Callable[[RunClaim, EventTransactionResult], None] | None = None,
     ) -> None:
         self._store = store
         self._source_loader = source_loader
@@ -131,6 +133,7 @@ class ReconcileSourceRows:
         self._history_coverage = history_coverage
         self._now = now
         self._new_uuid = new_uuid
+        self._event_reporter = event_reporter
 
     def execute(self, run_id: UUID) -> ReconciliationRunResult:
         """Run one fenced attempt. Queue redelivery uses the same run ID."""
@@ -271,7 +274,7 @@ class ReconcileSourceRows:
                 return
 
         event_id = existing_event_id or self._new_uuid()
-        self._store.process_event_with_features(
+        result = self._store.process_event_with_features(
             FeatureEventTransactionRequest(
                 event_id=event_id,
                 ingestion_run_id=claim.run_id,
@@ -297,6 +300,8 @@ class ReconcileSourceRows:
                 ),
             )
         )
+        if self._event_reporter is not None:
+            self._event_reporter(claim, result)
 
     def _report_diagnostic(
         self,
@@ -344,6 +349,7 @@ class ReconcileCurrentCatalog(ReconcileSourceRows):
         history_coverage: HistoryCoverage | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         new_uuid: Callable[[], UUID] = uuid4,
+        event_reporter: Callable[[RunClaim, EventTransactionResult], None] | None = None,
     ) -> None:
         super().__init__(
             store=store,
@@ -353,6 +359,7 @@ class ReconcileCurrentCatalog(ReconcileSourceRows):
             history_coverage=history_coverage,
             now=now,
             new_uuid=new_uuid,
+            event_reporter=event_reporter,
         )
 
 

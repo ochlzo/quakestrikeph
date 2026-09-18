@@ -120,6 +120,7 @@ def process_ingestion_delivery(
             create_session_factory(engine),
             model_release_verifier=ConfiguredModelReleaseVerifier(settings),
         )
+        reporter = StructuredReconciliationDiagnosticReporter(task_logger)
         reconciler = ReconcileCurrentCatalog(
             store=store,
             retriever=PhivolcsCatalogClient(
@@ -130,8 +131,9 @@ def process_ingestion_delivery(
                 read_timeout_seconds=settings.http_read_timeout_seconds,
                 detail_delay_seconds=settings.detail_request_delay_seconds,
             ),
-            diagnostic_reporter=StructuredReconciliationDiagnosticReporter(task_logger),
+            diagnostic_reporter=reporter,
             model_release_id=settings.model_release_id,
+            event_reporter=reporter.report_event,
         )
         return handle_ingestion_command(
             payload,

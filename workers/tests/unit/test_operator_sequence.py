@@ -395,4 +395,7 @@ def test_poll_now_runs_in_dispatcher_container() -> None:
         check=False,
     )
     assert result.returncode == 0
-    assert "exec,-T,dispatcher,uv,run,--frozen,--no-dev,--no-sync,quakestrike,poll-now" in result.stdout
+    assert (
+        "exec,-T,dispatcher,uv,run,--frozen,--no-dev,--no-sync,quakestrike,poll-now"
+        in result.stdout
+    )

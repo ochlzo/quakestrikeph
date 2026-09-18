@@ -209,6 +209,31 @@ Use your configured `POSTGRES_USER` and `POSTGRES_DB` if they differ from the
 example. The ignored bootstrap readiness manifest retains the source and
 release proof.
 
+The poll command proves only that a durable run exists. Confirm processing by
+checking whether that run reaches `succeeded` or a diagnosed terminal state,
+then compare its event, revision, prediction-job, and dispatch counts with the
+counts before the poll. A pending run with zero attempts may be waiting for
+Dispatcher to drain due prediction dispatches. Inspect bounded JSON logs by
+`event_code`, `run_id`, `dispatch_id`, and `correlation_id`:
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml logs --since 30m --tail 200 dispatcher data-ingestor beat
+```
+
+The isolated proof in `workers/tests/integration/test_local_enablement.py` uses
+sanitized source fixtures and the disposable Compose project described in
+[CONTRIBUTING.md](CONTRIBUTING.md#local-setup-for-contributor-checks). It does
+not contact PHIVOLCS. Keep the hash-addressed source snapshot, generated
+readiness manifest, and verified model artifacts outside Git through handoff;
+archive them outside Git afterward. Docker's existing `local` logging driver
+retains five approximately 20 MiB files per container. Logs can rotate and are
+not a replacement for durable run and dispatch records.
+
+The local enablement execution record is in
+[the issue #13 report](docs/reports/issue-13-local-enablement-2026-09-19.md).
+Prediction inference, forecasts, alerts, public APIs, web apps, and production
+monitoring remain deferred.
+
 ### 8. Stop local services
 
 ```powershell
