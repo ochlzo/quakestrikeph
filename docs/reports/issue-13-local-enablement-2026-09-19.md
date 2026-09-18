@@ -1,6 +1,6 @@
 # Issue #13 local enablement execution report
 
-Date: 2026-09-19 Asia/Manila. Tested implementation commit: `6bdb4ff` on
+Date: 2026-09-19 Asia/Manila. Tested implementation commit: `3c9a0e5` on
 `codex/issue-13-local-proof`. Parent issue: #6. Prerequisite issue #12 was
 pushed and closed before this work.
 
@@ -8,12 +8,17 @@ pushed and closed before this work.
 
 `workers/tests/integration/test_local_enablement.py` runs against the disposable
 `quakestrike-data-ingestion-test` PostgreSQL and Redis project. It imports the
-sanitized preserved snapshot, runs the real bootstrap readiness gate, invokes
-one real Beat schedule entry, and observes one new scheduled run and ingestion
+sanitized preserved snapshot, passes all five startup gates, invokes one real
+Beat schedule entry, and observes one new scheduled run and ingestion
 dispatch. The shared Dispatcher puts the identifier-only command on the real
 Redis ingestion queue. The test reads that command and passes it to the
 production Data Ingestor command handler. The source adapter parses sanitized
 catalog and detail HTML without an external HTTP request.
+
+The test uses a synthetic verified manifest for the model gate. The gate still
+compares its release identity with the registered PostgreSQL row. The separate
+retained local inspection below verifies the real SEIS 1.0 manifest and eight
+artifact hashes.
 
 The fixture contains one new M4.2 event, one correction to an existing event,
 one repeated bulletin, and one rejected numeric row. The scheduled run finishes
@@ -58,12 +63,13 @@ docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.inte
 
 Host pytest: **252 passed, 124 skipped**. The skipped integration tests lack
 `TEST_DATABASE_URL` and `TEST_REDIS_URL` on the host; two more skips are for
-unavailable Windows symlink creation. The isolated Compose summary was **122
-passed**, with no integration skips. Ruff lint and format checks passed after
-formatting one preexisting line in `test_operator_sequence.py`; `git diff
---check` passed. The focused end-to-end test passed after setting its controlled
-clock to 2099, so real calendar progression cannot make due dispatches appear
-early to the test.
+unavailable Windows symlink creation. The final isolated Compose summary was
+**122 passed**, with no integration skips. Ruff lint and format checks passed
+after formatting one preexisting line in `test_operator_sequence.py`; `git
+diff --check` passed. The full-gate scenario also exposed a stale migration
+version left by `test_initial_migration.py` for later tests. Its cleanup now
+restores the actual head revision. The focused end-to-end test uses a controlled
+2099 clock, so calendar progression cannot make due dispatches appear early.
 
 ## Retained local readiness inspection
 
