@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path
 from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from quakestrike.application.bootstrap import HistoricalBootstrapOperation
 from quakestrike.application.model_releases import ModelReleaseVerifier
 from quakestrike.application.startup import (
     GateResult,
@@ -16,9 +19,7 @@ from quakestrike.application.startup import (
 )
 from quakestrike.infrastructure.bootstrap import (
     BootstrapSnapshotError,
-    evaluate_bootstrap_readiness,
-    load_bootstrap_snapshot,
-    load_run_manifest,
+    FileBootstrapEvidenceStore,
 )
 from quakestrike.infrastructure.database.engine import (
     create_database_engine,
@@ -31,13 +32,63 @@ from quakestrike.infrastructure.health import (
     PostgresConnectivityHealthCheck,
     RedisConnectivityHealthCheck,
 )
+from quakestrike.infrastructure.logging.json_logging import configure_logging
+from quakestrike.infrastructure.logging.reconciliation import (
+    StructuredReconciliationDiagnosticReporter,
+)
 from quakestrike.infrastructure.models.release_manifest import (
     SELECTED_RELEASE_MANIFEST_URI,
     ManifestValidationError,
     load_verified_release_manifest,
     model_release_record,
 )
+from quakestrike.infrastructure.phivolcs.client import PhivolcsCatalogClient
+from quakestrike.infrastructure.phivolcs.session import create_phivolcs_session
 from quakestrike.infrastructure.settings import Settings
+
+
+@contextmanager
+def bootstrap_store(settings: Settings) -> Iterator[SqlAlchemyIngestionTransactions]:
+    """Create the bootstrap store and dispose its engine when the operation ends."""
+
+    engine = create_database_engine(settings.database_url)
+    try:
+        yield SqlAlchemyIngestionTransactions(
+            create_session_factory(engine),
+            model_release_verifier=ConfiguredModelReleaseVerifier(settings),
+        )
+    finally:
+        engine.dispose()
+
+
+@contextmanager
+def bootstrap_operation(settings: Settings) -> Iterator[HistoricalBootstrapOperation]:
+    """Compose the application bootstrap module with its production adapters."""
+
+    session = create_phivolcs_session()
+    try:
+        with bootstrap_store(settings) as store:
+            yield HistoricalBootstrapOperation(
+                evidence=FileBootstrapEvidenceStore(
+                    settings.bootstrap_run_manifest,
+                    required_available_through=(settings.bootstrap_required_available_through),
+                ),
+                store=store,
+                diagnostic_reporter=StructuredReconciliationDiagnosticReporter(
+                    configure_logging("bootstrap", level=settings.log_level, stream=sys.stderr)
+                ),
+                model_release_id=settings.model_release_id,
+                detail_enricher=PhivolcsCatalogClient(
+                    catalog_url=settings.phivolcs_catalog_url,
+                    session=session,
+                    max_response_bytes=settings.max_response_bytes,
+                    connect_timeout_seconds=settings.http_connect_timeout_seconds,
+                    read_timeout_seconds=settings.http_read_timeout_seconds,
+                    detail_delay_seconds=settings.detail_request_delay_seconds,
+                ),
+            )
+    finally:
+        session.close()
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,17 +147,15 @@ class BootstrapReadinessStartupGate:
     name: str = "bootstrap-readiness"
 
     def check(self) -> GateResult:
-        engine = None
         try:
-            manifest = load_run_manifest(self.settings.bootstrap_run_manifest)
-            snapshot = load_bootstrap_snapshot(Path(str(manifest["snapshot_path"])))
-            engine = create_database_engine(self.settings.database_url)
-            store = SqlAlchemyIngestionTransactions(
-                create_session_factory(engine),
-                model_release_verifier=ConfiguredModelReleaseVerifier(self.settings),
+            evidence = FileBootstrapEvidenceStore(
+                self.settings.bootstrap_run_manifest,
+                required_available_through=(self.settings.bootstrap_required_available_through),
             )
-            state = store.get_ingestion_run(UUID(str(manifest["run_id"])))
-            readiness = evaluate_bootstrap_readiness(snapshot, manifest, state)
+            preparation = evidence.load_existing(None)
+            with bootstrap_store(self.settings) as store:
+                state = store.get_ingestion_run(UUID(str(preparation.manifest["run_id"])))
+            readiness = evidence.evaluate_readiness(preparation, state)
             return GateResult(
                 name=self.name,
                 ready=readiness.ready,
@@ -119,9 +168,6 @@ class BootstrapReadinessStartupGate:
                 ready=False,
                 reason="Bootstrap readiness evidence is unavailable or invalid.",
             )
-        finally:
-            if engine is not None:
-                engine.dispose()
 
 
 @dataclass(frozen=True, slots=True)

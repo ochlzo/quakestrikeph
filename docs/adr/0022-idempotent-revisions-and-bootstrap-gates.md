@@ -25,3 +25,18 @@ identities.
 The bootstrap command is complete only after validating source snapshot
 integrity, row counts, identifiers, and the seven-day history prerequisite.
 Beat remains disabled until those checks pass.
+
+## Amendment: bind every imported evidence artifact
+
+Every backfill run requires the preserved source snapshot SHA-256. When raw
+input is enriched before reconciliation, the same durable run also stores the
+derived enrichment-cache SHA-256. Resume and recovery reject either hash when
+it differs from the original run binding. The cache may add detail-page fields
+only; its catalog fields, row count, rejected-row evidence, source identities,
+URLs, and catalog minute must match the source snapshot.
+
+The source envelope records both retrieval time and the latest September source
+time available at retrieval. Validation rejects availability after retrieval,
+coverage that omits that endpoint, or accepted rows that stop before it. The
+operator command copies the exact source bytes into an ignored, hash-addressed
+evidence directory before creating durable work.

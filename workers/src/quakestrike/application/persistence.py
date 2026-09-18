@@ -146,6 +146,8 @@ class IngestionRunState:
     events_rejected: int
     error_code: str | None = None
     error_message: str | None = None
+    snapshot_sha256: str | None = None
+    enriched_snapshot_sha256: str | None = None
 
 
 class IngestionTransactions(Protocol):

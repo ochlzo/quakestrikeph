@@ -75,6 +75,8 @@ def _ingestion_run_state(row) -> IngestionRunState:
         events_rejected=row["events_rejected"],
         error_code=row["error_code"],
         error_message=row["error_message"],
+        snapshot_sha256=row["bootstrap_snapshot_sha256"],
+        enriched_snapshot_sha256=row["bootstrap_enriched_snapshot_sha256"],
     )
 
 
@@ -132,7 +134,13 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                 created=True,
             )
 
-    def create_backfill_run(self, run_id: UUID, correlation_id: UUID) -> IngestionRunState:
+    def create_backfill_run(
+        self,
+        run_id: UUID,
+        correlation_id: UUID,
+        snapshot_sha256: str,
+        enriched_snapshot_sha256: str | None = None,
+    ) -> IngestionRunState:
         """Create or recover one backfill run without creating an ingestion dispatch."""
 
         with self._session_factory() as session, session.begin():
@@ -153,9 +161,26 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                 if (
                     existing["trigger_type"] != "backfill"
                     or existing["correlation_id"] != correlation_id
+                    or existing["bootstrap_snapshot_sha256"] != snapshot_sha256
+                    or existing["bootstrap_enriched_snapshot_sha256"] != enriched_snapshot_sha256
                 ):
                     raise RunIdentityConflict("The run ID refers to different durable work.")
                 return _ingestion_run_state(existing)
+
+            bound = (
+                session.execute(
+                    select(ingestion_runs)
+                    .where(ingestion_runs.c.trigger_type == "backfill")
+                    .where(ingestion_runs.c.bootstrap_snapshot_sha256 == snapshot_sha256)
+                    .with_for_update()
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if bound is not None:
+                raise RunIdentityConflict(
+                    "The snapshot hash is already bound to another backfill run."
+                )
 
             active = (
                 session.execute(
@@ -174,6 +199,8 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                     run_id=run_id,
                     trigger_type="backfill",
                     correlation_id=correlation_id,
+                    bootstrap_snapshot_sha256=snapshot_sha256,
+                    bootstrap_enriched_snapshot_sha256=enriched_snapshot_sha256,
                 )
             )
             created = (
@@ -182,6 +209,68 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                 .one()
             )
             return _ingestion_run_state(created)
+
+    def requeue_backfill_run(
+        self,
+        run_id: UUID,
+        correlation_id: UUID,
+        snapshot_sha256: str,
+        enriched_snapshot_sha256: str | None = None,
+    ) -> IngestionRunState:
+        """Requeue the same failed backfill identity for operator-led recovery."""
+
+        with self._session_factory() as session, session.begin():
+            session.execute(
+                text("SELECT pg_advisory_xact_lock(:lock_key)"),
+                {"lock_key": _SCHEDULE_LOCK_KEY},
+            )
+            row = (
+                session.execute(
+                    select(ingestion_runs)
+                    .where(ingestion_runs.c.run_id == run_id)
+                    .with_for_update()
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if (
+                row is None
+                or row["trigger_type"] != "backfill"
+                or row["correlation_id"] != correlation_id
+                or row["bootstrap_snapshot_sha256"] != snapshot_sha256
+                or row["bootstrap_enriched_snapshot_sha256"] != enriched_snapshot_sha256
+            ):
+                raise RunIdentityConflict("The backfill identity does not match durable state.")
+            if row["status"] != "failed":
+                raise RunIdentityConflict("Only a failed backfill can be requeued.")
+            active = session.scalar(
+                select(ingestion_runs.c.run_id).where(
+                    ingestion_runs.c.status.in_(("pending", "running", "retry_wait"))
+                )
+            )
+            if active is not None:
+                raise ActiveIngestionRun("Another ingestion run is already active.")
+            session.execute(
+                update(ingestion_runs)
+                .where(ingestion_runs.c.run_id == run_id)
+                .values(
+                    status="pending",
+                    started_at=None,
+                    attempt_count=0,
+                    next_attempt_at=None,
+                    lease_expires_at=None,
+                    worker_execution_id=None,
+                    finished_at=None,
+                    error_code=None,
+                    error_message=None,
+                )
+            )
+            requeued = (
+                session.execute(select(ingestion_runs).where(ingestion_runs.c.run_id == run_id))
+                .mappings()
+                .one()
+            )
+            return _ingestion_run_state(requeued)
 
     def get_ingestion_run(self, run_id: UUID) -> IngestionRunState | None:
         """Read one run without taking ownership of its processing lease."""

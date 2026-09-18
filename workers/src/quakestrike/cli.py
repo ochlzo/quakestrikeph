@@ -4,36 +4,23 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
+from collections.abc import Callable
 from pathlib import Path
-from uuid import UUID
 
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
-from quakestrike.application.bootstrap import run_bootstrap
-from quakestrike.application.persistence import ActiveIngestionRun, RunIdentityConflict
-from quakestrike.application.phivolcs import CatalogRetrievalLeaseLost
-from quakestrike.application.reconciliation import ReconcileSourceRows
-from quakestrike.infrastructure.bootstrap import (
-    BootstrapSnapshotError,
-    default_run_manifest_path,
-    evaluate_bootstrap_readiness,
-    load_bootstrap_snapshot,
-    load_run_manifest,
-    prepare_run_manifest,
-    write_run_manifest,
+from quakestrike.application.bootstrap import (
+    BootstrapCommandResult,
+    BootstrapEvidenceConflict,
 )
+from quakestrike.application.persistence import ActiveIngestionRun, RunIdentityConflict
+from quakestrike.infrastructure.bootstrap import BootstrapSnapshotError
 from quakestrike.infrastructure.database.engine import (
     create_database_engine,
     create_session_factory,
 )
 from quakestrike.infrastructure.database.model_releases import SqlAlchemyModelReleaseRegistry
-from quakestrike.infrastructure.database.repositories import SqlAlchemyIngestionTransactions
-from quakestrike.infrastructure.logging.json_logging import configure_logging
-from quakestrike.infrastructure.logging.reconciliation import (
-    StructuredReconciliationDiagnosticReporter,
-)
 from quakestrike.infrastructure.models.packaging import package_selected_release
 from quakestrike.infrastructure.models.release_manifest import (
     SELECTED_RELEASE_MANIFEST_URI,
@@ -41,7 +28,7 @@ from quakestrike.infrastructure.models.release_manifest import (
     model_release_record,
 )
 from quakestrike.infrastructure.settings import Settings
-from quakestrike.infrastructure.startup import ConfiguredModelReleaseVerifier
+from quakestrike.infrastructure.startup import bootstrap_operation
 from quakestrike.runtime import run_service
 
 
@@ -53,6 +40,7 @@ def main() -> int:
             "config-check",
             "startup-check",
             "bootstrap",
+            "bootstrap-recover",
             "bootstrap-readiness",
             "package-model-release",
             "register-model-release",
@@ -66,6 +54,8 @@ def main() -> int:
         if args.snapshot is None:
             parser.error("bootstrap requires --snapshot")
         return _run_bootstrap(args.snapshot, args.run_manifest)
+    if args.command == "bootstrap-recover":
+        return _run_bootstrap_recover(args.run_manifest)
     if args.command == "bootstrap-readiness":
         return _run_bootstrap_readiness(args.run_manifest)
     if args.command == "package-model-release":
@@ -101,107 +91,78 @@ def main() -> int:
 
 
 def _run_bootstrap(snapshot_path: Path, requested_manifest_path: Path | None) -> int:
-    engine = None
-    try:
+    def execute() -> BootstrapCommandResult:
         settings = Settings()
-        snapshot = load_bootstrap_snapshot(snapshot_path)
-        manifest_path = (
-            requested_manifest_path or default_run_manifest_path(snapshot.path)
-        ).resolve()
-        manifest_exists = manifest_path.exists()
-        engine = create_database_engine(settings.database_url)
-        store = SqlAlchemyIngestionTransactions(
-            create_session_factory(engine),
-            model_release_verifier=ConfiguredModelReleaseVerifier(settings),
-        )
-        if not manifest_exists and store.backfill_run_exists():
-            raise BootstrapSnapshotError(
-                "The run manifest is missing while a durable backfill run already exists."
-            )
-        manifest = prepare_run_manifest(snapshot, manifest_path)
-        logger = configure_logging("bootstrap", level=settings.log_level, stream=sys.stderr)
+        with bootstrap_operation(settings) as operation:
+            return operation.execute(snapshot_path, requested_manifest_path)
 
-        def snapshot_loader(*, heartbeat=None):
-            if heartbeat is not None and not heartbeat():
-                raise CatalogRetrievalLeaseLost()
-            return snapshot.parsed
+    return _run_bootstrap_command(
+        execute,
+        unsafe_reason="bootstrap input or run state is unsafe",
+        database_reason="bootstrap database work failed",
+        failure_reason="bootstrap execution failed",
+    )
 
-        reconciler = ReconcileSourceRows(
-            store=store,
-            source_loader=snapshot_loader,
-            diagnostic_reporter=StructuredReconciliationDiagnosticReporter(logger),
-            model_release_id=settings.model_release_id,
-            history_coverage=snapshot.coverage.history_coverage(),
-        )
-        result = run_bootstrap(
-            store=store,
-            reconciler=reconciler,
-            run_id=_manifest_uuid(manifest, "run_id"),
-            correlation_id=_manifest_uuid(manifest, "correlation_id"),
-            manifest=manifest,
-            write_manifest=lambda current: write_run_manifest(manifest_path, current),
-        )
-        readiness = evaluate_bootstrap_readiness(snapshot, manifest, result.state)
-        _print_json(
-            {
-                "bootstrap": result.as_dict(),
-                "readiness": readiness.as_dict(),
-                "snapshot_sha256": snapshot.sha256,
-            }
-        )
-        return 0 if result.state.status == "succeeded" else 2
-    except (BootstrapSnapshotError, ActiveIngestionRun, RunIdentityConflict, ValidationError):
-        _print_json({"status": "rejected", "reason": "bootstrap input or run state is unsafe"})
-        return 2
-    except SQLAlchemyError:
-        _print_json({"status": "failed", "reason": "bootstrap database work failed"})
-        return 1
-    except Exception:
-        _print_json({"status": "failed", "reason": "bootstrap execution failed"})
-        return 1
-    finally:
-        if engine is not None:
-            engine.dispose()
+
+def _run_bootstrap_recover(requested_manifest_path: Path | None) -> int:
+    """Requeue a failed run without changing its durable identity."""
+
+    def execute() -> BootstrapCommandResult:
+        settings = Settings()
+        with bootstrap_operation(settings) as operation:
+            return operation.recover(requested_manifest_path)
+
+    return _run_bootstrap_command(
+        execute,
+        unsafe_reason="bootstrap recovery is unsafe",
+        database_reason="bootstrap recovery database work failed",
+        failure_reason="bootstrap recovery failed",
+    )
 
 
 def _run_bootstrap_readiness(requested_manifest_path: Path | None) -> int:
-    engine = None
-    try:
+    def execute() -> BootstrapCommandResult:
         settings = Settings()
-        manifest_path = (requested_manifest_path or settings.bootstrap_run_manifest).resolve()
-        manifest = load_run_manifest(manifest_path)
-        snapshot = load_bootstrap_snapshot(Path(str(manifest["snapshot_path"])))
-        engine = create_database_engine(settings.database_url)
-        store = SqlAlchemyIngestionTransactions(
-            create_session_factory(engine),
-            model_release_verifier=ConfiguredModelReleaseVerifier(settings),
-        )
-        state = store.get_ingestion_run(_manifest_uuid(manifest, "run_id"))
-        readiness = evaluate_bootstrap_readiness(snapshot, manifest, state)
-        _print_json(
-            {
-                "readiness": readiness.as_dict(),
-                "snapshot_sha256": snapshot.sha256,
-                "run_id": manifest.get("run_id"),
-            }
-        )
-        return 0 if readiness.ready else 2
-    except (BootstrapSnapshotError, ValidationError):
-        _print_json({"status": "not_ready", "reason": "bootstrap readiness evidence is invalid"})
+        with bootstrap_operation(settings) as operation:
+            return operation.readiness(requested_manifest_path)
+
+    return _run_bootstrap_command(
+        execute,
+        unsafe_reason="bootstrap readiness evidence is invalid",
+        database_reason="bootstrap readiness database work failed",
+        failure_reason="bootstrap readiness check failed",
+        unsafe_status="not_ready",
+    )
+
+
+def _run_bootstrap_command(
+    execute: Callable[[], BootstrapCommandResult],
+    *,
+    unsafe_reason: str,
+    database_reason: str,
+    failure_reason: str,
+    unsafe_status: str = "rejected",
+) -> int:
+    try:
+        result = execute()
+        _print_json(result.payload)
+        return result.exit_code
+    except (
+        BootstrapSnapshotError,
+        BootstrapEvidenceConflict,
+        ActiveIngestionRun,
+        RunIdentityConflict,
+        ValidationError,
+        ValueError,
+    ):
+        _print_json({"status": unsafe_status, "reason": unsafe_reason})
         return 2
     except SQLAlchemyError:
-        _print_json({"status": "failed", "reason": "bootstrap readiness database work failed"})
+        _print_json({"status": "failed", "reason": database_reason})
         return 1
     except Exception:
-        _print_json({"status": "failed", "reason": "bootstrap readiness check failed"})
+        _print_json({"status": "failed", "reason": failure_reason})
         return 1
-    finally:
-        if engine is not None:
-            engine.dispose()
-
-
-def _manifest_uuid(manifest: dict[str, object], key: str) -> UUID:
-    return UUID(str(manifest[key]))
 
 
 def _print_json(value: object) -> None:

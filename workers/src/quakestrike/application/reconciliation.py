@@ -148,7 +148,7 @@ class ReconcileSourceRows:
             rows = coalesce_catalog_rows(parsed)
             for rejected in parsed.rejected_rows:
                 input_key = _rejected_input_key(rejected.row_number, rejected.diagnostic.code)
-                if self._input_checkpoint_exists(claim.run_id, input_key):
+                if self._store.input_checkpoint_exists(claim.run_id, input_key):
                     continue
                 checkpointed = self._store.checkpoint_input(
                     claim.run_id,
@@ -232,7 +232,7 @@ class ReconcileSourceRows:
         row: NormalizedSourceRow,
     ) -> None:
         input_key = normalized_input_key(row)
-        if self._input_checkpoint_exists(claim.run_id, input_key):
+        if self._store.input_checkpoint_exists(claim.run_id, input_key):
             return
         for diagnostic in row.diagnostics:
             self._report_diagnostic(claim, input_key, diagnostic)
@@ -329,10 +329,6 @@ class ReconcileSourceRows:
                 code or "REJECTED_ROW",
             )
         )
-
-    def _input_checkpoint_exists(self, run_id: UUID, input_key: str) -> bool:
-        checker = getattr(self._store, "input_checkpoint_exists", None)
-        return checker(run_id, input_key) if checker is not None else False
 
 
 class ReconcileCurrentCatalog(ReconcileSourceRows):

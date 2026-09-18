@@ -6,7 +6,8 @@
     "catalog_urls": [
       "https://earthquake.phivolcs.dost.gov.ph/earthquake-information"
     ],
-    "retrieved_at": "2026-09-18T09:00:00+08:00"
+    "retrieved_at": "2026-09-18T09:00:00+08:00",
+    "available_through": "2026-09-01T00:00:00+08:00"
   },
   "coverage": {
     "start": "2026-08-25T00:00:00+08:00",

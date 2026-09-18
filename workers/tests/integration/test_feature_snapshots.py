@@ -80,6 +80,7 @@ def _seed_run_and_release(engine):
                 started_at=NOW,
                 finished_at=NOW,
                 correlation_id=uuid4(),
+                bootstrap_snapshot_sha256=uuid4().hex * 2,
             )
         )
         connection.execute(

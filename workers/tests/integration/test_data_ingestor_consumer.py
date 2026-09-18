@@ -101,6 +101,7 @@ def test_valid_command_persists_one_completed_run_and_duplicate_is_a_no_op(
                 started_at=database_now - timedelta(days=8),
                 finished_at=database_now - timedelta(days=1),
                 correlation_id=uuid4(),
+                bootstrap_snapshot_sha256=uuid4().hex * 2,
             )
         )
         connection.execute(
@@ -233,6 +234,7 @@ def test_beat_to_ingestor_to_prediction_queue_replays_safely(migrated_engine) ->
                     started_at=database_now - timedelta(days=8),
                     finished_at=database_now - timedelta(days=1),
                     correlation_id=uuid4(),
+                    bootstrap_snapshot_sha256=uuid4().hex * 2,
                 )
             )
             connection.execute(

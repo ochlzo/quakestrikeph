@@ -78,6 +78,8 @@ ingestion_runs = Table(
     Column("error_code", Text),
     Column("error_message", Text),
     Column("correlation_id", UUID(as_uuid=True), nullable=False),
+    Column("bootstrap_snapshot_sha256", Text),
+    Column("bootstrap_enriched_snapshot_sha256", Text),
     CheckConstraint(
         "trigger_type IN ('scheduled', 'manual', 'backfill')", name="ck_ingestion_runs_trigger_type"
     ),
@@ -117,6 +119,21 @@ ingestion_runs = Table(
         "finished_at IS NULL OR started_at IS NULL OR finished_at >= started_at",
         name="ck_ingestion_runs_finish_order",
     ),
+    CheckConstraint(
+        "(trigger_type <> 'backfill' AND bootstrap_snapshot_sha256 IS NULL "
+        "AND bootstrap_enriched_snapshot_sha256 IS NULL) OR "
+        "(trigger_type = 'backfill' AND bootstrap_snapshot_sha256 IS NOT NULL "
+        "AND bootstrap_snapshot_sha256 ~ '^[0-9a-f]{64}$' "
+        "AND (bootstrap_enriched_snapshot_sha256 IS NULL OR "
+        "bootstrap_enriched_snapshot_sha256 ~ '^[0-9a-f]{64}$'))",
+        name="ck_ingestion_runs_bootstrap_snapshot_hash",
+    ),
+)
+Index(
+    "ix_ingestion_runs_bootstrap_snapshot_sha256",
+    ingestion_runs.c.bootstrap_snapshot_sha256,
+    unique=True,
+    postgresql_where=ingestion_runs.c.bootstrap_snapshot_sha256.is_not(None),
 )
 Index(
     "uq_ingestion_runs_one_active",

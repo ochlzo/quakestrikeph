@@ -78,6 +78,9 @@ class _Store:
         self.checkpoints.append((key, outcome, event_id))
         return True
 
+    def input_checkpoint_exists(self, _run_id, key) -> bool:
+        return any(checkpoint[0] == key for checkpoint in self.checkpoints)
+
     def find_event_by_bulletin_id(self, _bulletin_id):
         return self.exact_event_id
 

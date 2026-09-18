@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from pathlib import PurePosixPath
 from time import sleep as default_sleep
@@ -11,7 +11,12 @@ from typing import Protocol
 import requests
 
 from quakestrike.application.phivolcs import CatalogRetrievalError, CatalogRetrievalLeaseLost
-from quakestrike.domain.source_rows import CatalogParseResult, DiagnosticCode, SourceDiagnostic
+from quakestrike.domain.source_rows import (
+    CatalogParseResult,
+    DiagnosticCode,
+    NormalizedSourceRow,
+    SourceDiagnostic,
+)
 from quakestrike.infrastructure.phivolcs.parser import (
     CatalogStructuralError,
     ParsedDetail,
@@ -79,9 +84,21 @@ class PhivolcsCatalogClient:
             raise CatalogRetrievalError(error.category) from error
         except CatalogStructuralError as error:
             raise CatalogRetrievalError("catalog_structure") from error
+        return replace(
+            parsed, accepted_rows=self.enrich_rows(parsed.accepted_rows, heartbeat=heartbeat)
+        )
+
+    def enrich_rows(
+        self,
+        rows: Iterable[NormalizedSourceRow],
+        *,
+        heartbeat: Callable[[], bool] | None = None,
+    ) -> tuple[NormalizedSourceRow, ...]:
+        """Apply the same detail-page enrichment to preserved catalog rows."""
+
         details: dict[str, ParsedDetail] = {}
         enriched_rows = []
-        for row in parsed.accepted_rows:
+        for row in rows:
             self._heartbeat(heartbeat)
             detail = details.get(row.source_url)
             if detail is None:
@@ -96,7 +113,7 @@ class PhivolcsCatalogClient:
                     diagnostics=detail.diagnostics,
                 )
             )
-        return replace(parsed, accepted_rows=tuple(enriched_rows))
+        return tuple(enriched_rows)
 
     def _fetch_detail(
         self, url: str, *, heartbeat: Callable[[], bool] | None = None

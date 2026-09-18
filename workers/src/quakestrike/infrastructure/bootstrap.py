@@ -6,17 +6,20 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 from collections import Counter
 from collections.abc import Mapping
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
+from quakestrike.application.bootstrap import BootstrapPreparation
 from quakestrike.domain.features import HistoryCoverage, evaluate_history_readiness
 from quakestrike.domain.source_rows import (
     CatalogParseResult,
@@ -24,6 +27,7 @@ from quakestrike.domain.source_rows import (
     NormalizedSourceRow,
     RejectedSourceRow,
     SourceDiagnostic,
+    SourceTimePrecision,
 )
 from quakestrike.infrastructure.phivolcs.parser import normalize_detail_origin
 from quakestrike.infrastructure.phivolcs.urls import (
@@ -34,6 +38,8 @@ from quakestrike.infrastructure.phivolcs.urls import (
 
 SNAPSHOT_SCHEMA_VERSION = "quakestrike.bootstrap-snapshot.v1"
 RUN_MANIFEST_SCHEMA_VERSION = "quakestrike.bootstrap-run.v1"
+ENRICHED_CACHE_SCHEMA_VERSION = "quakestrike.bootstrap-enriched.v1"
+DEFAULT_BOOTSTRAP_EVIDENCE_DIRECTORY = Path("bootstrap-snapshots/source-snapshots")
 MANILA = ZoneInfo("Asia/Manila")
 _MINIMUM_LOOKBACK_START = datetime(2026, 8, 25, tzinfo=MANILA)
 _ALLOWED_DETAIL_STATUSES = {"enriched", "failed", "not_attempted"}
@@ -74,9 +80,13 @@ class BootstrapSnapshot:
     snapshot_kind: str
     source_urls: tuple[str, ...]
     retrieved_at: datetime
+    available_through: datetime
     coverage: SnapshotCoverage
     declared_row_count: int
     parsed: CatalogParseResult
+
+    def with_parsed(self, parsed: CatalogParseResult) -> BootstrapSnapshot:
+        return replace(self, parsed=parsed)
 
     @property
     def actual_row_count(self) -> int:
@@ -140,16 +150,9 @@ def evaluate_bootstrap_readiness(
         return _not_ready("The run manifest hash does not match the snapshot.")
     if Path(str(manifest.get("snapshot_path", ""))).resolve() != snapshot.path:
         return _not_ready("The run manifest path does not match the snapshot.")
-    if manifest.get("snapshot_kind") != snapshot.snapshot_kind:
-        return _not_ready("The run manifest snapshot kind does not match the snapshot.")
-    if manifest.get("declared_row_count") != snapshot.declared_row_count:
-        return _not_ready("The run manifest row count does not match the snapshot.")
-    if manifest.get("coverage") != _coverage_document(snapshot.coverage):
-        return _not_ready("The run manifest coverage does not match the snapshot.")
-    if manifest.get("diagnostics") != snapshot.diagnostic_counts:
-        return _not_ready("The run manifest diagnostics do not match the snapshot.")
-    if manifest.get("alert_policy") != "suppressed":
-        return _not_ready("The bootstrap alert policy is not explicitly suppressed.")
+    evidence_error = _snapshot_manifest_evidence_error(snapshot, manifest)
+    if evidence_error is not None:
+        return _not_ready(evidence_error)
     if run_state is None:
         return _not_ready("The durable bootstrap run does not exist.")
     if getattr(run_state, "trigger_type", None) != "backfill":
@@ -158,23 +161,14 @@ def evaluate_bootstrap_readiness(
         return _not_ready("The durable bootstrap run has not succeeded.")
     if manifest.get("status") != "succeeded":
         return _not_ready("The run manifest has not recorded a successful run.")
+    if getattr(run_state, "snapshot_sha256", None) != snapshot.sha256:
+        return _not_ready("The durable backfill run is not bound to this snapshot.")
     if str(getattr(run_state, "run_id", "")) != str(manifest.get("run_id", "")):
         return _not_ready("The run manifest and durable run IDs do not match.")
     if str(getattr(run_state, "correlation_id", "")) != str(manifest.get("correlation_id", "")):
         return _not_ready("The run manifest and durable correlation IDs do not match.")
 
-    counts = manifest.get("counts")
-    if not isinstance(counts, Mapping):
-        return _not_ready("The run manifest does not contain durable counts.")
-    expected_snapshot_counts = {
-        "snapshot_rows": snapshot.actual_row_count,
-        "accepted_rows": len(snapshot.parsed.accepted_rows),
-        "rejected_rows": len(snapshot.parsed.rejected_rows),
-        "normalized_inputs": snapshot.normalized_input_count,
-    }
-    for key, expected in expected_snapshot_counts.items():
-        if counts.get(key) != expected:
-            return _not_ready(f"The run manifest {key} count is inconsistent.")
+    counts = manifest["counts"]
     expected_run_counts = {
         "checkpointed_inputs": getattr(run_state, "events_found", None),
         "events_inserted": getattr(run_state, "events_inserted", None),
@@ -222,7 +216,42 @@ def _not_ready(reason: str) -> BootstrapReadiness:
     return BootstrapReadiness(ready=False, reason=reason, details={})
 
 
-def load_bootstrap_snapshot(path: Path) -> BootstrapSnapshot:
+def _snapshot_manifest_evidence_error(
+    snapshot: BootstrapSnapshot,
+    manifest: Mapping[str, Any],
+) -> str | None:
+    expected = {
+        "snapshot_kind": snapshot.snapshot_kind,
+        "alert_policy": "suppressed",
+        "declared_row_count": snapshot.declared_row_count,
+        "source_urls": list(snapshot.source_urls),
+        "retrieved_at": snapshot.retrieved_at.isoformat(),
+        "available_through": snapshot.available_through.isoformat(),
+        "coverage": _coverage_document(snapshot.coverage),
+        "diagnostics": snapshot.diagnostic_counts,
+    }
+    if any(manifest.get(key) != value for key, value in expected.items()):
+        return "The run manifest evidence does not match the snapshot."
+    counts = manifest.get("counts")
+    if not isinstance(counts, Mapping):
+        return "The run manifest does not contain durable counts."
+    expected_counts = {
+        "snapshot_rows": snapshot.actual_row_count,
+        "accepted_rows": len(snapshot.parsed.accepted_rows),
+        "rejected_rows": len(snapshot.parsed.rejected_rows),
+        "normalized_inputs": snapshot.normalized_input_count,
+    }
+    for key, value in expected_counts.items():
+        if counts.get(key) != value:
+            return f"The run manifest {key} count is inconsistent."
+    return None
+
+
+def load_bootstrap_snapshot(
+    path: Path,
+    *,
+    required_available_through: datetime | None = None,
+) -> BootstrapSnapshot:
     """Hash exact bytes, validate the envelope, and normalize every row."""
 
     try:
@@ -247,6 +276,10 @@ def load_bootstrap_snapshot(path: Path) -> BootstrapSnapshot:
         raise BootstrapSnapshotError("The bootstrap source provider must be PHIVOLCS.")
     source_urls = _source_urls(source.get("catalog_urls"))
     retrieved_at = _aware_datetime(source.get("retrieved_at"), "source.retrieved_at")
+    available_through = _aware_datetime(
+        source.get("available_through"),
+        "source.available_through",
+    )
 
     coverage_document = _required_mapping(document, "coverage")
     coverage = SnapshotCoverage(
@@ -258,7 +291,12 @@ def load_bootstrap_snapshot(path: Path) -> BootstrapSnapshot:
             "coverage.first_prediction_anchor",
         ),
     )
-    _validate_coverage(coverage)
+    _validate_coverage(
+        coverage,
+        retrieved_at,
+        available_through,
+        required_available_through,
+    )
 
     declared_row_count = document.get("declared_row_count")
     if not isinstance(declared_row_count, int) or isinstance(declared_row_count, bool):
@@ -280,7 +318,13 @@ def load_bootstrap_snapshot(path: Path) -> BootstrapSnapshot:
             raise BootstrapSnapshotError("Snapshot row numbers must be unique.")
         seen_row_numbers.add(row_number)
         try:
-            accepted.append(_load_snapshot_row(value, row_number))
+            accepted.append(
+                _load_snapshot_row(
+                    value,
+                    row_number,
+                    snapshot_kind=snapshot_kind,
+                )
+            )
         except _RejectedSnapshotRow as error:
             rejected.append(RejectedSourceRow(row_number, error.diagnostic))
 
@@ -294,22 +338,364 @@ def load_bootstrap_snapshot(path: Path) -> BootstrapSnapshot:
         raise BootstrapSnapshotError(
             "The bootstrap snapshot contains conflicting duplicate bulletin values."
         ) from error
+    _validate_import_coverage(accepted, coverage, available_through)
     return BootstrapSnapshot(
         path=path.resolve(),
         sha256=digest,
         snapshot_kind=snapshot_kind,
         source_urls=source_urls,
         retrieved_at=retrieved_at,
+        available_through=available_through,
         coverage=coverage,
         declared_row_count=declared_row_count,
         parsed=CatalogParseResult(tuple(accepted), tuple(rejected)),
     )
 
 
-def default_run_manifest_path(snapshot_path: Path) -> Path:
-    """Return the predictable ignored sidecar path for one snapshot."""
+class FileBootstrapEvidenceStore:
+    """Keep source snapshots, enrichment caches, and the run sidecar consistent."""
 
-    return snapshot_path.with_name(snapshot_path.name + ".bootstrap.json")
+    def __init__(
+        self,
+        default_manifest_path: Path,
+        *,
+        required_available_through: datetime | None = None,
+        evidence_directory: Path = DEFAULT_BOOTSTRAP_EVIDENCE_DIRECTORY,
+    ) -> None:
+        self._default_manifest_path = default_manifest_path
+        self._required_available_through = required_available_through
+        self._evidence_directory = evidence_directory
+
+    def prepare_import(
+        self,
+        snapshot_path: Path,
+        requested_manifest_path: Path | None,
+    ) -> BootstrapPreparation:
+        source_snapshot = preserve_bootstrap_snapshot(
+            load_bootstrap_snapshot(
+                snapshot_path,
+                required_available_through=self._required_available_through,
+            ),
+            self._evidence_directory,
+        )
+        manifest_path = (requested_manifest_path or self._default_manifest_path).resolve()
+        ensure_evidence_path_outside_git(manifest_path)
+        manifest_existed = manifest_path.exists()
+        snapshot = source_snapshot
+        enriched_snapshot_sha256 = None
+        enriched_snapshot_path = None
+        if source_snapshot.snapshot_kind == "raw" and manifest_existed:
+            existing_manifest = load_run_manifest(manifest_path)
+            if (
+                existing_manifest.get("snapshot_sha256") != source_snapshot.sha256
+                or Path(str(existing_manifest.get("snapshot_path", ""))).resolve()
+                != source_snapshot.path
+            ):
+                raise BootstrapSnapshotError(
+                    "The supplied source snapshot does not match the existing run manifest."
+                )
+            if existing_manifest.get("enriched_snapshot_path"):
+                snapshot = load_snapshot_for_manifest(
+                    existing_manifest,
+                    required_available_through=self._required_available_through,
+                )
+                enriched_snapshot_path = Path(
+                    str(existing_manifest["enriched_snapshot_path"])
+                ).resolve()
+                enriched_snapshot_sha256 = str(existing_manifest["enriched_snapshot_sha256"])
+        manifest = prepare_run_manifest(
+            snapshot,
+            manifest_path,
+            enriched_snapshot_path=enriched_snapshot_path,
+            enriched_snapshot_sha256=enriched_snapshot_sha256,
+        )
+        return BootstrapPreparation(
+            snapshot=snapshot,
+            source_snapshot=source_snapshot,
+            manifest_path=manifest_path,
+            manifest=manifest,
+            manifest_existed=manifest_existed,
+            enriched_snapshot_sha256=enriched_snapshot_sha256,
+        )
+
+    def record_enrichment(
+        self,
+        preparation: BootstrapPreparation,
+        parsed: CatalogParseResult,
+    ) -> BootstrapPreparation:
+        _validate_enriched_cache(
+            preparation.source_snapshot,
+            parsed.accepted_rows,
+            parsed.rejected_rows,
+        )
+        cache_path = default_enriched_snapshot_path(
+            preparation.source_snapshot,
+            preparation.manifest_path,
+        )
+        snapshot = preparation.source_snapshot.with_parsed(parsed)
+        cache_hash = write_enriched_snapshot(
+            cache_path,
+            preparation.source_snapshot,
+            parsed,
+        )
+        preparation.manifest["enriched_snapshot_path"] = str(cache_path.resolve())
+        preparation.manifest["enriched_snapshot_sha256"] = cache_hash
+        preparation.manifest["diagnostics"] = snapshot.diagnostic_counts
+        updated = BootstrapPreparation(
+            snapshot=snapshot,
+            source_snapshot=preparation.source_snapshot,
+            manifest_path=preparation.manifest_path,
+            manifest=preparation.manifest,
+            manifest_existed=preparation.manifest_existed,
+            enriched_snapshot_sha256=cache_hash,
+        )
+        self.write_manifest(updated)
+        return updated
+
+    def load_existing(self, requested_manifest_path: Path | None) -> BootstrapPreparation:
+        manifest_path = (requested_manifest_path or self._default_manifest_path).resolve()
+        ensure_evidence_path_outside_git(manifest_path)
+        manifest = load_run_manifest(manifest_path)
+        source_snapshot = load_bootstrap_snapshot(
+            Path(str(manifest["snapshot_path"])),
+            required_available_through=self._required_available_through,
+        )
+        snapshot = load_snapshot_for_manifest(
+            manifest,
+            required_available_through=self._required_available_through,
+        )
+        cache_path = manifest.get("enriched_snapshot_path")
+        manifest = prepare_run_manifest(
+            snapshot,
+            manifest_path,
+            enriched_snapshot_path=Path(str(cache_path)) if cache_path else None,
+            enriched_snapshot_sha256=(
+                str(manifest["enriched_snapshot_sha256"]) if cache_path else None
+            ),
+        )
+        return BootstrapPreparation(
+            snapshot=snapshot,
+            source_snapshot=source_snapshot,
+            manifest_path=manifest_path,
+            manifest=manifest,
+            manifest_existed=True,
+            enriched_snapshot_sha256=(
+                str(manifest["enriched_snapshot_sha256"]) if cache_path else None
+            ),
+        )
+
+    def write_manifest(self, preparation: BootstrapPreparation) -> None:
+        write_run_manifest(preparation.manifest_path, preparation.manifest)
+
+    def evaluate_readiness(
+        self,
+        preparation: BootstrapPreparation,
+        run_state: object | None,
+    ) -> BootstrapReadiness:
+        readiness = evaluate_bootstrap_readiness(
+            preparation.snapshot,
+            preparation.manifest,
+            run_state,
+        )
+        expected_enriched_hash = preparation.enriched_snapshot_sha256
+        if (
+            readiness.ready
+            and getattr(run_state, "enriched_snapshot_sha256", None) != expected_enriched_hash
+        ):
+            return _not_ready("The durable backfill run is not bound to its enrichment cache.")
+        return readiness
+
+
+def preserve_bootstrap_snapshot(
+    snapshot: BootstrapSnapshot,
+    evidence_directory: Path = DEFAULT_BOOTSTRAP_EVIDENCE_DIRECTORY,
+) -> BootstrapSnapshot:
+    """Copy exact source bytes into the ignored, hash-addressed evidence store."""
+
+    destination = (evidence_directory / f"{snapshot.sha256}.source.json").resolve()
+    ensure_evidence_path_outside_git(destination)
+    if destination == snapshot.path:
+        return snapshot
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        if hashlib.sha256(destination.read_bytes()).hexdigest() != snapshot.sha256:
+            raise BootstrapSnapshotError("Preserved snapshot evidence does not match its hash.")
+    else:
+        temporary = destination.with_suffix(f"{destination.suffix}.{uuid4().hex}.tmp")
+        try:
+            shutil.copyfile(snapshot.path, temporary)
+            if hashlib.sha256(temporary.read_bytes()).hexdigest() != snapshot.sha256:
+                raise BootstrapSnapshotError(
+                    "The source snapshot changed while it was being preserved."
+                )
+            os.replace(temporary, destination)
+        except OSError as error:
+            raise BootstrapSnapshotError(
+                "The bootstrap snapshot could not be preserved."
+            ) from error
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+    return replace(snapshot, path=destination)
+
+
+def ensure_evidence_path_outside_git(path: Path) -> None:
+    """Reject repository-local evidence paths unless Git ignores them."""
+
+    git = shutil.which("git")
+    if git is None:
+        return
+    probe = subprocess.run(
+        [git, "rev-parse", "--show-toplevel"],
+        cwd=Path.cwd(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if probe.returncode != 0:
+        return
+    root = Path(probe.stdout.strip()).resolve()
+    try:
+        relative = path.resolve().relative_to(root)
+    except ValueError:
+        return
+    tracked = subprocess.run(
+        [git, "ls-files", "--error-unmatch", "--", str(relative)],
+        cwd=root,
+        capture_output=True,
+        check=False,
+    )
+    ignored = subprocess.run(
+        [git, "check-ignore", "--quiet", "--", str(relative)],
+        cwd=root,
+        capture_output=True,
+        check=False,
+    )
+    if tracked.returncode == 0 or ignored.returncode != 0:
+        raise BootstrapSnapshotError("Bootstrap evidence paths must remain outside Git.")
+
+
+def default_enriched_snapshot_path(snapshot: BootstrapSnapshot, manifest_path: Path) -> Path:
+    """Return the ignored, hash-addressed cache for raw-snapshot enrichment."""
+
+    return manifest_path.resolve().parent / "source-snapshots" / f"{snapshot.sha256}.enriched.json"
+
+
+def load_snapshot_for_manifest(
+    manifest: Mapping[str, Any],
+    *,
+    required_available_through: datetime | None = None,
+) -> BootstrapSnapshot:
+    """Load the original snapshot and any immutable enrichment cache it names."""
+
+    snapshot = load_bootstrap_snapshot(
+        Path(str(manifest["snapshot_path"])),
+        required_available_through=required_available_through,
+    )
+    cache_path = manifest.get("enriched_snapshot_path")
+    if not isinstance(cache_path, str) or not cache_path.strip():
+        return snapshot
+    resolved_cache_path = Path(cache_path).resolve()
+    if not resolved_cache_path.is_file():
+        raise BootstrapSnapshotError("The enrichment cache is missing.")
+    expected_hash = manifest.get("enriched_snapshot_sha256")
+    actual_hash = hashlib.sha256(resolved_cache_path.read_bytes()).hexdigest()
+    if expected_hash != actual_hash:
+        raise BootstrapSnapshotError("The enrichment cache hash does not match the manifest.")
+    return load_enriched_snapshot(resolved_cache_path, snapshot)
+
+
+def write_enriched_snapshot(
+    path: Path,
+    source_snapshot: BootstrapSnapshot,
+    parsed: CatalogParseResult,
+) -> str:
+    """Persist sanitized enrichment results so resume uses identical inputs."""
+
+    document = {
+        "schema_version": ENRICHED_CACHE_SCHEMA_VERSION,
+        "source_snapshot_path": str(source_snapshot.path),
+        "source_snapshot_sha256": source_snapshot.sha256,
+        "rows": [_cached_row(row) for row in parsed.accepted_rows],
+        "rejected_rows": [
+            {
+                "row_number": rejected.row_number,
+                "diagnostic": _diagnostic_document(rejected.diagnostic),
+            }
+            for rejected in parsed.rejected_rows
+        ],
+    }
+    write_run_manifest(path, document)
+    return hashlib.sha256(path.resolve().read_bytes()).hexdigest()
+
+
+def load_enriched_snapshot(
+    path: Path,
+    source_snapshot: BootstrapSnapshot,
+) -> BootstrapSnapshot:
+    """Load and validate one cache created from the bound raw snapshot."""
+
+    try:
+        document = json.loads(path.resolve().read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise BootstrapSnapshotError("The bootstrap enrichment cache could not be read.") from error
+    if not isinstance(document, Mapping):
+        raise BootstrapSnapshotError("The bootstrap enrichment cache must be an object.")
+    if document.get("schema_version") != ENRICHED_CACHE_SCHEMA_VERSION:
+        raise BootstrapSnapshotError("The bootstrap enrichment cache schema is invalid.")
+    if document.get("source_snapshot_sha256") != source_snapshot.sha256:
+        raise BootstrapSnapshotError("The enrichment cache does not match the source snapshot.")
+    if Path(str(document.get("source_snapshot_path", ""))).resolve() != source_snapshot.path:
+        raise BootstrapSnapshotError(
+            "The enrichment cache path does not match the source snapshot."
+        )
+    rows = document.get("rows")
+    rejected_rows = document.get("rejected_rows")
+    if not isinstance(rows, list) or not isinstance(rejected_rows, list):
+        raise BootstrapSnapshotError("The bootstrap enrichment cache rows are invalid.")
+    try:
+        accepted = tuple(_load_cached_row(value, index) for index, value in enumerate(rows, 1))
+        rejected = tuple(_load_cached_rejection(value) for value in rejected_rows)
+    except (BootstrapSnapshotError, _RejectedSnapshotRow, ValueError, TypeError) as error:
+        raise BootstrapSnapshotError("The bootstrap enrichment cache rows are invalid.") from error
+    _validate_enriched_cache(source_snapshot, accepted, rejected)
+    return replace(
+        source_snapshot,
+        parsed=CatalogParseResult(accepted_rows=accepted, rejected_rows=rejected),
+    )
+
+
+def _validate_enriched_cache(
+    source_snapshot: BootstrapSnapshot,
+    accepted: tuple[NormalizedSourceRow, ...],
+    rejected: tuple[RejectedSourceRow, ...],
+) -> None:
+    """Allow detail enrichment only; catalog evidence must remain byte-derived."""
+
+    source_accepted = source_snapshot.parsed.accepted_rows
+    source_rejected = source_snapshot.parsed.rejected_rows
+    if len(accepted) != len(source_accepted) or rejected != source_rejected:
+        raise BootstrapSnapshotError("The enrichment cache row evidence has changed.")
+    for source, enriched in zip(source_accepted, accepted, strict=True):
+        if _catalog_evidence(source) != _catalog_evidence(enriched):
+            raise BootstrapSnapshotError("The enrichment cache changed catalog evidence.")
+        source_minute = source.occurred_at.astimezone(UTC).replace(second=0, microsecond=0)
+        enriched_minute = enriched.occurred_at.astimezone(UTC).replace(second=0, microsecond=0)
+        if source_minute != enriched_minute:
+            raise BootstrapSnapshotError("The enrichment cache changed the catalog minute.")
+
+
+def _catalog_evidence(row: NormalizedSourceRow) -> tuple[object, ...]:
+    return (
+        row.latitude,
+        row.longitude,
+        row.depth_km,
+        row.magnitude,
+        row.location_description,
+        row.source_bulletin_id,
+        row.source_event_group_id,
+        row.source_url,
+    )
 
 
 def load_run_manifest(path: Path) -> dict[str, Any]:
@@ -353,7 +739,13 @@ def load_run_manifest(path: Path) -> dict[str, Any]:
     return document
 
 
-def prepare_run_manifest(snapshot: BootstrapSnapshot, path: Path) -> dict[str, Any]:
+def prepare_run_manifest(
+    snapshot: BootstrapSnapshot,
+    path: Path,
+    *,
+    enriched_snapshot_path: Path | None = None,
+    enriched_snapshot_sha256: str | None = None,
+) -> dict[str, Any]:
     """Create or verify the mutable operator sidecar before database work."""
 
     path = path.resolve()
@@ -363,26 +755,19 @@ def prepare_run_manifest(snapshot: BootstrapSnapshot, path: Path) -> dict[str, A
             raise BootstrapSnapshotError("The snapshot bytes do not match the run manifest.")
         if Path(str(manifest["snapshot_path"])).resolve() != snapshot.path:
             raise BootstrapSnapshotError("The snapshot path does not match the run manifest.")
-        expected_counts = {
-            "snapshot_rows": snapshot.actual_row_count,
-            "accepted_rows": len(snapshot.parsed.accepted_rows),
-            "rejected_rows": len(snapshot.parsed.rejected_rows),
-            "normalized_inputs": snapshot.normalized_input_count,
-        }
-        if (
-            manifest.get("snapshot_kind") != snapshot.snapshot_kind
-            or manifest.get("alert_policy") != "suppressed"
-            or manifest.get("declared_row_count") != snapshot.declared_row_count
-            or manifest.get("source_urls") != list(snapshot.source_urls)
-            or manifest.get("retrieved_at") != snapshot.retrieved_at.isoformat()
-            or manifest.get("coverage") != _coverage_document(snapshot.coverage)
-            or manifest.get("diagnostics") != snapshot.diagnostic_counts
-            or any(
-                manifest.get("counts", {}).get(key) != value
-                for key, value in expected_counts.items()
-            )
+        if manifest.get("enriched_snapshot_path") != (
+            str(enriched_snapshot_path.resolve()) if enriched_snapshot_path is not None else None
         ):
-            raise BootstrapSnapshotError("The run manifest evidence does not match the snapshot.")
+            raise BootstrapSnapshotError(
+                "The enrichment cache path does not match the run manifest."
+            )
+        if manifest.get("enriched_snapshot_sha256") != enriched_snapshot_sha256:
+            raise BootstrapSnapshotError(
+                "The enrichment cache hash does not match the run manifest."
+            )
+        evidence_error = _snapshot_manifest_evidence_error(snapshot, manifest)
+        if evidence_error is not None:
+            raise BootstrapSnapshotError(evidence_error)
         return manifest
 
     manifest = {
@@ -397,6 +782,7 @@ def prepare_run_manifest(snapshot: BootstrapSnapshot, path: Path) -> dict[str, A
         "declared_row_count": snapshot.declared_row_count,
         "source_urls": list(snapshot.source_urls),
         "retrieved_at": snapshot.retrieved_at.isoformat(),
+        "available_through": snapshot.available_through.isoformat(),
         "coverage": _coverage_document(snapshot.coverage),
         "diagnostics": snapshot.diagnostic_counts,
         "counts": {
@@ -406,6 +792,9 @@ def prepare_run_manifest(snapshot: BootstrapSnapshot, path: Path) -> dict[str, A
             "normalized_inputs": snapshot.normalized_input_count,
         },
     }
+    if enriched_snapshot_path is not None:
+        manifest["enriched_snapshot_path"] = str(enriched_snapshot_path.resolve())
+        manifest["enriched_snapshot_sha256"] = enriched_snapshot_sha256
     write_run_manifest(path, manifest)
     return manifest
 
@@ -414,6 +803,7 @@ def write_run_manifest(path: Path, manifest: Mapping[str, Any]) -> None:
     """Replace the sidecar atomically so an interrupted write is recoverable."""
 
     path = path.resolve()
+    ensure_evidence_path_outside_git(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=True) + "\n"
     temporary: str | None = None
@@ -441,7 +831,85 @@ def write_run_manifest(path: Path, manifest: Mapping[str, Any]) -> None:
                 pass
 
 
-def _load_snapshot_row(value: object, row_number: int) -> NormalizedSourceRow:
+def _cached_row(row: NormalizedSourceRow) -> dict[str, object]:
+    return {
+        "occurred_at": row.occurred_at.isoformat(),
+        "time_precision": row.time_precision.value,
+        "latitude": str(row.latitude),
+        "longitude": str(row.longitude),
+        "depth_km": str(row.depth_km),
+        "magnitude": str(row.magnitude),
+        "location_description": row.location_description,
+        "source_bulletin_id": row.source_bulletin_id,
+        "source_event_group_id": row.source_event_group_id,
+        "source_url": row.source_url,
+        "origin": row.origin,
+        "diagnostics": [_diagnostic_document(diagnostic) for diagnostic in row.diagnostics],
+    }
+
+
+def _diagnostic_document(diagnostic: SourceDiagnostic) -> dict[str, object]:
+    return {"code": diagnostic.code.value, "context": dict(diagnostic.context)}
+
+
+def _load_cached_row(value: object, row_number: int) -> NormalizedSourceRow:
+    if not isinstance(value, Mapping):
+        raise BootstrapSnapshotError(f"Cached row {row_number} is invalid.")
+    occurred_at = _aware_datetime(value.get("occurred_at"), f"rows[{row_number}].occurred_at")
+    precision = value.get("time_precision")
+    if precision not in {item.value for item in SourceTimePrecision}:
+        raise BootstrapSnapshotError(f"Cached row {row_number} precision is invalid.")
+    origin = value.get("origin")
+    if origin is not None and not isinstance(origin, str):
+        raise BootstrapSnapshotError(f"Cached row {row_number} origin is invalid.")
+    diagnostics = value.get("diagnostics", [])
+    if not isinstance(diagnostics, list):
+        raise BootstrapSnapshotError(f"Cached row {row_number} diagnostics are invalid.")
+    source_url = value.get("source_url")
+    if not isinstance(source_url, str):
+        raise BootstrapSnapshotError(f"Cached row {row_number} source URL is invalid.")
+    row = _load_snapshot_row(
+        {
+            "occurred_at": occurred_at.isoformat(),
+            "latitude": value.get("latitude"),
+            "longitude": value.get("longitude"),
+            "depth_km": value.get("depth_km"),
+            "magnitude": value.get("magnitude"),
+            "location_description": value.get("location_description"),
+            "source_bulletin_id": value.get("source_bulletin_id"),
+            "source_event_group_id": value.get("source_event_group_id"),
+            "source_url": source_url,
+        },
+        row_number,
+    )
+    return replace(
+        row,
+        occurred_at=(
+            occurred_at
+            if precision == SourceTimePrecision.SECOND.value
+            else occurred_at.replace(second=0, microsecond=0)
+        ),
+        time_precision=SourceTimePrecision(precision),
+        origin=origin,
+        diagnostics=tuple(_diagnostic(item) for item in diagnostics),
+    )
+
+
+def _load_cached_rejection(value: object) -> RejectedSourceRow:
+    if not isinstance(value, Mapping):
+        raise BootstrapSnapshotError("Cached rejected row is invalid.")
+    row_number = value.get("row_number")
+    if not isinstance(row_number, int) or isinstance(row_number, bool) or row_number <= 0:
+        raise BootstrapSnapshotError("Cached rejected row number is invalid.")
+    return RejectedSourceRow(row_number, _diagnostic(value.get("diagnostic")))
+
+
+def _load_snapshot_row(
+    value: object,
+    row_number: int,
+    *,
+    snapshot_kind: str = "raw",
+) -> NormalizedSourceRow:
     if not isinstance(value, Mapping):
         raise _RejectedSnapshotRow(SourceDiagnostic(DiagnosticCode.INVALID_CATALOG_ROW))
     _reject_embedded_raw_payload(value)
@@ -449,9 +917,10 @@ def _load_snapshot_row(value: object, row_number: int) -> NormalizedSourceRow:
     if not isinstance(catalog, Mapping):
         raise _RejectedSnapshotRow(SourceDiagnostic(DiagnosticCode.INVALID_CATALOG_ROW))
     _reject_embedded_raw_payload(catalog)
-    detail = value.get("detail")
-    if isinstance(detail, Mapping):
-        _reject_embedded_raw_payload(detail)
+    supplied_detail = value.get("detail")
+    if isinstance(supplied_detail, Mapping):
+        _reject_embedded_raw_payload(supplied_detail)
+    detail = supplied_detail if snapshot_kind == "enriched" else None
     try:
         occurred_at = _aware_datetime(catalog.get("occurred_at"), "row.occurred_at")
         source_url = catalog.get("source_url")
@@ -460,14 +929,15 @@ def _load_snapshot_row(value: object, row_number: int) -> NormalizedSourceRow:
         identity = canonicalize_bulletin_url(source_url, source_url, occurred_at.year)
         bulletin_id = _optional_text(catalog.get("source_bulletin_id"), "source_bulletin_id")
         group_id = _optional_text(catalog.get("source_event_group_id"), "source_event_group_id")
-        if (
-            bulletin_id is not None
-            and identity.source_bulletin_id is not None
-            and bulletin_id.strip().upper() != identity.source_bulletin_id
+        if bulletin_id is not None and (
+            identity.source_bulletin_id is None
+            or bulletin_id.strip().upper() != identity.source_bulletin_id
         ):
             raise ValueError("source identifiers disagree")
         if group_id is not None and group_id.strip().upper() != identity.source_event_group_id:
             raise ValueError("source identifiers disagree")
+        if bulletin_id is None and group_id is None:
+            raise ValueError("source identifier is missing")
         row = NormalizedSourceRow.from_catalog_values(
             occurred_at=occurred_at,
             latitude=_required_value(catalog, "latitude"),
@@ -475,11 +945,10 @@ def _load_snapshot_row(value: object, row_number: int) -> NormalizedSourceRow:
             depth_km=_required_value(catalog, "depth_km"),
             magnitude=_required_value(catalog, "magnitude"),
             location_description=_required_text(catalog, "location_description"),
-            source_bulletin_id=bulletin_id or identity.source_bulletin_id,
-            source_event_group_id=group_id or identity.source_event_group_id,
+            source_bulletin_id=bulletin_id,
+            source_event_group_id=group_id,
             source_url=identity.source_url,
         )
-        return _apply_detail(row, detail)
     except BulletinUrlRejected as error:
         raise _RejectedSnapshotRow(SourceDiagnostic(DiagnosticCode.INVALID_SOURCE_URL)) from error
     except _RejectedSnapshotRow:
@@ -490,6 +959,13 @@ def _load_snapshot_row(value: object, row_number: int) -> NormalizedSourceRow:
         raise _RejectedSnapshotRow(_row_diagnostic(error)) from error
     except (KeyError, TypeError) as error:
         raise _RejectedSnapshotRow(SourceDiagnostic(DiagnosticCode.INVALID_CATALOG_ROW)) from error
+    if snapshot_kind == "enriched" and (
+        not isinstance(detail, Mapping) or detail.get("status") not in {"enriched", "failed"}
+    ):
+        raise BootstrapSnapshotError(
+            "Each valid row in an enriched snapshot must include a completed detail result."
+        )
+    return _apply_detail(row, detail)
 
 
 def _apply_detail(row: NormalizedSourceRow, value: object) -> NormalizedSourceRow:
@@ -500,11 +976,11 @@ def _apply_detail(row: NormalizedSourceRow, value: object) -> NormalizedSourceRo
     status = value.get("status", "not_attempted")
     if status not in _ALLOWED_DETAIL_STATUSES:
         raise _RejectedSnapshotRow(SourceDiagnostic(DiagnosticCode.INVALID_CATALOG_ROW))
-    occurred_at = value.get("occurred_at")
+    occurred_at = value.get("occurred_at") if status == "enriched" else None
     detail_time = (
         _aware_datetime(occurred_at, "detail.occurred_at") if occurred_at is not None else None
     )
-    origin = value.get("origin")
+    origin = value.get("origin") if status == "enriched" else None
     if origin is not None and not isinstance(origin, str):
         raise _RejectedSnapshotRow(SourceDiagnostic(DiagnosticCode.INVALID_CATALOG_ROW))
     diagnostic_values = value.get("diagnostics", [])
@@ -518,9 +994,7 @@ def _apply_detail(row: NormalizedSourceRow, value: object) -> NormalizedSourceRo
     ):
         diagnostics_list.append(SourceDiagnostic(DiagnosticCode.DETAIL_FETCH_FAILED))
     normalized_origin = (
-        normalize_detail_origin(origin, diagnostics_list)
-        if status == "enriched" or origin is not None
-        else None
+        normalize_detail_origin(origin, diagnostics_list) if status == "enriched" else None
     )
     return row.with_detail_enrichment(
         detail_occurred_at=detail_time,
@@ -560,7 +1034,12 @@ def _row_diagnostic(error: ValueError) -> SourceDiagnostic:
     return SourceDiagnostic(DiagnosticCode.INVALID_CATALOG_ROW)
 
 
-def _validate_coverage(coverage: SnapshotCoverage) -> None:
+def _validate_coverage(
+    coverage: SnapshotCoverage,
+    retrieved_at: datetime,
+    available_through: datetime,
+    required_available_through: datetime | None,
+) -> None:
     if coverage.end <= coverage.start:
         raise BootstrapSnapshotError("coverage.end must be after coverage.start.")
     anchor_local = coverage.first_prediction_anchor.astimezone(MANILA)
@@ -568,6 +1047,53 @@ def _validate_coverage(coverage: SnapshotCoverage) -> None:
         raise BootstrapSnapshotError("first_prediction_anchor must be in September 2026.")
     if not coverage.start <= coverage.first_prediction_anchor < coverage.end:
         raise BootstrapSnapshotError("first_prediction_anchor must be inside coverage.")
+    available_local = available_through.astimezone(MANILA)
+    if available_local.year != 2026 or available_local.month != 9:
+        raise BootstrapSnapshotError("source.available_through must be in September 2026.")
+    if available_through > retrieved_at:
+        raise BootstrapSnapshotError("source.available_through cannot be after retrieval.")
+    if required_available_through is not None and available_through.astimezone(
+        UTC
+    ) < required_available_through.astimezone(UTC):
+        raise BootstrapSnapshotError(
+            "source.available_through does not reach the configured September cutoff."
+        )
+    if not coverage.start <= available_through < coverage.end:
+        raise BootstrapSnapshotError("source.available_through must be inside coverage.")
+
+
+def _validate_import_coverage(
+    rows: list[NormalizedSourceRow],
+    coverage: SnapshotCoverage,
+    available_through: datetime,
+) -> None:
+    """Reject an incomplete history window before any durable import starts."""
+
+    if not coverage.complete:
+        raise BootstrapSnapshotError("The bootstrap snapshot coverage is not complete.")
+    if coverage.start.astimezone(UTC) > _MINIMUM_LOOKBACK_START.astimezone(UTC):
+        raise BootstrapSnapshotError(
+            "The bootstrap snapshot starts after the required August lookback."
+        )
+    if not rows:
+        raise BootstrapSnapshotError("The bootstrap snapshot contains no accepted source rows.")
+    actual_start = min(row.occurred_at for row in rows)
+    actual_end = max(row.occurred_at for row in rows)
+    if actual_start.astimezone(UTC) > _MINIMUM_LOOKBACK_START.astimezone(UTC):
+        raise BootstrapSnapshotError(
+            "Accepted source rows do not reach the required August lookback."
+        )
+    if actual_end.astimezone(UTC) < coverage.first_prediction_anchor.astimezone(UTC):
+        raise BootstrapSnapshotError(
+            "Accepted source rows do not reach the first prediction anchor."
+        )
+    if actual_end.astimezone(UTC) < available_through.astimezone(UTC):
+        raise BootstrapSnapshotError(
+            "Accepted source rows do not reach the available September window."
+        )
+    final_covered_day = (coverage.end - timedelta(microseconds=1)).astimezone(MANILA).date()
+    if actual_end.astimezone(MANILA).date() < final_covered_day:
+        raise BootstrapSnapshotError("Accepted source rows do not reach the declared coverage end.")
 
 
 def _validate_rows_against_coverage(

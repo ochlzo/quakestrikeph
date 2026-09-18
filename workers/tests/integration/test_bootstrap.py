@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import func, insert, select
+from sqlalchemy import func, insert, select, update
 
 from quakestrike.application.bootstrap import run_bootstrap
+from quakestrike.application.persistence import RunIdentityConflict
 from quakestrike.application.reconciliation import ReconcileSourceRows, ReconciliationDiagnostic
 from quakestrike.domain.features import PredictionSkipReason
 from quakestrike.infrastructure.bootstrap import (
@@ -48,6 +49,36 @@ class Reporter:
 
     def report(self, diagnostic: ReconciliationDiagnostic) -> None:
         self.diagnostics.append(diagnostic)
+
+
+class InterruptAfterFirstRow:
+    """Delegate persistence but simulate a lost lease after one row checkpoint."""
+
+    def __init__(self, store) -> None:
+        self._store = store
+        self._heartbeats = 0
+
+    def __getattr__(self, name):
+        return getattr(self._store, name)
+
+    def heartbeat_run(self, run_id, worker_execution_id, now):
+        self._heartbeats += 1
+        if self._heartbeats == 2:
+            return False
+        return self._store.heartbeat_run(run_id, worker_execution_id, now)
+
+
+def test_backfill_run_rejects_changed_enrichment_evidence(migrated_engine) -> None:
+    store = SqlAlchemyIngestionTransactions(
+        create_session_factory(migrated_engine),
+        model_release_verifier=VerifiedReleaseGate(uuid4()),
+    )
+    run_id = uuid4()
+    correlation_id = uuid4()
+    store.create_backfill_run(run_id, correlation_id, "a" * 64, "b" * 64)
+
+    with pytest.raises(RunIdentityConflict):
+        store.create_backfill_run(run_id, correlation_id, "a" * 64, "c" * 64)
 
 
 def test_bootstrap_is_resumable_and_keeps_prediction_dispatch_in_scope(
@@ -131,11 +162,31 @@ def test_bootstrap_is_resumable_and_keeps_prediction_dispatch_in_scope(
         model_release_id=release_id,
         history_coverage=snapshot.coverage.history_coverage(),
     )
+    run_id = _manifest_uuid(manifest, "run_id")
+    correlation_id = _manifest_uuid(manifest, "correlation_id")
+    store.create_backfill_run(run_id, correlation_id, snapshot.sha256)
+    interrupted = ReconcileSourceRows(
+        store=InterruptAfterFirstRow(store),
+        source_loader=snapshot_loader,
+        diagnostic_reporter=reporter,
+        model_release_id=release_id,
+        history_coverage=snapshot.coverage.history_coverage(),
+    ).execute(run_id)
+    assert interrupted.status == "lease_lost"
+    with migrated_engine.begin() as connection:
+        assert connection.scalar(select(func.count()).select_from(ingestion_run_inputs)) == 5
+        connection.execute(
+            update(ingestion_runs)
+            .where(ingestion_runs.c.run_id == run_id)
+            .values(lease_expires_at=datetime.now(UTC) - timedelta(seconds=1))
+        )
+
     first = run_bootstrap(
         store=store,
         reconciler=reconciler,
-        run_id=_manifest_uuid(manifest, "run_id"),
-        correlation_id=_manifest_uuid(manifest, "correlation_id"),
+        run_id=run_id,
+        correlation_id=correlation_id,
+        snapshot_sha256=snapshot.sha256,
         manifest=manifest,
         write_manifest=lambda value: write_run_manifest(
             tmp_path / "historical.json.bootstrap.json", value
@@ -192,6 +243,7 @@ def test_bootstrap_is_resumable_and_keeps_prediction_dispatch_in_scope(
         reconciler=reconciler,
         run_id=_manifest_uuid(manifest, "run_id"),
         correlation_id=_manifest_uuid(manifest, "correlation_id"),
+        snapshot_sha256=snapshot.sha256,
         manifest=manifest,
         write_manifest=lambda value: write_run_manifest(
             tmp_path / "historical.json.bootstrap.json", value

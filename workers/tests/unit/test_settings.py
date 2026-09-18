@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -32,6 +33,9 @@ def test_settings_validate_required_values_and_operational_defaults() -> None:
     assert settings.dispatcher_batch_size == 10
     assert settings.ingestor_concurrency == 1
     assert settings.retry_delays_seconds == (30, 120, 600)
+    assert settings.bootstrap_required_available_through == datetime.fromisoformat(
+        "2026-09-01T00:00:00+08:00"
+    )
 
 
 def test_example_environment_file_is_valid() -> None:
@@ -40,6 +44,14 @@ def test_example_environment_file_is_valid() -> None:
     assert settings.ingestor_concurrency == 1
     assert settings.database_url.startswith("postgresql+psycopg://")
     assert settings.model_release_id == SEIS_RELEASE_ID
+
+
+def test_settings_reject_naive_bootstrap_cutoff() -> None:
+    values = valid_settings().model_dump()
+    values["bootstrap_required_available_through"] = datetime(2026, 9, 1)
+
+    with pytest.raises(ValidationError, match="must include a UTC offset"):
+        Settings(_env_file=None, **values)
 
 
 def test_settings_require_database_and_redis_urls() -> None:

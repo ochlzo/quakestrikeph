@@ -178,6 +178,7 @@ def test_event_revision_prediction_and_dispatch_commit_together(migrated_engine)
                 started_at=NOW,
                 finished_at=NOW,
                 correlation_id=uuid4(),
+                bootstrap_snapshot_sha256=uuid4().hex * 2,
             )
         )
         connection.execute(
@@ -218,6 +219,7 @@ def test_event_transaction_failure_rolls_back_event_and_revision(migrated_engine
                 started_at=NOW,
                 finished_at=NOW,
                 correlation_id=uuid4(),
+                bootstrap_snapshot_sha256=uuid4().hex * 2,
             )
         )
     revision = _revision(run_id)
@@ -250,6 +252,7 @@ def _seed_run_and_release(engine):
                 started_at=NOW,
                 finished_at=NOW,
                 correlation_id=uuid4(),
+                bootstrap_snapshot_sha256=uuid4().hex * 2,
             )
         )
         connection.execute(
@@ -480,6 +483,7 @@ def test_later_observation_refreshes_event_timestamp(migrated_engine) -> None:
                 started_at=NOW,
                 finished_at=NOW,
                 correlation_id=uuid4(),
+                bootstrap_snapshot_sha256=uuid4().hex * 2,
             )
         )
     transactions.process_event(
@@ -520,6 +524,7 @@ def test_revisionless_existing_event_updates_last_seen_run(migrated_engine) -> N
                 started_at=NOW,
                 finished_at=NOW,
                 correlation_id=uuid4(),
+                bootstrap_snapshot_sha256=uuid4().hex * 2,
             )
         )
 
@@ -564,6 +569,7 @@ def test_group_only_revert_after_a_changed_revision_creates_a_new_revision(migra
                 started_at=NOW,
                 finished_at=NOW,
                 correlation_id=uuid4(),
+                bootstrap_snapshot_sha256=uuid4().hex * 2,
             )
         )
     changed = transactions.process_event(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
@@ -9,6 +10,9 @@ from uuid import UUID
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEFAULT_BOOTSTRAP_RUN_MANIFEST = Path("database/initialization/bootstrap-readiness.json")
+DEFAULT_BOOTSTRAP_REQUIRED_AVAILABLE_THROUGH = datetime.fromisoformat("2026-09-01T00:00:00+08:00")
 
 
 class Settings(BaseSettings):
@@ -31,10 +35,17 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("MODEL_ARTIFACT_DIRECTORY", "model_artifact_directory"),
     )
     bootstrap_run_manifest: Path = Field(
-        default=Path("database/initialization/bootstrap-readiness.json"),
+        default=DEFAULT_BOOTSTRAP_RUN_MANIFEST,
         validation_alias=AliasChoices(
             "BOOTSTRAP_RUN_MANIFEST",
             "bootstrap_run_manifest",
+        ),
+    )
+    bootstrap_required_available_through: datetime = Field(
+        default=DEFAULT_BOOTSTRAP_REQUIRED_AVAILABLE_THROUGH,
+        validation_alias=AliasChoices(
+            "BOOTSTRAP_REQUIRED_AVAILABLE_THROUGH",
+            "bootstrap_required_available_through",
         ),
     )
 
@@ -162,6 +173,13 @@ class Settings(BaseSettings):
             raise ValueError("RETRY_DELAYS_SECONDS values must be positive")
         return value
 
+    @field_validator("bootstrap_required_available_through")
+    @classmethod
+    def validate_bootstrap_cutoff(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("BOOTSTRAP_REQUIRED_AVAILABLE_THROUGH must include a UTC offset")
+        return value
+
     def safe_summary(self) -> dict[str, object]:
         """Return configuration metadata that excludes credentials and full URLs."""
 
@@ -171,6 +189,9 @@ class Settings(BaseSettings):
             "model_release_configured": True,
             "model_artifact_directory": str(self.model_artifact_directory),
             "bootstrap_run_manifest": str(self.bootstrap_run_manifest),
+            "bootstrap_required_available_through": (
+                self.bootstrap_required_available_through.isoformat()
+            ),
             "poll_interval_seconds": self.poll_interval_seconds,
             "log_level": self.log_level,
         }

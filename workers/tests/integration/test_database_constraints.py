@@ -51,6 +51,7 @@ def _run_values(**changes):
         "started_at": NOW,
         "finished_at": NOW,
         "correlation_id": uuid4(),
+        "bootstrap_snapshot_sha256": VALID_SNAPSHOT_HASH,
     }
     values.update(changes)
     return values
@@ -157,6 +158,18 @@ def _job_values(parents: dict[str, UUID], **changes):
 )
 def test_ingestion_run_state_and_counter_constraints(migrated_engine, changes) -> None:
     _failed(migrated_engine, insert(ingestion_runs).values(**_run_values(**changes)))
+
+
+def test_backfill_run_requires_a_snapshot_hash(migrated_engine) -> None:
+    _failed(
+        migrated_engine,
+        insert(ingestion_runs).values(
+            **_run_values(
+                trigger_type="backfill",
+                bootstrap_snapshot_sha256=None,
+            )
+        ),
+    )
 
 
 @pytest.mark.parametrize(

@@ -211,13 +211,21 @@ does not run through the ingestion queue:
 
 ```powershell
 uv run --project workers quakestrike bootstrap --snapshot .\bootstrap-snapshots\historical.json
-uv run --project workers quakestrike bootstrap-readiness --run-manifest .\bootstrap-snapshots\historical.json.bootstrap.json
+uv run --project workers quakestrike bootstrap-readiness
 ```
 
-The default run manifest is the snapshot filename with `.bootstrap.json`
-appended. Set `BOOTSTRAP_RUN_MANIFEST` or pass `--run-manifest` to override the
-readiness sidecar used by startup checks. The snapshot is immutable evidence;
-the sidecar is mutable operator state and is ignored outside the repository.
+The default run manifest is `database/initialization/bootstrap-readiness.json`.
+Set `BOOTSTRAP_RUN_MANIFEST` or pass `--run-manifest` to override the readiness
+sidecar used by startup checks. Set `BOOTSTRAP_REQUIRED_AVAILABLE_THROUGH` to
+the independently verified latest PHIVOLCS catalog cutoff for the bootstrap.
+If a failed run reaches its retry limit, use
+`quakestrike bootstrap-recover` to requeue that same run identity before
+rerunning `bootstrap`. The source envelope must declare `source.retrieved_at`
+and `source.available_through`; the declared endpoint must reach the configured
+September cutoff, and coverage must include it. The command copies the exact source bytes into the ignored,
+hash-addressed `bootstrap-snapshots/source-snapshots/` evidence directory. Raw
+imports also bind the derived enrichment-cache hash to the durable backfill run.
+The sidecar is mutable operator state and remains ignored by Git.
 The bootstrap creates prediction jobs and durable prediction dispatches for
 eligible events, but automatic alert work is explicitly suppressed.
 
