@@ -1,29 +1,44 @@
 # Contributing to QuakeStrike PH
 
-This guide is for the team working on QuakeStrike PH. The repository is still
-in the first worker implementation slice, so a small, well-tested change is
-more useful than a large change that skips the project contracts.
+This guide covers how to make and submit changes. For the system overview and
+local runtime setup, start with [README.md](README.md).
 
-## Start with the project rules
+## Work on your own branch
 
-Read these files before changing behavior:
+Create a branch for each change from the current shared base branch. Use a
+short name that describes the work:
 
-1. [`AGENTS.md`](AGENTS.md)
-2. [`CONTEXT.md`](CONTEXT.md)
-3. The relevant [architecture specification](docs/system-design/ARCHITECTURE/ARCHITECTURE.md)
-4. The [database design](docs/system-design/ERD/DATABASE-DESIGN.md) for any
-   persistence or schema work
-5. The relevant records in [`docs/adr/`](docs/adr/)
-6. [`docs/implementation-plan.md`](docs/implementation-plan.md) for the active
-   phase and checkpoint
+```powershell
+git switch main
+git pull --ff-only
+git switch -c feat/ingestion-reconciliation
+```
 
-These documents define the vocabulary, ownership rules, and accepted runtime
-decisions. If a change conflicts with one of them, stop and resolve the
-conflict in an ADR or an approved document update before coding around it.
+Use `feat/` for features, `fix/` for bug fixes, `docs/` for documentation,
+`test/` for tests, and `chore/` for maintenance. Codex-created branches use
+`codex/`. Keep unrelated changes on separate branches.
 
-## Local setup
+Push only to a branch you own. Do not push directly to `main` or to another
+contributor's branch. Bring changes into `main` through a reviewed pull
+request.
 
-From the repository root:
+## Make focused commits
+
+Use a short subject in the form `type: summary`, such as:
+
+```text
+feat: add ingestion dispatch retry
+fix: preserve bulletin revision identity
+docs: clarify local bootstrap steps
+```
+
+Prefer one purpose per commit. Before committing, inspect `git status` and
+`git diff --staged` so generated files, credentials, model weights, and
+source datasets do not enter the commit.
+
+## Local setup for contributor checks
+
+From the repository root, install the locked Python dependencies:
 
 ```powershell
 Copy-Item .env.example .env
@@ -31,100 +46,26 @@ uv python install 3.12
 uv sync --project workers --frozen
 ```
 
-The current project uses Python 3.12 and `uv`. The lock file is
-`workers/uv.lock`. Do not update it as a side effect of an unrelated change.
-
-PostgreSQL and Redis are available through:
-
-```powershell
-docker compose --env-file .env -f infrastructure/compose.yml up -d
-```
-
-The base Compose file keeps those services on an internal network and does not
-publish host ports. It is safe for local service storage, but it is not a
-complete worker orchestration file yet.
-
-Database integration tests use a separate Compose project and private network:
+The full local runtime setup is in the [README](README.md#get-started-locally).
+For database and Redis integration tests, use the separate disposable Compose
+project below. Its test runner sets `TEST_DATABASE_URL` and `TEST_REDIS_URL`;
+running the same tests on the host without those variables skips them.
 
 ```powershell
-docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test redis-test
 docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration
 docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v
 ```
 
-Use the fixed `quakestrike-data-ingestion-test` project name for this shared
-test environment. Reusing it lets Compose reuse the existing test containers
-and the locally built `test-runner` image. A different project name creates a
-separate Compose project and may create another project-scoped image. Never
-reuse the normal development Compose project name for this cleanup.
+Use this exact project name. The test database is isolated from the local
+development database and uses temporary storage. The last command removes
+only the test project's resources. Check the pytest summary to confirm the
+integration tests ran rather than being skipped.
 
-## Branches and commits
+## Check your change
 
-Create a branch from the current integration branch. Use a short prefix that
-describes the work:
-
-```powershell
-git switch -c feat/ingestion-reconciliation
-git switch -c fix/queue-contract-validation
-git switch -c docs/developer-setup
-```
-
-Keep commits focused. A suggested subject format is `type: short description`,
-using types such as `feat`, `fix`, `docs`, `test`, `refactor`, or `chore`.
-
-## Code boundaries
-
-The worker package follows these responsibilities:
-
-- `workers/src/quakestrike/domain/` contains domain rules and value concepts.
-- `workers/src/quakestrike/application/` coordinates use cases and ports.
-- `workers/src/quakestrike/infrastructure/` implements database, queue, HTTP,
-  model, logging, and other external adapters.
-- `workers/src/quakestrike/scheduler/` owns Beat and dispatcher entry points.
-- `workers/src/quakestrike/data_ingestor/` owns the ingestion worker boundary.
-- `packages/contracts/queue/` contains versioned message schemas. It is not a
-  shared bucket for executable business logic.
-
-Keep dependencies pointing inward. Domain and application code must not import
-Celery, SQLAlchemy, Redis, HTTP clients, or provider SDKs. Worker code must not
-call the Backend's public HTTP routes for internal data access.
-
-When adding or changing a queue message, update all of these together:
-
-1. The JSON schema under `packages/contracts/queue/`.
-2. The Python binding under `workers/src/quakestrike/infrastructure/queues/`.
-3. Contract tests under `workers/tests/contract/`.
-4. Any ADR or documentation that changes the message's ownership or delivery
-   rules.
-
-Queue commands should contain stable database identifiers and correlation
-context. They should not carry scraped HTML, full event payloads, secrets, or
-CSV paths.
-
-## Database and ingestion changes
-
-Read the database design before changing tables, indexes, PostgreSQL enums,
-constraints, transactions, retention, or ownership. PostgreSQL is the live
-source of truth. Redis is a broker, not the job store.
-
-Preserve the ingestion invariants:
-
-- A stable event identity survives later PHIVOLCS corrections.
-- Changed source data creates a new immutable revision instead of editing the
-  old revision in place.
-- Duplicate delivery is expected and must be safe to repeat.
-- Prediction work needs a complete, canonical feature snapshot and the required
-  history coverage.
-- Migrations, model release registration, and bootstrap readiness are explicit
-  steps. Do not hide them in service startup.
-
-If a change affects architecture, data ownership, security, runtime versions,
-queue semantics, deployment, or an external interface, add or update an ADR
-before merging the implementation.
-
-## Testing and formatting
-
-Run the complete current check set from the repository root:
+Run the checks that cover the files you changed. For Python worker changes,
+the standard checks are:
 
 ```powershell
 uv run --project workers pytest --config-file workers/pyproject.toml workers/tests
@@ -133,54 +74,23 @@ uv run --project workers ruff format --check workers
 git diff --check
 ```
 
-The tests must remain deterministic. Do not make CI or unit tests call the live
-PHIVOLCS website. Use sanitized fixtures and fakes for external systems. Add a
-local PostgreSQL/Redis integration test only when the test owns its setup and
-cleanup.
+Run the integration suite above when changing PostgreSQL, Redis, bootstrap,
+ingestion, or dispatch behavior. Keep automated tests independent of the live
+PHIVOLCS website; use sanitized fixtures. Do not point
+`TEST_DATABASE_URL` at the development database: the test fixtures migrate
+and truncate their database.
 
-When a test exposes a bug, prefer a failing test first, then the smallest fix
-that satisfies the relevant contract. Keep tests near the boundary they
-protect. Queue shape tests belong in `workers/tests/contract/`; pure rules
-belong in unit tests; database behavior belongs in integration tests when that
-layer exists.
+## Open a pull request
 
-## Logging and local data
+Push your branch and open a pull request into the shared base branch. In the
+description, include:
 
-Use the structured logging helpers already in the worker package. Never log
-secrets, passwords, raw HTML, large source payloads, model weights, or complete
-connection URLs. Include available run, dispatch, correlation, worker, event,
-revision, and message identifiers.
+- What changed and why.
+- How you verified it, including commands and results.
+- Any setup needed to reproduce the behavior.
+- Any known limitation or follow-up work.
 
-Keep these files and directories local and untracked:
-
-- `.env` and `.env.local`
-- `model-artifacts/`
-- `bootstrap-snapshots/`
-- `datasets/` and `data/`
-- local readiness manifests and source snapshots
-
-If a fixture is needed for a test, sanitize it first and commit only the small
-fixture required to explain the behavior.
-
-## Pull requests
-
-A pull request should explain the behavior it changes and the evidence that it
-works. Include links to the issue, plan checkpoint, or ADR when one exists.
-
-Before requesting review, check:
-
-- [ ] The change stays within the current implementation phase.
-- [ ] `pytest`, Ruff lint, Ruff format check, and `git diff --check` pass.
-- [ ] Tests cover the changed contract or regression.
-- [ ] Documentation and diagrams are updated when behavior or ownership
-      changed.
-- [ ] A relevant ADR exists for architecture, schema, security, runtime,
-      queue, or deployment changes.
-- [ ] No credentials, model artifacts, datasets, raw PHIVOLCS payloads, or
-      generated local output are included.
-- [ ] The pull request states any deferred work or known limitation.
-
-Reviewers should check the requested behavior against the project documents,
-then check the dependency direction and failure behavior. In particular, a
-worker should fail closed when required readiness gates are unavailable, and a
-duplicate queue delivery should not create a second logical record.
+Review the diff before requesting review. Keep secrets, `.env` files,
+model artifacts, raw source snapshots, and local readiness manifests out of
+Git. Address review feedback on your own branch, then wait for the required
+review before merging.
