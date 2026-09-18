@@ -981,10 +981,7 @@ def write_startup_readiness_manifest(
     """Atomically add a safe startup proof to an existing run manifest."""
 
     path = path.resolve()
-    try:
-        manifest = load_run_manifest(path) if path.exists() else None
-    except BootstrapSnapshotError:
-        manifest = None
+    manifest = load_run_manifest(path) if path.exists() else None
 
     checked_at = checked_at or datetime.now(UTC)
     if checked_at.tzinfo is None or checked_at.utcoffset() is None:

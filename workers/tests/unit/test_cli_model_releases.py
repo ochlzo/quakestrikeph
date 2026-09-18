@@ -349,6 +349,36 @@ def test_startup_check_returns_two_and_records_failed_gate(
     assert manifest["readiness"]["failed_gate_names"] == ["redis-connectivity"]
 
 
+def test_startup_check_preserves_invalid_bootstrap_manifest(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    manifest_path = tmp_path / "bootstrap-readiness.json"
+    manifest_path.write_text("not json", encoding="utf-8")
+    settings = type(
+        "StartupSettings",
+        (),
+        {"bootstrap_run_manifest": manifest_path, "log_level": "INFO"},
+    )()
+
+    class FailedGate:
+        name = "bootstrap-readiness"
+
+        def check(self):  # type: ignore[no-untyped-def]
+            return GateResult(name=self.name, ready=False, reason="evidence is invalid")
+
+    monkeypatch.setattr(cli, "Settings", lambda: settings)
+    monkeypatch.setattr(cli, "phase_one_startup_gates", lambda _settings: (FailedGate(),))
+    monkeypatch.setattr(sys, "argv", ["quakestrike", "startup-check"])
+
+    assert cli.main() == 2
+    output = json.loads(capsys.readouterr().out)
+    assert output["ready"] is False
+    assert output["failed_gate_names"] == ["bootstrap-readiness", "readiness-manifest"]
+    assert manifest_path.read_text(encoding="utf-8") == "not json"
+
+
 def test_startup_check_returns_one_when_readiness_manifest_cannot_be_written(
     monkeypatch,
     tmp_path: Path,

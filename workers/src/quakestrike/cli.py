@@ -137,11 +137,29 @@ def _run_startup_check(requested_manifest_path: Path | None) -> int:
                 event_code="startup_not_ready",
                 context={"reason": ", ".join(report.failed_gate_names)},
             )
-        write_startup_readiness_manifest(
-            manifest_path,
-            report,
-            checked_at=datetime.now(UTC),
-        )
+        try:
+            write_startup_readiness_manifest(
+                manifest_path,
+                report,
+                checked_at=datetime.now(UTC),
+            )
+        except BootstrapSnapshotError:
+            log_event(
+                logger,
+                logging.ERROR,
+                "readiness manifest could not be updated",
+                event_code="readiness_manifest_invalid",
+                context={"reason": "existing bootstrap evidence is invalid"},
+            )
+            output = report.as_dict()
+            output["ready"] = False
+            output["failed_gate_names"] = [
+                *report.failed_gate_names,
+                "readiness-manifest",
+            ]
+            output["manifest_path"] = str(manifest_path)
+            _print_json(output)
+            return 2
         output = report.as_dict()
         output["manifest_path"] = str(manifest_path)
         _print_json(output)

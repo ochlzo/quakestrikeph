@@ -492,7 +492,7 @@ def test_startup_readiness_manifest_preserves_evidence_and_writes_gate_report(
     }
 
 
-def test_startup_readiness_manifest_replaces_malformed_input_with_minimal_non_ready_report(
+def test_startup_readiness_manifest_preserves_malformed_input(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "run.json"
@@ -501,15 +501,14 @@ def test_startup_readiness_manifest_replaces_malformed_input_with_minimal_non_re
         (GateResult(name="bootstrap-readiness", ready=False, reason="not ready"),)
     )
 
-    updated = write_startup_readiness_manifest(
-        path,
-        report,
-        checked_at=datetime(2026, 9, 18, tzinfo=UTC),
-    )
+    with pytest.raises(BootstrapSnapshotError):
+        write_startup_readiness_manifest(
+            path,
+            report,
+            checked_at=datetime(2026, 9, 18, tzinfo=UTC),
+        )
 
-    assert set(updated) == {"schema_version", "readiness"}
-    assert updated["readiness"]["ready"] is False
-    assert "snapshot_path" not in updated
+    assert path.read_text(encoding="utf-8") == "not json"
 
 
 def test_bootstrap_can_replace_its_readiness_only_placeholder(tmp_path: Path) -> None:
