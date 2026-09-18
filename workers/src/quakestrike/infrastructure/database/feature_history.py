@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -34,12 +36,38 @@ class SqlAlchemyFeatureHistoryQuery:
         with self._session_factory() as session:
             return self.select_prior_history_in_session(session, anchor, coverage=coverage)
 
+    def select_history_at(
+        self,
+        anchor_time: datetime,
+        *,
+        coverage: HistoryCoverage | None = None,
+    ) -> HistorySelection:
+        """Read history for a declared boundary that has no anchor event."""
+
+        with self._session_factory() as session:
+            return self.select_history_at_in_session(session, anchor_time, coverage=coverage)
+
     @staticmethod
     def select_prior_history_in_session(
         session: Session,
         anchor: FeatureObservation,
         *,
         coverage: HistoryCoverage | None = None,
+    ) -> HistorySelection:
+        return SqlAlchemyFeatureHistoryQuery.select_history_at_in_session(
+            session,
+            anchor.event_time,
+            coverage=coverage,
+            excluded_event_id=anchor.event_id,
+        )
+
+    @staticmethod
+    def select_history_at_in_session(
+        session: Session,
+        anchor_time: datetime,
+        *,
+        coverage: HistoryCoverage | None = None,
+        excluded_event_id: object | None = None,
     ) -> HistorySelection:
         revisions = earthquake_event_revisions
         latest_revision = (
@@ -50,8 +78,8 @@ class SqlAlchemyFeatureHistoryQuery:
             .group_by(revisions.c.event_id)
             .subquery("latest_event_revision")
         )
-        lower_bound = anchor.event_time - HISTORY_WINDOW
-        rows = session.execute(
+        lower_bound = anchor_time - HISTORY_WINDOW
+        statement = (
             select(revisions)
             .join(
                 latest_revision,
@@ -59,12 +87,14 @@ class SqlAlchemyFeatureHistoryQuery:
                 & (latest_revision.c.revision_number == revisions.c.revision_number),
             )
             .where(
-                revisions.c.event_id != anchor.event_id,
                 revisions.c.event_time >= lower_bound,
-                revisions.c.event_time < anchor.event_time,
+                revisions.c.event_time < anchor_time,
             )
             .order_by(revisions.c.event_time.asc(), revisions.c.event_revision_id.asc())
-        ).mappings()
+        )
+        if excluded_event_id is not None:
+            statement = statement.where(revisions.c.event_id != excluded_event_id)
+        rows = session.execute(statement).mappings()
         observations = tuple(_observation_from_row(row) for row in rows)
         return HistorySelection(observations=observations, coverage=coverage)
 

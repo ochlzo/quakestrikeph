@@ -125,6 +125,9 @@ def test_loads_a_verified_manifest_and_hashes_its_exact_canonical_bytes(tmp_path
     assert release.release_id == RELEASE_ID
     assert release.manifest_hash == hashlib.sha256(expected_bytes).hexdigest()
     assert release.artifact_paths == ("models/m1_probability.txt",)
+    assert release.artifact_hashes == {
+        "models/m1_probability.txt": hashlib.sha256(b"known-good-model-bytes\n").hexdigest()
+    }
 
 
 def test_rejects_a_changed_artifact_before_returning_a_release(tmp_path: Path) -> None:

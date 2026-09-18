@@ -22,6 +22,7 @@ from quakestrike.domain.features import (
     INPUT_SCHEMA_VERSION,
     HistoryCoverage,
     feature_snapshot_hash,
+    select_usable_history,
 )
 from quakestrike.infrastructure.database.dispatch import SqlAlchemyDispatchStore
 from quakestrike.infrastructure.database.engine import create_session_factory
@@ -370,6 +371,49 @@ def test_prior_history_query_excludes_observations_at_the_anchor_timestamp(
     assert same_time_event_id not in {
         observation.event_id for observation in selection.observations
     }
+
+
+def test_readiness_history_query_uses_latest_revision_without_an_anchor_event(
+    migrated_engine,
+) -> None:
+    run_id, _ = _seed_run_and_release(migrated_engine)
+    event_id = _insert_history_event(
+        migrated_engine,
+        run_id,
+        _revision(
+            run_id,
+            event_time=NOW - timedelta(days=1),
+            bulletin_id="2026_0915_1200_B1",
+            magnitude="2.00",
+        ),
+    )
+    _transactions(migrated_engine).process_event(
+        EventTransactionRequest(
+            event_id=event_id,
+            ingestion_run_id=run_id,
+            revision=_revision(
+                run_id,
+                event_time=NOW - timedelta(days=1),
+                bulletin_id="2026_0915_1200_B2",
+                magnitude="0.50",
+            ),
+        )
+    )
+
+    selection = SqlAlchemyFeatureHistoryQuery(
+        create_session_factory(migrated_engine)
+    ).select_history_at(NOW)
+    observations = {observation.event_id: observation for observation in selection.observations}
+
+    assert observations[event_id].magnitude == Decimal("0.50")
+    assert (
+        select_usable_history(
+            NOW,
+            selection.observations,
+            anchor_time_precision="minute",
+        )
+        == ()
+    )
 
 
 def test_eligible_revision_stores_complete_snapshot_and_prediction_dispatch(

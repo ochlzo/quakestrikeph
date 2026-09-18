@@ -29,6 +29,8 @@ from quakestrike.infrastructure.database.tables import (
     model_releases,
     prediction_jobs,
 )
+from quakestrike.infrastructure.settings import Settings
+from quakestrike.infrastructure.startup import BootstrapReadinessStartupGate
 
 pytestmark = pytest.mark.integration
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "bootstrap" / "historical_snapshot.json"
@@ -205,6 +207,21 @@ def test_bootstrap_is_resumable_and_keeps_prediction_dispatch_in_scope(
     assert manifest["diagnostics"]["INVALID_CATALOG_ROW"] == 1
     readiness = evaluate_bootstrap_readiness(snapshot, manifest, second.state)
     assert readiness.ready is True
+
+    gate = BootstrapReadinessStartupGate(
+        Settings(
+            _env_file=None,
+            database_url=str(migrated_engine.url),
+            redis_url="redis://redis:6379/0",
+            phivolcs_catalog_url="https://example.invalid/phivolcs/catalog",
+            model_release_id=release_id,
+            bootstrap_run_manifest=tmp_path / "historical.json.bootstrap.json",
+        )
+    )
+    proof = gate.check()
+    assert proof.ready is True
+    assert json.loads(proof.details["database_counts"])["input_checkpoints"] == 8
+    assert int(proof.details["usable_history_count"]) > 0
 
 
 def _manifest_uuid(manifest: dict[str, object], key: str) -> UUID:

@@ -19,6 +19,7 @@ from quakestrike.infrastructure.models.release_manifest import (
 )
 from quakestrike.infrastructure.settings import Settings
 from quakestrike.infrastructure.startup import (
+    BootstrapReadinessStartupGate,
     ModelReleaseStartupGate,
     UnavailableStartupGate,
     phase_one_startup_gates,
@@ -62,6 +63,7 @@ def verified_manifest(settings: Settings) -> VerifiedReleaseManifest:
         manifest_uri="seis-1.0/manifest.json",
         manifest_hash="a" * 64,
         artifact_paths=("models/example.bin",),
+        artifact_hashes={"models/example.bin": "b" * 64},
     )
 
 
@@ -103,6 +105,28 @@ def test_startup_report_exposes_sanitized_gate_details() -> None:
     assert "DATABASE_URL" not in str(serialized)
 
 
+def test_startup_report_evaluates_remaining_gates_after_one_gate_raises() -> None:
+    class FailingGate:
+        name = "failing"
+
+        def check(self):  # type: ignore[no-untyped-def]
+            raise RuntimeError("private connection details")
+
+    class ReadyGate:
+        name = "ready"
+
+        def check(self):  # type: ignore[no-untyped-def]
+            return startup.GateResult(name=self.name, ready=True, reason="ready")
+
+    report = evaluate_startup_gates((FailingGate(), ReadyGate()))
+
+    assert report.ready is False
+    assert report.failed_gate_names == ("failing",)
+    assert report.results[0].reason == "Startup gate failed safely."
+    assert report.results[0].details == {"error_type": "RuntimeError"}
+    assert report.results[1].ready is True
+
+
 def test_model_release_gate_returns_a_safe_failure_when_database_is_unavailable(
     monkeypatch,
 ) -> None:
@@ -142,6 +166,15 @@ def test_model_release_gate_is_ready_for_a_matching_manifest_and_registration(
 
     assert result.ready is True
     assert result.reason == "Model release verified."
+    assert result.details == {
+        "release_id": str(settings.model_release_id),
+        "version_label": "SEIS 1.0",
+        "manifest_uri": "seis-1.0/manifest.json",
+        "manifest_hash": "a" * 64,
+        "input_schema_version": "input.v1",
+        "output_schema_version": "output.v1",
+        "artifact_hashes": json.dumps({"models/example.bin": "b" * 64}, sort_keys=True),
+    }
     assert engine.disposed is True
 
 
@@ -166,6 +199,22 @@ def test_model_release_gate_is_not_ready_when_the_registered_row_differs(
     assert result.ready is False
     assert result.reason == "Model release verification failed."
     assert engine.disposed is True
+
+
+def test_model_release_gate_rejects_a_non_seis_1_0_selected_release(monkeypatch) -> None:
+    settings = valid_settings()
+    manifest = replace(verified_manifest(settings), version_label="SEIS 0.9")
+    monkeypatch.setattr(startup, "load_verified_release_manifest", lambda *_, **__: manifest)
+    monkeypatch.setattr(
+        startup,
+        "create_database_engine",
+        lambda _: (_ for _ in ()).throw(AssertionError("database reached")),
+    )
+
+    result = ModelReleaseStartupGate(settings).check()
+
+    assert result.ready is False
+    assert result.reason == "Model release verification failed."
 
 
 def test_model_release_gate_disposes_the_engine_when_the_registry_query_fails(
@@ -286,3 +335,14 @@ def test_startup_report_rejects_absent_registration(monkeypatch) -> None:
     assert report.ready is False
     assert report.failed_gate_names == ("model-release",)
     assert engine.disposed is True
+
+
+def test_bootstrap_readiness_gate_fails_safely_when_manifest_is_missing(tmp_path: Path) -> None:
+    settings = valid_settings().model_copy(
+        update={"bootstrap_run_manifest": tmp_path / "missing.json"}
+    )
+
+    result = BootstrapReadinessStartupGate(settings).check()
+
+    assert result.ready is False
+    assert result.reason == "Bootstrap readiness evidence is unavailable or invalid."

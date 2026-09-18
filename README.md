@@ -205,19 +205,26 @@ uv run --project workers quakestrike-dispatcher
 uv run --project workers quakestrike-ingestor
 ```
 
-The scheduler, dispatcher, and ingestor still return exit code `2` until every
-startup gate is ready. The bootstrap command is an explicit operator action and
-does not run through the ingestion queue:
+`startup-check` evaluates migration state, PostgreSQL and Redis connectivity,
+the immutable SEIS 1.0 release, and bootstrap/history evidence. It writes JSON
+to stdout, structured diagnostics to stderr, and returns `0` when ready or `2`
+when any gate fails. The scheduler, dispatcher, and ingestor refuse to start
+with the same failed gate. The bootstrap command is an explicit operator action
+and does not run through the ingestion queue:
 
 ```powershell
 uv run --project workers quakestrike bootstrap --snapshot .\bootstrap-snapshots\historical.json
 uv run --project workers quakestrike bootstrap-readiness --run-manifest .\bootstrap-snapshots\historical.json.bootstrap.json
 ```
 
-The default run manifest is the snapshot filename with `.bootstrap.json`
-appended. Set `BOOTSTRAP_RUN_MANIFEST` or pass `--run-manifest` to override the
-readiness sidecar used by startup checks. The snapshot is immutable evidence;
-the sidecar is mutable operator state and is ignored outside the repository.
+The bootstrap command defaults to a sidecar made from the snapshot filename
+with `.bootstrap.json` appended. `startup-check` defaults to
+`database/initialization/bootstrap-readiness.json`. Set
+`BOOTSTRAP_RUN_MANIFEST` or pass `--run-manifest` to use another shared path.
+The startup check adds a readiness object to the existing v1 run manifest,
+including gate results, history proof, run-scoped database counts, and verified
+model-release hashes. The snapshot is immutable evidence; the sidecar is
+mutable operator state and is ignored outside the repository.
 The bootstrap creates prediction jobs and durable prediction dispatches for
 eligible events, but automatic alert work is explicitly suppressed.
 

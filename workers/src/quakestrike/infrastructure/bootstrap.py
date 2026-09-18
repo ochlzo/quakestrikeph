@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
+from quakestrike.application.startup import StartupReport
 from quakestrike.domain.features import HistoryCoverage, evaluate_history_readiness
 from quakestrike.domain.source_rows import (
     CatalogParseResult,
@@ -34,6 +35,7 @@ from quakestrike.infrastructure.phivolcs.urls import (
 
 SNAPSHOT_SCHEMA_VERSION = "quakestrike.bootstrap-snapshot.v1"
 RUN_MANIFEST_SCHEMA_VERSION = "quakestrike.bootstrap-run.v1"
+READINESS_SCHEMA_VERSION = "quakestrike.readiness.v1"
 MANILA = ZoneInfo("Asia/Manila")
 _MINIMUM_LOOKBACK_START = datetime(2026, 8, 25, tzinfo=MANILA)
 _ALLOWED_DETAIL_STATUSES = {"enriched", "failed", "not_attempted"}
@@ -133,6 +135,10 @@ def evaluate_bootstrap_readiness(
     snapshot: BootstrapSnapshot,
     manifest: Mapping[str, Any],
     run_state: object | None,
+    *,
+    history_observation_count: int | None = None,
+    usable_history_count: int | None = None,
+    database_counts: Mapping[str, int] | None = None,
 ) -> BootstrapReadiness:
     """Prove that one completed sidecar and its database run are safe to start from."""
 
@@ -144,6 +150,10 @@ def evaluate_bootstrap_readiness(
         return _not_ready("The run manifest snapshot kind does not match the snapshot.")
     if manifest.get("declared_row_count") != snapshot.declared_row_count:
         return _not_ready("The run manifest row count does not match the snapshot.")
+    if manifest.get("source_urls") != list(snapshot.source_urls):
+        return _not_ready("The run manifest source URLs do not match the snapshot.")
+    if manifest.get("retrieved_at") != snapshot.retrieved_at.isoformat():
+        return _not_ready("The run manifest retrieval time does not match the snapshot.")
     if manifest.get("coverage") != _coverage_document(snapshot.coverage):
         return _not_ready("The run manifest coverage does not match the snapshot.")
     if manifest.get("diagnostics") != snapshot.diagnostic_counts:
@@ -207,14 +217,48 @@ def evaluate_bootstrap_readiness(
         UTC
     ):
         return _not_ready("Accepted source rows do not reach the first prediction anchor.")
+
+    if history_observation_count is not None or usable_history_count is not None:
+        if history_observation_count is None or usable_history_count is None:
+            return _not_ready("Persisted history evidence is incomplete.")
+        if usable_history_count <= 0:
+            return _not_ready(
+                "The database contains no usable prior observations for the first anchor."
+            )
+
+    if database_counts is not None:
+        expected_database_counts = {
+            "input_checkpoints": run_state.events_found,
+            "event_revisions": run_state.events_inserted + run_state.events_revised,
+        }
+        for key, expected in expected_database_counts.items():
+            if database_counts.get(key) != expected:
+                return _not_ready(f"The database {key} count is inconsistent with the run.")
+
+    details = {
+        "run_id": str(run_state.run_id),
+        "snapshot_sha256": snapshot.sha256,
+        "checkpointed_inputs": str(run_state.events_found),
+    }
+    if history_observation_count is not None and usable_history_count is not None:
+        details.update(
+            {
+                "history_anchor": coverage.first_prediction_anchor.isoformat(),
+                "history_coverage_start": coverage.start.isoformat(),
+                "history_coverage_end": coverage.end.isoformat(),
+                "history_coverage_complete": str(coverage.complete).lower(),
+                "history_observation_count": str(history_observation_count),
+                "usable_history_count": str(usable_history_count),
+                "history_required_start": history.required_start.isoformat(),
+                "history_required_end": history.required_end.isoformat(),
+            }
+        )
+    if database_counts is not None:
+        details["database_counts"] = json.dumps(dict(database_counts), sort_keys=True)
     return BootstrapReadiness(
         ready=True,
         reason="Bootstrap snapshot, durable run, and history coverage are ready.",
-        details={
-            "run_id": str(run_state.run_id),
-            "snapshot_sha256": snapshot.sha256,
-            "checkpointed_inputs": str(run_state.events_found),
-        },
+        details=details,
     )
 
 
@@ -358,32 +402,39 @@ def prepare_run_manifest(snapshot: BootstrapSnapshot, path: Path) -> dict[str, A
 
     path = path.resolve()
     if path.exists():
-        manifest = load_run_manifest(path)
-        if manifest["snapshot_sha256"] != snapshot.sha256:
-            raise BootstrapSnapshotError("The snapshot bytes do not match the run manifest.")
-        if Path(str(manifest["snapshot_path"])).resolve() != snapshot.path:
-            raise BootstrapSnapshotError("The snapshot path does not match the run manifest.")
-        expected_counts = {
-            "snapshot_rows": snapshot.actual_row_count,
-            "accepted_rows": len(snapshot.parsed.accepted_rows),
-            "rejected_rows": len(snapshot.parsed.rejected_rows),
-            "normalized_inputs": snapshot.normalized_input_count,
-        }
-        if (
-            manifest.get("snapshot_kind") != snapshot.snapshot_kind
-            or manifest.get("alert_policy") != "suppressed"
-            or manifest.get("declared_row_count") != snapshot.declared_row_count
-            or manifest.get("source_urls") != list(snapshot.source_urls)
-            or manifest.get("retrieved_at") != snapshot.retrieved_at.isoformat()
-            or manifest.get("coverage") != _coverage_document(snapshot.coverage)
-            or manifest.get("diagnostics") != snapshot.diagnostic_counts
-            or any(
-                manifest.get("counts", {}).get(key) != value
-                for key, value in expected_counts.items()
-            )
-        ):
-            raise BootstrapSnapshotError("The run manifest evidence does not match the snapshot.")
-        return manifest
+        try:
+            manifest = load_run_manifest(path)
+        except BootstrapSnapshotError:
+            if not _is_readiness_only_manifest(path):
+                raise
+        else:
+            if manifest["snapshot_sha256"] != snapshot.sha256:
+                raise BootstrapSnapshotError("The snapshot bytes do not match the run manifest.")
+            if Path(str(manifest["snapshot_path"])).resolve() != snapshot.path:
+                raise BootstrapSnapshotError("The snapshot path does not match the run manifest.")
+            expected_counts = {
+                "snapshot_rows": snapshot.actual_row_count,
+                "accepted_rows": len(snapshot.parsed.accepted_rows),
+                "rejected_rows": len(snapshot.parsed.rejected_rows),
+                "normalized_inputs": snapshot.normalized_input_count,
+            }
+            if (
+                manifest.get("snapshot_kind") != snapshot.snapshot_kind
+                or manifest.get("alert_policy") != "suppressed"
+                or manifest.get("declared_row_count") != snapshot.declared_row_count
+                or manifest.get("source_urls") != list(snapshot.source_urls)
+                or manifest.get("retrieved_at") != snapshot.retrieved_at.isoformat()
+                or manifest.get("coverage") != _coverage_document(snapshot.coverage)
+                or manifest.get("diagnostics") != snapshot.diagnostic_counts
+                or any(
+                    manifest.get("counts", {}).get(key) != value
+                    for key, value in expected_counts.items()
+                )
+            ):
+                raise BootstrapSnapshotError(
+                    "The run manifest evidence does not match the snapshot."
+                )
+            return manifest
 
     manifest = {
         "schema_version": RUN_MANIFEST_SCHEMA_VERSION,
@@ -408,6 +459,20 @@ def prepare_run_manifest(snapshot: BootstrapSnapshot, path: Path) -> dict[str, A
     }
     write_run_manifest(path, manifest)
     return manifest
+
+
+def _is_readiness_only_manifest(path: Path) -> bool:
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    return (
+        isinstance(document, dict)
+        and set(document) == {"schema_version", "readiness"}
+        and document.get("schema_version") == RUN_MANIFEST_SCHEMA_VERSION
+        and isinstance(document.get("readiness"), dict)
+        and document["readiness"].get("schema_version") == READINESS_SCHEMA_VERSION
+    )
 
 
 def write_run_manifest(path: Path, manifest: Mapping[str, Any]) -> None:
@@ -439,6 +504,113 @@ def write_run_manifest(path: Path, manifest: Mapping[str, Any]) -> None:
                 os.unlink(temporary)
             except OSError:
                 pass
+
+
+def write_startup_readiness_manifest(
+    path: Path,
+    report: StartupReport,
+    *,
+    checked_at: datetime | None = None,
+) -> dict[str, Any]:
+    """Atomically add a safe startup proof to an existing run manifest."""
+
+    path = path.resolve()
+    try:
+        manifest = load_run_manifest(path) if path.exists() else None
+    except BootstrapSnapshotError:
+        manifest = None
+
+    checked_at = checked_at or datetime.now(UTC)
+    if checked_at.tzinfo is None or checked_at.utcoffset() is None:
+        raise BootstrapSnapshotError("The readiness check time must include a timezone offset.")
+
+    readiness = {
+        "schema_version": READINESS_SCHEMA_VERSION,
+        "checked_at": checked_at.isoformat(),
+        "ready": report.ready,
+        "failed_gate_names": list(report.failed_gate_names),
+        "gates": [result.as_dict() for result in report.results],
+        "history": _readiness_history(report),
+        "database_counts": _readiness_database_counts(report),
+        "model_release": _readiness_model_release(report),
+    }
+    document: dict[str, Any] = (
+        dict(manifest) if manifest is not None else {"schema_version": RUN_MANIFEST_SCHEMA_VERSION}
+    )
+    document["readiness"] = readiness
+    write_run_manifest(path, document)
+    return document
+
+
+def _readiness_history(report: StartupReport) -> dict[str, object]:
+    details = _gate_details(report, "bootstrap-readiness")
+    if "history_required_start" not in details:
+        return {}
+    result: dict[str, object] = {
+        "anchor": details.get("history_anchor"),
+        "required_start": details.get("history_required_start"),
+        "required_end": details.get("history_required_end"),
+        "coverage_start": details.get("history_coverage_start"),
+        "coverage_end": details.get("history_coverage_end"),
+        "coverage_complete": details.get("history_coverage_complete") == "true",
+    }
+    for key in ("history_observation_count", "usable_history_count"):
+        if key in details:
+            result[key.removeprefix("history_")] = int(details[key])
+    return {key: value for key, value in result.items() if value is not None}
+
+
+def _readiness_database_counts(report: StartupReport) -> dict[str, int]:
+    details = _gate_details(report, "bootstrap-readiness")
+    value = details.get("database_counts")
+    if value is None:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(parsed, dict) or not all(
+        isinstance(key, str) and isinstance(count, int) and not isinstance(count, bool)
+        for key, count in parsed.items()
+    ):
+        return {}
+    return parsed
+
+
+def _readiness_model_release(report: StartupReport) -> dict[str, object]:
+    details = _gate_details(report, "model-release")
+    if "release_id" not in details:
+        return {}
+    result: dict[str, object] = {
+        key: details[key]
+        for key in (
+            "release_id",
+            "version_label",
+            "manifest_uri",
+            "manifest_hash",
+            "input_schema_version",
+            "output_schema_version",
+        )
+        if key in details
+    }
+    artifact_hashes = details.get("artifact_hashes")
+    if artifact_hashes is not None:
+        try:
+            parsed = json.loads(artifact_hashes)
+        except (TypeError, json.JSONDecodeError):
+            parsed = None
+        if isinstance(parsed, dict) and all(
+            isinstance(key, str) and isinstance(value, str) for key, value in parsed.items()
+        ):
+            result["artifact_hashes"] = parsed
+    return result
+
+
+def _gate_details(report: StartupReport, name: str) -> dict[str, str]:
+    for result in report.results:
+        if result.name == name:
+            return dict(result.details)
+    return {}
 
 
 def _load_snapshot_row(value: object, row_number: int) -> NormalizedSourceRow:

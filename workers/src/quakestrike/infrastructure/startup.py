@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
@@ -14,6 +15,7 @@ from quakestrike.application.startup import (
     ModelReleaseVerificationGate,
     StartupGate,
 )
+from quakestrike.domain.features import select_usable_history
 from quakestrike.infrastructure.bootstrap import (
     BootstrapSnapshotError,
     evaluate_bootstrap_readiness,
@@ -24,6 +26,7 @@ from quakestrike.infrastructure.database.engine import (
     create_database_engine,
     create_session_factory,
 )
+from quakestrike.infrastructure.database.feature_history import SqlAlchemyFeatureHistoryQuery
 from quakestrike.infrastructure.database.migration_state import AlembicMigrationStateGate
 from quakestrike.infrastructure.database.model_releases import SqlAlchemyModelReleaseRegistry
 from quakestrike.infrastructure.database.repositories import SqlAlchemyIngestionTransactions
@@ -69,6 +72,8 @@ class ModelReleaseStartupGate:
                 raise ManifestValidationError(
                     "The configured release ID does not match the manifest."
                 )
+            if release.version_label != "SEIS 1.0":
+                raise ManifestValidationError("The selected release is not SEIS 1.0.")
             engine = create_database_engine(self.settings.database_url)
             try:
                 stored = SqlAlchemyModelReleaseRegistry(create_session_factory(engine)).get(
@@ -85,7 +90,20 @@ class ModelReleaseStartupGate:
             return GateResult(
                 name=self.name, ready=False, reason="Model release verification failed."
             )
-        return GateResult(name=self.name, ready=True, reason="Model release verified.")
+        return GateResult(
+            name=self.name,
+            ready=True,
+            reason="Model release verified.",
+            details={
+                "release_id": str(release.release_id),
+                "version_label": release.version_label,
+                "manifest_uri": release.manifest_uri,
+                "manifest_hash": release.manifest_hash,
+                "input_schema_version": release.input_schema_version,
+                "output_schema_version": release.output_schema_version,
+                "artifact_hashes": json.dumps(release.artifact_hashes, sort_keys=True),
+            },
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,12 +119,37 @@ class BootstrapReadinessStartupGate:
             manifest = load_run_manifest(self.settings.bootstrap_run_manifest)
             snapshot = load_bootstrap_snapshot(Path(str(manifest["snapshot_path"])))
             engine = create_database_engine(self.settings.database_url)
+            session_factory = create_session_factory(engine)
             store = SqlAlchemyIngestionTransactions(
-                create_session_factory(engine),
+                session_factory,
                 model_release_verifier=ConfiguredModelReleaseVerifier(self.settings),
             )
             state = store.get_ingestion_run(UUID(str(manifest["run_id"])))
-            readiness = evaluate_bootstrap_readiness(snapshot, manifest, state)
+            database_counts = None
+            history_observation_count = None
+            usable_history_count = None
+            if state is not None:
+                database_counts = store.bootstrap_database_counts(state.run_id)
+                selection = SqlAlchemyFeatureHistoryQuery(session_factory).select_history_at(
+                    snapshot.coverage.first_prediction_anchor,
+                    coverage=snapshot.coverage.history_coverage(),
+                )
+                history_observation_count = len(selection.observations)
+                usable_history_count = len(
+                    select_usable_history(
+                        snapshot.coverage.first_prediction_anchor,
+                        selection.observations,
+                        anchor_time_precision="minute",
+                    )
+                )
+            readiness = evaluate_bootstrap_readiness(
+                snapshot,
+                manifest,
+                state,
+                history_observation_count=history_observation_count,
+                usable_history_count=usable_history_count,
+                database_counts=database_counts,
+            )
             return GateResult(
                 name=self.name,
                 ready=readiness.ready,
