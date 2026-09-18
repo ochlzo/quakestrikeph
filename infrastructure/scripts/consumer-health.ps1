@@ -1,8 +1,10 @@
 function Get-ConsumerHealth {
     param([string[]]$Compose)
     foreach ($service in @('dispatcher', 'data-ingestor')) {
-        $containerId = (& docker compose @Compose ps -q $service | Select-Object -First 1)
-        if ($LASTEXITCODE -ne 0 -or -not $containerId) {
+        $containerIds = & docker compose @Compose ps -q $service
+        $dockerExit = $LASTEXITCODE
+        $containerId = @($containerIds) | Select-Object -First 1
+        if ($dockerExit -ne 0 -or -not $containerId) {
             return 'consumer_unavailable'
         }
         $health = & docker inspect --format '{{.State.Running}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}' $containerId

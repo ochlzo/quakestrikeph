@@ -10,8 +10,10 @@ if ($LASTEXITCODE -ne 0) {
     Write-Output ('{"action":"enable-beat","status":"failed"}')
     exit 2
 }
-$beatId = (& docker compose @compose ps -q beat | Select-Object -First 1)
-if ($LASTEXITCODE -ne 0 -or -not $beatId) {
+$beatIds = & docker compose @compose ps -q beat
+$dockerExit = $LASTEXITCODE
+$beatId = @($beatIds) | Select-Object -First 1
+if ($dockerExit -ne 0 -or -not $beatId) {
     & docker compose @compose --profile beat stop beat 2>$null | Out-Null
     Write-Output ('{"action":"enable-beat","status":"failed","reason":"beat_unavailable"}')
     exit 2
