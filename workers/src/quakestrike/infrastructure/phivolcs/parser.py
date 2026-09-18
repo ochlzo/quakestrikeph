@@ -107,7 +107,7 @@ def parse_detail_page(body: bytes | str) -> ParsedDetail:
     occurred_at = _parse_detail_time(date_time)
     if occurred_at is None:
         diagnostics.append(SourceDiagnostic(DiagnosticCode.DETAIL_TIMESTAMP_MISSING))
-    origin = _normalize_origin(origin_value, diagnostics)
+    origin = normalize_detail_origin(origin_value, diagnostics)
     return ParsedDetail(occurred_at, origin, tuple(diagnostics))
 
 
@@ -188,7 +188,9 @@ def _row_diagnostic(error: ValueError) -> SourceDiagnostic:
     return SourceDiagnostic(DiagnosticCode.INVALID_CATALOG_ROW)
 
 
-def _normalize_origin(value: str | None, diagnostics: list[SourceDiagnostic]) -> str | None:
+def normalize_detail_origin(value: str | None, diagnostics: list[SourceDiagnostic]) -> str | None:
+    """Apply the bounded origin vocabulary used by live detail parsing."""
+
     if value is None or not value.strip():
         diagnostics.append(SourceDiagnostic(DiagnosticCode.DETAIL_ORIGIN_MISSING))
         return None

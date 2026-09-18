@@ -439,7 +439,11 @@ Checkpoint: a local end-to-end test demonstrates scheduled work moving from
 Beat to PostgreSQL, through Redis, into the ingestor, and finally to durable
 prediction work and a prediction-queue message.
 
-### Phase 8 — enriched historical bootstrap
+### Phase 8 — enriched historical bootstrap (Issue #10 implementation)
+
+The explicit snapshot loader, resumable backfill run, sidecar evidence, and
+bootstrap-readiness gate described below are implemented in the worker package.
+The later Phase 9 service enablement and operational handoff remain separate.
 
 - Use the latest scraper to collect and enrich August 25–31, 2026, plus the
   September source window needed for the project demonstration.

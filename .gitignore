@@ -21,6 +21,7 @@ datasets/
 data/
 database/initialization/bootstrap-readiness*.json
 database/initialization/source-snapshots/
+*.bootstrap.json
 
 # Local runtime output
 *.log

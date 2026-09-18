@@ -63,6 +63,9 @@ class ReconciliationDiagnosticReporter(Protocol):
     def report(self, diagnostic: ReconciliationDiagnostic) -> None: ...
 
 
+SourceRowsLoader = Callable[..., CatalogParseResult]
+
+
 class ReconciliationStore(Protocol):
     """Persistence boundary for Phase 5 orchestration."""
 
@@ -80,6 +83,8 @@ class ReconciliationStore(Protocol):
         outcome: str,
         event_id: UUID | None,
     ) -> bool: ...
+
+    def input_checkpoint_exists(self, run_id: UUID, input_key: str) -> bool: ...
 
     def find_event_by_bulletin_id(self, source_bulletin_id: str) -> UUID | None: ...
 
@@ -105,14 +110,14 @@ class ReconciliationStore(Protocol):
     ) -> str | None: ...
 
 
-class ReconcileCurrentCatalog:
-    """Claim a run, reconcile one complete page, and persist restart-safe progress."""
+class ReconcileSourceRows:
+    """Claim a run, reconcile one source snapshot, and persist restart-safe progress."""
 
     def __init__(
         self,
         *,
         store: ReconciliationStore,
-        retriever: CurrentCatalogRetriever,
+        source_loader: SourceRowsLoader,
         diagnostic_reporter: ReconciliationDiagnosticReporter,
         model_release_id: UUID,
         history_coverage: HistoryCoverage | None = None,
@@ -120,7 +125,7 @@ class ReconcileCurrentCatalog:
         new_uuid: Callable[[], UUID] = uuid4,
     ) -> None:
         self._store = store
-        self._retriever = retriever
+        self._source_loader = source_loader
         self._diagnostic_reporter = diagnostic_reporter
         self._model_release_id = model_release_id
         self._history_coverage = history_coverage
@@ -135,7 +140,7 @@ class ReconcileCurrentCatalog:
         if claim is None:
             return ReconciliationRunResult(status="not_claimed", claimed=False)
         try:
-            parsed = self._retriever.retrieve_current_catalog(
+            parsed = self._source_loader(
                 heartbeat=lambda: self._store.heartbeat_run(
                     claim.run_id, claim.worker_execution_id, self._now()
                 )
@@ -143,6 +148,8 @@ class ReconcileCurrentCatalog:
             rows = coalesce_catalog_rows(parsed)
             for rejected in parsed.rejected_rows:
                 input_key = _rejected_input_key(rejected.row_number, rejected.diagnostic.code)
+                if self._input_checkpoint_exists(claim.run_id, input_key):
+                    continue
                 checkpointed = self._store.checkpoint_input(
                     claim.run_id,
                     claim.worker_execution_id,
@@ -225,6 +232,8 @@ class ReconcileCurrentCatalog:
         row: NormalizedSourceRow,
     ) -> None:
         input_key = normalized_input_key(row)
+        if self._input_checkpoint_exists(claim.run_id, input_key):
+            return
         for diagnostic in row.diagnostics:
             self._report_diagnostic(claim, input_key, diagnostic)
         existing_event_id = (
@@ -319,6 +328,35 @@ class ReconcileCurrentCatalog:
                 input_key,
                 code or "REJECTED_ROW",
             )
+        )
+
+    def _input_checkpoint_exists(self, run_id: UUID, input_key: str) -> bool:
+        checker = getattr(self._store, "input_checkpoint_exists", None)
+        return checker(run_id, input_key) if checker is not None else False
+
+
+class ReconcileCurrentCatalog(ReconcileSourceRows):
+    """Adapt the live PHIVOLCS retriever to the shared source-row pipeline."""
+
+    def __init__(
+        self,
+        *,
+        store: ReconciliationStore,
+        retriever: CurrentCatalogRetriever,
+        diagnostic_reporter: ReconciliationDiagnosticReporter,
+        model_release_id: UUID,
+        history_coverage: HistoryCoverage | None = None,
+        now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        new_uuid: Callable[[], UUID] = uuid4,
+    ) -> None:
+        super().__init__(
+            store=store,
+            source_loader=retriever.retrieve_current_catalog,
+            diagnostic_reporter=diagnostic_reporter,
+            model_release_id=model_release_id,
+            history_coverage=history_coverage,
+            now=now,
+            new_uuid=new_uuid,
         )
 
 

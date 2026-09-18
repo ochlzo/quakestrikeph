@@ -30,6 +30,13 @@ class Settings(BaseSettings):
         default=Path("model-artifacts"),
         validation_alias=AliasChoices("MODEL_ARTIFACT_DIRECTORY", "model_artifact_directory"),
     )
+    bootstrap_run_manifest: Path = Field(
+        default=Path("database/initialization/bootstrap-readiness.json"),
+        validation_alias=AliasChoices(
+            "BOOTSTRAP_RUN_MANIFEST",
+            "bootstrap_run_manifest",
+        ),
+    )
 
     poll_interval_seconds: int = Field(
         default=300,
@@ -163,6 +170,7 @@ class Settings(BaseSettings):
             "redis_scheme": urlsplit(self.redis_url).scheme,
             "model_release_configured": True,
             "model_artifact_directory": str(self.model_artifact_directory),
+            "bootstrap_run_manifest": str(self.bootstrap_run_manifest),
             "poll_interval_seconds": self.poll_interval_seconds,
             "log_level": self.log_level,
         }

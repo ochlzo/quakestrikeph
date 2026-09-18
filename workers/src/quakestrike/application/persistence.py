@@ -16,6 +16,14 @@ class FatalIdentityConflict(ValueError):
     """A durable source identity is already mapped to another stable event."""
 
 
+class ActiveIngestionRun(ValueError):
+    """Another pending, running, or retryable ingestion run owns the slot."""
+
+
+class RunIdentityConflict(ValueError):
+    """A requested run ID already refers to different durable work."""
+
+
 @dataclass(frozen=True, slots=True)
 class RunDispatchRequest:
     run_id: UUID
@@ -122,6 +130,24 @@ class RunCounters:
     events_rejected: int
 
 
+@dataclass(frozen=True, slots=True)
+class IngestionRunState:
+    """Read-only state needed by bootstrap resume and readiness checks."""
+
+    run_id: UUID
+    trigger_type: str
+    status: str
+    correlation_id: UUID
+    attempt_count: int
+    events_found: int
+    events_inserted: int
+    events_revised: int
+    events_unchanged: int
+    events_rejected: int
+    error_code: str | None = None
+    error_message: str | None = None
+
+
 class IngestionTransactions(Protocol):
     """Atomic persistence operations required by later ingestion phases."""
 
@@ -135,3 +161,6 @@ class IngestionTransactions(Protocol):
         self, request: FeatureEventTransactionRequest
     ) -> EventTransactionResult:
         """Build the snapshot and persist all eligible work in one transaction."""
+
+    def input_checkpoint_exists(self, run_id: UUID, input_key: str) -> bool:
+        """Return whether one normalized input already has a durable outcome."""

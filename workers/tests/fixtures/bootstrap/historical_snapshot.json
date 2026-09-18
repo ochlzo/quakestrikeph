@@ -1,0 +1,171 @@
+{
+  "schema_version": "quakestrike.bootstrap-snapshot.v1",
+  "snapshot_kind": "enriched",
+  "source": {
+    "provider": "PHIVOLCS",
+    "catalog_urls": [
+      "https://earthquake.phivolcs.dost.gov.ph/earthquake-information"
+    ],
+    "retrieved_at": "2026-09-18T09:00:00+08:00"
+  },
+  "coverage": {
+    "start": "2026-08-25T00:00:00+08:00",
+    "end": "2026-09-02T00:00:00+08:00",
+    "complete": true,
+    "first_prediction_anchor": "2026-09-01T00:00:00+08:00"
+  },
+  "declared_row_count": 9,
+  "rows": [
+    {
+      "catalog": {
+        "occurred_at": "2026-08-25T00:00:00+08:00",
+        "latitude": "14.000000",
+        "longitude": "121.000000",
+        "depth_km": "10.000",
+        "magnitude": "0.80",
+        "location_description": "Sanitized August location",
+        "source_bulletin_id": "2026_0825_0000_B1",
+        "source_event_group_id": "2026_0825_0000",
+        "source_url": "https://earthquake.phivolcs.dost.gov.ph/2026_Earthquake_Information/August/2026_0825_0000_B1.html"
+      },
+      "detail": {
+        "status": "enriched",
+        "occurred_at": "2026-08-25T00:00:00+08:00",
+        "origin": "VOLCANIC",
+        "diagnostics": []
+      }
+    },
+    {
+      "catalog": {
+        "occurred_at": "2026-08-25T00:00:00+08:00",
+        "latitude": "14.000000",
+        "longitude": "121.000000",
+        "depth_km": "10.000",
+        "magnitude": "0.80",
+        "location_description": "Sanitized August location",
+        "source_bulletin_id": "2026_0825_0000_B1",
+        "source_event_group_id": "2026_0825_0000",
+        "source_url": "https://earthquake.phivolcs.dost.gov.ph/2026_Earthquake_Information/August/2026_0825_0000_B1.html"
+      },
+      "detail": {
+        "status": "enriched",
+        "occurred_at": "2026-08-25T00:00:00+08:00",
+        "origin": "VOLCANIC",
+        "diagnostics": []
+      }
+    },
+    {
+      "catalog": {
+        "occurred_at": "2026-08-27T12:00:00+08:00",
+        "latitude": "14.100000",
+        "longitude": "121.100000",
+        "depth_km": "12.000",
+        "magnitude": "1.10",
+        "location_description": "Sanitized mid-window location",
+        "source_bulletin_id": "2026_0827_1200_B1",
+        "source_event_group_id": "2026_0827_1200",
+        "source_url": "https://earthquake.phivolcs.dost.gov.ph/2026_Earthquake_Information/August/2026_0827_1200_B1.html"
+      }
+    },
+    {
+      "catalog": {
+        "occurred_at": "2026-08-31T12:00:00+08:00",
+        "latitude": "14.200000",
+        "longitude": "121.200000",
+        "depth_km": "15.000",
+        "magnitude": "2.00",
+        "location_description": "Sanitized pre-anchor location",
+        "source_bulletin_id": "2026_0831_1200_B1",
+        "source_event_group_id": "2026_0831_1200",
+        "source_url": "https://earthquake.phivolcs.dost.gov.ph/2026_Earthquake_Information/August/2026_0831_1200_B1.html"
+      },
+      "detail": {
+        "status": "failed",
+        "diagnostics": [
+          {
+            "code": "DETAIL_NON_HTML_RESPONSE",
+            "context": {
+              "status": "502"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "catalog": {
+        "occurred_at": "2026-09-01T00:00:00+08:00",
+        "latitude": "14.300000",
+        "longitude": "121.300000",
+        "depth_km": "18.000",
+        "magnitude": "1.20",
+        "location_description": "Sanitized prediction anchor",
+        "source_bulletin_id": "2026_0901_0000_B1",
+        "source_event_group_id": "2026_0901_0000",
+        "source_url": "https://earthquake.phivolcs.dost.gov.ph/2026_Earthquake_Information/September/2026_0901_0000_B1.html"
+      },
+      "detail": {
+        "status": "failed",
+        "diagnostics": [
+          {
+            "code": "DETAIL_FETCH_FAILED",
+            "context": {
+              "failure_kind": "timeout"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "catalog": {
+        "occurred_at": "2026-08-28T00:00:00+08:00",
+        "latitude": "14.400000",
+        "longitude": "121.400000",
+        "depth_km": "10.000",
+        "magnitude": "1.00",
+        "location_description": "Invalid URL row",
+        "source_bulletin_id": "2026_0828_0000_B1",
+        "source_event_group_id": "2026_0828_0000",
+        "source_url": "https://example.invalid/not-a-phivolcs-bulletin.html"
+      }
+    },
+    {
+      "catalog": {
+        "occurred_at": "2026-08-28T01:00:00+08:00",
+        "latitude": "not-a-number",
+        "longitude": "121.400000",
+        "depth_km": "10.000",
+        "magnitude": "1.00",
+        "location_description": "Invalid numeric row",
+        "source_bulletin_id": "2026_0828_0100_B1",
+        "source_event_group_id": "2026_0828_0100",
+        "source_url": "https://earthquake.phivolcs.dost.gov.ph/2026_Earthquake_Information/August/2026_0828_0100_B1.html"
+      }
+    },
+    {
+      "catalog": {
+        "occurred_at": "2026-08-28T02:00:00",
+        "latitude": "14.400000",
+        "longitude": "121.400000",
+        "depth_km": "10.000",
+        "magnitude": "1.00",
+        "location_description": "Invalid timestamp row",
+        "source_bulletin_id": "2026_0828_0200_B1",
+        "source_event_group_id": "2026_0828_0200",
+        "source_url": "https://earthquake.phivolcs.dost.gov.ph/2026_Earthquake_Information/August/2026_0828_0200_B1.html"
+      }
+    },
+    {
+      "catalog": {
+        "occurred_at": "2026-08-28T03:00:00+08:00",
+        "latitude": "14.400000",
+        "longitude": "121.400000",
+        "depth_km": "10.000",
+        "magnitude": "1.00",
+        "location_description": "Invalid identifier row",
+        "source_bulletin_id": "not-an-identifier",
+        "source_event_group_id": "2026_0828_0300",
+        "source_url": "https://earthquake.phivolcs.dost.gov.ph/2026_Earthquake_Information/August/2026_0828_0300_B1.html"
+      }
+    }
+  ]
+}

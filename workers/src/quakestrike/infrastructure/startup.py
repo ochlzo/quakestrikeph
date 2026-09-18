@@ -1,8 +1,9 @@
-"""Phase 1 startup adapters that deliberately report unavailable gates."""
+"""Read-only startup gate adapters for worker entry points."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -13,12 +14,19 @@ from quakestrike.application.startup import (
     ModelReleaseVerificationGate,
     StartupGate,
 )
+from quakestrike.infrastructure.bootstrap import (
+    BootstrapSnapshotError,
+    evaluate_bootstrap_readiness,
+    load_bootstrap_snapshot,
+    load_run_manifest,
+)
 from quakestrike.infrastructure.database.engine import (
     create_database_engine,
     create_session_factory,
 )
 from quakestrike.infrastructure.database.migration_state import AlembicMigrationStateGate
 from quakestrike.infrastructure.database.model_releases import SqlAlchemyModelReleaseRegistry
+from quakestrike.infrastructure.database.repositories import SqlAlchemyIngestionTransactions
 from quakestrike.infrastructure.health import (
     PostgresConnectivityHealthCheck,
     RedisConnectivityHealthCheck,
@@ -81,6 +89,42 @@ class ModelReleaseStartupGate:
 
 
 @dataclass(frozen=True, slots=True)
+class BootstrapReadinessStartupGate:
+    """Read the immutable snapshot, sidecar, and durable run without mutating state."""
+
+    settings: Settings
+    name: str = "bootstrap-readiness"
+
+    def check(self) -> GateResult:
+        engine = None
+        try:
+            manifest = load_run_manifest(self.settings.bootstrap_run_manifest)
+            snapshot = load_bootstrap_snapshot(Path(str(manifest["snapshot_path"])))
+            engine = create_database_engine(self.settings.database_url)
+            store = SqlAlchemyIngestionTransactions(
+                create_session_factory(engine),
+                model_release_verifier=ConfiguredModelReleaseVerifier(self.settings),
+            )
+            state = store.get_ingestion_run(UUID(str(manifest["run_id"])))
+            readiness = evaluate_bootstrap_readiness(snapshot, manifest, state)
+            return GateResult(
+                name=self.name,
+                ready=readiness.ready,
+                reason=readiness.reason,
+                details=readiness.details,
+            )
+        except (BootstrapSnapshotError, OSError, SQLAlchemyError, ValueError):
+            return GateResult(
+                name=self.name,
+                ready=False,
+                reason="Bootstrap readiness evidence is unavailable or invalid.",
+            )
+        finally:
+            if engine is not None:
+                engine.dispose()
+
+
+@dataclass(frozen=True, slots=True)
 class ConfiguredModelReleaseVerifier(ModelReleaseVerifier):
     """Bind feature work to the configured release and its startup proof."""
 
@@ -103,16 +147,14 @@ def phase_one_startup_gates(
     database_gate: StartupGate | None = None,
     redis_gate: StartupGate | None = None,
     migration_gate: StartupGate | None = None,
+    bootstrap_gate: StartupGate | None = None,
 ) -> tuple[StartupGate, ...]:
     """Return the fail-closed gates required by the Phase 1 contract."""
 
     return (
         migration_gate or AlembicMigrationStateGate(settings),
         ModelReleaseStartupGate(settings),
-        UnavailableStartupGate(
-            name="bootstrap-readiness",
-            reason="Bootstrap readiness is deferred to Phase 8.",
-        ),
+        bootstrap_gate or BootstrapReadinessStartupGate(settings),
         database_gate or PostgresConnectivityHealthCheck(settings),
         redis_gate or RedisConnectivityHealthCheck(settings),
     )

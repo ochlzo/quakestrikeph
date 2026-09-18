@@ -16,16 +16,19 @@ from quakestrike.application.features import (
 )
 from quakestrike.application.model_releases import ModelReleaseVerifier
 from quakestrike.application.persistence import (
+    ActiveIngestionRun,
     EventTransactionRequest,
     EventTransactionResult,
     FatalIdentityConflict,
     FeatureEventTransactionRequest,
+    IngestionRunState,
     IngestionTransactions,
     PredictionWorkRequest,
     RunClaim,
     RunCounters,
     RunDispatchRequest,
     RunDispatchResult,
+    RunIdentityConflict,
 )
 from quakestrike.domain.features import (
     INPUT_SCHEMA_VERSION,
@@ -56,6 +59,23 @@ _EVENT_LOCK_NAMESPACE = 1_906_202_609
 _RUN_LEASE_DURATION = timedelta(minutes=15)
 _MAX_ATTEMPTS = 4
 _RETRY_DELAYS = (timedelta(seconds=30), timedelta(minutes=2), timedelta(minutes=10))
+
+
+def _ingestion_run_state(row) -> IngestionRunState:
+    return IngestionRunState(
+        run_id=row["run_id"],
+        trigger_type=row["trigger_type"],
+        status=row["status"],
+        correlation_id=row["correlation_id"],
+        attempt_count=row["attempt_count"],
+        events_found=row["events_found"],
+        events_inserted=row["events_inserted"],
+        events_revised=row["events_revised"],
+        events_unchanged=row["events_unchanged"],
+        events_rejected=row["events_rejected"],
+        error_code=row["error_code"],
+        error_message=row["error_message"],
+    )
 
 
 class SqlAlchemyIngestionTransactions(IngestionTransactions):
@@ -110,6 +130,81 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                 run_id=request.run_id,
                 dispatch_id=request.dispatch_id,
                 created=True,
+            )
+
+    def create_backfill_run(self, run_id: UUID, correlation_id: UUID) -> IngestionRunState:
+        """Create or recover one backfill run without creating an ingestion dispatch."""
+
+        with self._session_factory() as session, session.begin():
+            session.execute(
+                text("SELECT pg_advisory_xact_lock(:lock_key)"),
+                {"lock_key": _SCHEDULE_LOCK_KEY},
+            )
+            existing = (
+                session.execute(
+                    select(ingestion_runs)
+                    .where(ingestion_runs.c.run_id == run_id)
+                    .with_for_update()
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if existing is not None:
+                if (
+                    existing["trigger_type"] != "backfill"
+                    or existing["correlation_id"] != correlation_id
+                ):
+                    raise RunIdentityConflict("The run ID refers to different durable work.")
+                return _ingestion_run_state(existing)
+
+            active = (
+                session.execute(
+                    select(ingestion_runs)
+                    .where(ingestion_runs.c.status.in_(("pending", "running", "retry_wait")))
+                    .with_for_update()
+                )
+                .mappings()
+                .first()
+            )
+            if active is not None:
+                raise ActiveIngestionRun("Another ingestion run is already active.")
+
+            session.execute(
+                insert(ingestion_runs).values(
+                    run_id=run_id,
+                    trigger_type="backfill",
+                    correlation_id=correlation_id,
+                )
+            )
+            created = (
+                session.execute(select(ingestion_runs).where(ingestion_runs.c.run_id == run_id))
+                .mappings()
+                .one()
+            )
+            return _ingestion_run_state(created)
+
+    def get_ingestion_run(self, run_id: UUID) -> IngestionRunState | None:
+        """Read one run without taking ownership of its processing lease."""
+
+        with self._session_factory() as session:
+            row = (
+                session.execute(select(ingestion_runs).where(ingestion_runs.c.run_id == run_id))
+                .mappings()
+                .one_or_none()
+            )
+            return _ingestion_run_state(row) if row is not None else None
+
+    def backfill_run_exists(self) -> bool:
+        """Detect an orphaned bootstrap run before a missing sidecar is recreated."""
+
+        with self._session_factory() as session:
+            return (
+                session.scalar(
+                    select(ingestion_runs.c.run_id).where(
+                        ingestion_runs.c.trigger_type == "backfill"
+                    )
+                )
+                is not None
             )
 
     def process_event(self, request: EventTransactionRequest) -> EventTransactionResult:
@@ -441,6 +536,19 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                 .returning(ingestion_run_inputs.c.run_id)
             )
             return result.scalar_one_or_none() is not None
+
+    def input_checkpoint_exists(self, run_id: UUID, input_key: str) -> bool:
+        """Check a checkpoint without requiring a live processing lease."""
+
+        with self._session_factory() as session:
+            return (
+                session.scalar(
+                    select(ingestion_run_inputs.c.run_id)
+                    .where(ingestion_run_inputs.c.run_id == run_id)
+                    .where(ingestion_run_inputs.c.input_key == input_key)
+                )
+                is not None
+            )
 
     def counters_for_run(self, run_id: UUID, worker_execution_id: UUID) -> RunCounters:
         """Read absolute counters from checkpoints rather than incrementing mutable totals."""

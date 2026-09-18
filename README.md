@@ -8,10 +8,10 @@ information, and support protected review and alert workflows.
 > Current repository status: this checkout contains the Python worker
 > scaffold, the six-table ingestion migration, and local PostgreSQL/Redis
 > infrastructure. Phase 3 model packaging, registration, and release verification
-> are implemented. Scheduled durable ingestion dispatch is implemented through
-> Phase 7. The web applications, Backend API, bootstrap workflow, prediction
-> execution, and alert delivery are planned work. Worker entry points still fail
-> closed until their later startup gates exist.
+> are implemented. Scheduled durable ingestion dispatch and the explicit,
+> resumable historical bootstrap workflow are implemented through Issue #10.
+> Prediction execution and alert delivery remain planned work. Services still
+> fail closed until every configured startup gate is ready.
 
 ## Architecture
 
@@ -32,7 +32,7 @@ The image is a quick system view, not a replacement for those documents.
 | PHIVOLCS source | Provides earthquake bulletins and bulletin details. | External dependency. The adapter is planned beyond the current scaffold. |
 | Scheduler Beat | Creates one durable ingestion run on the five-minute schedule. | One local schedule creates or reuses the PostgreSQL run and dispatch atomically. |
 | Dispatcher | Claims PostgreSQL dispatch records and publishes identifier-only commands to Redis. | Bounded leased claims, acceptance fencing, retry, and expired-claim recovery are implemented. |
-| Data Ingestor | Retrieves, validates, reconciles, and persists PHIVOLCS events and revisions. | Entry point exists; ingestion behavior is planned. |
+| Data Ingestor | Retrieves, validates, reconciles, and persists PHIVOLCS events and revisions. | Shared normalization/reconciliation and resumable snapshot bootstrap are implemented; live queue operation remains gated. |
 | PostgreSQL | Source of truth for events, revisions, runs, jobs, dispatches, audits, and other durable records. | The first six-table migration and transaction adapters are implemented. |
 | Redis | Carries typed Celery commands between worker processes. | Pinned local service and queue contracts exist. |
 | Prediction Worker | Loads the verified `SEIS 1.0` artifacts and records forecast results. | Deferred. |
@@ -205,9 +205,21 @@ uv run --project workers quakestrike-dispatcher
 uv run --project workers quakestrike-ingestor
 ```
 
-The last four commands are expected to return exit code `2` until later phases
-implement every gate. The scheduler and dispatcher runtimes are wired, but the
-model-release and bootstrap-readiness gates still fail closed.
+The scheduler, dispatcher, and ingestor still return exit code `2` until every
+startup gate is ready. The bootstrap command is an explicit operator action and
+does not run through the ingestion queue:
+
+```powershell
+uv run --project workers quakestrike bootstrap --snapshot .\bootstrap-snapshots\historical.json
+uv run --project workers quakestrike bootstrap-readiness --run-manifest .\bootstrap-snapshots\historical.json.bootstrap.json
+```
+
+The default run manifest is the snapshot filename with `.bootstrap.json`
+appended. Set `BOOTSTRAP_RUN_MANIFEST` or pass `--run-manifest` to override the
+readiness sidecar used by startup checks. The snapshot is immutable evidence;
+the sidecar is mutable operator state and is ignored outside the repository.
+The bootstrap creates prediction jobs and durable prediction dispatches for
+eligible events, but automatic alert work is explicitly suppressed.
 
 Build the current worker image with:
 
