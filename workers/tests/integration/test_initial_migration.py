@@ -81,4 +81,4 @@ def test_migration_gate_is_ready_at_head_and_read_only_when_revision_is_stale(
             connection.scalar(text("SELECT version_num FROM alembic_version")) == "stale_revision"
         )
     with migrated_engine.begin() as connection:
-        connection.execute(text("UPDATE alembic_version SET version_num = '20260917_05'"))
+        connection.execute(text("UPDATE alembic_version SET version_num = '20260918_06'"))

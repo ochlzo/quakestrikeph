@@ -16,8 +16,10 @@ from sqlalchemy import func, insert, select
 from quakestrike.application.bootstrap import HistoricalBootstrapOperation
 from quakestrike.application.dispatch import DurableDispatcher
 from quakestrike.application.reconciliation import ReconcileCurrentCatalog
+from quakestrike.application.startup import evaluate_startup_gates
 from quakestrike.data_ingestor.worker import handle_ingestion_command
 from quakestrike.domain.features import INPUT_SCHEMA_VERSION, feature_snapshot_hash
+from quakestrike.infrastructure import startup
 from quakestrike.infrastructure.bootstrap import FileBootstrapEvidenceStore, load_bootstrap_snapshot
 from quakestrike.infrastructure.database.dispatch import SqlAlchemyDispatchStore
 from quakestrike.infrastructure.database.engine import create_session_factory
@@ -34,6 +36,7 @@ from quakestrike.infrastructure.database.tables import (
 from quakestrike.infrastructure.logging.reconciliation import (
     StructuredReconciliationDiagnosticReporter,
 )
+from quakestrike.infrastructure.models.release_manifest import VerifiedReleaseManifest
 from quakestrike.infrastructure.phivolcs.client import PhivolcsCatalogClient
 from quakestrike.infrastructure.queues.celery_app import (
     INGESTION_QUEUE,
@@ -51,7 +54,7 @@ from quakestrike.infrastructure.queues.prediction_publisher import (
     CeleryPredictionPublisher,
 )
 from quakestrike.infrastructure.settings import Settings
-from quakestrike.infrastructure.startup import BootstrapReadinessStartupGate
+from quakestrike.infrastructure.startup import phase_one_startup_gates
 from quakestrike.scheduler.beat import DurableBeatScheduler, run_scheduled_ingestion_tick
 
 pytestmark = pytest.mark.integration
@@ -117,7 +120,7 @@ def _counts(connection) -> tuple[int, int, int, int, int]:
 
 
 def test_ready_history_beat_ingestion_and_prediction_queue_are_replay_safe(
-    migrated_engine, tmp_path: Path
+    migrated_engine, tmp_path: Path, monkeypatch
 ) -> None:
     database_url = os.environ.get("TEST_DATABASE_URL")
     redis_url = os.environ.get("TEST_REDIS_URL")
@@ -133,7 +136,7 @@ def test_ready_history_beat_ingestion_and_prediction_queue_are_replay_safe(
                 insert(model_releases).values(
                     model_release_id=release_id,
                     version_label="SEIS 1.0",
-                    artifact_manifest_uri="model-artifacts/seis-1.0/manifest.json",
+                    artifact_manifest_uri="seis-1.0/manifest.json",
                     artifact_manifest_hash="a" * 64,
                     input_schema_version=INPUT_SCHEMA_VERSION,
                     output_schema_version="quakestrike.prediction-output.v1",
@@ -165,9 +168,29 @@ def test_ready_history_beat_ingestion_and_prediction_queue_are_replay_safe(
             model_release_id=release_id,
             bootstrap_run_manifest=manifest_path,
         )
-        readiness = BootstrapReadinessStartupGate(settings).check()
+        manifest = VerifiedReleaseManifest(
+            release_id=release_id,
+            version_label="SEIS 1.0",
+            input_schema_version=INPUT_SCHEMA_VERSION,
+            output_schema_version="quakestrike.prediction-output.v1",
+            manifest_uri="seis-1.0/manifest.json",
+            manifest_hash="a" * 64,
+            artifact_paths=(),
+        )
+        monkeypatch.setattr(startup, "load_verified_release_manifest", lambda *_, **__: manifest)
+        readiness = evaluate_startup_gates(phase_one_startup_gates(settings))
         assert readiness.ready is True
-        assert int(readiness.details["usable_history_count"]) > 0
+        assert {gate.name for gate in readiness.results} == {
+            "migration-state",
+            "model-release",
+            "bootstrap-readiness",
+            "postgres-connectivity",
+            "redis-connectivity",
+        }
+        bootstrap_gate = next(
+            gate for gate in readiness.results if gate.name == "bootstrap-readiness"
+        )
+        assert int(bootstrap_gate.details["usable_history_count"]) > 0
 
         with migrated_engine.connect() as connection:
             before = _counts(connection)
