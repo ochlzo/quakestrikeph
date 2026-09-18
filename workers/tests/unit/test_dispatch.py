@@ -4,9 +4,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import uuid4
 
+import pytest
+
 from quakestrike.application.dispatch import (
     DispatchBatchResult,
     DispatchClaim,
+    DispatchPermanentError,
     DurableDispatcher,
     IngestionDispatch,
     PredictionDispatch,
@@ -80,7 +83,7 @@ def test_shared_dispatcher_stops_a_permanently_invalid_command() -> None:
 
     class InvalidPublisher:
         def publish(self, dispatch: object) -> None:
-            raise ValueError("invalid command")
+            raise DispatchPermanentError("invalid command")
 
     result = DurableDispatcher(
         store,
@@ -91,3 +94,25 @@ def test_shared_dispatcher_stops_a_permanently_invalid_command() -> None:
 
     assert result == DispatchBatchResult(claimed=1, enqueued=0, retry_wait=0, stopped=1)
     assert store.events == [("stopped", store.claims[0])]
+
+
+@pytest.mark.parametrize(
+    "error", [TypeError("publisher call failed"), ValueError("publisher failed")]
+)
+def test_shared_dispatcher_retries_nonpermanent_publisher_errors(error: Exception) -> None:
+    prediction = PredictionDispatch(uuid4(), uuid4(), uuid4())
+    store = RecordingStore((DispatchClaim(prediction, uuid4()),))
+
+    class FailingPublisher:
+        def publish(self, dispatch: object) -> None:
+            raise error
+
+    result = DurableDispatcher(
+        store,
+        {"ingestion": FailingPublisher(), "prediction": FailingPublisher()},
+        batch_size=10,
+        clock=lambda: NOW,
+    ).dispatch_due()
+
+    assert result == DispatchBatchResult(claimed=1, enqueued=0, retry_wait=1, stopped=0)
+    assert store.events == [("retry_wait", store.claims[0])]

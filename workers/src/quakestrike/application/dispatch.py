@@ -158,7 +158,7 @@ class DurableDispatcher:
             publisher = self._publishers[target_kind]
             try:
                 publisher.publish(claim.dispatch)
-            except (DispatchPermanentError, TypeError, ValueError) as error:
+            except DispatchPermanentError as error:
                 self._store.mark_stopped(claim, error, now=self._clock())
                 totals[3] += 1
                 target_totals[target_kind][3] += 1

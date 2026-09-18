@@ -98,6 +98,7 @@ def configure_logging(
 
     logger = logging.getLogger(service)
     logger.handlers.clear()
+    logger.disabled = False
     logger.setLevel(numeric_level)
     logger.propagate = False
 

@@ -38,3 +38,14 @@ own durable alert-job identifier. Commands do not copy payload data that the
 consumer can load from PostgreSQL. The schemas live under
 `packages/contracts/queue/` and compatibility tests protect messages that may
 still be held by Redis during deployment.
+
+## Amendment: shared dispatch ownership
+
+The long-lived Dispatcher owns queue publication for both ingestion and
+prediction `job_dispatches` rows. The Data Ingestor creates an eligible
+prediction job and its dispatch row inside the event transaction, but it does
+not publish a prediction command. After the transaction commits, the shared
+Dispatcher claims the existing prediction dispatch with the same token,
+submission lease, retry policy, and durable identity used for ingestion, then
+routes it only to the prediction queue. This keeps one dispatch state machine
+without replacing or duplicating prediction identities.

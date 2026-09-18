@@ -46,13 +46,15 @@ The single Celery Beat process that creates scheduled ingestion work every five
 minutes. It does not perform PHIVOLCS retrieval or reconciliation itself.
 
 **Dispatch**:
-The durable step that claims a pending ingestion dispatch, publishes its
-command to Redis, and records the submission state for recovery and retry.
+The durable step that claims a pending ingestion or prediction dispatch,
+publishes its identifier-only command to the matching Redis queue, and records
+the submission state for recovery and retry.
 
 **Queue command**:
 A versioned message containing stable database identifiers for one logical job.
-It identifies the dispatch, ingestion run, and correlation context; it does not
-carry scraped HTML, a full event payload, or a CSV path.
+It identifies the dispatch, one durable target (`run_id` for ingestion or
+`job_id` for prediction), and the correlation context; it does not carry
+scraped HTML, a full event payload, or a CSV path.
 
 **Processing lease**:
 A time-limited PostgreSQL claim held by a worker while it processes a run. The
@@ -61,12 +63,13 @@ reclaimed safely because processing is idempotent.
 
 **Ingestion queue**:
 The Redis/Celery queue consumed by the Data Ingestor. Prediction commands use a
-separate prediction queue even though the Data Ingestor publishes them.
+separate prediction queue. The shared Dispatcher publishes prediction commands
+after the Data Ingestor commits their durable dispatch rows.
 
 **At-least-once delivery**:
-A queue may deliver the same logical ingestion command more than once. The
-ingestor must therefore make source matching, persistence, and prediction-work
-publication safe to repeat.
+A queue may deliver the same logical command more than once. Consumers and
+durable work creation must therefore make source matching, persistence, and
+prediction-work publication safe to repeat.
 
 **Feature engineering**:
 The deterministic application step that turns validated earthquake history and

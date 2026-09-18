@@ -63,18 +63,15 @@ def _run_is_dispatch_eligible(now: datetime):
 
 def _run_processing_recovery_is_due(run, now: datetime) -> bool:
     return (
-        (
-            run.status == "retry_wait"
-            and run.next_attempt_at is not None
-            and run.next_attempt_at <= now
-            and run.lease_expires_at is None
-        )
-        or (
-            run.status == "running"
-            and run.next_attempt_at is None
-            and run.lease_expires_at is not None
-            and run.lease_expires_at <= now
-        )
+        run.status == "retry_wait"
+        and run.next_attempt_at is not None
+        and run.next_attempt_at <= now
+        and run.lease_expires_at is None
+    ) or (
+        run.status == "running"
+        and run.next_attempt_at is None
+        and run.lease_expires_at is not None
+        and run.lease_expires_at <= now
     )
 
 
@@ -82,13 +79,8 @@ def _run_dispatch_is_eligible(run, dispatch_status: str, now: datetime) -> bool:
     if dispatch_status == "enqueued":
         return _run_processing_recovery_is_due(run, now)
     return (
-        (
-            run.status == "pending"
-            and run.next_attempt_at is None
-            and run.lease_expires_at is None
-        )
-        or _run_processing_recovery_is_due(run, now)
-    )
+        run.status == "pending" and run.next_attempt_at is None and run.lease_expires_at is None
+    ) or _run_processing_recovery_is_due(run, now)
 
 
 def _submission_is_due(now: datetime):
@@ -248,15 +240,12 @@ class SqlAlchemyDispatchStore(DispatchStore):
         ingestion_candidate,
         prediction_candidate,
     ):
-        source = (
-            job_dispatches.outerjoin(
-                ingestion_runs,
-                ingestion_runs.c.run_id == job_dispatches.c.ingestion_run_id,
-            )
-            .outerjoin(
-                prediction_jobs,
-                prediction_jobs.c.job_id == job_dispatches.c.prediction_job_id,
-            )
+        source = job_dispatches.outerjoin(
+            ingestion_runs,
+            ingestion_runs.c.run_id == job_dispatches.c.ingestion_run_id,
+        ).outerjoin(
+            prediction_jobs,
+            prediction_jobs.c.job_id == job_dispatches.c.prediction_job_id,
         )
         query = (
             select(

@@ -9,8 +9,11 @@ from uuid import uuid4
 
 import pytest
 from celery.contrib.testing.worker import start_worker
+from kombu import Connection
+from redis import Redis
 from sqlalchemy import func, insert, select
 
+from quakestrike.application.dispatch import DurableDispatcher
 from quakestrike.application.persistence import (
     EventRevisionRequest,
     EventTransactionRequest,
@@ -20,6 +23,7 @@ from quakestrike.application.reconciliation import ReconcileCurrentCatalog
 from quakestrike.data_ingestor.worker import create_ingestor_app, handle_ingestion_command
 from quakestrike.domain.features import INPUT_SCHEMA_VERSION, HistoryCoverage
 from quakestrike.domain.source_rows import CatalogParseResult, NormalizedSourceRow
+from quakestrike.infrastructure.database.dispatch import SqlAlchemyDispatchStore
 from quakestrike.infrastructure.database.engine import create_session_factory
 from quakestrike.infrastructure.database.repositories import SqlAlchemyIngestionTransactions
 from quakestrike.infrastructure.database.tables import (
@@ -30,9 +34,21 @@ from quakestrike.infrastructure.database.tables import (
     model_releases,
     prediction_jobs,
 )
-from quakestrike.infrastructure.queues.celery_app import INGESTION_QUEUE, INGESTION_TASK_NAME
+from quakestrike.infrastructure.queues.celery_app import (
+    DURABLE_INGESTION_TICK,
+    INGESTION_QUEUE,
+    INGESTION_TASK_NAME,
+    PREDICTION_QUEUE,
+    create_celery_app,
+)
 from quakestrike.infrastructure.queues.contracts import IngestionCommandV1
+from quakestrike.infrastructure.queues.ingestion_publisher import CeleryIngestionPublisher
+from quakestrike.infrastructure.queues.prediction_publisher import (
+    PREDICTION_TASK_NAME,
+    CeleryPredictionPublisher,
+)
 from quakestrike.infrastructure.settings import Settings
+from quakestrike.scheduler.beat import DurableBeatScheduler, run_scheduled_ingestion_tick
 
 pytestmark = pytest.mark.integration
 
@@ -192,6 +208,212 @@ def test_valid_command_persists_one_completed_run_and_duplicate_is_a_no_op(
         prediction_job = connection.execute(select(prediction_jobs)).one()
         assert prediction_job.job_id == prediction_dispatch.prediction_job_id
         assert prediction_job.correlation_id == request.correlation_id
+
+
+def test_beat_to_ingestor_to_prediction_queue_replays_safely(migrated_engine) -> None:
+    database_url = os.environ.get("TEST_DATABASE_URL")
+    redis_url = os.environ.get("TEST_REDIS_URL")
+    if database_url is None or redis_url is None:
+        pytest.skip("TEST_DATABASE_URL and TEST_REDIS_URL are required for this integration test.")
+
+    redis_client = Redis.from_url(redis_url)
+    redis_client.delete(INGESTION_QUEUE, PREDICTION_QUEUE)
+    try:
+        with migrated_engine.connect() as connection:
+            database_now = connection.scalar(select(func.now()))
+
+        model_release_id = uuid4()
+        bootstrap_run_id = uuid4()
+        with migrated_engine.begin() as connection:
+            connection.execute(
+                insert(ingestion_runs).values(
+                    run_id=bootstrap_run_id,
+                    trigger_type="backfill",
+                    status="succeeded",
+                    started_at=database_now - timedelta(days=8),
+                    finished_at=database_now - timedelta(days=1),
+                    correlation_id=uuid4(),
+                )
+            )
+            connection.execute(
+                insert(model_releases).values(
+                    model_release_id=model_release_id,
+                    version_label="SEIS 1.0",
+                    artifact_manifest_uri="model-artifacts/seis-1.0/manifest.json",
+                    artifact_manifest_hash="a" * 64,
+                    input_schema_version=INPUT_SCHEMA_VERSION,
+                    output_schema_version="quakestrike.prediction-output.v1",
+                )
+            )
+
+        session_factory = create_session_factory(migrated_engine)
+        transactions = SqlAlchemyIngestionTransactions(
+            session_factory,
+            model_release_verifier=_VerifiedRelease(),
+        )
+        transactions.process_event(
+            EventTransactionRequest(
+                event_id=uuid4(),
+                ingestion_run_id=bootstrap_run_id,
+                revision=EventRevisionRequest(
+                    event_revision_id=uuid4(),
+                    ingestion_run_id=bootstrap_run_id,
+                    source_bulletin_id="2026_0918_1100_B1",
+                    source_event_group_id="2026_0918_1100",
+                    source_url="https://earthquake.phivolcs.dost.gov.ph/2026_0918_1100_B1.html",
+                    source_time_precision="second",
+                    event_time=database_now - timedelta(hours=2),
+                    latitude=14,
+                    longitude=121,
+                    depth_km=10,
+                    magnitude=2,
+                    location_description="Prior test location",
+                ),
+            )
+        )
+
+        row = NormalizedSourceRow.from_catalog_values(
+            occurred_at=database_now - timedelta(hours=1),
+            latitude="14.00",
+            longitude="121.00",
+            depth_km="10",
+            magnitude="4.2",
+            location_description="Test location",
+            source_bulletin_id="2026_0918_1200_B1",
+            source_event_group_id="2026_0918_1200",
+            source_url="https://earthquake.phivolcs.dost.gov.ph/2026_0918_1200_B1.html",
+        )
+        reconciler = ReconcileCurrentCatalog(
+            store=transactions,
+            retriever=_Retriever(row),
+            diagnostic_reporter=_Reporter(),
+            model_release_id=model_release_id,
+            history_coverage=HistoryCoverage(
+                database_now - timedelta(days=8),
+                database_now,
+                True,
+            ),
+            now=lambda: database_now,
+        )
+        settings = Settings(
+            _env_file=None,
+            database_url=database_url,
+            redis_url=redis_url,
+            phivolcs_catalog_url="https://example.invalid/phivolcs/catalog",
+            model_release_id=model_release_id,
+        )
+        app = create_celery_app(
+            settings,
+            ingestion_tick=lambda: run_scheduled_ingestion_tick(transactions),
+        )
+        scheduler = DurableBeatScheduler(app)
+        entry = scheduler.schedule["durable-ingestion-tick"]
+        assert entry.task == DURABLE_INGESTION_TICK
+        scheduler.apply_entry(entry)
+
+        with migrated_engine.connect() as connection:
+            scheduled = connection.execute(
+                select(
+                    ingestion_runs.c.run_id,
+                    ingestion_runs.c.correlation_id,
+                    ingestion_runs.c.status.label("run_status"),
+                    job_dispatches.c.dispatch_id,
+                    job_dispatches.c.status.label("dispatch_status"),
+                    job_dispatches.c.next_dispatch_at,
+                ).join(
+                    job_dispatches,
+                    job_dispatches.c.ingestion_run_id == ingestion_runs.c.run_id,
+                )
+            ).one()
+        assert scheduled.run_status == "pending"
+        assert scheduled.dispatch_status == "pending"
+
+        dispatcher = DurableDispatcher(
+            SqlAlchemyDispatchStore(session_factory),
+            {
+                "ingestion": CeleryIngestionPublisher(app),
+                "prediction": CeleryPredictionPublisher(app),
+            },
+            batch_size=10,
+            clock=lambda: scheduled.next_dispatch_at,
+        )
+        published_ingestion = dispatcher.dispatch_due()
+        assert published_ingestion.target_counts_for("ingestion").enqueued == 1
+
+        with Connection(redis_url) as connection:
+            queue = connection.SimpleQueue(INGESTION_QUEUE)
+            message = queue.get(block=False)
+            try:
+                ingestion_payload = message.payload[0][0]
+                assert message.headers["task"] == INGESTION_TASK_NAME
+                assert message.delivery_info["routing_key"] == INGESTION_QUEUE
+                assert ingestion_payload["dispatch_id"] == str(scheduled.dispatch_id)
+                assert ingestion_payload["run_id"] == str(scheduled.run_id)
+                assert ingestion_payload["correlation_id"] == str(scheduled.correlation_id)
+                assert (
+                    handle_ingestion_command(
+                        ingestion_payload,
+                        store=transactions,
+                        reconciler=reconciler,
+                        logger=logging.getLogger("test-data-ingestor"),
+                    )
+                    == "succeeded"
+                )
+            finally:
+                message.ack()
+                queue.close()
+
+        with migrated_engine.connect() as connection:
+            prediction_dispatch = connection.execute(
+                select(job_dispatches).where(job_dispatches.c.prediction_job_id.is_not(None))
+            ).one()
+            prediction_job = connection.execute(
+                select(prediction_jobs).where(
+                    prediction_jobs.c.job_id == prediction_dispatch.prediction_job_id
+                )
+            ).one()
+
+        prediction_dispatcher = DurableDispatcher(
+            SqlAlchemyDispatchStore(session_factory),
+            {
+                "ingestion": CeleryIngestionPublisher(app),
+                "prediction": CeleryPredictionPublisher(app),
+            },
+            batch_size=10,
+            clock=lambda: prediction_dispatch.next_dispatch_at,
+        )
+        published_prediction = prediction_dispatcher.dispatch_due()
+        assert published_prediction.target_counts_for("prediction").enqueued == 1
+
+        with Connection(redis_url) as connection:
+            queue = connection.SimpleQueue(PREDICTION_QUEUE)
+            message = queue.get(block=False)
+            try:
+                assert message.headers["task"] == PREDICTION_TASK_NAME
+                assert message.delivery_info["routing_key"] == PREDICTION_QUEUE
+                prediction_payload = message.payload[0][0]
+                assert prediction_payload["dispatch_id"] == str(prediction_dispatch.dispatch_id)
+                assert prediction_payload["job_id"] == str(prediction_job.job_id)
+                assert prediction_payload["correlation_id"] == str(prediction_job.correlation_id)
+            finally:
+                message.ack()
+                queue.close()
+
+        assert (
+            handle_ingestion_command(
+                ingestion_payload,
+                store=transactions,
+                reconciler=reconciler,
+                logger=logging.getLogger("test-data-ingestor"),
+            )
+            == "not_claimed"
+        )
+        with migrated_engine.connect() as connection:
+            assert connection.scalar(select(func.count()).select_from(prediction_jobs)) == 1
+            assert connection.scalar(select(func.count()).select_from(job_dispatches)) == 2
+    finally:
+        redis_client.delete(INGESTION_QUEUE, PREDICTION_QUEUE)
+        redis_client.close()
 
 
 def test_mismatched_command_ids_never_claim_the_run(migrated_engine) -> None:

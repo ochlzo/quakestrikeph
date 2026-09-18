@@ -8,6 +8,7 @@ import pytest
 from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
+from quakestrike.application.dispatch import DispatchPermanentError
 from quakestrike.application.ingestion_dispatch import IngestionDispatch
 from quakestrike.application.prediction_dispatch import PredictionDispatch
 from quakestrike.infrastructure.queues.contracts import (
@@ -95,6 +96,18 @@ def test_celery_prediction_publisher_emits_the_v1_identifier_command() -> None:
             },
         )
     ]
+
+
+def test_celery_prediction_publisher_classifies_invalid_identifiers_as_permanent() -> None:
+    class RecordingCeleryApp:
+        def send_task(self, name: str, **kwargs: object) -> None:
+            raise AssertionError("invalid identifiers must fail before broker publication")
+
+    publisher = CeleryPredictionPublisher(RecordingCeleryApp())  # type: ignore[arg-type]
+    dispatch = PredictionDispatch(object(), uuid4(), uuid4())  # type: ignore[arg-type]
+
+    with pytest.raises(DispatchPermanentError):
+        publisher.publish(dispatch)
 
 
 def test_celery_ingestion_publisher_emits_the_v1_identifier_command() -> None:

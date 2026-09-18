@@ -607,6 +607,55 @@ def test_prediction_dispatch_reclaims_expired_claim_and_fences_old_token(
     assert dispatch.status == "enqueued"
 
 
+def test_prediction_dispatch_exhaustion_stops_the_existing_identity(migrated_engine) -> None:
+    run_id, release_id = _seed_run_and_release(migrated_engine)
+    _insert_history_event(
+        migrated_engine,
+        run_id,
+        _revision(
+            run_id,
+            event_time=NOW - timedelta(hours=1),
+            bulletin_id="2026_0916_1100_B1",
+        ),
+    )
+    result = _transactions(migrated_engine, release_id).process_event_with_features(
+        _feature_request(run_id, release_id)
+    )
+    with migrated_engine.connect() as connection:
+        database_now = connection.scalar(select(func.now()))
+
+    current_time = database_now
+    store = SqlAlchemyDispatchStore(
+        create_session_factory(migrated_engine),
+        retry_delays_seconds=(1,),
+        clock=lambda: current_time,
+    )
+    dispatcher = DurableDispatcher(
+        store,
+        {"ingestion": FailingPublisher(), "prediction": FailingPublisher()},
+        batch_size=10,
+        clock=lambda: current_time,
+    )
+
+    first = dispatcher.dispatch_due()
+    assert first.retry_wait == 1
+    with migrated_engine.connect() as connection:
+        retry_at = connection.scalar(select(job_dispatches.c.next_dispatch_at))
+    current_time = retry_at
+
+    second = dispatcher.dispatch_due()
+
+    assert second.stopped == 1
+    with migrated_engine.connect() as connection:
+        dispatches = connection.execute(select(job_dispatches)).all()
+    assert len(dispatches) == 1
+    assert dispatches[0].dispatch_id == result.dispatch_id
+    assert dispatches[0].prediction_job_id == result.prediction_job_id
+    assert dispatches[0].status == "stopped"
+    assert dispatches[0].attempt_count == 2
+    assert dispatches[0].last_error == "RuntimeError"
+
+
 def test_duplicate_delivery_reuses_work_and_later_revision_gets_own_job(
     migrated_engine,
 ) -> None:
