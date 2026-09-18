@@ -171,15 +171,27 @@ def test_valid_command_persists_one_completed_run_and_duplicate_is_a_no_op(
         assert run.events_found == 1
         assert run.events_inserted == 1
         assert connection.scalar(select(func.count()).select_from(earthquake_events)) == 2
-        dispatch = connection.execute(select(job_dispatches)).one()
-        assert dispatch.prediction_job_id is not None
+        dispatches = connection.execute(
+            select(job_dispatches).order_by(job_dispatches.c.dispatch_id)
+        ).all()
+        assert len(dispatches) == 2
+        ingestion_dispatch = next(
+            dispatch for dispatch in dispatches if dispatch.ingestion_run_id == request.run_id
+        )
+        prediction_dispatch = next(
+            dispatch for dispatch in dispatches if dispatch.prediction_job_id is not None
+        )
+        assert ingestion_dispatch.dispatch_id == request.dispatch_id
+        assert prediction_dispatch.prediction_job_id is not None
         revision = connection.execute(
             select(earthquake_event_revisions).where(
                 earthquake_event_revisions.c.ingestion_run_id == request.run_id
             )
         ).one()
         assert revision.prediction_skip_reason is None
-        assert connection.scalar(select(func.count()).select_from(prediction_jobs)) == 1
+        prediction_job = connection.execute(select(prediction_jobs)).one()
+        assert prediction_job.job_id == prediction_dispatch.prediction_job_id
+        assert prediction_job.correlation_id == request.correlation_id
 
 
 def test_mismatched_command_ids_never_claim_the_run(migrated_engine) -> None:
