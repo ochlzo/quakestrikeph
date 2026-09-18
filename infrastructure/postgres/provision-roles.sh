@@ -17,6 +17,23 @@ GRANT CONNECT ON DATABASE :"database_name" TO quakestrike_migration, quakestrike
 GRANT CREATE ON DATABASE :"database_name" TO quakestrike_migration;
 GRANT USAGE, CREATE ON SCHEMA public TO quakestrike_migration;
 GRANT USAGE ON SCHEMA public TO quakestrike_worker;
+SELECT format('ALTER TABLE %I.%I OWNER TO quakestrike_migration', schemaname, tablename)
+FROM pg_tables
+WHERE schemaname = 'public'
+  AND tableowner <> 'quakestrike_migration'
+  AND tablename IN (
+    'alembic_version', 'ingestion_runs', 'ingestion_run_inputs',
+    'earthquake_events', 'earthquake_bulletin_event_identities',
+    'earthquake_event_revisions', 'model_releases', 'prediction_jobs',
+    'job_dispatches'
+  ) \gexec
+SELECT format('ALTER TYPE %I.%I OWNER TO quakestrike_migration', n.nspname, t.typname)
+FROM pg_type AS t
+JOIN pg_namespace AS n ON n.oid = t.typnamespace
+WHERE n.nspname = 'public'
+  AND t.typtype = 'e'
+  AND pg_get_userbyid(t.typowner) <> 'quakestrike_migration'
+  AND t.typname IN ('ingestion_run_status', 'prediction_job_status', 'dispatch_status') \gexec
 SQL
     then
       echo '{"action":"provision-db-roles","status":"ready"}'
