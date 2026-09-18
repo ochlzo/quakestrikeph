@@ -30,6 +30,14 @@ SAFE_CONTEXT_FIELDS = frozenset(
         "enqueued",
         "retry_wait",
         "stopped",
+        "ingestion_claimed",
+        "ingestion_enqueued",
+        "ingestion_retry_wait",
+        "ingestion_stopped",
+        "prediction_claimed",
+        "prediction_enqueued",
+        "prediction_retry_wait",
+        "prediction_stopped",
     }
 )
 IDENTIFIER_FIELDS = frozenset(

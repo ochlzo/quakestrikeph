@@ -1,4 +1,4 @@
-"""Long-lived PostgreSQL-to-Redis ingestion dispatcher entry point."""
+"""Long-lived PostgreSQL-to-Redis durable dispatcher entry point."""
 
 from __future__ import annotations
 
@@ -6,26 +6,22 @@ import logging
 import signal
 from threading import Event
 
-from quakestrike.application.ingestion_dispatch import (
-    DispatchBatchResult,
-    DurableIngestionDispatcher,
-)
+from quakestrike.application.dispatch import DispatchBatchResult, DurableDispatcher
+from quakestrike.infrastructure.database.dispatch import SqlAlchemyDispatchStore
 from quakestrike.infrastructure.database.engine import (
     create_database_engine,
     create_session_factory,
 )
-from quakestrike.infrastructure.database.ingestion_dispatch import (
-    SqlAlchemyIngestionDispatchStore,
-)
 from quakestrike.infrastructure.logging.json_logging import log_event, log_exception_event
 from quakestrike.infrastructure.queues.celery_app import create_celery_app
 from quakestrike.infrastructure.queues.ingestion_publisher import CeleryIngestionPublisher
+from quakestrike.infrastructure.queues.prediction_publisher import CeleryPredictionPublisher
 from quakestrike.infrastructure.settings import Settings
 from quakestrike.runtime import run_service
 
 
 def run_dispatch_loop(
-    dispatcher: DurableIngestionDispatcher,
+    dispatcher: DurableDispatcher,
     *,
     poll_interval_seconds: int,
     stop_event: Event,
@@ -63,14 +59,17 @@ def run_dispatcher(settings: Settings, *, stop_event: Event | None = None) -> in
     previous_handlers = _install_shutdown_handlers(shutdown)
     try:
         app = create_celery_app(settings)
-        store = SqlAlchemyIngestionDispatchStore(
+        store = SqlAlchemyDispatchStore(
             create_session_factory(engine),
             lease_seconds=settings.dispatch_lease_seconds,
             retry_delays_seconds=settings.retry_delays_seconds,
         )
-        dispatcher = DurableIngestionDispatcher(
+        dispatcher = DurableDispatcher(
             store,
-            CeleryIngestionPublisher(app),
+            {
+                "ingestion": CeleryIngestionPublisher(app),
+                "prediction": CeleryPredictionPublisher(app),
+            },
             batch_size=settings.dispatcher_batch_size,
         )
         run_dispatch_loop(
@@ -90,18 +89,28 @@ def main() -> int:
 
 
 def _log_scan_result(logger: logging.Logger, result: DispatchBatchResult) -> None:
+    context: dict[str, object] = {
+        "status": "completed",
+        "claimed": result.claimed,
+        "enqueued": result.enqueued,
+        "retry_wait": result.retry_wait,
+        "stopped": result.stopped,
+    }
+    for target_kind, counts in result.target_counts:
+        context.update(
+            {
+                f"{target_kind}_claimed": counts.claimed,
+                f"{target_kind}_enqueued": counts.enqueued,
+                f"{target_kind}_retry_wait": counts.retry_wait,
+                f"{target_kind}_stopped": counts.stopped,
+            }
+        )
     log_event(
         logger,
         logging.INFO,
         "dispatcher scan completed",
         event_code="dispatcher_scan_completed",
-        context={
-            "status": "completed",
-            "claimed": result.claimed,
-            "enqueued": result.enqueued,
-            "retry_wait": result.retry_wait,
-            "stopped": result.stopped,
-        },
+        context=context,
     )
 
 

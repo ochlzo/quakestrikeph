@@ -26,6 +26,7 @@ from quakestrike.infrastructure.database.tables import (
     earthquake_event_revisions,
     earthquake_events,
     ingestion_runs,
+    job_dispatches,
     model_releases,
     prediction_jobs,
 )
@@ -170,6 +171,8 @@ def test_valid_command_persists_one_completed_run_and_duplicate_is_a_no_op(
         assert run.events_found == 1
         assert run.events_inserted == 1
         assert connection.scalar(select(func.count()).select_from(earthquake_events)) == 2
+        dispatch = connection.execute(select(job_dispatches)).one()
+        assert dispatch.prediction_job_id is not None
         revision = connection.execute(
             select(earthquake_event_revisions).where(
                 earthquake_event_revisions.c.ingestion_run_id == request.run_id

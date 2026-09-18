@@ -1,35 +1,33 @@
 from __future__ import annotations
 
+import os
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
 import pytest
+from kombu import Connection
+from redis import Redis
 from sqlalchemy import func, insert, select
 
+from quakestrike.application.dispatch import DispatchClaimLost, DurableDispatcher
 from quakestrike.application.persistence import (
     EventRevisionRequest,
     EventTransactionRequest,
     FeatureEventTransactionRequest,
     PredictionWorkRequest,
 )
-from quakestrike.application.prediction_dispatch import (
-    DurablePredictionDispatcher,
-    process_feature_event_and_publish_prediction,
-)
 from quakestrike.domain.features import (
     INPUT_SCHEMA_VERSION,
     HistoryCoverage,
     feature_snapshot_hash,
 )
+from quakestrike.infrastructure.database.dispatch import SqlAlchemyDispatchStore
 from quakestrike.infrastructure.database.engine import create_session_factory
 from quakestrike.infrastructure.database.feature_history import (
     SqlAlchemyFeatureHistoryQuery,
     observation_from_revision_request,
-)
-from quakestrike.infrastructure.database.prediction_dispatch import (
-    SqlAlchemyPredictionDispatchStore,
 )
 from quakestrike.infrastructure.database.repositories import SqlAlchemyIngestionTransactions
 from quakestrike.infrastructure.database.tables import (
@@ -40,6 +38,16 @@ from quakestrike.infrastructure.database.tables import (
     model_releases,
     prediction_jobs,
 )
+from quakestrike.infrastructure.queues.celery_app import (
+    PREDICTION_QUEUE,
+    create_celery_app,
+)
+from quakestrike.infrastructure.queues.ingestion_publisher import CeleryIngestionPublisher
+from quakestrike.infrastructure.queues.prediction_publisher import (
+    PREDICTION_TASK_NAME,
+    CeleryPredictionPublisher,
+)
+from quakestrike.infrastructure.settings import Settings
 
 pytestmark = pytest.mark.integration
 NOW = datetime(2026, 9, 16, 12, 0, tzinfo=UTC)
@@ -437,16 +445,17 @@ def test_publish_failure_after_commit_leaves_durable_prediction_work(migrated_en
         ),
     )
 
-    with pytest.raises(RuntimeError, match="Redis is unavailable"):
-        process_feature_event_and_publish_prediction(
-            _transactions(migrated_engine, release_id),
-            _feature_request(run_id, release_id),
-            DurablePredictionDispatcher(
-                SqlAlchemyPredictionDispatchStore(create_session_factory(migrated_engine)),
-                FailingPublisher(),
-            ),
-        )
+    result = _transactions(migrated_engine, release_id).process_event_with_features(
+        _feature_request(run_id, release_id)
+    )
+    dispatch_result = DurableDispatcher(
+        SqlAlchemyDispatchStore(create_session_factory(migrated_engine)),
+        {"ingestion": FailingPublisher(), "prediction": FailingPublisher()},
+        batch_size=10,
+    ).dispatch_due()
 
+    assert result.prediction_created is True
+    assert dispatch_result.retry_wait == 1
     assert _counts(migrated_engine) == {"events": 2, "revisions": 2, "jobs": 1, "dispatches": 1}
     with migrated_engine.connect() as connection:
         dispatch = connection.execute(select(job_dispatches)).one()
@@ -454,7 +463,7 @@ def test_publish_failure_after_commit_leaves_durable_prediction_work(migrated_en
     assert dispatch.next_dispatch_at is not None
     assert dispatch.lease_expires_at is None
     assert dispatch.dispatch_token is None
-    assert dispatch.last_error == "RuntimeError: Redis is unavailable"
+    assert dispatch.last_error == "RuntimeError"
 
 
 class RecordingPublisher:
@@ -478,16 +487,17 @@ def test_successful_prediction_publication_records_enqueued_state(migrated_engin
     )
     publisher = RecordingPublisher()
 
-    result = process_feature_event_and_publish_prediction(
-        _transactions(migrated_engine, release_id),
-        _feature_request(run_id, release_id),
-        DurablePredictionDispatcher(
-            SqlAlchemyPredictionDispatchStore(create_session_factory(migrated_engine)),
-            publisher,
-        ),
+    result = _transactions(migrated_engine, release_id).process_event_with_features(
+        _feature_request(run_id, release_id)
     )
+    dispatch_result = DurableDispatcher(
+        SqlAlchemyDispatchStore(create_session_factory(migrated_engine)),
+        {"ingestion": publisher, "prediction": publisher},
+        batch_size=10,
+    ).dispatch_due()
 
     assert result.prediction_created is True
+    assert dispatch_result.enqueued == 1
     assert len(publisher.messages) == 1
     with migrated_engine.connect() as connection:
         dispatch = connection.execute(select(job_dispatches)).one()
@@ -496,6 +506,105 @@ def test_successful_prediction_publication_records_enqueued_state(migrated_engin
     assert dispatch.next_dispatch_at is None
     assert dispatch.lease_expires_at is None
     assert dispatch.dispatch_token is None
+
+
+def test_ingestion_transaction_reaches_real_prediction_queue(migrated_engine) -> None:
+    database_url = os.environ.get("TEST_DATABASE_URL")
+    redis_url = os.environ.get("TEST_REDIS_URL")
+    if database_url is None or redis_url is None:
+        pytest.skip("TEST_DATABASE_URL and TEST_REDIS_URL are required for this integration test.")
+
+    redis_client = Redis.from_url(redis_url)
+    redis_client.delete(PREDICTION_QUEUE)
+    try:
+        run_id, release_id = _seed_run_and_release(migrated_engine)
+        _insert_history_event(
+            migrated_engine,
+            run_id,
+            _revision(
+                run_id,
+                event_time=NOW - timedelta(hours=1),
+                bulletin_id="2026_0916_1100_B1",
+            ),
+        )
+        settings = Settings(
+            _env_file=None,
+            database_url=database_url,
+            redis_url=redis_url,
+            phivolcs_catalog_url="https://example.invalid/phivolcs/catalog",
+            model_release_id=release_id,
+        )
+        app = create_celery_app(settings)
+        transactions = _transactions(migrated_engine, release_id)
+        request = _feature_request(run_id, release_id)
+        result = transactions.process_event_with_features(request)
+        dispatch_result = DurableDispatcher(
+            SqlAlchemyDispatchStore(create_session_factory(migrated_engine)),
+            {
+                "ingestion": CeleryIngestionPublisher(app),
+                "prediction": CeleryPredictionPublisher(app),
+            },
+            batch_size=10,
+        ).dispatch_due()
+
+        assert result.prediction_created is True
+        assert dispatch_result.enqueued == 1
+        with Connection(redis_url) as connection:
+            queue = connection.SimpleQueue(PREDICTION_QUEUE)
+            message = queue.get(block=False)
+            try:
+                assert message.headers["task"] == PREDICTION_TASK_NAME
+                assert message.delivery_info["routing_key"] == PREDICTION_QUEUE
+                payload = message.payload[0][0]
+                assert payload == {
+                    "message_version": 1,
+                    "dispatch_id": str(result.dispatch_id),
+                    "job_id": str(result.prediction_job_id),
+                    "correlation_id": str(request.correlation_id),
+                }
+            finally:
+                message.ack()
+                queue.close()
+    finally:
+        redis_client.delete(PREDICTION_QUEUE)
+        redis_client.close()
+
+
+def test_prediction_dispatch_reclaims_expired_claim_and_fences_old_token(
+    migrated_engine,
+) -> None:
+    run_id, release_id = _seed_run_and_release(migrated_engine)
+    _insert_history_event(
+        migrated_engine,
+        run_id,
+        _revision(
+            run_id,
+            event_time=NOW - timedelta(hours=1),
+            bulletin_id="2026_0916_1100_B1",
+        ),
+    )
+    _transactions(migrated_engine, release_id).process_event_with_features(
+        _feature_request(run_id, release_id)
+    )
+    with migrated_engine.connect() as connection:
+        database_now = connection.scalar(select(func.now()))
+
+    store = SqlAlchemyDispatchStore(
+        create_session_factory(migrated_engine),
+        clock=lambda: database_now,
+    )
+    original = store.claim_due(1, now=database_now)[0]
+    reclaimed = store.claim_due(1, now=database_now + timedelta(seconds=61))[0]
+
+    assert reclaimed.dispatch == original.dispatch
+    assert reclaimed.token != original.token
+    with pytest.raises(DispatchClaimLost):
+        store.mark_enqueued(original)
+    store.mark_enqueued(reclaimed)
+
+    with migrated_engine.connect() as connection:
+        dispatch = connection.execute(select(job_dispatches)).one()
+    assert dispatch.status == "enqueued"
 
 
 def test_duplicate_delivery_reuses_work_and_later_revision_gets_own_job(

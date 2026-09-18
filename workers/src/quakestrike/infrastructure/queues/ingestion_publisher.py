@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from celery import Celery
 
-from quakestrike.application.ingestion_dispatch import IngestionDispatch
+from quakestrike.application.dispatch import IngestionDispatch
 from quakestrike.infrastructure.queues.celery_app import INGESTION_QUEUE, INGESTION_TASK_NAME
 from quakestrike.infrastructure.queues.contracts import IngestionCommandV1
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from celery import Celery
 
-from quakestrike.application.prediction_dispatch import PredictionDispatch
+from quakestrike.application.dispatch import PredictionDispatch
 from quakestrike.infrastructure.queues.celery_app import PREDICTION_QUEUE
 from quakestrike.infrastructure.queues.contracts import PredictionCommandV1
 
