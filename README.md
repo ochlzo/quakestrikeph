@@ -139,13 +139,20 @@ tests skip unless `TEST_DATABASE_URL` points to an isolated test database.
 Run the Phase 2 PostgreSQL tests without publishing a database port:
 
 ```powershell
-docker compose -p quakestrike-phase2-test -f infrastructure/compose.integration.yml up -d --wait postgres-test
-docker compose -p quakestrike-phase2-test -f infrastructure/compose.integration.yml run --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration
-docker compose -p quakestrike-phase2-test -f infrastructure/compose.integration.yml down -v
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v
 ```
 
-The final command removes only the disposable `quakestrike-phase2-test`
-project and its volume.
+Use the fixed `quakestrike-data-ingestion-test` project name for this shared
+test environment. It matches the currently running PostgreSQL and Redis test
+containers and keeps the locally built `test-runner` image under one stable
+name. Compose can reuse the existing containers and image cache; it only needs
+to build a new image when the build inputs change. Use another project name
+only when you intentionally want a separate test environment.
+
+The final command removes only the disposable
+`quakestrike-data-ingestion-test` project and its resources.
 
 ## Start PostgreSQL and Redis locally
 
@@ -170,10 +177,10 @@ Apply and inspect migrations from a container attached to an isolated test
 database with:
 
 ```powershell
-docker compose -p quakestrike-phase2-test -f infrastructure/compose.integration.yml run --rm test-runner alembic -c workers/alembic.ini upgrade head
-docker compose -p quakestrike-phase2-test -f infrastructure/compose.integration.yml run --rm test-runner alembic -c workers/alembic.ini current
-docker compose -p quakestrike-phase2-test -f infrastructure/compose.integration.yml run --rm test-runner alembic -c workers/alembic.ini downgrade base
-docker compose -p quakestrike-phase2-test -f infrastructure/compose.integration.yml run --rm test-runner alembic -c workers/alembic.ini upgrade head
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --rm test-runner alembic -c workers/alembic.ini upgrade head
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --rm test-runner alembic -c workers/alembic.ini current
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --rm test-runner alembic -c workers/alembic.ini downgrade base
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --rm test-runner alembic -c workers/alembic.ini upgrade head
 ```
 
 Stop the services without deleting their named volumes with:

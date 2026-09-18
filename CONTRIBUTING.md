@@ -47,12 +47,16 @@ complete worker orchestration file yet.
 Database integration tests use a separate Compose project and private network:
 
 ```powershell
-docker compose -p quakestrike-phase2-test -f infrastructure/compose.integration.yml up -d --wait postgres-test
-docker compose -p quakestrike-phase2-test -f infrastructure/compose.integration.yml run --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration
-docker compose -p quakestrike-phase2-test -f infrastructure/compose.integration.yml down -v
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v
 ```
 
-Never reuse the normal development Compose project name for this cleanup.
+Use the fixed `quakestrike-data-ingestion-test` project name for this shared
+test environment. Reusing it lets Compose reuse the existing test containers
+and the locally built `test-runner` image. A different project name creates a
+separate Compose project and may create another project-scoped image. Never
+reuse the normal development Compose project name for this cleanup.
 
 ## Branches and commits
 

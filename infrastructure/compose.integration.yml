@@ -1,3 +1,5 @@
+name: quakestrike-data-ingestion-test
+
 services:
   postgres-test:
     image: postgres:16.15-bookworm
