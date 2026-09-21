@@ -7,7 +7,7 @@ from collections.abc import Callable, Mapping
 from typing import Protocol
 from uuid import UUID
 
-from celery import Celery
+from celery import Celery, Task
 from celery.exceptions import Reject
 from pydantic import ValidationError
 
@@ -22,7 +22,7 @@ from quakestrike.infrastructure.database.engine import (
 from quakestrike.infrastructure.database.repositories import SqlAlchemyIngestionTransactions
 from quakestrike.infrastructure.logging.json_logging import log_event, log_exception_event
 from quakestrike.infrastructure.logging.reconciliation import (
-    StructuredReconciliationDiagnosticReporter,
+    StructuredReconciliationReporter,
 )
 from quakestrike.infrastructure.phivolcs.client import PhivolcsCatalogClient
 from quakestrike.infrastructure.phivolcs.session import create_phivolcs_session
@@ -120,7 +120,7 @@ def process_ingestion_delivery(
             create_session_factory(engine),
             model_release_verifier=ConfiguredModelReleaseVerifier(settings),
         )
-        reporter = StructuredReconciliationDiagnosticReporter(task_logger)
+        reporter = StructuredReconciliationReporter(task_logger)
         reconciler = ReconcileCurrentCatalog(
             store=store,
             retriever=PhivolcsCatalogClient(
@@ -158,15 +158,17 @@ def create_ingestor_app(
 
     @app.task(
         name=INGESTION_TASK_NAME,
+        bind=True,
         acks_late=True,
         reject_on_worker_lost=True,
         acks_on_failure_or_timeout=False,
     )
-    def process_ingestion(payload: object) -> object:
+    def process_ingestion(task: Task, payload: object) -> object:
         return execute_ingestion_task(
             payload,
             command_handler=handler,
             logger=logging.getLogger("data-ingestor"),
+            message_id=getattr(task.request, "id", None),
         )
 
     return app
@@ -177,9 +179,20 @@ def execute_ingestion_task(
     *,
     command_handler: Callable[[object], object],
     logger: logging.Logger,
+    message_id: str | None = None,
 ) -> object:
     """Keep unexpected exception details out of Celery's task-failure diagnostics."""
 
+    context = _validated_command_context(payload)
+    if message_id is not None:
+        context["message_id"] = message_id
+    log_event(
+        logger,
+        logging.INFO,
+        "Ingestion command received.",
+        event_code="ingestion_command_received",
+        context=context,
+    )
     try:
         return command_handler(payload)
     except Exception as error:
@@ -189,7 +202,7 @@ def execute_ingestion_task(
             "Ingestion command processing failed.",
             event_code="ingestion_command_processing_failed",
             error=error,
-            context=_validated_command_context(payload),
+            context=context,
         )
         raise Reject("Ingestion command processing failed.", requeue=True) from None
 

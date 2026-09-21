@@ -214,7 +214,7 @@ checking whether that run reaches `succeeded` or a diagnosed terminal state,
 then compare its event, revision, prediction-job, and dispatch counts with the
 counts before the poll. A pending run with zero attempts may be waiting for
 Dispatcher to drain due prediction dispatches. Inspect bounded JSON logs by
-`event_code`, `run_id`, `dispatch_id`, and `correlation_id`:
+`event_code`, `message_id`, `run_id`, `dispatch_id`, and `correlation_id`:
 
 ```powershell
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml logs --since 30m --tail 200 dispatcher data-ingestor beat

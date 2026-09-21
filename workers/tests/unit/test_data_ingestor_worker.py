@@ -18,6 +18,7 @@ from quakestrike.infrastructure.settings import Settings
 DISPATCH_ID = UUID("00000000-0000-0000-0000-000000000001")
 RUN_ID = UUID("00000000-0000-0000-0000-000000000002")
 CORRELATION_ID = UUID("00000000-0000-0000-0000-000000000003")
+MESSAGE_ID = UUID("00000000-0000-0000-0000-000000000004")
 
 
 class _CommandStore:
@@ -118,6 +119,32 @@ def test_ingestor_app_registers_the_routed_task_with_the_identifier_only_payload
     assert app.tasks[INGESTION_TASK_NAME].acks_late is True
     assert app.tasks[INGESTION_TASK_NAME].reject_on_worker_lost is True
     assert app.tasks[INGESTION_TASK_NAME].acks_on_failure_or_timeout is False
+
+
+def test_ingestor_task_logs_the_broker_message_id(caplog) -> None:
+    settings = Settings(
+        _env_file=None,
+        database_url="postgresql+psycopg://worker:secret@postgres:5432/quakestrike",
+        redis_url="redis://redis:6379/0",
+        phivolcs_catalog_url="https://example.invalid/phivolcs/catalog",
+        model_release_id="00000000-0000-0000-0000-000000000005",
+    )
+    app = create_ingestor_app(settings, command_handler=lambda _payload: "succeeded")
+
+    with caplog.at_level(logging.INFO, logger="data-ingestor"):
+        result = app.tasks[INGESTION_TASK_NAME].apply(args=[_payload()], task_id=str(MESSAGE_ID))
+
+    assert result.successful()
+    received = next(
+        record for record in caplog.records if record.event_code == "ingestion_command_received"
+    )
+    assert received.context == {
+        "message_version": 1,
+        "message_id": str(MESSAGE_ID),
+        "dispatch_id": str(DISPATCH_ID),
+        "run_id": str(RUN_ID),
+        "correlation_id": str(CORRELATION_ID),
+    }
 
 
 def test_ingestor_task_replaces_unexpected_error_details_with_a_safe_failure(caplog) -> None:

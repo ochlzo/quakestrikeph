@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -34,7 +34,7 @@ from quakestrike.infrastructure.database.tables import (
     prediction_jobs,
 )
 from quakestrike.infrastructure.logging.reconciliation import (
-    StructuredReconciliationDiagnosticReporter,
+    StructuredReconciliationReporter,
 )
 from quakestrike.infrastructure.models.release_manifest import VerifiedReleaseManifest
 from quakestrike.infrastructure.phivolcs.client import PhivolcsCatalogClient
@@ -106,6 +106,11 @@ class _FixtureSession:
         return _Response(self.bodies[url])
 
 
+class _FailingPublisher:
+    def publish(self, _dispatch: object) -> None:
+        raise ConnectionError("broker unavailable")
+
+
 def _counts(connection) -> tuple[int, int, int, int, int]:
     return tuple(
         connection.scalar(select(func.count()).select_from(table))
@@ -146,7 +151,7 @@ def test_ready_history_beat_ingestion_and_prediction_queue_are_replay_safe(
         store = SqlAlchemyIngestionTransactions(
             session_factory, model_release_verifier=_VerifiedRelease(release_id)
         )
-        reporter = StructuredReconciliationDiagnosticReporter(logging.getLogger(__name__))
+        reporter = StructuredReconciliationReporter(logging.getLogger(__name__))
         manifest_path = tmp_path / "bootstrap-readiness.json"
         snapshot_path = FIXTURES / "bootstrap" / "historical_snapshot.json"
         history_coverage = load_bootstrap_snapshot(snapshot_path).coverage.history_coverage()
@@ -218,14 +223,40 @@ def test_ready_history_beat_ingestion_and_prediction_queue_are_replay_safe(
         with migrated_engine.connect() as connection:
             assert _counts(connection)[0] == before[0] + 1
 
+        dispatch_store = SqlAlchemyDispatchStore(session_factory)
+        failed_dispatch = DurableDispatcher(
+            dispatch_store,
+            {
+                "ingestion": _FailingPublisher(),
+                "prediction": CeleryPredictionPublisher(app),
+            },
+            batch_size=10,
+            clock=lambda: NOW,
+        ).dispatch_due()
+        assert failed_dispatch.target_counts_for("ingestion").retry_wait == 1
+        with migrated_engine.connect() as connection:
+            retry_at = connection.scalar(
+                select(job_dispatches.c.next_dispatch_at).where(
+                    job_dispatches.c.dispatch_id == dispatch_id
+                )
+            )
+            assert (
+                connection.scalar(
+                    select(func.count())
+                    .select_from(job_dispatches)
+                    .where(job_dispatches.c.ingestion_run_id == run_id)
+                )
+                == 1
+            )
+
         dispatcher = DurableDispatcher(
-            SqlAlchemyDispatchStore(session_factory),
+            dispatch_store,
             {
                 "ingestion": CeleryIngestionPublisher(app),
                 "prediction": CeleryPredictionPublisher(app),
             },
             batch_size=10,
-            clock=lambda: NOW,
+            clock=lambda: retry_at,
         )
         assert dispatcher.dispatch_due().target_counts_for("ingestion").enqueued == 1
         with Connection(redis_url) as connection:
@@ -238,36 +269,100 @@ def test_ready_history_beat_ingestion_and_prediction_queue_are_replay_safe(
                 assert command.dispatch_id == dispatch_id
                 assert command.run_id == run_id
                 assert command.correlation_id == scheduled.correlation_id
-                session = _FixtureSession()
-                reconciler = ReconcileCurrentCatalog(
-                    store=store,
-                    retriever=PhivolcsCatalogClient(
-                        catalog_url=CATALOG_URL,
-                        session=session,
-                        max_response_bytes=10_000,
-                        connect_timeout_seconds=3,
-                        read_timeout_seconds=4,
-                        detail_delay_seconds=0,
-                    ),
-                    diagnostic_reporter=reporter,
-                    model_release_id=release_id,
-                    history_coverage=history_coverage,
-                    now=lambda: NOW,
-                    event_reporter=reporter.report_event,
-                )
-                assert (
-                    handle_ingestion_command(
-                        command.to_message(),
-                        store=store,
-                        reconciler=reconciler,
-                        logger=logging.getLogger(__name__),
-                    )
-                    == "succeeded"
-                )
-                assert len(session.calls) == 3
             finally:
                 message.ack()
                 queue.close()
+
+        stale_worker = uuid4()
+        assert store.claim_run(run_id, stale_worker, retry_at) is not None
+        recovery_at = retry_at + timedelta(minutes=16)
+        recovered_dispatch = DurableDispatcher(
+            dispatch_store,
+            {
+                "ingestion": CeleryIngestionPublisher(app),
+                "prediction": CeleryPredictionPublisher(app),
+            },
+            batch_size=10,
+            clock=lambda: recovery_at,
+        ).dispatch_due()
+        assert recovered_dispatch.target_counts_for("ingestion").enqueued == 1
+
+        current_worker = uuid4()
+        recovered_claim = store.claim_run(run_id, current_worker, recovery_at)
+        assert recovered_claim is not None
+        assert recovered_claim.attempt_count == 2
+        assert store.heartbeat_run(run_id, stale_worker, recovery_at) is False
+        current_counters = store.counters_for_run(run_id, current_worker)
+        assert store.complete_run(run_id, stale_worker, recovery_at, current_counters) is False
+        with pytest.raises(ValueError, match="lease is no longer owned"):
+            store.checkpoint_input(run_id, stale_worker, "stale-worker", "rejected", None)
+        assert (
+            store.fail_run(
+                run_id,
+                current_worker,
+                recovery_at,
+                "CATALOG_TRANSPORT_FAILURE",
+                "The current catalog could not be retrieved.",
+                retryable=True,
+            )
+            == "retry_wait"
+        )
+        with migrated_engine.connect() as connection:
+            processing_retry_at = connection.scalar(
+                select(ingestion_runs.c.next_attempt_at).where(ingestion_runs.c.run_id == run_id)
+            )
+
+        retried_dispatch = DurableDispatcher(
+            dispatch_store,
+            {
+                "ingestion": CeleryIngestionPublisher(app),
+                "prediction": CeleryPredictionPublisher(app),
+            },
+            batch_size=10,
+            clock=lambda: processing_retry_at,
+        ).dispatch_due()
+        assert retried_dispatch.target_counts_for("ingestion").enqueued == 1
+        with Connection(redis_url) as connection:
+            queue = connection.SimpleQueue(INGESTION_QUEUE)
+            redelivered = []
+            try:
+                while redis_client.llen(INGESTION_QUEUE):
+                    message = queue.get(block=False)
+                    try:
+                        redelivered.append(IngestionCommandV1.model_validate(message.payload[0][0]))
+                    finally:
+                        message.ack()
+            finally:
+                queue.close()
+        assert redelivered == [command, command]
+
+        session = _FixtureSession()
+        reconciler = ReconcileCurrentCatalog(
+            store=store,
+            retriever=PhivolcsCatalogClient(
+                catalog_url=CATALOG_URL,
+                session=session,
+                max_response_bytes=10_000,
+                connect_timeout_seconds=3,
+                read_timeout_seconds=4,
+                detail_delay_seconds=0,
+            ),
+            diagnostic_reporter=reporter,
+            model_release_id=release_id,
+            history_coverage=history_coverage,
+            now=lambda: processing_retry_at,
+            event_reporter=reporter.report_event,
+        )
+        assert (
+            handle_ingestion_command(
+                command.to_message(),
+                store=store,
+                reconciler=reconciler,
+                logger=logging.getLogger(__name__),
+            )
+            == "succeeded"
+        )
+        assert len(session.calls) == 3
 
         with migrated_engine.connect() as connection:
             run = connection.execute(
@@ -300,6 +395,11 @@ def test_ready_history_beat_ingestion_and_prediction_queue_are_replay_safe(
                 )
                 == 3
             )
+            assert connection.execute(
+                select(job_dispatches.c.dispatch_id, job_dispatches.c.attempt_count).where(
+                    job_dispatches.c.ingestion_run_id == run_id
+                )
+            ).one() == (dispatch_id, 4)
         assert (run.events_found, run.events_inserted, run.events_revised, run.events_rejected) == (
             3,
             1,
@@ -307,7 +407,7 @@ def test_ready_history_beat_ingestion_and_prediction_queue_are_replay_safe(
             1,
         )
         assert run.status == "succeeded"
-        assert run.attempt_count == 1
+        assert run.attempt_count == 3
         assert prediction_dispatch.status == "pending"
         assert revised.event_id == original.event_id
         assert revised.event_revision_id != original.event_revision_id

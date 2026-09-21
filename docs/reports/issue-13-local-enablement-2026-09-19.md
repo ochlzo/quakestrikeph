@@ -34,15 +34,19 @@ leaves run counters and durable identity counts unchanged. The test checks the
 snapshot hash against canonical feature serialization and uses a controlled
 clock for dispatch timing.
 
-The main test consumes the real Redis message and calls the production handler
-directly. Existing integration tests exercise a Celery worker's Redis
-redelivery, processing retries, lease recovery, and stale token fencing. These
-remain separate so a failure identifies the broken contract. The main test
-does not start a Prediction Worker; inference is deferred.
+The main test consumes real Redis messages and calls the production handler
+directly. Before successful reconciliation, it proves a failed publication
+retries the same dispatch, an expired processing lease republishes the same
+command, a new worker reclaims the same run, the stale worker cannot heartbeat,
+checkpoint, or complete it, and a processing retry preserves all durable
+identities. It then verifies safe replay after terminal success. Focused
+integration tests retain deeper coverage of each state transition and a real
+Celery worker's Redis redelivery. The main test does not start a Prediction
+Worker; inference is deferred.
 
 | Contract | Test evidence |
 | --- | --- |
-| Beat tick, one run and dispatch, Redis routing, source parsing, revision, snapshot, prediction command, replay | `test_local_enablement.py` |
+| Beat tick, one run and dispatch, retry, lease recovery, stale-worker fencing, Redis routing, source parsing, revision, snapshot, prediction command, replay | `test_local_enablement.py` |
 | Retry delays, exhausted dispatch, expired claims, stale submission tokens | `test_ingestion_dispatch.py`, `test_scheduled_dispatch.py` |
 | Processing lease recovery, stale worker fencing, duplicate command, Celery redelivery | `test_transactions.py`, `test_data_ingestor_consumer.py` |
 | Bootstrap integrity, resumability, rejected rows, usable history | `test_bootstrap.py` in unit and integration suites |
@@ -75,13 +79,14 @@ restores the actual head revision. The focused end-to-end test uses a controlled
 2099 clock, so calendar progression cannot make due dispatches appear early.
 
 The 2026-09-21 review follow-up repeated the same check set after adding
-per-dispatch structured outcomes. Host pytest reported **253 passed, 124
+per-dispatch structured outcomes. Host pytest reported **254 passed, 124
 skipped**; the isolated Compose integration suite reported **122 passed** with
 no skips. Ruff lint, Ruff format verification, and `git diff --check` passed.
 Dispatcher outcome tests verify `dispatch_id`, `correlation_id`, and the target
-`run_id` or `job_id` for successful and retry outcomes. Failures expose only a
-bounded exception class name; the test confirms that connection credentials
-and exception text are absent.
+`run_id` or `job_id` for successful and retry outcomes. The bound ingestion
+task also records the available Celery `message_id` with the identifier-only
+command context. Failures expose only a bounded exception class name; tests
+confirm that connection credentials and exception text are absent.
 
 ## Retained local readiness inspection
 

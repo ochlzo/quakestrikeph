@@ -21,6 +21,7 @@ SAFE_CONTEXT_FIELDS = frozenset(
         "input_key",
         "job_id",
         "message_version",
+        "message_id",
         "gate",
         "reason",
         "status",
@@ -51,6 +52,7 @@ IDENTIFIER_FIELDS = frozenset(
         "revision_id",
         "job_id",
         "message_version",
+        "message_id",
     }
 )
 

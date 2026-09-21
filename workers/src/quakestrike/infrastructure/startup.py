@@ -37,7 +37,7 @@ from quakestrike.infrastructure.health import (
 )
 from quakestrike.infrastructure.logging.json_logging import configure_logging
 from quakestrike.infrastructure.logging.reconciliation import (
-    StructuredReconciliationDiagnosticReporter,
+    StructuredReconciliationReporter,
 )
 from quakestrike.infrastructure.models.release_manifest import (
     SELECTED_RELEASE_MANIFEST_URI,
@@ -77,7 +77,7 @@ def bootstrap_operation(settings: Settings) -> Iterator[HistoricalBootstrapOpera
                     required_available_through=(settings.bootstrap_required_available_through),
                 ),
                 store=store,
-                diagnostic_reporter=StructuredReconciliationDiagnosticReporter(
+                diagnostic_reporter=StructuredReconciliationReporter(
                     configure_logging("bootstrap", level=settings.log_level, stream=sys.stderr)
                 ),
                 model_release_id=settings.model_release_id,

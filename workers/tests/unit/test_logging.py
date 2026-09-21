@@ -13,7 +13,7 @@ from quakestrike.infrastructure.logging.json_logging import (
     log_exception_event,
 )
 from quakestrike.infrastructure.logging.reconciliation import (
-    StructuredReconciliationDiagnosticReporter,
+    StructuredReconciliationReporter,
 )
 
 
@@ -51,7 +51,7 @@ def test_structured_logging_emits_json_with_operational_identifiers() -> None:
 def test_reconciliation_diagnostic_logger_includes_run_and_input_correlation() -> None:
     output = io.StringIO()
     correlation_id = uuid4()
-    reporter = StructuredReconciliationDiagnosticReporter(
+    reporter = StructuredReconciliationReporter(
         configure_logging("data-ingestor", level="INFO", stream=output)
     )
 
@@ -114,9 +114,7 @@ def test_json_formatter_does_not_emit_exception_traces() -> None:
 
 def test_reconciliation_commit_log_exposes_ids_without_source_content() -> None:
     output = io.StringIO()
-    reporter = StructuredReconciliationDiagnosticReporter(
-        configure_logging("data-ingestor", stream=output)
-    )
+    reporter = StructuredReconciliationReporter(configure_logging("data-ingestor", stream=output))
     claim = RunClaim(uuid4(), uuid4(), uuid4(), 1)
     result = EventTransactionResult(
         event_id=uuid4(),

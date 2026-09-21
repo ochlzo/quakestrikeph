@@ -1,4 +1,4 @@
-"""Structured logging adapter for reconciliation row diagnostics."""
+"""Structured logging adapter for reconciliation outcomes."""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ from quakestrike.application.reconciliation import (
 from quakestrike.infrastructure.logging.json_logging import log_event
 
 
-class StructuredReconciliationDiagnosticReporter(ReconciliationDiagnosticReporter):
-    """Emit only safe diagnostic codes and durable reconciliation identifiers."""
+class StructuredReconciliationReporter(ReconciliationDiagnosticReporter):
+    """Emit safe row diagnostics and committed event identifiers."""
 
     def __init__(self, logger: logging.Logger) -> None:
         self._logger = logger
