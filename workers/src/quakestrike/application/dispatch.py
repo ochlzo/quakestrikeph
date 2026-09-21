@@ -10,6 +10,7 @@ from uuid import UUID
 
 DispatchTargetKind = Literal["ingestion", "prediction"]
 DispatchState = Literal["retry_wait", "stopped"]
+DispatchOutcomeState = Literal["enqueued", "retry_wait", "stopped"]
 Clock = Callable[[], datetime]
 
 
@@ -96,6 +97,15 @@ class DispatchTargetCounts:
 
 
 @dataclass(frozen=True, slots=True)
+class DispatchOutcome:
+    """Traceable outcome for one claimed durable dispatch."""
+
+    dispatch: DispatchTarget
+    status: DispatchOutcomeState
+    error: Exception | None = field(default=None, compare=False, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
 class DispatchBatchResult:
     """Durable outcomes from one bounded Dispatcher scan."""
 
@@ -108,6 +118,7 @@ class DispatchBatchResult:
         compare=False,
         repr=False,
     )
+    outcomes: tuple[DispatchOutcome, ...] = field(default=(), compare=False, repr=False)
 
     def target_counts_for(self, target_kind: DispatchTargetKind) -> DispatchTargetCounts:
         for kind, counts in self.target_counts:
@@ -150,6 +161,7 @@ class DurableDispatcher:
             "ingestion": [0, 0, 0, 0],
             "prediction": [0, 0, 0, 0],
         }
+        outcomes: list[DispatchOutcome] = []
 
         for claim in claims:
             target_kind = claim.dispatch.target_kind
@@ -162,6 +174,7 @@ class DurableDispatcher:
                 self._store.mark_stopped(claim, error, now=self._clock())
                 totals[3] += 1
                 target_totals[target_kind][3] += 1
+                outcomes.append(DispatchOutcome(claim.dispatch, "stopped", error))
             except Exception as error:
                 state = self._store.mark_retry(claim, error, now=self._clock())
                 if state == "retry_wait":
@@ -172,10 +185,12 @@ class DurableDispatcher:
                     target_totals[target_kind][3] += 1
                 else:
                     raise ValueError(f"Unknown dispatch retry state: {state}") from error
+                outcomes.append(DispatchOutcome(claim.dispatch, state, error))
             else:
                 self._store.mark_enqueued(claim)
                 totals[1] += 1
                 target_totals[target_kind][1] += 1
+                outcomes.append(DispatchOutcome(claim.dispatch, "enqueued"))
 
         target_counts = tuple(
             (
@@ -184,4 +199,4 @@ class DurableDispatcher:
             )
             for target_kind in ("ingestion", "prediction")
         )
-        return DispatchBatchResult(*totals, target_counts=target_counts)
+        return DispatchBatchResult(*totals, target_counts=target_counts, outcomes=tuple(outcomes))

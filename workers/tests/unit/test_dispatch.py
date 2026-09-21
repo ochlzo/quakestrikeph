@@ -9,6 +9,7 @@ import pytest
 from quakestrike.application.dispatch import (
     DispatchBatchResult,
     DispatchClaim,
+    DispatchOutcome,
     DispatchPermanentError,
     DurableDispatcher,
     IngestionDispatch,
@@ -75,6 +76,10 @@ def test_shared_dispatcher_routes_both_target_kinds_in_one_bounded_scan() -> Non
     assert [event[0] for event in store.events] == ["enqueued", "enqueued"]
     assert result.target_counts_for("ingestion").enqueued == 1
     assert result.target_counts_for("prediction").enqueued == 1
+    assert result.outcomes == (
+        DispatchOutcome(ingestion, "enqueued"),
+        DispatchOutcome(prediction, "enqueued"),
+    )
 
 
 def test_shared_dispatcher_stops_a_permanently_invalid_command() -> None:
@@ -94,6 +99,9 @@ def test_shared_dispatcher_stops_a_permanently_invalid_command() -> None:
 
     assert result == DispatchBatchResult(claimed=1, enqueued=0, retry_wait=0, stopped=1)
     assert store.events == [("stopped", store.claims[0])]
+    assert result.outcomes[0].dispatch == prediction
+    assert result.outcomes[0].status == "stopped"
+    assert isinstance(result.outcomes[0].error, DispatchPermanentError)
 
 
 @pytest.mark.parametrize(
@@ -116,3 +124,5 @@ def test_shared_dispatcher_retries_nonpermanent_publisher_errors(error: Exceptio
 
     assert result == DispatchBatchResult(claimed=1, enqueued=0, retry_wait=1, stopped=0)
     assert store.events == [("retry_wait", store.claims[0])]
+    assert result.outcomes == (DispatchOutcome(prediction, "retry_wait", error),)
+    assert result.outcomes[0].error is error

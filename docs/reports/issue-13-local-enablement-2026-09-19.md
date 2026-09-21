@@ -1,8 +1,11 @@
 # Issue #13 local enablement execution report
 
-Date: 2026-09-19 Asia/Manila. Tested implementation commit: `3c9a0e5` on
-`codex/issue-13-local-proof`. Parent issue: #6. Prerequisite issue #12 was
-pushed and closed before this work.
+Date: 2026-09-19 Asia/Manila. The full verification ran at implementation
+commit `3c9a0e5` on `codex/issue-13-local-proof`; commit `e02753f` updated only
+this report and test-isolation documentation afterward. The 2026-09-21 review
+follow-up then added traceable per-dispatch log outcomes and repeated the checks
+recorded below. Parent issue: #6. Prerequisite issue #12 was pushed and closed
+before this work.
 
 ## Deterministic proof
 
@@ -70,6 +73,15 @@ diff --check` passed. The full-gate scenario also exposed a stale migration
 version left by `test_initial_migration.py` for later tests. Its cleanup now
 restores the actual head revision. The focused end-to-end test uses a controlled
 2099 clock, so calendar progression cannot make due dispatches appear early.
+
+The 2026-09-21 review follow-up repeated the same check set after adding
+per-dispatch structured outcomes. Host pytest reported **253 passed, 124
+skipped**; the isolated Compose integration suite reported **122 passed** with
+no skips. Ruff lint, Ruff format verification, and `git diff --check` passed.
+Dispatcher outcome tests verify `dispatch_id`, `correlation_id`, and the target
+`run_id` or `job_id` for successful and retry outcomes. Failures expose only a
+bounded exception class name; the test confirms that connection credentials
+and exception text are absent.
 
 ## Retained local readiness inspection
 

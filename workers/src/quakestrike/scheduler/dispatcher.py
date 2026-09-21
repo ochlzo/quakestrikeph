@@ -9,13 +9,22 @@ import tempfile
 from pathlib import Path
 from threading import Event
 
-from quakestrike.application.dispatch import DispatchBatchResult, DurableDispatcher
+from quakestrike.application.dispatch import (
+    DispatchBatchResult,
+    DispatchOutcome,
+    DurableDispatcher,
+    IngestionDispatch,
+)
 from quakestrike.infrastructure.database.dispatch import SqlAlchemyDispatchStore
 from quakestrike.infrastructure.database.engine import (
     create_database_engine,
     create_session_factory,
 )
-from quakestrike.infrastructure.logging.json_logging import log_event, log_exception_event
+from quakestrike.infrastructure.logging.json_logging import (
+    log_event,
+    log_exception_event,
+    safe_exception_type,
+)
 from quakestrike.infrastructure.queues.celery_app import create_celery_app
 from quakestrike.infrastructure.queues.ingestion_publisher import CeleryIngestionPublisher
 from quakestrike.infrastructure.queues.prediction_publisher import CeleryPredictionPublisher
@@ -50,6 +59,8 @@ def run_dispatch_loop(
             )
         else:
             SCAN_HEALTH_MARKER.write_text(str(os.getpid()), encoding="ascii")
+            for outcome in result.outcomes:
+                _log_dispatch_outcome(logger, outcome)
             _log_scan_result(logger, result)
 
         if stop_event.wait(poll_interval_seconds):
@@ -118,6 +129,34 @@ def _log_scan_result(logger: logging.Logger, result: DispatchBatchResult) -> Non
         logging.INFO,
         "dispatcher scan completed",
         event_code="dispatcher_scan_completed",
+        context=context,
+    )
+
+
+def _log_dispatch_outcome(logger: logging.Logger, outcome: DispatchOutcome) -> None:
+    dispatch = outcome.dispatch
+    context: dict[str, object] = {
+        "dispatch_id": dispatch.dispatch_id,
+        "correlation_id": dispatch.correlation_id,
+        "status": outcome.status,
+    }
+    if isinstance(dispatch, IngestionDispatch):
+        context["run_id"] = dispatch.run_id
+    else:
+        context["job_id"] = dispatch.job_id
+    if outcome.error is not None:
+        context["exception_type"] = safe_exception_type(outcome.error)
+
+    level = {
+        "enqueued": logging.INFO,
+        "retry_wait": logging.WARNING,
+        "stopped": logging.ERROR,
+    }[outcome.status]
+    log_event(
+        logger,
+        level,
+        f"dispatch {outcome.status}",
+        event_code=f"dispatch_{outcome.status}",
         context=context,
     )
 

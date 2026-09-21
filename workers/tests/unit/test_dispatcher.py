@@ -4,10 +4,14 @@ import io
 import logging
 import os
 from pathlib import Path
+from uuid import UUID
 
 from quakestrike.application.dispatch import (
     DispatchBatchResult,
+    DispatchOutcome,
     DispatchTargetCounts,
+    IngestionDispatch,
+    PredictionDispatch,
 )
 from quakestrike.infrastructure.logging.json_logging import configure_logging
 from quakestrike.scheduler import dispatcher as dispatcher_module
@@ -32,6 +36,11 @@ class OneScanDispatcher:
 
     def dispatch_due(self) -> DispatchBatchResult:
         self.calls += 1
+        dispatch = IngestionDispatch(
+            dispatch_id=UUID("11111111-1111-4111-8111-111111111111"),
+            run_id=UUID("22222222-2222-4222-8222-222222222222"),
+            correlation_id=UUID("33333333-3333-4333-8333-333333333333"),
+        )
         return DispatchBatchResult(
             claimed=1,
             enqueued=1,
@@ -41,6 +50,7 @@ class OneScanDispatcher:
                 ("ingestion", DispatchTargetCounts(claimed=1, enqueued=1)),
                 ("prediction", DispatchTargetCounts()),
             ),
+            outcomes=(DispatchOutcome(dispatch, "enqueued"),),
         )
 
 
@@ -98,6 +108,46 @@ def test_dispatcher_scan_logging_labels_target_counts() -> None:
 
     assert '"ingestion_claimed":1' in output.getvalue()
     assert '"prediction_claimed":0' in output.getvalue()
+    assert '"event_code":"dispatch_enqueued"' in output.getvalue()
+    assert '"dispatch_id":"11111111-1111-4111-8111-111111111111"' in output.getvalue()
+    assert '"run_id":"22222222-2222-4222-8222-222222222222"' in output.getvalue()
+    assert '"correlation_id":"33333333-3333-4333-8333-333333333333"' in output.getvalue()
+
+
+def test_dispatcher_retry_log_has_target_ids_and_bounded_error() -> None:
+    error = RuntimeError("redis://worker:secret@example.invalid/0?password=must-not-log")
+    dispatch = PredictionDispatch(
+        dispatch_id=UUID("44444444-4444-4444-8444-444444444444"),
+        job_id=UUID("55555555-5555-4555-8555-555555555555"),
+        correlation_id=UUID("66666666-6666-4666-8666-666666666666"),
+    )
+
+    class RetryDispatcher:
+        def dispatch_due(self) -> DispatchBatchResult:
+            return DispatchBatchResult(
+                claimed=1,
+                enqueued=0,
+                retry_wait=1,
+                stopped=0,
+                outcomes=(DispatchOutcome(dispatch, "retry_wait", error),),
+            )
+
+    output = io.StringIO()
+    run_dispatch_loop(
+        RetryDispatcher(),  # type: ignore[arg-type]
+        poll_interval_seconds=5,
+        stop_event=StopAfterWait(),  # type: ignore[arg-type]
+        logger=configure_logging("scheduler-dispatcher", level="INFO", stream=output),
+    )
+
+    log = output.getvalue()
+    assert '"event_code":"dispatch_retry_wait"' in log
+    assert '"dispatch_id":"44444444-4444-4444-8444-444444444444"' in log
+    assert '"job_id":"55555555-5555-4555-8555-555555555555"' in log
+    assert '"correlation_id":"66666666-6666-4666-8666-666666666666"' in log
+    assert '"exception_type":"RuntimeError"' in log
+    assert "secret" not in log
+    assert "password" not in log
 
 
 def test_dispatcher_scan_failure_uses_structured_redacted_logging() -> None:
