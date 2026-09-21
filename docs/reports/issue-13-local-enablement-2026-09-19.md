@@ -62,7 +62,7 @@ test fixtures from migrating or truncating the retained local database.
 uv run --project workers pytest --config-file workers/pyproject.toml workers/tests -q
 uv run --project workers ruff check workers
 uv run --project workers ruff format --check workers
-git diff --check
+git diff main...HEAD --check
 docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test redis-test
 docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --build --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration -q
 docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v
@@ -73,7 +73,7 @@ Host pytest: **252 passed, 124 skipped**. The skipped integration tests lack
 unavailable Windows symlink creation. The final isolated Compose summary was
 **122 passed**, with no integration skips. Ruff lint and format checks passed
 after formatting one preexisting line in `test_operator_sequence.py`; `git
-diff --check` passed. The full-gate scenario also exposed a stale migration
+diff main...HEAD --check` passed. The full-gate scenario also exposed a stale migration
 version left by `test_initial_migration.py` for later tests. Its cleanup now
 restores the actual head revision. The focused end-to-end test uses a controlled
 2099 clock, so calendar progression cannot make due dispatches appear early.
@@ -81,7 +81,8 @@ restores the actual head revision. The focused end-to-end test uses a controlled
 The 2026-09-21 review follow-up repeated the same check set after adding
 per-dispatch structured outcomes. Host pytest reported **254 passed, 124
 skipped**; the isolated Compose integration suite reported **122 passed** with
-no skips. Ruff lint, Ruff format verification, and `git diff --check` passed.
+no skips. Ruff lint, Ruff format verification, and `git diff main...HEAD
+--check` passed.
 Dispatcher outcome tests verify `dispatch_id`, `correlation_id`, and the target
 `run_id` or `job_id` for successful and retry outcomes. The bound ingestion
 task also records the available Celery `message_id` with the identifier-only
