@@ -296,7 +296,7 @@ additional_output_json jsonb?
 created_at timestamptz = now()
 ```
 
-The window starts at the linked revision's event time and spans exactly 24 elapsed hours; the Prediction Worker verifies the cross-table equality in its transaction. Count and radius are nonnegative. Enforce `P(M5+) <= P(M4+) <= P(M1+)`, each in `[0,1]`; reject inconsistent outputs instead of reordering them. Magnitude quantiles are all null or all present and ordered `q10 <= q50 <= q90`. Null is not zero. Supersession targets another forecast for the same event and cannot cycle. The current forecast is the newest successful result for the latest event revision and configured release, ordered by job request time then job ID. If the latest revision has no success, no current forecast exists; older results may be labelled stale. A newer failed job does not hide an older successful result for the same revision/release.
+The window starts at the linked revision's event time and spans exactly 24 elapsed hours; the Prediction Worker verifies the cross-table equality in its transaction. Count and radius are nonnegative. Enforce `P(M5+) <= P(M4+) <= P(M1+)`, each in `[0,1]`; reject inconsistent outputs instead of reordering them. Magnitude quantiles are all null or all present and ordered `q05 <= q50 <= q95`. Null is not zero. Supersession targets another forecast for the same event and cannot cycle. The current forecast is the newest successful result for the latest event revision and configured release, ordered by job request time then job ID. If the latest revision has no success, no current forecast exists; older results may be labelled stale. A newer failed job does not hide an older successful result for the same revision/release.
 
 ## Reviews and alerts
 

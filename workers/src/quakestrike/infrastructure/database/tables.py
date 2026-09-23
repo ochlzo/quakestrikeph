@@ -523,7 +523,12 @@ job_dispatches = Table(
         ForeignKey("prediction_jobs.job_id", onupdate="RESTRICT", ondelete="RESTRICT"),
         unique=True,
     ),
-    Column("alert_job_id", UUID(as_uuid=True), unique=True),
+    Column(
+        "alert_job_id",
+        UUID(as_uuid=True),
+        ForeignKey("alert_jobs.alert_job_id", onupdate="RESTRICT", ondelete="RESTRICT"),
+        unique=True,
+    ),
     Column("status", dispatch_status, nullable=False, server_default="pending"),
     Column("next_dispatch_at", DateTime(timezone=True), server_default=func.now()),
     Column("last_dispatched_at", DateTime(timezone=True)),
@@ -644,6 +649,21 @@ forecasts = Table(
         "AND probability_m4_plus_24h <= probability_m1_plus_24h",
         name="ck_forecasts_probabilities",
     ),
+    CheckConstraint(
+        "probability_m1_plus_24h < 'Infinity'::double precision "
+        "AND probability_m1_plus_24h > '-Infinity'::double precision "
+        "AND probability_m4_plus_24h < 'Infinity'::double precision "
+        "AND probability_m4_plus_24h > '-Infinity'::double precision "
+        "AND probability_m5_plus_24h < 'Infinity'::double precision "
+        "AND probability_m5_plus_24h > '-Infinity'::double precision "
+        "AND expected_m1_plus_count_24h < 'Infinity'::double precision "
+        "AND expected_m1_plus_count_24h > '-Infinity'::double precision "
+        "AND (activity_radius_median_km_24h IS NULL OR (activity_radius_median_km_24h < 'Infinity'::double precision AND activity_radius_median_km_24h > '-Infinity'::double precision)) "
+        "AND (maximum_magnitude_q05_24h IS NULL OR (maximum_magnitude_q05_24h < 'Infinity'::double precision AND maximum_magnitude_q05_24h > '-Infinity'::double precision)) "
+        "AND (maximum_magnitude_q50_24h IS NULL OR (maximum_magnitude_q50_24h < 'Infinity'::double precision AND maximum_magnitude_q50_24h > '-Infinity'::double precision)) "
+        "AND (maximum_magnitude_q95_24h IS NULL OR (maximum_magnitude_q95_24h < 'Infinity'::double precision AND maximum_magnitude_q95_24h > '-Infinity'::double precision))",
+        name="ck_forecasts_finite_outputs",
+    ),
     CheckConstraint("expected_m1_plus_count_24h >= 0", name="ck_forecasts_expected_count"),
     CheckConstraint(
         "activity_radius_median_km_24h IS NULL OR activity_radius_median_km_24h >= 0",
@@ -657,6 +677,20 @@ forecasts = Table(
     ),
 )
 Index("ix_forecasts_supersedes_forecast_id", forecasts.c.supersedes_forecast_id)
+
+forecast_reviews = Table(
+    "forecast_reviews",
+    metadata,
+    Column("review_id", UUID(as_uuid=True), primary_key=True),
+    Column(
+        "forecast_id",
+        UUID(as_uuid=True),
+        ForeignKey("forecasts.forecast_id", onupdate="RESTRICT", ondelete="RESTRICT"),
+        nullable=False,
+        unique=True,
+    ),
+    UniqueConstraint("review_id", "forecast_id", name="uq_forecast_reviews_review_forecast"),
+)
 
 alert_jobs = Table(
     "alert_jobs",
@@ -686,6 +720,12 @@ alert_jobs = Table(
     Column("cancellation_reason", Text),
     Column("completed_at", DateTime(timezone=True)),
     Column("correlation_id", UUID(as_uuid=True), nullable=False),
+    ForeignKeyConstraint(
+        ["review_id", "forecast_id"],
+        ["forecast_reviews.review_id", "forecast_reviews.forecast_id"],
+        onupdate="RESTRICT",
+        ondelete="RESTRICT",
+    ),
     CheckConstraint(
         "alert_type IN ('operator_review', 'automatic_model')", name="ck_alert_jobs_type"
     ),

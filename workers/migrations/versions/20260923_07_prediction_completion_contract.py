@@ -114,6 +114,10 @@ def upgrade() -> None:
             "probability_m1_plus_24h BETWEEN 0 AND 1 AND probability_m4_plus_24h BETWEEN 0 AND 1 AND probability_m5_plus_24h BETWEEN 0 AND 1 AND probability_m5_plus_24h <= probability_m4_plus_24h AND probability_m4_plus_24h <= probability_m1_plus_24h",
             name="ck_forecasts_probabilities",
         ),
+        sa.CheckConstraint(
+            "probability_m1_plus_24h < 'Infinity'::double precision AND probability_m1_plus_24h > '-Infinity'::double precision AND probability_m4_plus_24h < 'Infinity'::double precision AND probability_m4_plus_24h > '-Infinity'::double precision AND probability_m5_plus_24h < 'Infinity'::double precision AND probability_m5_plus_24h > '-Infinity'::double precision AND expected_m1_plus_count_24h < 'Infinity'::double precision AND expected_m1_plus_count_24h > '-Infinity'::double precision AND (activity_radius_median_km_24h IS NULL OR (activity_radius_median_km_24h < 'Infinity'::double precision AND activity_radius_median_km_24h > '-Infinity'::double precision)) AND (maximum_magnitude_q05_24h IS NULL OR (maximum_magnitude_q05_24h < 'Infinity'::double precision AND maximum_magnitude_q05_24h > '-Infinity'::double precision)) AND (maximum_magnitude_q50_24h IS NULL OR (maximum_magnitude_q50_24h < 'Infinity'::double precision AND maximum_magnitude_q50_24h > '-Infinity'::double precision)) AND (maximum_magnitude_q95_24h IS NULL OR (maximum_magnitude_q95_24h < 'Infinity'::double precision AND maximum_magnitude_q95_24h > '-Infinity'::double precision))",
+            name="ck_forecasts_finite_outputs",
+        ),
         sa.CheckConstraint("expected_m1_plus_count_24h >= 0", name="ck_forecasts_expected_count"),
         sa.CheckConstraint(
             "activity_radius_median_km_24h IS NULL OR activity_radius_median_km_24h >= 0",
@@ -125,6 +129,16 @@ def upgrade() -> None:
         ),
     )
     op.create_index("ix_forecasts_supersedes_forecast_id", "forecasts", ["supersedes_forecast_id"])
+
+    op.create_table(
+        "forecast_reviews",
+        sa.Column("review_id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column("forecast_id", postgresql.UUID(as_uuid=True), nullable=False, unique=True),
+        sa.ForeignKeyConstraint(
+            ["forecast_id"], ["forecasts.forecast_id"], onupdate="RESTRICT", ondelete="RESTRICT"
+        ),
+        sa.UniqueConstraint("review_id", "forecast_id", name="uq_forecast_reviews_review_forecast"),
+    )
 
     op.create_table(
         "alert_jobs",
@@ -157,6 +171,12 @@ def upgrade() -> None:
         sa.Column("correlation_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["forecast_id"], ["forecasts.forecast_id"], onupdate="RESTRICT", ondelete="RESTRICT"
+        ),
+        sa.ForeignKeyConstraint(
+            ["review_id", "forecast_id"],
+            ["forecast_reviews.review_id", "forecast_reviews.forecast_id"],
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
         ),
         sa.CheckConstraint(
             "alert_type IN ('operator_review', 'automatic_model')", name="ck_alert_jobs_type"
@@ -247,7 +267,13 @@ def downgrade() -> None:
     op.create_check_constraint(
         "ck_job_dispatches_alert_target_deferred", "job_dispatches", "alert_job_id IS NULL"
     )
-    for name in ("audit_logs", "alert_jobs", "forecasts", "prediction_attempts"):
+    for name in (
+        "audit_logs",
+        "alert_jobs",
+        "forecast_reviews",
+        "forecasts",
+        "prediction_attempts",
+    ):
         op.drop_table(name)
     bind = op.get_bind()
     postgresql.ENUM(*ALERT_STATUSES, name="alert_job_status").drop(bind)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -11,9 +11,12 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from quakestrike.domain.features import feature_snapshot_hash
 from quakestrike.infrastructure.database.tables import (
+    alert_jobs,
     earthquake_bulletin_event_identities,
     earthquake_event_revisions,
     earthquake_events,
+    forecast_reviews,
+    forecasts,
     ingestion_runs,
     job_dispatches,
     model_releases,
@@ -141,6 +144,21 @@ def _job_values(parents: dict[str, UUID], **changes):
         "input_snapshot_json": dict(VALID_SNAPSHOT),
         "idempotency_key": str(uuid4()),
         "correlation_id": uuid4(),
+    }
+    values.update(changes)
+    return values
+
+
+def _forecast_values(job_id: UUID, **changes):
+    values = {
+        "forecast_id": uuid4(),
+        "job_id": job_id,
+        "window_start": NOW,
+        "window_end": NOW + timedelta(hours=24),
+        "probability_m1_plus_24h": 0.5,
+        "expected_m1_plus_count_24h": 2.0,
+        "probability_m4_plus_24h": 0.25,
+        "probability_m5_plus_24h": 0.1,
     }
     values.update(changes)
     return values
@@ -466,6 +484,58 @@ def test_dispatch_target_state_and_uniqueness_constraints(migrated_engine, paren
     _failed(
         migrated_engine,
         insert(job_dispatches).values(dispatch_id=uuid4(), prediction_job_id=job["job_id"]),
+    )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"expected_m1_plus_count_24h": float("inf")},
+        {"activity_radius_median_km_24h": float("inf")},
+        {
+            "maximum_magnitude_q05_24h": 1.0,
+            "maximum_magnitude_q50_24h": 2.0,
+            "maximum_magnitude_q95_24h": float("inf"),
+        },
+    ],
+)
+def test_forecasts_reject_nonfinite_outputs(migrated_engine, parents, changes) -> None:
+    job = _job_values(parents)
+    with migrated_engine.begin() as connection:
+        connection.execute(insert(prediction_jobs).values(**job))
+    _failed(migrated_engine, insert(forecasts).values(**_forecast_values(job["job_id"], **changes)))
+
+
+def test_operator_alert_requires_an_existing_review_for_its_forecast(
+    migrated_engine, parents
+) -> None:
+    job = _job_values(parents)
+    forecast = _forecast_values(job["job_id"])
+    review_id = uuid4()
+    with migrated_engine.begin() as connection:
+        connection.execute(insert(prediction_jobs).values(**job))
+        connection.execute(insert(forecasts).values(**forecast))
+        connection.execute(
+            insert(forecast_reviews).values(
+                review_id=review_id,
+                forecast_id=forecast["forecast_id"],
+            )
+        )
+
+    _failed(
+        migrated_engine,
+        insert(alert_jobs).values(
+            alert_job_id=uuid4(),
+            forecast_id=forecast["forecast_id"],
+            review_id=uuid4(),
+            alert_type="operator_review",
+            requested_by_user_id=uuid4(),
+            message_snapshot="Approved alert",
+            recipient_policy_snapshot={},
+            idempotency_key=str(uuid4()),
+            expires_at=NOW + timedelta(hours=24),
+            correlation_id=uuid4(),
+        ),
     )
 
 

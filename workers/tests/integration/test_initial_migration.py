@@ -22,6 +22,7 @@ EXPECTED_TABLES = {
     "job_dispatches",
     "prediction_attempts",
     "forecasts",
+    "forecast_reviews",
     "alert_jobs",
     "audit_logs",
 }
@@ -50,6 +51,11 @@ def test_upgrade_creates_only_phase_two_schema_and_uuid_keys_have_no_defaults(
     inspector = inspect(migrated_engine)
     assert set(inspector.get_table_names()) == EXPECTED_TABLES
     assert {item["name"] for item in inspector.get_enums()} == EXPECTED_ENUMS
+    dispatch_foreign_keys = {
+        tuple(item["constrained_columns"]): item["referred_table"]
+        for item in inspector.get_foreign_keys("job_dispatches")
+    }
+    assert dispatch_foreign_keys[("alert_job_id",)] == "alert_jobs"
 
     for table_name, key_name in {
         "ingestion_runs": "run_id",
