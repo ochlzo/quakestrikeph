@@ -2,7 +2,9 @@
 
 Date: 2026-09-23
 
-This handoff is for the next implementation session. The design discussion is complete. The implementation has not started.
+This handoff tracks the Prediction Worker implementation sequence. Issue #15's
+schema foundation is implemented on `app/prediction-worker`; the worker runtime
+and later tickets remain unfinished.
 
 ## Where the work lives
 
@@ -12,9 +14,9 @@ The implementation tickets are:
 
 | Issue | Title | Blocked by |
 | --- | --- | --- |
-| [#15](https://github.com/ochlzo/quakestrikeph/issues/15) | Correct the forecast output contract and persistence model | None |
+| [#15](https://github.com/ochlzo/quakestrikeph/issues/15) | Correct the forecast output contract and persistence model | Implemented on this branch |
 | [#16](https://github.com/ochlzo/quakestrikeph/issues/16) | Execute one prediction job end to end | #15 |
-| [#17](https://github.com/ochlzo/quakestrikeph/issues/17) | Run the real SEIS 1.0 model bundle | #16 |
+| [#17](https://github.com/ochlzo/quakestrikeph/issues/17) | Run the real SEIS 1.0.1 model bundle | #16 |
 | [#18](https://github.com/ochlzo/quakestrikeph/issues/18) | Create automatic alert work atomically with forecast completion | #16 |
 | [#19](https://github.com/ochlzo/quakestrikeph/issues/19) | Retry and recover prediction work durably | #16 |
 | [#20](https://github.com/ochlzo/quakestrikeph/issues/20) | Operate multiple Prediction Worker replicas | #17, #19 |
@@ -39,7 +41,10 @@ If `gh` is not on PATH, the installation used in the previous session was:
 C:\Program Files\GitHub CLI\gh.exe
 ```
 
-Start with issue #15. Do not implement tickets whose blockers are still open. Use `gh issue view <number> --repo ochlzo/quakestrikeph` to read the full body and comments before coding.
+Review and close issue #15 after this branch lands, then continue with issue #16.
+Do not implement tickets whose blockers are still open. Use
+`gh issue view <number> --repo ochlzo/quakestrikeph` to read the full body and
+comments before coding.
 
 ## Settled product and architecture decisions
 
@@ -48,7 +53,7 @@ Start with issue #15. Do not implement tickets whose blockers are still open. Us
 - PHIVOLCS Monitoring, forecast review, publication approval, operator alerts, and saved-pin matching were removed from the product scope. A valid forecast is available to the Bulletin without review.
 - Every current, unexpired live M1+ forecast creates exactly one automatic alert job. The Alert Worker later compares the observed anchor magnitude with each user's alert trigger magnitude; backfill, historical, and expired work create no alert job.
 - The worker consumes the existing versioned identifier-only prediction command from the separate prediction queue. PostgreSQL is the source of truth; Redis and Celery result storage are not business state.
-- The real read-only `SEIS 1.0` bundle must work. Test doubles are for deterministic CI tests only.
+- The real read-only `SEIS 1.0.1` bundle must work. Test doubles are for deterministic CI tests only.
 - Existing pending prediction jobs are processed, including historical jobs whose forecast window has ended. Historical, backfill, expired, or otherwise ineligible jobs never create automatic alerts.
 - Prediction retries are bounded to approximately 30 seconds, 2 minutes, and 10 minutes. Retry transient database and inference-runtime failures. Fail invalid snapshots, unsupported schemas, missing or hash-invalid artifacts, and invalid outputs without wasting retries.
 - Each task has a configurable five-minute soft limit and six-minute hard limit inside a renewable 15-minute processing lease.
@@ -86,14 +91,15 @@ Already implemented:
 - Prediction command contract and parser: `packages/contracts/queue/prediction-command.v1.schema.json` and the Python queue contract binding.
 - Prediction queue routing and shared durable Dispatcher.
 - Immutable feature snapshots, prediction jobs, model-release registration, manifest validation, and artifact hash verification.
-- Tracked normalized manifest: `workers/model-release-manifests/seis-1.0/manifest.json`.
-- Ignored local artifacts: `model-artifacts/seis-1.0/`, mounted read-only for the real smoke test.
+- Prediction attempts, forecasts, automatic alert jobs, their dispatch FK, and audit persistence from issue #15.
+- Immutable manifests: legacy `workers/model-release-manifests/seis-1.0/manifest.json` and selected `workers/model-release-manifests/seis-1.0.1/manifest.json`.
+- Ignored selected artifacts: `model-artifacts/seis-1.0.1/`, mounted read-only for the real smoke test.
 
 Not implemented yet:
 
 - Prediction consumer/task registration and prediction application use case.
-- Prediction-attempt and forecast tables, migrations, repositories, and leases.
-- Automatic alert-job completion transaction and audit persistence needed by prediction completion.
+- Prediction repositories, claim handling, and lease renewal.
+- Automatic alert-job completion transaction and system-audit write orchestration.
 - Prediction-specific retry/recovery logic in the Dispatcher.
 - Prediction-worker image, Compose service, health check, runtime dependencies, and replica operation.
 - Prediction worker tests, real-bundle smoke test, and throughput benchmark.

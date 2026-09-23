@@ -1,4 +1,4 @@
-"""Build the ignored local SEIS 1.0 bundle from the selected training package."""
+"""Build the ignored local SEIS 1.0.1 bundle from the selected training package."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from quakestrike.infrastructure.models.release_manifest import (
     load_verified_release_manifest,
 )
 
-SEIS_RELEASE_ID = UUID("2f532893-7a25-4f18-814c-91d66f38dac4")
+SEIS_RELEASE_ID = UUID("a7f2286b-13a2-4708-a04d-4139281a4e1f")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 
 
@@ -123,7 +123,11 @@ def _prepare(
                 targets.append(
                     {
                         "name": name,
-                        "target": selected["target"],
+                        "target": (
+                            "activity_radius_median_km_24h"
+                            if route_name == "radius" and name == "radius_median"
+                            else selected["target"]
+                        ),
                         "kind": selected["kind"],
                         "features": selected["features"],
                         "artifact_path": relative.as_posix(),
@@ -153,9 +157,9 @@ def _prepare(
     document = {
         "schema_version": "quakestrike.model-release.v1",
         "release_id": str(SEIS_RELEASE_ID),
-        "version_label": "SEIS 1.0",
+        "version_label": "SEIS 1.0.1",
         "input_schema_version": "quakestrike.prediction-input.v1",
-        "output_schema_version": "quakestrike.prediction-output.v1",
+        "output_schema_version": "quakestrike.prediction-output.v2",
         "provenance": {
             "package_name": "balanced-selection-anchor-exploratory-01",
             "package_status": source["status"],

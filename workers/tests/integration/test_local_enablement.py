@@ -140,11 +140,11 @@ def test_ready_history_beat_ingestion_and_prediction_queue_are_replay_safe(
             connection.execute(
                 insert(model_releases).values(
                     model_release_id=release_id,
-                    version_label="SEIS 1.0",
-                    artifact_manifest_uri="seis-1.0/manifest.json",
+                    version_label="SEIS 1.0.1",
+                    artifact_manifest_uri="seis-1.0.1/manifest.json",
                     artifact_manifest_hash="a" * 64,
                     input_schema_version=INPUT_SCHEMA_VERSION,
-                    output_schema_version="quakestrike.prediction-output.v1",
+                    output_schema_version="quakestrike.prediction-output.v2",
                 )
             )
         session_factory = create_session_factory(migrated_engine)
@@ -175,10 +175,10 @@ def test_ready_history_beat_ingestion_and_prediction_queue_are_replay_safe(
         )
         manifest = VerifiedReleaseManifest(
             release_id=release_id,
-            version_label="SEIS 1.0",
+            version_label="SEIS 1.0.1",
             input_schema_version=INPUT_SCHEMA_VERSION,
-            output_schema_version="quakestrike.prediction-output.v1",
-            manifest_uri="seis-1.0/manifest.json",
+            output_schema_version="quakestrike.prediction-output.v2",
+            manifest_uri="seis-1.0.1/manifest.json",
             manifest_hash="a" * 64,
             artifact_paths=(),
         )

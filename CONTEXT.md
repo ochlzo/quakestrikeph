@@ -93,7 +93,7 @@ revision when needed, and creates its prediction job and dispatch row
 atomically. Redis publication occurs after commit.
 
 **Project runtime release**:
-The explicitly configured, immutable `SEIS 1.0` release used for project
+The explicitly configured, immutable `SEIS 1.0.1` release used for project
 implementation and demonstration. Startup verifies its normalized manifest and
 artifact hashes before processing prediction work. Model files remain outside
 Git and mount read-only.

@@ -17,7 +17,7 @@ enforced across `event_revision_id`, `model_release_id`, and
 existing-job observation.
 
 Services require an explicit `MODEL_RELEASE_ID` and verify the immutable
-`SEIS 1.0` manifest and artifact hashes before processing. A run that reaches
+`SEIS 1.0.1` manifest and artifact hashes before processing. A run that reaches
 its retry limit is recovered by requeueing its existing logical run and
 dispatch records through an operator CLI, not by creating replacement
 identities.

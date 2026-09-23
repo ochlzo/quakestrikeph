@@ -40,3 +40,12 @@ must still be verified; model files remain local, Git-ignored, excluded from
 build contexts, and mounted read-only. This amendment changes the operational
 status for the project, not the selected targets or the artifact-integrity
 requirements.
+
+## Amendment: corrected output-contract patch release
+
+The corrected median-radius target uses release `SEIS 1.0.1`, release ID
+`a7f2286b-13a2-4708-a04d-4139281a4e1f`, and output schema
+`quakestrike.prediction-output.v2`. The original `SEIS 1.0` manifest and its
+registered row remain immutable. Both releases use the same verified model
+artifacts; the patch release changes only the corrected target identity and
+its release metadata.

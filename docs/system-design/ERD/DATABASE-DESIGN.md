@@ -198,7 +198,7 @@ output_schema_version text
 created_at timestamptz = now()
 ```
 
-Manifest hash is lowercase 64-character SHA-256 hex. Deployment selects `MODEL_RELEASE_ID` explicitly. `SEIS 1.0` is the project's production runtime label for the selected package; registration verifies the normalized manifest and local artifact hashes. Artifacts remain out of Git and Docker build contexts and mount read-only. A release row does not itself switch deployment configuration. See [release ADR](../../adr/0009-immutable-model-releases-and-ingestion-feature-snapshots.md).
+Manifest hash is lowercase 64-character SHA-256 hex. Deployment selects `MODEL_RELEASE_ID` explicitly. `SEIS 1.0.1` is the corrected production runtime label; the original `SEIS 1.0` row and manifest remain immutable. Registration verifies the normalized manifest and local artifact hashes. Artifacts remain out of Git and Docker build contexts and mount read-only. A release row does not itself switch deployment configuration. See [release ADR](../../adr/0009-immutable-model-releases-and-ingestion-feature-snapshots.md).
 
 ### `prediction_jobs`
 
@@ -264,7 +264,7 @@ maximum_magnitude_q95_24h double precision?
 created_at timestamptz = now()
 ```
 
-The window starts at the linked revision's event time and spans exactly 24 elapsed hours; the Prediction Worker verifies the cross-table equality in its transaction. Count and radius are nonnegative. Enforce `P(M5+) <= P(M4+) <= P(M1+)`, each in `[0,1]`; reject inconsistent outputs instead of reordering them. Magnitude quantiles are all null or all present and ordered `q05 <= q50 <= q95`. Null is not zero. Supersession targets another forecast for the same event and cannot cycle. The current forecast is the newest successful result for the latest event revision and configured release, ordered by job request time then job ID. If the latest revision has no success, no current forecast exists; older results may be labelled stale. A newer failed job does not hide an older successful result for the same revision/release.
+The window starts at the linked revision's event time and spans exactly 24 elapsed hours; the Prediction Worker verifies the cross-table equality in its transaction. Count and radius are nonnegative. Enforce `P(M5+) <= P(M4+) <= P(M1+)`, each in `[0,1]`; reject inconsistent outputs instead of reordering them. Magnitude quantiles are all null or all present and ordered `q05 <= q50 <= q95`. Null is not zero. Supersession targets another forecast for the same event and cannot cycle. A check rejects direct self-reference, and the database supersession trigger enforces same-event ancestry and rejects longer cycles. The current forecast is the newest successful result for the latest event revision and configured release, ordered by job request time then job ID. If the latest revision has no success, no current forecast exists; older results may be labelled stale. A newer failed job does not hide an older successful result for the same revision/release.
 
 ## Alerts
 
@@ -359,6 +359,8 @@ metadata jsonb?
 
 Actor type is `user`, `system`, or `anonymous`; the matching user/service field is required only for its type. Outcome is `succeeded`, `denied`, or `failed`. Target type/id are paired when a target exists; do not fabricate a target for an early denial. Target fields are historical descriptions, not polymorphic FKs. Privileged mutation and success audit commit together. Rollback failures and denials use a bounded separate path and never report committed success. Normal application roles cannot update or delete audit rows. Metadata contains no secrets.
 
+Until the accounts migration creates `users`, this phase rejects `actor_type = 'user'` so `actor_user_id` cannot become an orphan. That migration removes the temporary check and adds the required `users` foreign key. System audits needed by prediction completion remain available now.
+
 ### `technical_logs`
 
 Selected, sanitized warnings, errors, slow requests, and maintenance messages for protected Operations queries. Container stdout/stderr carries ordinary and outage diagnostics.
@@ -447,7 +449,7 @@ Every FK uses `ON UPDATE RESTRICT`. Required child references have one parent; o
 | `alert_jobs.forecast_id` | `forecasts` | RESTRICT |
 | `alert_recipients.alert_job_id`; `alert_delivery_attempts.recipient_id` | `alert_jobs`; `alert_recipients` | RESTRICT |
 | `alert_recipients.user_id` | `users` | SET NULL |
-| `audit_logs.actor_user_id` | `users` | RESTRICT |
+| `audit_logs.actor_user_id` | `users` | RESTRICT after the accounts migration; user actors are rejected before it |
 | `maintenance_runs.related_backup_run_id` | `maintenance_runs` | RESTRICT |
 
 An alert job requires one forecast and `UNIQUE (forecast_id)` allows no second job for the same forecast. A job can have zero or one dispatch by FK/UQ, but creation transactions require one for new background work. `technical_logs` has no business FK. Close or anonymize retained users rather than deleting their audit evidence. Physical deletion succeeds only when RESTRICT references are absent. Business retention requires a separately reviewed procedure; technical-log cleanup cannot cascade through history.
@@ -476,7 +478,7 @@ Queue and Console searches must be indexed, paginated, and date-bounded. Do not 
 
 ## Initialization, retention, and policy choices
 
-Apply hand-reviewed Alembic migrations, verify and explicitly register the `SEIS 1.0` manifest and artifact hashes, run the resumable bootstrap, check source snapshot integrity, identifiers, URLs, row counts, and seven-day history, then start Dispatcher/Ingestor and enable Beat. Bootstrap records a `backfill` run and uses the same normalization and reconciliation as live ingestion. Service startup never runs migrations, imports data, or silently changes releases. Historical snapshots remain source evidence outside Git; PostgreSQL is the only live event store. See [startup](../../adr/0019-explicit-startup-and-runtime-configuration.md) and [readiness](../../adr/0022-idempotent-revisions-and-bootstrap-gates.md).
+Apply hand-reviewed Alembic migrations, verify and explicitly register the selected `SEIS 1.0.1` manifest and artifact hashes, run the resumable bootstrap, check source snapshot integrity, identifiers, URLs, row counts, and seven-day history, then start Dispatcher/Ingestor and enable Beat. Bootstrap records a `backfill` run and uses the same normalization and reconciliation as live ingestion. Service startup never runs migrations, imports data, or silently changes releases. Historical snapshots remain source evidence outside Git; PostgreSQL is the only live event store. See [startup](../../adr/0019-explicit-startup-and-runtime-configuration.md) and [readiness](../../adr/0022-idempotent-revisions-and-bootstrap-gates.md).
 
 Choose and version the recipient policy before enabling delivery; `recipient_policy_snapshot` records the batch policy and `eligibility_snapshot` records the user's SMS setting, trigger magnitude, observed anchor magnitude, account state, and phone-verification state. Also decide technical and business retention periods separately and the SMS provider/callback and phone-verification policy. Existing snapshots and states support these choices without a new table. Host maintenance scripts, not a database scheduling extension, own cleanup, backup, and restore-test schedules. The [architecture specification](../ARCHITECTURE/ARCHITECTURE.md#logging-diagnostics-and-maintenance) defines diagnostic fallback and off-VPS backup requirements.
 

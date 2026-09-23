@@ -123,8 +123,8 @@ class ModelReleaseStartupGate:
                 raise ManifestValidationError(
                     "The configured release ID does not match the manifest."
                 )
-            if release.version_label != "SEIS 1.0":
-                raise ManifestValidationError("The selected release is not SEIS 1.0.")
+            if release.version_label != "SEIS 1.0.1":
+                raise ManifestValidationError("The selected release is not SEIS 1.0.1.")
             engine = create_database_engine(self.settings.database_url)
             try:
                 stored = SqlAlchemyModelReleaseRegistry(create_session_factory(engine)).get(

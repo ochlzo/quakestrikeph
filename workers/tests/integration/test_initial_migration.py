@@ -69,6 +69,17 @@ def test_upgrade_creates_only_phase_two_schema_and_uuid_keys_have_no_defaults(
         "completed_at",
         "correlation_id",
     }
+    assert {item["name"] for item in inspector.get_indexes("alert_jobs")} >= {
+        "ix_alert_jobs_active_lease",
+        "ix_alert_jobs_requested_at",
+        "ix_alert_jobs_status_expiry",
+    }
+    assert {item["name"] for item in inspector.get_indexes("audit_logs")} >= {
+        "ix_audit_logs_actor_occurred_at",
+        "ix_audit_logs_correlation_id",
+        "ix_audit_logs_occurred_at",
+        "ix_audit_logs_target_occurred_at",
+    }
 
     for table_name, key_name in {
         "ingestion_runs": "run_id",

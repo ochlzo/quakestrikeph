@@ -1,9 +1,9 @@
-# Match forecast persistence to the SEIS 1.0 output contract
+# Match forecast persistence to the corrected SEIS output contract
 
 **Status**: accepted
 
 The Prediction Worker persists the output names supplied by the registered
-`SEIS 1.0` release. Forecasts use `maximum_magnitude_q05_24h`,
+`SEIS 1.0.1` release. Forecasts use `maximum_magnitude_q05_24h`,
 `maximum_magnitude_q50_24h`, `maximum_magnitude_q95_24h`, and
 `activity_radius_median_km_24h`. The previous q10/q90 and p90 names are not
 aliases and are not retained as parallel columns.
@@ -16,3 +16,7 @@ attempts, forecasts, automatic alert jobs, their durable dispatch, and the
 required system audit are separate durable records. Completion code must write
 them in one transaction; this migration only establishes their storage and
 constraints.
+
+The target correction is an immutable patch release, not an edit to the
+registered `SEIS 1.0` identity. `SEIS 1.0.1` uses a new release ID and output
+schema v2 while retaining the verified model artifacts.

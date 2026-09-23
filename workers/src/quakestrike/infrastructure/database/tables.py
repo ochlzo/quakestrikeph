@@ -673,6 +673,10 @@ forecasts = Table(
         "AND maximum_magnitude_q05_24h <= maximum_magnitude_q50_24h AND maximum_magnitude_q50_24h <= maximum_magnitude_q95_24h)",
         name="ck_forecasts_quantiles",
     ),
+    CheckConstraint(
+        "supersedes_forecast_id IS NULL OR supersedes_forecast_id <> forecast_id",
+        name="ck_forecasts_supersedes_other",
+    ),
 )
 Index("ix_forecasts_supersedes_forecast_id", forecasts.c.supersedes_forecast_id)
 
@@ -713,6 +717,13 @@ alert_jobs = Table(
         name="ck_alert_jobs_completion",
     ),
 )
+Index("ix_alert_jobs_status_expiry", alert_jobs.c.status, alert_jobs.c.expires_at)
+Index("ix_alert_jobs_requested_at", alert_jobs.c.requested_at)
+Index(
+    "ix_alert_jobs_active_lease",
+    alert_jobs.c.lease_expires_at,
+    postgresql_where=alert_jobs.c.status.in_(("resolving", "delivering")),
+)
 
 audit_logs = Table(
     "audit_logs",
@@ -743,7 +754,17 @@ audit_logs = Table(
         "(target_type IS NULL AND target_id IS NULL) OR (target_type IS NOT NULL AND target_id IS NOT NULL)",
         name="ck_audit_logs_target_pair",
     ),
+    CheckConstraint("actor_type <> 'user'", name="ck_audit_logs_user_actor_deferred"),
 )
+Index("ix_audit_logs_occurred_at", audit_logs.c.occurred_at)
+Index("ix_audit_logs_actor_occurred_at", audit_logs.c.actor_user_id, audit_logs.c.occurred_at)
+Index(
+    "ix_audit_logs_target_occurred_at",
+    audit_logs.c.target_type,
+    audit_logs.c.target_id,
+    audit_logs.c.occurred_at,
+)
+Index("ix_audit_logs_correlation_id", audit_logs.c.correlation_id)
 Index(
     "ix_job_dispatches_dispatching_lease",
     job_dispatches.c.lease_expires_at,

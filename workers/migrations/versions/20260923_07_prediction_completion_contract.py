@@ -125,8 +125,70 @@ def upgrade() -> None:
             "(maximum_magnitude_q05_24h IS NULL AND maximum_magnitude_q50_24h IS NULL AND maximum_magnitude_q95_24h IS NULL) OR (maximum_magnitude_q05_24h IS NOT NULL AND maximum_magnitude_q50_24h IS NOT NULL AND maximum_magnitude_q95_24h IS NOT NULL AND maximum_magnitude_q05_24h <= maximum_magnitude_q50_24h AND maximum_magnitude_q50_24h <= maximum_magnitude_q95_24h)",
             name="ck_forecasts_quantiles",
         ),
+        sa.CheckConstraint(
+            "supersedes_forecast_id IS NULL OR supersedes_forecast_id <> forecast_id",
+            name="ck_forecasts_supersedes_other",
+        ),
     )
     op.create_index("ix_forecasts_supersedes_forecast_id", "forecasts", ["supersedes_forecast_id"])
+    op.execute(
+        """
+        CREATE FUNCTION enforce_forecast_supersession() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        DECLARE
+            current_event_id uuid;
+            previous_event_id uuid;
+        BEGIN
+            IF NEW.supersedes_forecast_id IS NULL THEN
+                RETURN NEW;
+            END IF;
+
+            SELECT revisions.event_id INTO current_event_id
+            FROM prediction_jobs jobs
+            JOIN earthquake_event_revisions revisions
+              ON revisions.event_revision_id = jobs.event_revision_id
+            WHERE jobs.job_id = NEW.job_id;
+
+            SELECT revisions.event_id INTO previous_event_id
+            FROM forecasts previous
+            JOIN prediction_jobs jobs ON jobs.job_id = previous.job_id
+            JOIN earthquake_event_revisions revisions
+              ON revisions.event_revision_id = jobs.event_revision_id
+            WHERE previous.forecast_id = NEW.supersedes_forecast_id;
+
+            IF previous_event_id IS DISTINCT FROM current_event_id THEN
+                RAISE EXCEPTION 'A forecast may supersede only a forecast for the same event.'
+                    USING ERRCODE = '23514', CONSTRAINT = 'ck_forecasts_supersedes_same_event';
+            END IF;
+
+            IF EXISTS (
+                WITH RECURSIVE chain(forecast_id, supersedes_forecast_id) AS (
+                    SELECT forecast_id, supersedes_forecast_id
+                    FROM forecasts
+                    WHERE forecast_id = NEW.supersedes_forecast_id
+                    UNION
+                    SELECT forecasts.forecast_id, forecasts.supersedes_forecast_id
+                    FROM forecasts
+                    JOIN chain ON forecasts.forecast_id = chain.supersedes_forecast_id
+                )
+                SELECT 1 FROM chain WHERE forecast_id = NEW.forecast_id
+            ) THEN
+                RAISE EXCEPTION 'Forecast supersession cannot contain a cycle.'
+                    USING ERRCODE = '23514', CONSTRAINT = 'ck_forecasts_supersedes_acyclic';
+            END IF;
+
+            RETURN NEW;
+        END;
+        $$
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_forecasts_validate_supersession
+        BEFORE INSERT OR UPDATE OF forecast_id, job_id, supersedes_forecast_id ON forecasts
+        FOR EACH ROW EXECUTE FUNCTION enforce_forecast_supersession()
+        """
+    )
 
     op.create_table(
         "alert_jobs",
@@ -166,6 +228,14 @@ def upgrade() -> None:
             name="ck_alert_jobs_completion",
         ),
     )
+    op.create_index("ix_alert_jobs_status_expiry", "alert_jobs", ["status", "expires_at"])
+    op.create_index("ix_alert_jobs_requested_at", "alert_jobs", ["requested_at"])
+    op.create_index(
+        "ix_alert_jobs_active_lease",
+        "alert_jobs",
+        ["lease_expires_at"],
+        postgresql_where=sa.text("status IN ('resolving', 'delivering')"),
+    )
 
     op.create_table(
         "audit_logs",
@@ -199,7 +269,18 @@ def upgrade() -> None:
             "(target_type IS NULL AND target_id IS NULL) OR (target_type IS NOT NULL AND target_id IS NOT NULL)",
             name="ck_audit_logs_target_pair",
         ),
+        sa.CheckConstraint("actor_type <> 'user'", name="ck_audit_logs_user_actor_deferred"),
     )
+    op.create_index("ix_audit_logs_occurred_at", "audit_logs", ["occurred_at"])
+    op.create_index(
+        "ix_audit_logs_actor_occurred_at", "audit_logs", ["actor_user_id", "occurred_at"]
+    )
+    op.create_index(
+        "ix_audit_logs_target_occurred_at",
+        "audit_logs",
+        ["target_type", "target_id", "occurred_at"],
+    )
+    op.create_index("ix_audit_logs_correlation_id", "audit_logs", ["correlation_id"])
 
     op.drop_constraint("ck_job_dispatches_alert_target_deferred", "job_dispatches", type_="check")
     op.create_foreign_key(
@@ -225,6 +306,7 @@ def downgrade() -> None:
         "prediction_attempts",
     ):
         op.drop_table(name)
+    op.execute("DROP FUNCTION enforce_forecast_supersession()")
     bind = op.get_bind()
     postgresql.ENUM(*ALERT_STATUSES, name="alert_job_status").drop(bind)
     postgresql.ENUM(*ATTEMPT_STATUSES, name="prediction_attempt_status").drop(bind)

@@ -62,7 +62,7 @@ Install Git, Docker Desktop (or Docker Engine with Compose v2), Python 3.12,
 and [`uv`](https://docs.astral.sh/uv/). You also need two inputs kept
 outside Git:
 
-1. The approved `SEIS 1.0` model package, including its weight files. Ask the
+1. The approved `SEIS 1.0.1` model package, including its weight files. Ask the
    project maintainer for the reviewed package.
 2. A preserved raw or enriched PHIVOLCS bootstrap snapshot. It must include
    source IDs and URLs, retrieval metadata, counts, and the required August

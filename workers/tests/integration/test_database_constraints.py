@@ -12,6 +12,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from quakestrike.domain.features import feature_snapshot_hash
 from quakestrike.infrastructure.database.tables import (
     alert_jobs,
+    audit_logs,
     earthquake_bulletin_event_identities,
     earthquake_event_revisions,
     earthquake_events,
@@ -511,6 +512,7 @@ def test_one_alert_job_is_allowed_per_forecast(migrated_engine, parents) -> None
     first_alert = {
         "alert_job_id": uuid4(),
         "forecast_id": forecast["forecast_id"],
+        "requested_at": NOW,
         "message_snapshot": "Automatic earthquake alert",
         "recipient_policy_snapshot": {"version": "1"},
         "expires_at": NOW + timedelta(hours=24),
@@ -526,12 +528,125 @@ def test_one_alert_job_is_allowed_per_forecast(migrated_engine, parents) -> None
         insert(alert_jobs).values(
             alert_job_id=uuid4(),
             forecast_id=forecast["forecast_id"],
+            requested_at=NOW,
             message_snapshot="Duplicate automatic earthquake alert",
             recipient_policy_snapshot={"version": "1"},
             expires_at=NOW + timedelta(hours=24),
             correlation_id=uuid4(),
         ),
     )
+
+
+def test_forecast_cannot_supersede_itself(migrated_engine, parents) -> None:
+    job = _job_values(parents)
+    forecast = _forecast_values(job["job_id"])
+    forecast["supersedes_forecast_id"] = forecast["forecast_id"]
+    with migrated_engine.begin() as connection:
+        connection.execute(insert(prediction_jobs).values(**job))
+    _failed(migrated_engine, insert(forecasts).values(**forecast))
+
+
+def test_forecast_cannot_supersede_a_different_event(migrated_engine, parents) -> None:
+    first_job = _job_values(parents)
+    first_forecast = _forecast_values(first_job["job_id"])
+    other_event_id = uuid4()
+    other_revision_id = uuid4()
+    other_job = _job_values(parents, event_revision_id=other_revision_id)
+    with migrated_engine.begin() as connection:
+        connection.execute(insert(prediction_jobs).values(**first_job))
+        connection.execute(insert(forecasts).values(**first_forecast))
+        connection.execute(
+            insert(earthquake_events).values(
+                event_id=other_event_id,
+                first_seen_run_id=parents["run"],
+                last_seen_run_id=parents["run"],
+            )
+        )
+        connection.execute(
+            insert(earthquake_bulletin_event_identities).values(
+                source_bulletin_id="2026_0831_1610_B1",
+                event_id=other_event_id,
+            )
+        )
+        connection.execute(
+            insert(earthquake_event_revisions).values(
+                **_revision_values(
+                    parents,
+                    event_revision_id=other_revision_id,
+                    event_id=other_event_id,
+                    revision_number=1,
+                    source_bulletin_id="2026_0831_1610_B1",
+                    source_event_group_id="2026_0831_1610",
+                )
+            )
+        )
+        connection.execute(insert(prediction_jobs).values(**other_job))
+
+    _failed(
+        migrated_engine,
+        insert(forecasts).values(
+            **_forecast_values(
+                other_job["job_id"], supersedes_forecast_id=first_forecast["forecast_id"]
+            )
+        ),
+    )
+
+
+def test_forecast_supersession_cannot_form_a_cycle(migrated_engine, parents) -> None:
+    first_job = _job_values(parents)
+    first_forecast = _forecast_values(first_job["job_id"])
+    later_revision = _revision_values(parents)
+    later_job = _job_values(parents, event_revision_id=later_revision["event_revision_id"])
+    later_forecast = _forecast_values(
+        later_job["job_id"], supersedes_forecast_id=first_forecast["forecast_id"]
+    )
+    with migrated_engine.begin() as connection:
+        connection.execute(insert(prediction_jobs).values(**first_job))
+        connection.execute(insert(forecasts).values(**first_forecast))
+        connection.execute(
+            insert(earthquake_bulletin_event_identities).values(
+                source_bulletin_id=later_revision["source_bulletin_id"],
+                event_id=parents["event"],
+            )
+        )
+        connection.execute(insert(earthquake_event_revisions).values(**later_revision))
+        connection.execute(insert(prediction_jobs).values(**later_job))
+        connection.execute(insert(forecasts).values(**later_forecast))
+
+    _failed(
+        migrated_engine,
+        update(forecasts)
+        .where(forecasts.c.forecast_id == first_forecast["forecast_id"])
+        .values(supersedes_forecast_id=later_forecast["forecast_id"]),
+    )
+
+
+def test_user_audit_actor_is_deferred_until_users_exist(migrated_engine) -> None:
+    _failed(
+        migrated_engine,
+        insert(audit_logs).values(
+            audit_id=uuid4(),
+            actor_type="user",
+            actor_user_id=uuid4(),
+            action="unsupported_user_action",
+            outcome="succeeded",
+            correlation_id=uuid4(),
+        ),
+    )
+
+
+def test_system_audit_actor_remains_available(migrated_engine) -> None:
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            insert(audit_logs).values(
+                audit_id=uuid4(),
+                actor_type="system",
+                actor_service="prediction-worker",
+                action="forecast_completed",
+                outcome="succeeded",
+                correlation_id=uuid4(),
+            )
+        )
 
 
 def test_foreign_keys_restrict_invalid_parents_updates_and_deletes(

@@ -8,20 +8,26 @@ from uuid import UUID
 import pytest
 
 from quakestrike.infrastructure.models.release_manifest import (  # type: ignore[import-not-found]
+    SELECTED_RELEASE_MANIFEST_URI,
     TRACKED_RELEASE_MANIFEST,
     ManifestValidationError,
     load_verified_release_manifest,
 )
 
 RELEASE_ID = UUID("2f532893-7a25-4f18-814c-91d66f38dac4")
+CORRECTED_RELEASE_ID = UUID("a7f2286b-13a2-4708-a04d-4139281a4e1f")
 
 
 def test_reviewed_production_policy_has_fixed_canonical_bytes_and_provenance() -> None:
     raw = TRACKED_RELEASE_MANIFEST.read_bytes()
     document = json.loads(raw)
 
+    assert SELECTED_RELEASE_MANIFEST_URI == "seis-1.0.1/manifest.json"
+    assert document["release_id"] == str(CORRECTED_RELEASE_ID)
+    assert document["version_label"] == "SEIS 1.0.1"
+    assert document["output_schema_version"] == "quakestrike.prediction-output.v2"
     assert hashlib.sha256(raw).hexdigest() == (
-        "b1d64bc843f486b916213946bc8591c7ed8173ef861619cf76f7a8bf51fdd781"
+        "8490c18051ec6e29f25a6103218b4e97253b8df825433075330fcb9d8ddcda6e"
     )
     assert raw == json.dumps(
         document, sort_keys=True, separators=(",", ":"), ensure_ascii=False
@@ -40,6 +46,10 @@ def test_reviewed_production_policy_has_fixed_canonical_bytes_and_provenance() -
         for route in document["routes"].values()
         for target in route["targets"]
     } == {"lightgbm", "catboost"}
+    legacy = TRACKED_RELEASE_MANIFEST.parents[1] / "seis-1.0" / "manifest.json"
+    assert hashlib.sha256(legacy.read_bytes()).hexdigest() == (
+        "39e1808fac8c511d02b84c3f7f1c2787e7237a152c29daf0c1c23e156481dc0f"
+    )
 
 
 def _manifest() -> dict[str, object]:
