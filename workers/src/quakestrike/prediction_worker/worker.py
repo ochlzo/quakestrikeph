@@ -4,21 +4,17 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
-from typing import Protocol
 
 from celery import Celery
 from celery.exceptions import Reject
 from pydantic import ValidationError
 
-from quakestrike.domain.prediction import InvalidPredictionOutput, compose_forecast
+from quakestrike.application.prediction import ExecutePrediction, PredictionModel, PredictionStore
 from quakestrike.infrastructure.database.engine import (
     create_database_engine,
     create_session_factory,
 )
-from quakestrike.infrastructure.database.prediction import (
-    SqlAlchemyPredictionStore,
-    StalePredictionAttempt,
-)
+from quakestrike.infrastructure.database.prediction import SqlAlchemyPredictionStore
 from quakestrike.infrastructure.logging.json_logging import log_event, log_exception_event
 from quakestrike.infrastructure.models.deterministic_test import DeterministicTestModel
 from quakestrike.infrastructure.queues.celery_app import PREDICTION_QUEUE, create_celery_app
@@ -28,14 +24,10 @@ from quakestrike.infrastructure.settings import Settings
 from quakestrike.runtime import run_service
 
 
-class PredictionModel(Protocol):
-    def predict(self, features: Mapping[str, object]) -> Mapping[str, object]: ...
-
-
 def handle_prediction_command(
     payload: object,
     *,
-    store: SqlAlchemyPredictionStore,
+    store: PredictionStore,
     model: PredictionModel,
     logger: logging.Logger,
 ) -> str:
@@ -51,20 +43,10 @@ def handle_prediction_command(
             event_code="prediction_command_invalid",
         )
         return "rejected"
-    claim = store.claim(command.dispatch_id, command.job_id, command.correlation_id)
-    if claim is None:
-        return "unclaimed"
-    try:
-        try:
-            output = compose_forecast(model.predict(claim.features), claim.event_time)
-        except InvalidPredictionOutput:
-            store.fail(claim, "invalid_output", "The model output violates the forecast contract.")
-            return "failed"
-        except Exception:
-            store.fail(claim, "model_runtime_error", "The prediction model could not finish.")
-            return "failed"
-        return "succeeded" if store.complete(claim, output) is not None else "failed"
-    except StalePredictionAttempt:
+    outcome = ExecutePrediction(store, model).execute(
+        command.dispatch_id, command.job_id, command.correlation_id
+    )
+    if outcome == "stale":
         log_event(
             logger,
             logging.WARNING,
@@ -72,7 +54,7 @@ def handle_prediction_command(
             event_code="prediction_completion_stale",
             context={"job_id": str(command.job_id)},
         )
-        return "stale"
+    return outcome
 
 
 def process_prediction_delivery(settings: Settings, payload: object) -> str:

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass
+from collections.abc import Callable
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from sqlalchemy import insert, select, update
 
+from quakestrike.application.prediction import PredictionClaim, StalePredictionAttempt
 from quakestrike.domain.features import INPUT_SCHEMA_VERSION, create_feature_snapshot
 from quakestrike.domain.prediction import ForecastOutput
 from quakestrike.infrastructure.database.engine import SessionFactory
@@ -23,19 +24,6 @@ from quakestrike.infrastructure.database.tables import (
 )
 
 OUTPUT_SCHEMA_VERSION = "quakestrike.prediction-output.v2"
-
-
-class StalePredictionAttempt(RuntimeError):
-    """The execution token or its lease no longer owns the job."""
-
-
-@dataclass(frozen=True, slots=True)
-class PredictionClaim:
-    job_id: UUID
-    attempt_id: UUID
-    execution_id: UUID
-    event_time: datetime
-    features: Mapping[str, object]
 
 
 class SqlAlchemyPredictionStore:

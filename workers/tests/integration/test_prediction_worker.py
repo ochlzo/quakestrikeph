@@ -15,13 +15,13 @@ from redis import Redis
 from sqlalchemy import create_engine, event, func, insert, select, text
 
 from quakestrike.application.dispatch import PredictionDispatch
+from quakestrike.application.prediction import StalePredictionAttempt
 from quakestrike.domain.features import INPUT_SCHEMA_VERSION, feature_snapshot_hash
 from quakestrike.domain.prediction import compose_forecast
 from quakestrike.infrastructure.database.engine import create_session_factory
 from quakestrike.infrastructure.database.prediction import (
     OUTPUT_SCHEMA_VERSION,
     SqlAlchemyPredictionStore,
-    StalePredictionAttempt,
 )
 from quakestrike.infrastructure.database.tables import (
     audit_logs,
