@@ -20,8 +20,18 @@ EXPECTED_TABLES = {
     "model_releases",
     "prediction_jobs",
     "job_dispatches",
+    "prediction_attempts",
+    "forecasts",
+    "alert_jobs",
+    "audit_logs",
 }
-EXPECTED_ENUMS = {"ingestion_run_status", "prediction_job_status", "dispatch_status"}
+EXPECTED_ENUMS = {
+    "ingestion_run_status",
+    "prediction_job_status",
+    "dispatch_status",
+    "prediction_attempt_status",
+    "alert_job_status",
+}
 
 
 def _settings(database_url: str) -> Settings:
@@ -70,7 +80,7 @@ def test_migration_gate_is_ready_at_head_and_read_only_when_revision_is_stale(
     settings = _settings(str(migrated_engine.url))
     ready = AlembicMigrationStateGate(settings, engine=migrated_engine).check()
     assert ready.ready is True
-    assert ready.details["current_revision"] == "20260918_06"
+    assert ready.details["current_revision"] == "20260923_07"
 
     with migrated_engine.begin() as connection:
         connection.execute(text("UPDATE alembic_version SET version_num = 'stale_revision'"))
@@ -81,4 +91,4 @@ def test_migration_gate_is_ready_at_head_and_read_only_when_revision_is_stale(
             connection.scalar(text("SELECT version_num FROM alembic_version")) == "stale_revision"
         )
     with migrated_engine.begin() as connection:
-        connection.execute(text("UPDATE alembic_version SET version_num = '20260918_06'"))
+        connection.execute(text("UPDATE alembic_version SET version_num = '20260923_07'"))

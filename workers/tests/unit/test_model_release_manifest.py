@@ -21,7 +21,7 @@ def test_reviewed_production_policy_has_fixed_canonical_bytes_and_provenance() -
     document = json.loads(raw)
 
     assert hashlib.sha256(raw).hexdigest() == (
-        "39e1808fac8c511d02b84c3f7f1c2787e7237a152c29daf0c1c23e156481dc0f"
+        "b1d64bc843f486b916213946bc8591c7ed8173ef861619cf76f7a8bf51fdd781"
     )
     assert raw == json.dumps(
         document, sort_keys=True, separators=(",", ":"), ensure_ascii=False

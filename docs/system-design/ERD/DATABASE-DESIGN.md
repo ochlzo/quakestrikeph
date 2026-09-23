@@ -288,10 +288,10 @@ probability_m1_plus_24h double precision
 expected_m1_plus_count_24h double precision
 probability_m4_plus_24h double precision
 probability_m5_plus_24h double precision
-activity_radius_p90_km_24h double precision?
-maximum_magnitude_q10_24h double precision?
+activity_radius_median_km_24h double precision?
+maximum_magnitude_q05_24h double precision?
 maximum_magnitude_q50_24h double precision?
-maximum_magnitude_q90_24h double precision?
+maximum_magnitude_q95_24h double precision?
 additional_output_json jsonb?
 created_at timestamptz = now()
 ```
