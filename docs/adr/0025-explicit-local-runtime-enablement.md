@@ -2,7 +2,7 @@
 
 **Status**: accepted
 
-The local release path uses Compose. Migrations, SEIS 1.0 registration,
+The local release path uses Compose. Migrations, SEIS 1.0.1 registration,
 read-only release verification, historical bootstrap, and readiness are
 separate operator commands. Dispatcher, Data Ingestor, and Beat have distinct
 service commands. None of their startup paths performs initialization writes.

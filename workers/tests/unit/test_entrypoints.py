@@ -52,7 +52,7 @@ def test_unverified_release_stops_service_before_runtime_work(monkeypatch, capsy
         database_url="postgresql+psycopg://worker:secret@postgres:5432/quakestrike",
         redis_url="redis://redis:6379/0",
         phivolcs_catalog_url="https://example.invalid/phivolcs/catalog",
-        model_release_id="2f532893-7a25-4f18-814c-91d66f38dac4",
+        model_release_id="a7f2286b-13a2-4708-a04d-4139281a4e1f",
     )
     monkeypatch.setattr(
         startup,

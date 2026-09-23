@@ -1,6 +1,6 @@
 # QuakeStrike PH database design
 
-Status: authoritative intended PostgreSQL contract, not evidence that migrations have run. This specification consolidates the schema rules, table purposes, accepted decisions, and relationships into one implementation contract. It contains 21 tables. The [ERD](ERD.png) shows their shape; this file controls fields, constraints, transactions, and ownership. [ADR 0003](../../adr/0003-schema-specification-controls-database-contracts.md) establishes that precedence. The [architecture specification](../ARCHITECTURE/ARCHITECTURE.md) describes the modules that use them.
+Status: authoritative intended PostgreSQL contract, not evidence that migrations have run. This specification consolidates the schema rules, table purposes, accepted decisions, and relationships into one implementation contract. It contains 18 tables. The [ERD](ERD.png) shows the former review-oriented design and is temporarily stale; this file controls fields, constraints, transactions, and ownership until the diagram follow-up lands. [ADR 0003](../../adr/0003-schema-specification-controls-database-contracts.md) establishes that precedence. The [architecture specification](../ARCHITECTURE/ARCHITECTURE.md) describes the modules that use them.
 
 ## Conventions and data stores
 
@@ -14,9 +14,8 @@ Use finite numeric values. Coordinates are decimal degrees; depth and distance a
 | `ingestion_run_status` | `pending`, `running`, `retry_wait`, `succeeded`, `failed`, `cancelled` |
 | `prediction_job_status` | `pending`, `running`, `retry_wait`, `succeeded`, `failed`, `cancelled` |
 | `prediction_attempt_status` | `running`, `succeeded`, `failed`, `abandoned` |
-| `forecast_visibility_status` | `draft`, `published`, `withdrawn` |
-| `alert_job_status` | `pending`, `resolving`, `delivering`, `completed`, `failed`, `cancelled`, `expired` |
-| `alert_recipient_status` | `pending`, `sending`, `retry_wait`, `accepted`, `delivered`, `failed`, `unknown`, `skipped`, `cancelled`, `expired` |
+| `alert_job_status` | `pending`, `resolving`, `delivering`, `completed`, `failed`, `expired` |
+| `alert_recipient_status` | `pending`, `sending`, `retry_wait`, `accepted`, `delivered`, `failed`, `unknown`, `skipped`, `expired` |
 | `alert_delivery_status` | `sending`, `accepted`, `delivered`, `failed`, `unknown` |
 | `maintenance_run_status` | `running`, `succeeded`, `failed`, `abandoned` |
 | `dispatch_status` | `pending`, `dispatching`, `enqueued`, `retry_wait`, `stopped` |
@@ -27,8 +26,8 @@ Create enum types before their tables in the migration that first uses them. Add
 | --- | --- | --- |
 | D1 Earthquake data | `ingestion_runs`, `ingestion_run_inputs`, `earthquake_events`, `earthquake_bulletin_event_identities`, `earthquake_event_revisions` | Source runs, durable input outcomes, stable events, bulletin identity mappings, and immutable observed revisions. |
 | D2 Forecast and model records | `model_releases`, `prediction_jobs`, `prediction_attempts`, `forecasts`, `job_dispatches` | Model provenance, work, results, and durable queue submission. |
-| D3 Accounts and access | `users`, `user_role_assignments`, `user_alert_preferences`, `saved_pins` | Identity mapping, roles, consent, and locations. |
-| D4 Reviews and alerts | `forecast_reviews`, `alert_jobs`, `alert_recipients`, `alert_delivery_attempts` | Publication and SMS authorization/delivery evidence. |
+| D3 Accounts and access | `users`, `user_role_assignments` | Identity mapping, alert settings, and roles. |
+| D4 Alerts | `alert_jobs`, `alert_recipients`, `alert_delivery_attempts` | Automatic SMS authorization and delivery evidence. |
 | D5 Operational records | `audit_logs`, `technical_logs`, `maintenance_runs` | Business evidence, selected diagnostics, and maintenance history. |
 
 `job_dispatches` is placed with D2 for the DFD, but it targets ingestion, prediction, or alert work. PostgreSQL is live truth; Redis carries commands and does not replace these records. CSV and bootstrap snapshots are finite import inputs, not live stores. See the [Level 1 DFD](../CFD-DFD/DFD-Level1.png) and [domain glossary](../../../CONTEXT.md).
@@ -49,12 +48,14 @@ display_name text
 email text?
 mobile_number text?
 mobile_verified_at timestamptz?
+sms_enabled boolean = true
+alert_trigger_magnitude numeric(3,1) = 4.5
 account_status account_status = 'active'
 created_at timestamptz = now()
 updated_at timestamptz = now()
 ```
 
-`account_status` is `active`, `suspended`, or `closed`. Mobile numbers are normalized E.164; verification needs a current number and changing the number clears verification in the same transaction. Closing an account stops SMS and protected actions. Names may be absent. There is no local password or privileged-role default. The Backend writes accounts; workers read only what delivery needs.
+`account_status` is `active`, `suspended`, or `closed`. Mobile numbers are normalized E.164; verification needs a current number and changing the number clears verification in the same transaction. Successful mobile verification enrolls the account in SMS unless the user disables it. `alert_trigger_magnitude` is finite and at least `1.0`. Closing an account stops SMS and protected actions. Names may be absent. There is no local password or privileged-role default. The Backend writes accounts; workers read only what delivery needs.
 
 ### `user_role_assignments`
 
@@ -72,39 +73,7 @@ revoked_at timestamptz?
 reason text?
 ```
 
-`role_code` is `phivolcs_operator`, `operations_viewer`, or `access_administrator`; `grant_source` is `administrator` or `bootstrap`. Administrator grants need a grantor; bootstrap grants need a system audit. Revocation actor and time are both null or both set, and revocation cannot predate grant. Partial `UNIQUE (user_id, role_code) WHERE revoked_at IS NULL`. No role inherits another. Backend role administration writes grants and required audits atomically; protected requests read active assignments afresh.
-
-### `user_alert_preferences`
-
-One optional preferences row per user. No row means no SMS.
-
-```text
-user_id uuid PK
-sms_enabled boolean = false
-phivolcs_only boolean = true
-near_pins_only boolean = true
-consent_recorded_at timestamptz?
-created_at timestamptz = now()
-updated_at timestamptz = now()
-```
-
-`sms_enabled` requires consent. The defaults are technical proposals for review. `phivolcs_only` excludes automatic-model jobs; `near_pins_only` needs a matching saved pin, and no pins means no match. Backend owns edits. Alert Worker snapshots the selected rule and rechecks live preferences and consent before each new send.
-
-### `saved_pins`
-
-User-named coordinates for near-pin recipient matching, not an authoritative geography table.
-
-```text
-pin_id uuid PK
-user_id uuid
-label text
-latitude numeric(9,6)
-longitude numeric(10,6)
-created_at timestamptz = now()
-updated_at timestamptz = now()
-```
-
-Latitude is `-90..90`; longitude is `-180..180`. Duplicate labels and coordinates are allowed. The Alert Worker saves matched pin IDs, coordinates, and distances in recipient evidence, but deduplicates SMS destinations rather than pins. Backend owns pin edits.
+`role_code` is `operations_viewer` or `access_administrator`; `grant_source` is `administrator` or `bootstrap`. Administrator grants need a grantor; bootstrap grants need a system audit. Revocation actor and time are both null or both set, and revocation cannot predate grant. Partial `UNIQUE (user_id, role_code) WHERE revoked_at IS NULL`. No role inherits another. Backend role administration writes grants and required audits atomically; protected requests read active assignments afresh.
 
 ## Ingestion and earthquake history
 
@@ -229,7 +198,7 @@ output_schema_version text
 created_at timestamptz = now()
 ```
 
-Manifest hash is lowercase 64-character SHA-256 hex. Deployment selects `MODEL_RELEASE_ID` explicitly. `SEIS 1.0` is the project's production runtime label for the selected package; registration verifies the normalized manifest and local artifact hashes. Artifacts remain out of Git and Docker build contexts and mount read-only. A release row does not itself switch deployment configuration. See [release ADR](../../adr/0009-immutable-model-releases-and-ingestion-feature-snapshots.md).
+Manifest hash is lowercase 64-character SHA-256 hex. Deployment selects `MODEL_RELEASE_ID` explicitly. `SEIS 1.0.1` is the corrected production runtime label; the original `SEIS 1.0` row and manifest remain immutable. Registration verifies the normalized manifest and local artifact hashes. Artifacts remain out of Git and Docker build contexts and mount read-only. A release row does not itself switch deployment configuration. See [release ADR](../../adr/0009-immutable-model-releases-and-ingestion-feature-snapshots.md).
 
 ### `prediction_jobs`
 
@@ -288,73 +257,39 @@ probability_m1_plus_24h double precision
 expected_m1_plus_count_24h double precision
 probability_m4_plus_24h double precision
 probability_m5_plus_24h double precision
-activity_radius_p90_km_24h double precision?
-maximum_magnitude_q10_24h double precision?
+activity_radius_median_km_24h double precision?
+maximum_magnitude_q05_24h double precision?
 maximum_magnitude_q50_24h double precision?
-maximum_magnitude_q90_24h double precision?
-additional_output_json jsonb?
+maximum_magnitude_q95_24h double precision?
 created_at timestamptz = now()
 ```
 
-The window starts at the linked revision's event time and spans exactly 24 elapsed hours; the Prediction Worker verifies the cross-table equality in its transaction. Count and radius are nonnegative. Enforce `P(M5+) <= P(M4+) <= P(M1+)`, each in `[0,1]`; reject inconsistent outputs instead of reordering them. Magnitude quantiles are all null or all present and ordered `q10 <= q50 <= q90`. Null is not zero. Supersession targets another forecast for the same event and cannot cycle. The current forecast is the newest successful result for the latest event revision and configured release, ordered by job request time then job ID. If the latest revision has no success, no current forecast exists; older results may be labelled stale. A newer failed job does not hide an older successful result for the same revision/release.
+The window starts at the linked revision's event time and spans exactly 24 elapsed hours; the Prediction Worker verifies the cross-table equality in its transaction. Count and radius are nonnegative. Enforce `P(M5+) <= P(M4+) <= P(M1+)`, each in `[0,1]`; reject inconsistent outputs instead of reordering them. Magnitude quantiles are all null or all present and ordered `q05 <= q50 <= q95`. Null is not zero. Supersession targets another forecast for the same event and cannot cycle. A check rejects direct self-reference, and the database supersession trigger enforces same-event ancestry and rejects longer cycles. The current forecast is the newest successful result for the latest event revision and configured release, ordered by job request time then job ID. If the latest revision has no success, no current forecast exists; older results may be labelled stale. A newer failed job does not hide an older successful result for the same revision/release.
 
-## Reviews and alerts
-
-### `forecast_reviews`
-
-One editable PHIVOLCS review per forecast. Public statement and internal note have separate visibility. Audits retain the action sequence; there is no publication-history table.
-
-```text
-review_id uuid PK
-forecast_id uuid UQ
-reviewer_user_id uuid
-last_edited_by_user_id uuid
-decision text?
-public_statement text?
-internal_note text?
-visibility_status forecast_visibility_status = 'draft'
-published_by_user_id uuid?
-published_at timestamptz?
-withdrawn_by_user_id uuid?
-withdrawn_at timestamptz?
-reviewed_at timestamptz?
-created_at timestamptz = now()
-updated_at timestamptz = now()
-edit_version integer = 1
-```
-
-Decision is null before assessment, otherwise `approved`, `rejected`, or `inconclusive`. Visibility is `draft`, `published`, or `withdrawn`. Non-draft needs decision and reviewed time; published needs nonblank public statement plus publisher/time; withdrawal needs withdrawer/time. Actor/time pairs are both set or both null. Allowed visibility transitions are draft to published, published to withdrawn, and withdrawn to published. Content edits may occur in any state. Increment `edit_version` and use the version read by the editor to prevent lost updates. Republishing clears withdrawal fields and replaces latest publication actor/time. Only published reviews appear publicly; `internal_note` never does. Add `UNIQUE (review_id, forecast_id)` for the alert-job composite FK.
+## Alerts
 
 ### `alert_jobs`
 
-One authorized SMS batch with an immutable message and recipient-policy snapshot. Backend creates operator jobs; Prediction Worker may create automatic jobs.
+One automatic SMS batch with an immutable message and recipient-policy snapshot. The Prediction Worker creates it with a successful current live forecast.
 
 ```text
 alert_job_id uuid PK
-forecast_id uuid
-review_id uuid?
-alert_type text
-requested_by_user_id uuid?
-requested_by_service text?
+forecast_id uuid UQ
 requested_at timestamptz = now()
-channel text = 'sms'
 message_snapshot text
 recipient_policy_snapshot jsonb
-idempotency_key text UQ
 status alert_job_status = 'pending'
 recipient_resolution_completed_at timestamptz?
 lease_expires_at timestamptz?
 worker_execution_id uuid?
 expires_at timestamptz
-cancelled_at timestamptz?
-cancellation_reason text?
 completed_at timestamptz?
 correlation_id uuid
 ```
 
-Types are `operator_review` and `automatic_model`; only `sms` is in scope. An operator job needs matching `review_id` and requester user, with no service requester. Backend locks the review, checks that it is published or withdrawn, and snapshots its text, visibility, and edit version. Drafts cannot authorize SMS. An automatic job needs a service requester and no review or user requester. Direct forecast FK plus composite `(review_id, forecast_id)` FK prevent a mismatched review. Partial `UNIQUE (forecast_id, channel) WHERE alert_type = 'automatic_model'` permits at most one automatic batch per forecast/channel; operator resends use new keys. The automatic trigger uses observed anchor magnitude at least M4.5, a newly committed current forecast from the configured release, and an unexpired window. Backfills do not automatically send. Keep the threshold in version-controlled policy configuration and its version in the snapshot, not a new table or live JSON override.
+`UNIQUE (forecast_id)` enforces one SMS batch per forecast. Every newly committed current forecast for a live M1+ anchor creates that job while its 24-hour window remains open. Backfill, historical, and expired work create no alert. The message and recipient-policy snapshots are fixed in the prediction-completion transaction. Recipient eligibility is evaluated later against each user's alert trigger magnitude.
 
-States are `pending`, `resolving`, `delivering`, `completed`, `failed`, `cancelled`, `expired`. Active resolving/delivering ownership needs lease/token. Terminal states need `completed_at` and stop dispatch; `completed` means recipients settled, not all delivered. Accepted/unknown recipients stay under reconciliation until expiry or cancellation. `expires_at` equals forecast `window_end` and must be later than creation; verify equality transactionally. No new send begins at or after expiry. Late outcomes may still update evidence. Withdrawal alone does not cancel an authorized job; explicit cancellation stops remaining unsent work. Cancellation fields apply only to cancelled jobs.
+States are `pending`, `resolving`, `delivering`, `completed`, `failed`, and `expired`. Active resolving/delivering ownership needs lease/token. Terminal states need `completed_at` and stop dispatch; `completed` means recipients settled, not all delivered. Accepted/unknown recipients stay under reconciliation until expiry. `expires_at` equals forecast `window_end` and must be later than creation; verify equality transactionally. No new send begins at or after expiry. Late outcomes may still update evidence. Cancellation is deferred and has no reserved state or columns.
 
 ### `alert_recipients`
 
@@ -376,7 +311,7 @@ processing_lease_expires_at timestamptz?
 worker_execution_id uuid?
 ```
 
-`UNIQUE (alert_job_id, destination_snapshot)` after E.164 normalization. One public-user resolution requires a user; the FK may later be set null for controlled account removal, but a detached row cannot start a send. States are `pending`, `sending`, `retry_wait`, `accepted`, `delivered`, `failed`, `unknown`, `skipped`, `cancelled`, `expired`. Sending needs lease/token; other states clear them. Retry wait alone needs `next_attempt_at`. Delivered alone needs `delivered_at`. Accepted awaits provider outcome; unknown is held for reconciliation, never blind resend. Eligibility snapshot records current preference values, matching pins/coordinates/distances, rule version, and radius. Before each new provider call, recheck active account, verified current number, consent, preferences, near-pin rule, and expiry. Changed or lost eligibility becomes skipped. Resolution uses idempotent inserts and marks completion only after the full candidate scan.
+`UNIQUE (alert_job_id, destination_snapshot)` applies after E.164 normalization. One public-user resolution requires a user; the FK may later be set null for controlled account removal, but a detached row cannot start a send. States are `pending`, `sending`, `retry_wait`, `accepted`, `delivered`, `failed`, `unknown`, `skipped`, and `expired`. Sending needs lease/token; other states clear them. Retry wait alone needs `next_attempt_at`. Delivered alone needs `delivered_at`. Accepted awaits provider outcome; unknown is held for reconciliation, never blind resend. Eligibility requires an active account, a verified current mobile number, `sms_enabled = true`, and observed anchor magnitude greater than or equal to the user's `alert_trigger_magnitude`. The snapshot records those values and the policy version. Before each provider call, recheck account, number, SMS setting, trigger magnitude, and expiry. Changed or lost eligibility becomes skipped. Resolution uses idempotent inserts and marks completion only after the full candidate scan. Cancellation is deferred and has no reserved recipient state.
 
 ### `alert_delivery_attempts`
 
@@ -423,6 +358,8 @@ metadata jsonb?
 ```
 
 Actor type is `user`, `system`, or `anonymous`; the matching user/service field is required only for its type. Outcome is `succeeded`, `denied`, or `failed`. Target type/id are paired when a target exists; do not fabricate a target for an early denial. Target fields are historical descriptions, not polymorphic FKs. Privileged mutation and success audit commit together. Rollback failures and denials use a bounded separate path and never report committed success. Normal application roles cannot update or delete audit rows. Metadata contains no secrets.
+
+Until the accounts migration creates `users`, this phase rejects `actor_type = 'user'` so `actor_user_id` cannot become an orphan. That migration removes the temporary check and adds the required `users` foreign key. System audits needed by prediction completion remain available now.
 
 ### `technical_logs`
 
@@ -500,7 +437,6 @@ Every FK uses `ON UPDATE RESTRICT`. Required child references have one parent; o
 | --- | --- | --- |
 | `job_dispatches.ingestion_run_id`, `.prediction_job_id`, `.alert_job_id` | `ingestion_runs`, `prediction_jobs`, `alert_jobs` | RESTRICT |
 | `user_role_assignments.user_id`, `.granted_by_user_id`, `.revoked_by_user_id` | `users` | RESTRICT |
-| `user_alert_preferences.user_id`; `saved_pins.user_id` | `users` | CASCADE |
 | `earthquake_events.first_seen_run_id`, `.last_seen_run_id` | `ingestion_runs` | RESTRICT |
 | `earthquake_events.superseded_by_event_id` | `earthquake_events` | RESTRICT |
 | `earthquake_event_revisions.event_id`, `.ingestion_run_id` | `earthquake_events`, `ingestion_runs` | RESTRICT |
@@ -510,26 +446,23 @@ Every FK uses `ON UPDATE RESTRICT`. Required child references have one parent; o
 | `prediction_jobs.event_revision_id`, `.model_release_id` | `earthquake_event_revisions`, `model_releases` | RESTRICT |
 | `prediction_attempts.job_id`; `forecasts.job_id` | `prediction_jobs` | RESTRICT |
 | `forecasts.supersedes_forecast_id` | `forecasts` | RESTRICT |
-| `forecast_reviews.forecast_id` | `forecasts` | RESTRICT |
-| `forecast_reviews` creator/editor/publisher/withdrawer user IDs | `users` | RESTRICT |
-| `alert_jobs.forecast_id`; `alert_jobs.(review_id, forecast_id)` | `forecasts`; `forecast_reviews.(review_id, forecast_id)` | RESTRICT |
-| `alert_jobs.requested_by_user_id` | `users` | RESTRICT |
+| `alert_jobs.forecast_id` | `forecasts` | RESTRICT |
 | `alert_recipients.alert_job_id`; `alert_delivery_attempts.recipient_id` | `alert_jobs`; `alert_recipients` | RESTRICT |
 | `alert_recipients.user_id` | `users` | SET NULL |
-| `audit_logs.actor_user_id` | `users` | RESTRICT |
+| `audit_logs.actor_user_id` | `users` | RESTRICT after the accounts migration; user actors are rejected before it |
 | `maintenance_runs.related_backup_run_id` | `maintenance_runs` | RESTRICT |
 
-The composite review FK uses PostgreSQL `MATCH SIMPLE`: an automatic job has null `review_id`, while its direct forecast FK and alert-type check still apply. `forecast_id` remains required. A job can have zero or one dispatch by FK/UQ, but creation transactions require one for new background work. `technical_logs` has no business FK. Close or anonymize retained users rather than deleting their audit evidence. Physical deletion succeeds only when RESTRICT references are absent. Business retention requires a separately reviewed procedure; technical-log cleanup cannot cascade through history.
+An alert job requires one forecast and `UNIQUE (forecast_id)` allows no second job for the same forecast. A job can have zero or one dispatch by FK/UQ, but creation transactions require one for new background work. `technical_logs` has no business FK. Close or anonymize retained users rather than deleting their audit evidence. Physical deletion succeeds only when RESTRICT references are absent. Business retention requires a separately reviewed procedure; technical-log cleanup cannot cascade through history.
 
 ## Index plan
 
-PK and UQ constraints create indexes; do not duplicate an index already covered by a useful left prefix. Index every remaining FK lookup column and the composite review FK. Add indexes for these query paths:
+PK and UQ constraints create indexes; do not duplicate an index already covered by a useful left prefix. Index every remaining FK lookup column. Add indexes for these query paths:
 
 - Active role assignment partial uniqueness; revision group ID and non-unique bulletin-ID lookup. `UNIQUE (event_id, revision_number)` supports latest revision by reverse scan.
-- `prediction_jobs(event_revision_id, model_release_id, requested_at DESC)`; `forecast_reviews(visibility_status, updated_at DESC)`.
+- `prediction_jobs(event_revision_id, model_release_id, requested_at DESC)`.
 - Dispatch `next_dispatch_at, dispatch_id` for pending/retry-wait and `lease_expires_at` for dispatching; target UQs support job lookup.
 - Prediction running-attempt lease and partial running-job uniqueness; active ingestion/alert processing leases.
-- Automatic alert partial uniqueness, alert status/expiry and request time; recipient job/status, retry time, sending lease, and user ID.
+- Alert status/expiry and request time; recipient job/status, retry time, sending lease, and user ID.
 - Delivery provider/reference when present; recipient/attempt sequence uniqueness.
 - Audit occurrence time, actor/time, target/time, and correlation; technical-log occurrence, module/severity/time, category/status/time, request, and correlation; maintenance operation/start time.
 
@@ -537,17 +470,17 @@ Queue and Console searches must be indexed, paginated, and date-bounded. Do not 
 
 ## Transactions and cross-table rules
 
-1. Account and role changes check ownership and authorization. Grants, review publication, and operator alert creation commit with required success audits. Review edits check `edit_version`; operator alert creation locks the non-draft review and snapshots its current content and state.
+1. Account and role changes check ownership and authorization. Grants and alert-setting changes commit with required success audits.
 2. Beat commits the pending ingestion run with its dispatch. Dispatcher claims and publishes after commit. Worker processing preserves run/job identity across retries and uses a separate processing lease. Redis is at-least-once; database claims and uniqueness make repetition safe.
 3. For each accepted event, Ingestor locks or creates stable identity, appends a changed revision, builds the ten-feature snapshot from prior PostgreSQL history, hashes canonical JSON, and creates any eligible prediction job plus dispatch in one transaction. Run counters checkpoint separately. Redis publication occurs after commit. No future data, uncertain same-minute ordering, retrospective family metadata, missing URL, missing both IDs, or incomplete snapshot can pass the prediction gate. See [atomic processing](../../adr/0016-atomic-event-processing-and-release-registration.md) and [revision idempotency](../../adr/0022-idempotent-revisions-and-bootstrap-gates.md).
-4. Prediction completion validates the current execution token. Forecast, job/attempt success, any eligible automatic alert job and dispatch, and system audit commit together. The automatic M4.5 trigger applies to the observed anchor, not the predicted maximum; backfills never auto-alert.
-5. Alert resolution inserts unique recipients and checkpoints completion only after candidate processing. Before a provider call, the worker claims and rechecks one recipient, then persists an attempt. The external SMS call cannot join a SQL transaction. Unknown results require provider reconciliation. An expiry sweep stops new sends and marks unsent recipients expired, without rewriting accepted/unknown/delivered evidence. Late callbacks may close earlier attempts.
+4. Prediction completion validates the current execution token. Forecast, job/attempt success, its automatic alert job and dispatch, and system audit commit together. Every current, unexpired live M1+ forecast creates exactly one alert job; backfill, historical, and expired work do not. The Alert Worker later applies each user's trigger magnitude to the observed anchor, not the predicted maximum.
+5. Alert resolution inserts unique eligible recipients and checkpoints completion only after candidate processing. Before a provider call, the worker claims and rechecks one recipient, then persists an attempt. The external SMS call cannot join a SQL transaction. Unknown results require provider reconciliation. An expiry sweep stops new sends and marks unsent recipients expired, without rewriting accepted/unknown/delivered evidence. Late callbacks may close earlier attempts.
 
 ## Initialization, retention, and policy choices
 
-Apply hand-reviewed Alembic migrations, verify and explicitly register the `SEIS 1.0` manifest and artifact hashes, run the resumable bootstrap, check source snapshot integrity, identifiers, URLs, row counts, and seven-day history, then start Dispatcher/Ingestor and enable Beat. Bootstrap records a `backfill` run and uses the same normalization and reconciliation as live ingestion. Service startup never runs migrations, imports data, or silently changes releases. Historical snapshots remain source evidence outside Git; PostgreSQL is the only live event store. See [startup](../../adr/0019-explicit-startup-and-runtime-configuration.md) and [readiness](../../adr/0022-idempotent-revisions-and-bootstrap-gates.md).
+Apply hand-reviewed Alembic migrations, verify and explicitly register the selected `SEIS 1.0.1` manifest and artifact hashes, run the resumable bootstrap, check source snapshot integrity, identifiers, URLs, row counts, and seven-day history, then start Dispatcher/Ingestor and enable Beat. Bootstrap records a `backfill` run and uses the same normalization and reconciliation as live ingestion. Service startup never runs migrations, imports data, or silently changes releases. Historical snapshots remain source evidence outside Git; PostgreSQL is the only live event store. See [startup](../../adr/0019-explicit-startup-and-runtime-configuration.md) and [readiness](../../adr/0022-idempotent-revisions-and-bootstrap-gates.md).
 
-Choose the near-pin radius policy before selecting recipients. A fixed radius or a versioned magnitude-based rule can fit `recipient_policy_snapshot`; `eligibility_snapshot` records actual matches. Gardner-Knopoff is a research candidate, not an adopted notification or safety boundary. Do not silently substitute the forecast P90 activity radius. Also decide technical and business retention periods separately, SMS provider/callback and phone-verification policy, and any additional automatic-alert throttle. Existing snapshots and states support these choices without a new table. Host maintenance scripts, not a database scheduling extension, own cleanup, backup, and restore-test schedules. The [architecture specification](../ARCHITECTURE/ARCHITECTURE.md#logging-diagnostics-and-maintenance) defines diagnostic fallback and off-VPS backup requirements.
+Choose and version the recipient policy before enabling delivery; `recipient_policy_snapshot` records the batch policy and `eligibility_snapshot` records the user's SMS setting, trigger magnitude, observed anchor magnitude, account state, and phone-verification state. Also decide technical and business retention periods separately and the SMS provider/callback and phone-verification policy. Existing snapshots and states support these choices without a new table. Host maintenance scripts, not a database scheduling extension, own cleanup, backup, and restore-test schedules. The [architecture specification](../ARCHITECTURE/ARCHITECTURE.md#logging-diagnostics-and-maintenance) defines diagnostic fallback and off-VPS backup requirements.
 
 ## References
 

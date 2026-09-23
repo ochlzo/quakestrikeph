@@ -20,7 +20,7 @@ five-minute Beat schedule. Service startup does not silently run migrations,
 bootstrap data, or mutate the model registry.
 
 The registered application release uses the human-facing version label
-`SEIS 1.0`. Its normalized runtime manifest must still record the exact
+`SEIS 1.0.1`. Its normalized runtime manifest must still record the exact
 training package `balanced-selection-anchor-exploratory-01`, artifact paths,
 target mappings, feature lists, provenance, and hashes. The label does not
 change the package's provisional development status.
@@ -36,7 +36,7 @@ raw/enriched source snapshots are used only for bootstrap and investigation.
 
 ## Amendment: project production posture
 
-For this project, `SEIS 1.0` is the production runtime release used by the
+For this project, `SEIS 1.0.1` is the production runtime release used by the
 initial ingestion slice. The earlier provisional-development wording is not a
 startup or prediction-command gate. Explicit registration, immutable manifest
 verification, artifact-hash verification, and the exact selected targets are

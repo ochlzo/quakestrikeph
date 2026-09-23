@@ -70,7 +70,7 @@ def _approve(source: Path, tmp_path: Path, monkeypatch) -> None:
 def test_policy_mismatch_preserves_previous_bundle(tmp_path: Path, monkeypatch) -> None:
     source = _source(tmp_path)
     destination = tmp_path / "artifacts"
-    previous = destination / "seis-1.0"
+    previous = destination / "seis-1.0.1"
     previous.mkdir(parents=True)
     (previous / "manifest.json").write_bytes(b"previous")
     policy = tmp_path / "policy.json"
@@ -107,13 +107,37 @@ def test_approved_package_publishes_verified_bundle(tmp_path: Path, monkeypatch)
 
     assert manifest.read_bytes() == packaging.TRACKED_RELEASE_MANIFEST.read_bytes()
     assert (manifest.parent / "models" / "probability" / "model.txt").read_bytes() == b"weight"
+    document = json.loads(manifest.read_bytes())
+    assert document["release_id"] == str(packaging.SEIS_RELEASE_ID)
+    assert document["version_label"] == "SEIS 1.0.1"
+    assert document["output_schema_version"] == "quakestrike.prediction-output.v2"
+
+
+def test_radius_target_is_corrected_in_the_patch_release(tmp_path: Path, monkeypatch) -> None:
+    source = _source(tmp_path, route_name="radius")
+    document = json.loads((source / "routes.json").read_text(encoding="utf-8"))
+    selected = document["routes"]["radius"]["models"]["lightgbm"].pop("m1_probability")
+    selected.update(
+        name="radius_median",
+        target="activity_radius_p90_km_24h",
+        kind="quantile",
+        alpha=0.5,
+    )
+    document["routes"]["radius"]["models"]["lightgbm"]["radius_median"] = selected
+    (source / "routes.json").write_text(json.dumps(document), encoding="utf-8")
+    _approve(source, tmp_path, monkeypatch)
+
+    manifest = packaging.package_selected_release(source, tmp_path / "artifacts")
+    packaged = json.loads(manifest.read_bytes())
+
+    assert packaged["routes"]["radius"]["targets"][0]["target"] == ("activity_radius_median_km_24h")
 
 
 def test_staging_failure_keeps_prior_bundle(tmp_path: Path, monkeypatch) -> None:
     source = _source(tmp_path)
     _approve(source, tmp_path, monkeypatch)
     destination = tmp_path / "artifacts"
-    bundle = destination / "seis-1.0"
+    bundle = destination / "seis-1.0.1"
     bundle.mkdir(parents=True)
     (bundle / "manifest.json").write_bytes(b"previous")
     monkeypatch.setattr(
@@ -133,7 +157,7 @@ def test_failed_promotion_restores_prior_bundle(tmp_path: Path, monkeypatch) -> 
     source = _source(tmp_path)
     _approve(source, tmp_path, monkeypatch)
     destination = tmp_path / "artifacts"
-    bundle = destination / "seis-1.0"
+    bundle = destination / "seis-1.0.1"
     bundle.mkdir(parents=True)
     (bundle / "manifest.json").write_bytes(b"previous")
     rename = Path.rename
@@ -149,7 +173,7 @@ def test_failed_promotion_restores_prior_bundle(tmp_path: Path, monkeypatch) -> 
         packaging.package_selected_release(source, destination)
 
     assert (bundle / "manifest.json").read_bytes() == b"previous"
-    assert not list(destination.glob(".seis-1.0-backup-*"))
+    assert not list(destination.glob(".seis-1.0.1-backup-*"))
 
 
 def test_malformed_source_reports_a_controlled_failure_without_writes(tmp_path: Path) -> None:

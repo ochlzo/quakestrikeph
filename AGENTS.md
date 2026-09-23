@@ -27,15 +27,15 @@ suite as unverified with the Docker error.
 ## Project
 
 This repository is the implementation target for QuakeStrike PH, a Philippine
-earthquake information, forecasting, review, and alert platform. It ingests and
+earthquake information, forecasting, and alert platform. It ingests and
 reconciles PHIVOLCS earthquake bulletins, stores earthquake and processing
 records, generates forecasts with approved Python model artifacts, publishes
-approved public information, supports protected PHIVOLCS review and alert
-workflows, and provides an Operations Console for authorized team members.
+public information, delivers automatic SMS alerts, and provides an Operations
+Console for authorized team members.
 
-The planned system has three web applications—QuakeStrike PH Bulletin,
-PHIVOLCS Monitoring, and Operations Console—a Backend API, and background
-workers for scheduling, PHIVOLCS ingestion, prediction, and alert delivery.
+The planned system has two web applications—QuakeStrike PH Bulletin and
+Operations Console—a Backend API, and background workers for scheduling,
+PHIVOLCS ingestion, prediction, and alert delivery.
 The system-level architecture is client-server. Backend and worker code uses
 Interface, Application, Domain, and Infrastructure layers within a monorepo;
 these are code boundaries, not separate physical tiers.

@@ -57,10 +57,10 @@ def phase_one_test_gates() -> tuple:
 def verified_manifest(settings: Settings) -> VerifiedReleaseManifest:
     return VerifiedReleaseManifest(
         release_id=settings.model_release_id,
-        version_label="SEIS 1.0",
+        version_label="SEIS 1.0.1",
         input_schema_version="input.v1",
-        output_schema_version="output.v1",
-        manifest_uri="seis-1.0/manifest.json",
+        output_schema_version="output.v2",
+        manifest_uri="seis-1.0.1/manifest.json",
         manifest_hash="a" * 64,
         artifact_paths=("models/example.bin",),
         artifact_hashes={"models/example.bin": "b" * 64},
@@ -168,11 +168,11 @@ def test_model_release_gate_is_ready_for_a_matching_manifest_and_registration(
     assert result.reason == "Model release verified."
     assert result.details == {
         "release_id": str(settings.model_release_id),
-        "version_label": "SEIS 1.0",
-        "manifest_uri": "seis-1.0/manifest.json",
+        "version_label": "SEIS 1.0.1",
+        "manifest_uri": "seis-1.0.1/manifest.json",
         "manifest_hash": "a" * 64,
         "input_schema_version": "input.v1",
-        "output_schema_version": "output.v1",
+        "output_schema_version": "output.v2",
         "artifact_hashes": json.dumps({"models/example.bin": "b" * 64}, sort_keys=True),
     }
     assert engine.disposed is True
@@ -201,7 +201,7 @@ def test_model_release_gate_is_not_ready_when_the_registered_row_differs(
     assert engine.disposed is True
 
 
-def test_model_release_gate_rejects_a_non_seis_1_0_selected_release(monkeypatch) -> None:
+def test_model_release_gate_rejects_a_non_selected_release(monkeypatch) -> None:
     settings = valid_settings()
     manifest = replace(verified_manifest(settings), version_label="SEIS 0.9")
     monkeypatch.setattr(startup, "load_verified_release_manifest", lambda *_, **__: manifest)
@@ -258,7 +258,7 @@ def test_model_release_gate_disposes_the_engine_when_the_registry_query_fails(
 def test_startup_report_rejects_unverified_bundle_before_database_work(
     tmp_path: Path, monkeypatch, damage: str
 ) -> None:
-    bundle = tmp_path / "seis-1.0"
+    bundle = tmp_path / "seis-1.0.1"
     document = json.loads(TRACKED_RELEASE_MANIFEST.read_bytes())
     route_name, route = next(iter(document["routes"].items()))
     route["targets"] = [route["targets"][0]]
@@ -281,7 +281,7 @@ def test_startup_report_rejects_unverified_bundle_before_database_work(
     monkeypatch.setattr(release_manifest, "TRACKED_RELEASE_MANIFEST", policy)
     settings = valid_settings().model_copy(
         update={
-            "model_release_id": UUID("2f532893-7a25-4f18-814c-91d66f38dac4"),
+            "model_release_id": UUID("a7f2286b-13a2-4708-a04d-4139281a4e1f"),
             "model_artifact_directory": tmp_path,
         }
     )

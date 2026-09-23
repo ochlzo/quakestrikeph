@@ -18,7 +18,7 @@ from quakestrike.infrastructure.models.release_manifest import (
 
 
 class _Settings:
-    model_release_id = UUID("2f532893-7a25-4f18-814c-91d66f38dac4")
+    model_release_id = UUID("a7f2286b-13a2-4708-a04d-4139281a4e1f")
     model_artifact_directory = Path("model-artifacts")
     database_url = "postgresql+psycopg://worker:secret@postgres:5432/quakestrike"
 
@@ -26,10 +26,10 @@ class _Settings:
 def verified_manifest() -> VerifiedReleaseManifest:
     return VerifiedReleaseManifest(
         _Settings.model_release_id,
-        "SEIS 1.0",
+        "SEIS 1.0.1",
         "input.v1",
-        "output.v1",
-        "seis-1.0/manifest.json",
+        "output.v2",
+        "seis-1.0.1/manifest.json",
         "a" * 64,
         (),
     )
@@ -108,7 +108,7 @@ def test_register_command_registers_the_verified_release_and_disposes_the_engine
     assert cli.main() == 0
     assert captured == {
         "directory": Path("model-artifacts"),
-        "uri": "seis-1.0/manifest.json",
+        "uri": "seis-1.0.1/manifest.json",
         "url": _Settings.database_url,
         "release": model_release_record(manifest),
     }

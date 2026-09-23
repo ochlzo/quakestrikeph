@@ -15,7 +15,7 @@ from quakestrike.infrastructure.models.relative_path import safe_relative_path
 
 _SCHEMA_VERSION = "quakestrike.model-release.v1"
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
-SELECTED_RELEASE_MANIFEST_URI = "seis-1.0/manifest.json"
+SELECTED_RELEASE_MANIFEST_URI = "seis-1.0.1/manifest.json"
 TRACKED_RELEASE_MANIFEST = (
     Path(__file__).resolve().parents[4] / "model-release-manifests" / SELECTED_RELEASE_MANIFEST_URI
 )

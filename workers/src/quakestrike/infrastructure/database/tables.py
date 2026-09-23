@@ -1,9 +1,12 @@
 """SQLAlchemy Core mappings for the Phase 2 ingestion foundation."""
 
+# ruff: noqa: E501
+
 from sqlalchemy import (
     CheckConstraint,
     Column,
     DateTime,
+    Double,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
@@ -28,12 +31,25 @@ INGESTION_RUN_STATUSES = (
 )
 PREDICTION_JOB_STATUSES = INGESTION_RUN_STATUSES
 DISPATCH_STATUSES = ("pending", "dispatching", "enqueued", "retry_wait", "stopped")
+PREDICTION_ATTEMPT_STATUSES = ("running", "succeeded", "failed", "abandoned")
+ALERT_JOB_STATUSES = (
+    "pending",
+    "resolving",
+    "delivering",
+    "completed",
+    "failed",
+    "expired",
+)
 
 ingestion_run_status = ENUM(*INGESTION_RUN_STATUSES, name="ingestion_run_status", create_type=False)
 prediction_job_status = ENUM(
     *PREDICTION_JOB_STATUSES, name="prediction_job_status", create_type=False
 )
 dispatch_status = ENUM(*DISPATCH_STATUSES, name="dispatch_status", create_type=False)
+prediction_attempt_status = ENUM(
+    *PREDICTION_ATTEMPT_STATUSES, name="prediction_attempt_status", create_type=False
+)
+alert_job_status = ENUM(*ALERT_JOB_STATUSES, name="alert_job_status", create_type=False)
 
 FEATURE_SNAPSHOT_SCHEMA_VERSION = "quakestrike.prediction-input.v1"
 FEATURE_SNAPSHOT_KEYS = (
@@ -506,7 +522,12 @@ job_dispatches = Table(
         ForeignKey("prediction_jobs.job_id", onupdate="RESTRICT", ondelete="RESTRICT"),
         unique=True,
     ),
-    Column("alert_job_id", UUID(as_uuid=True), unique=True),
+    Column(
+        "alert_job_id",
+        UUID(as_uuid=True),
+        ForeignKey("alert_jobs.alert_job_id", onupdate="RESTRICT", ondelete="RESTRICT"),
+        unique=True,
+    ),
     Column("status", dispatch_status, nullable=False, server_default="pending"),
     Column("next_dispatch_at", DateTime(timezone=True), server_default=func.now()),
     Column("last_dispatched_at", DateTime(timezone=True)),
@@ -520,7 +541,6 @@ job_dispatches = Table(
         "num_nonnulls(ingestion_run_id, prediction_job_id, alert_job_id) = 1",
         name="ck_job_dispatches_exactly_one_target",
     ),
-    CheckConstraint("alert_job_id IS NULL", name="ck_job_dispatches_alert_target_deferred"),
     CheckConstraint("attempt_count >= 0", name="ck_job_dispatches_attempt_count_nonnegative"),
     CheckConstraint(
         "(status = 'dispatching' AND next_dispatch_at IS NULL "
@@ -542,6 +562,223 @@ Index(
     job_dispatches.c.dispatch_id,
     postgresql_where=job_dispatches.c.status.in_(("pending", "retry_wait")),
 )
+
+prediction_attempts = Table(
+    "prediction_attempts",
+    metadata,
+    Column("attempt_id", UUID(as_uuid=True), primary_key=True),
+    Column(
+        "job_id",
+        UUID(as_uuid=True),
+        ForeignKey("prediction_jobs.job_id", onupdate="RESTRICT", ondelete="RESTRICT"),
+        nullable=False,
+    ),
+    Column("attempt_number", Integer, nullable=False),
+    Column("status", prediction_attempt_status, nullable=False, server_default="running"),
+    Column("started_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("finished_at", DateTime(timezone=True)),
+    Column("lease_expires_at", DateTime(timezone=True)),
+    Column("worker_execution_id", UUID(as_uuid=True), nullable=False),
+    Column("error_code", Text),
+    Column("error_message", Text),
+    UniqueConstraint("job_id", "attempt_number", name="uq_prediction_attempts_job_number"),
+    CheckConstraint("attempt_number >= 1", name="ck_prediction_attempts_number"),
+    CheckConstraint(
+        "(status = 'running' AND lease_expires_at IS NOT NULL AND finished_at IS NULL) OR "
+        "(status <> 'running' AND lease_expires_at IS NULL AND finished_at IS NOT NULL)",
+        name="ck_prediction_attempts_state",
+    ),
+    CheckConstraint(
+        "finished_at IS NULL OR finished_at >= started_at",
+        name="ck_prediction_attempts_finish_order",
+    ),
+    CheckConstraint(
+        "(error_code IS NULL OR (error_code = btrim(error_code) AND error_code <> '')) AND "
+        "(error_message IS NULL OR (error_message = btrim(error_message) AND error_message <> ''))",
+        name="ck_prediction_attempts_errors_nonblank",
+    ),
+)
+Index(
+    "uq_prediction_attempts_one_running",
+    prediction_attempts.c.job_id,
+    unique=True,
+    postgresql_where=prediction_attempts.c.status == "running",
+)
+Index(
+    "ix_prediction_attempts_running_lease",
+    prediction_attempts.c.lease_expires_at,
+    postgresql_where=prediction_attempts.c.status == "running",
+)
+
+forecasts = Table(
+    "forecasts",
+    metadata,
+    Column("forecast_id", UUID(as_uuid=True), primary_key=True),
+    Column(
+        "job_id",
+        UUID(as_uuid=True),
+        ForeignKey("prediction_jobs.job_id", onupdate="RESTRICT", ondelete="RESTRICT"),
+        nullable=False,
+        unique=True,
+    ),
+    Column(
+        "supersedes_forecast_id",
+        UUID(as_uuid=True),
+        ForeignKey("forecasts.forecast_id", onupdate="RESTRICT", ondelete="RESTRICT"),
+    ),
+    Column("window_start", DateTime(timezone=True), nullable=False),
+    Column("window_end", DateTime(timezone=True), nullable=False),
+    Column("probability_m1_plus_24h", Double, nullable=False),
+    Column("expected_m1_plus_count_24h", Double, nullable=False),
+    Column("probability_m4_plus_24h", Double, nullable=False),
+    Column("probability_m5_plus_24h", Double, nullable=False),
+    Column("activity_radius_median_km_24h", Double),
+    Column("maximum_magnitude_q05_24h", Double),
+    Column("maximum_magnitude_q50_24h", Double),
+    Column("maximum_magnitude_q95_24h", Double),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint(
+        "window_end = window_start + interval '24 hours'", name="ck_forecasts_24h_window"
+    ),
+    CheckConstraint(
+        "probability_m1_plus_24h BETWEEN 0 AND 1 AND probability_m4_plus_24h BETWEEN 0 AND 1 "
+        "AND probability_m5_plus_24h BETWEEN 0 AND 1 "
+        "AND probability_m5_plus_24h <= probability_m4_plus_24h "
+        "AND probability_m4_plus_24h <= probability_m1_plus_24h",
+        name="ck_forecasts_probabilities",
+    ),
+    CheckConstraint(
+        "probability_m1_plus_24h < 'Infinity'::double precision "
+        "AND probability_m1_plus_24h > '-Infinity'::double precision "
+        "AND probability_m4_plus_24h < 'Infinity'::double precision "
+        "AND probability_m4_plus_24h > '-Infinity'::double precision "
+        "AND probability_m5_plus_24h < 'Infinity'::double precision "
+        "AND probability_m5_plus_24h > '-Infinity'::double precision "
+        "AND expected_m1_plus_count_24h < 'Infinity'::double precision "
+        "AND expected_m1_plus_count_24h > '-Infinity'::double precision "
+        "AND (activity_radius_median_km_24h IS NULL OR (activity_radius_median_km_24h < 'Infinity'::double precision AND activity_radius_median_km_24h > '-Infinity'::double precision)) "
+        "AND (maximum_magnitude_q05_24h IS NULL OR (maximum_magnitude_q05_24h < 'Infinity'::double precision AND maximum_magnitude_q05_24h > '-Infinity'::double precision)) "
+        "AND (maximum_magnitude_q50_24h IS NULL OR (maximum_magnitude_q50_24h < 'Infinity'::double precision AND maximum_magnitude_q50_24h > '-Infinity'::double precision)) "
+        "AND (maximum_magnitude_q95_24h IS NULL OR (maximum_magnitude_q95_24h < 'Infinity'::double precision AND maximum_magnitude_q95_24h > '-Infinity'::double precision))",
+        name="ck_forecasts_finite_outputs",
+    ),
+    CheckConstraint("expected_m1_plus_count_24h >= 0", name="ck_forecasts_expected_count"),
+    CheckConstraint(
+        "activity_radius_median_km_24h IS NULL OR activity_radius_median_km_24h >= 0",
+        name="ck_forecasts_radius",
+    ),
+    CheckConstraint(
+        "(maximum_magnitude_q05_24h IS NULL AND maximum_magnitude_q50_24h IS NULL AND maximum_magnitude_q95_24h IS NULL) OR "
+        "(maximum_magnitude_q05_24h IS NOT NULL AND maximum_magnitude_q50_24h IS NOT NULL AND maximum_magnitude_q95_24h IS NOT NULL "
+        "AND maximum_magnitude_q05_24h <= maximum_magnitude_q50_24h AND maximum_magnitude_q50_24h <= maximum_magnitude_q95_24h)",
+        name="ck_forecasts_quantiles",
+    ),
+    CheckConstraint(
+        "supersedes_forecast_id IS NULL OR supersedes_forecast_id <> forecast_id",
+        name="ck_forecasts_supersedes_other",
+    ),
+)
+Index("ix_forecasts_supersedes_forecast_id", forecasts.c.supersedes_forecast_id)
+
+alert_jobs = Table(
+    "alert_jobs",
+    metadata,
+    Column("alert_job_id", UUID(as_uuid=True), primary_key=True),
+    Column(
+        "forecast_id",
+        UUID(as_uuid=True),
+        ForeignKey("forecasts.forecast_id", onupdate="RESTRICT", ondelete="RESTRICT"),
+        nullable=False,
+        unique=True,
+    ),
+    Column("requested_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("message_snapshot", Text, nullable=False),
+    Column("recipient_policy_snapshot", JSONB, nullable=False),
+    Column("status", alert_job_status, nullable=False, server_default="pending"),
+    Column("recipient_resolution_completed_at", DateTime(timezone=True)),
+    Column("lease_expires_at", DateTime(timezone=True)),
+    Column("worker_execution_id", UUID(as_uuid=True)),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("completed_at", DateTime(timezone=True)),
+    Column("correlation_id", UUID(as_uuid=True), nullable=False),
+    CheckConstraint(
+        "message_snapshot = btrim(message_snapshot) AND message_snapshot <> ''",
+        name="ck_alert_jobs_message",
+    ),
+    CheckConstraint(
+        "jsonb_typeof(recipient_policy_snapshot) = 'object'",
+        name="ck_alert_jobs_recipient_policy_object",
+    ),
+    CheckConstraint("expires_at > requested_at", name="ck_alert_jobs_expiry"),
+    CheckConstraint(
+        "(status IN ('resolving', 'delivering') AND lease_expires_at IS NOT NULL AND worker_execution_id IS NOT NULL) OR "
+        "(status NOT IN ('resolving', 'delivering') AND lease_expires_at IS NULL AND worker_execution_id IS NULL)",
+        name="ck_alert_jobs_lease",
+    ),
+    CheckConstraint(
+        "(status IN ('completed', 'failed', 'expired') AND completed_at IS NOT NULL) OR "
+        "(status IN ('pending', 'resolving', 'delivering') AND completed_at IS NULL)",
+        name="ck_alert_jobs_completion",
+    ),
+)
+Index("ix_alert_jobs_status_expiry", alert_jobs.c.status, alert_jobs.c.expires_at)
+Index("ix_alert_jobs_requested_at", alert_jobs.c.requested_at)
+Index(
+    "ix_alert_jobs_active_lease",
+    alert_jobs.c.lease_expires_at,
+    postgresql_where=alert_jobs.c.status.in_(("resolving", "delivering")),
+)
+
+audit_logs = Table(
+    "audit_logs",
+    metadata,
+    Column("audit_id", UUID(as_uuid=True), primary_key=True),
+    Column("occurred_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("actor_type", Text, nullable=False),
+    Column("actor_user_id", UUID(as_uuid=True)),
+    Column("actor_service", Text),
+    Column("action", Text, nullable=False),
+    Column("target_type", Text),
+    Column("target_id", Text),
+    Column("target_revision", Text),
+    Column("outcome", Text, nullable=False),
+    Column("reason_code", Text),
+    Column("request_id", UUID(as_uuid=True)),
+    Column("correlation_id", UUID(as_uuid=True), nullable=False),
+    Column("metadata", JSONB),
+    CheckConstraint(
+        "actor_type IN ('user', 'system', 'anonymous')", name="ck_audit_logs_actor_type"
+    ),
+    CheckConstraint("outcome IN ('succeeded', 'denied', 'failed')", name="ck_audit_logs_outcome"),
+    CheckConstraint(
+        "(actor_type = 'user' AND actor_user_id IS NOT NULL AND actor_service IS NULL) OR (actor_type = 'system' AND actor_user_id IS NULL AND actor_service IS NOT NULL) OR (actor_type = 'anonymous' AND actor_user_id IS NULL AND actor_service IS NULL)",
+        name="ck_audit_logs_actor_identity",
+    ),
+    CheckConstraint(
+        "(target_type IS NULL AND target_id IS NULL) OR (target_type IS NOT NULL AND target_id IS NOT NULL)",
+        name="ck_audit_logs_target_pair",
+    ),
+    CheckConstraint(
+        "action = btrim(action) AND action <> '' AND "
+        "(actor_service IS NULL OR (actor_service = btrim(actor_service) AND actor_service <> '')) AND "
+        "(target_type IS NULL OR (target_type = btrim(target_type) AND target_type <> '')) AND "
+        "(target_id IS NULL OR (target_id = btrim(target_id) AND target_id <> '')) AND "
+        "(target_revision IS NULL OR (target_revision = btrim(target_revision) AND target_revision <> '')) AND "
+        "(reason_code IS NULL OR (reason_code = btrim(reason_code) AND reason_code <> ''))",
+        name="ck_audit_logs_identifiers_nonblank",
+    ),
+    CheckConstraint("jsonb_typeof(metadata) = 'object'", name="ck_audit_logs_metadata_object"),
+    CheckConstraint("actor_type <> 'user'", name="ck_audit_logs_user_actor_deferred"),
+)
+Index("ix_audit_logs_occurred_at", audit_logs.c.occurred_at)
+Index("ix_audit_logs_actor_occurred_at", audit_logs.c.actor_user_id, audit_logs.c.occurred_at)
+Index(
+    "ix_audit_logs_target_occurred_at",
+    audit_logs.c.target_type,
+    audit_logs.c.target_id,
+    audit_logs.c.occurred_at,
+)
+Index("ix_audit_logs_correlation_id", audit_logs.c.correlation_id)
 Index(
     "ix_job_dispatches_dispatching_lease",
     job_dispatches.c.lease_expires_at,

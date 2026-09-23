@@ -20,8 +20,18 @@ EXPECTED_TABLES = {
     "model_releases",
     "prediction_jobs",
     "job_dispatches",
+    "prediction_attempts",
+    "forecasts",
+    "alert_jobs",
+    "audit_logs",
 }
-EXPECTED_ENUMS = {"ingestion_run_status", "prediction_job_status", "dispatch_status"}
+EXPECTED_ENUMS = {
+    "ingestion_run_status",
+    "prediction_job_status",
+    "dispatch_status",
+    "prediction_attempt_status",
+    "alert_job_status",
+}
 
 
 def _settings(database_url: str) -> Settings:
@@ -40,6 +50,36 @@ def test_upgrade_creates_only_phase_two_schema_and_uuid_keys_have_no_defaults(
     inspector = inspect(migrated_engine)
     assert set(inspector.get_table_names()) == EXPECTED_TABLES
     assert {item["name"] for item in inspector.get_enums()} == EXPECTED_ENUMS
+    dispatch_foreign_keys = {
+        tuple(item["constrained_columns"]): item["referred_table"]
+        for item in inspector.get_foreign_keys("job_dispatches")
+    }
+    assert dispatch_foreign_keys[("alert_job_id",)] == "alert_jobs"
+    assert {column["name"] for column in inspector.get_columns("alert_jobs")} == {
+        "alert_job_id",
+        "forecast_id",
+        "requested_at",
+        "message_snapshot",
+        "recipient_policy_snapshot",
+        "status",
+        "recipient_resolution_completed_at",
+        "lease_expires_at",
+        "worker_execution_id",
+        "expires_at",
+        "completed_at",
+        "correlation_id",
+    }
+    assert {item["name"] for item in inspector.get_indexes("alert_jobs")} >= {
+        "ix_alert_jobs_active_lease",
+        "ix_alert_jobs_requested_at",
+        "ix_alert_jobs_status_expiry",
+    }
+    assert {item["name"] for item in inspector.get_indexes("audit_logs")} >= {
+        "ix_audit_logs_actor_occurred_at",
+        "ix_audit_logs_correlation_id",
+        "ix_audit_logs_occurred_at",
+        "ix_audit_logs_target_occurred_at",
+    }
 
     for table_name, key_name in {
         "ingestion_runs": "run_id",
@@ -70,7 +110,7 @@ def test_migration_gate_is_ready_at_head_and_read_only_when_revision_is_stale(
     settings = _settings(str(migrated_engine.url))
     ready = AlembicMigrationStateGate(settings, engine=migrated_engine).check()
     assert ready.ready is True
-    assert ready.details["current_revision"] == "20260918_06"
+    assert ready.details["current_revision"] == "20260923_07"
 
     with migrated_engine.begin() as connection:
         connection.execute(text("UPDATE alembic_version SET version_num = 'stale_revision'"))
@@ -81,4 +121,4 @@ def test_migration_gate_is_ready_at_head_and_read_only_when_revision_is_stale(
             connection.scalar(text("SELECT version_num FROM alembic_version")) == "stale_revision"
         )
     with migrated_engine.begin() as connection:
-        connection.execute(text("UPDATE alembic_version SET version_num = '20260918_06'"))
+        connection.execute(text("UPDATE alembic_version SET version_num = '20260923_07'"))
