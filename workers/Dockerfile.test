@@ -16,6 +16,7 @@ RUN uv sync --project workers --frozen --no-install-project
 COPY workers ./workers
 COPY packages ./packages
 COPY infrastructure/compose.yml ./infrastructure/compose.yml
+COPY infrastructure/postgres/provision-roles.sh ./infrastructure/postgres/provision-roles.sh
 COPY .dockerignore ./.dockerignore
 COPY .env.example ./.env.example
 RUN uv sync --project workers --frozen
