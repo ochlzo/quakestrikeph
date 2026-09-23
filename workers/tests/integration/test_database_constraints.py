@@ -537,6 +537,53 @@ def test_one_alert_job_is_allowed_per_forecast(migrated_engine, parents) -> None
     )
 
 
+def test_alert_snapshots_cannot_change_after_creation(migrated_engine, parents) -> None:
+    job = _job_values(parents)
+    forecast = _forecast_values(job["job_id"])
+    alert_id = uuid4()
+    alert = {
+        "alert_job_id": alert_id,
+        "forecast_id": forecast["forecast_id"],
+        "requested_at": NOW,
+        "message_snapshot": "Automatic earthquake alert",
+        "recipient_policy_snapshot": {"version": "1"},
+        "expires_at": NOW + timedelta(hours=24),
+        "correlation_id": uuid4(),
+    }
+    with migrated_engine.begin() as connection:
+        connection.execute(insert(prediction_jobs).values(**job))
+        connection.execute(insert(forecasts).values(**forecast))
+
+    _failed(
+        migrated_engine,
+        insert(alert_jobs).values(**{**alert, "recipient_policy_snapshot": ["invalid"]}),
+    )
+    with migrated_engine.begin() as connection:
+        connection.execute(insert(alert_jobs).values(**alert))
+
+    for changes in (
+        {"message_snapshot": "Changed alert"},
+        {"recipient_policy_snapshot": {"version": "2"}},
+    ):
+        _failed(
+            migrated_engine,
+            update(alert_jobs).where(alert_jobs.c.alert_job_id == alert_id).values(**changes),
+        )
+
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            update(alert_jobs)
+            .where(alert_jobs.c.alert_job_id == alert_id)
+            .values(status="failed", completed_at=NOW)
+        )
+        stored = connection.execute(
+            select(alert_jobs).where(alert_jobs.c.alert_job_id == alert_id)
+        ).one()
+    assert stored.status == "failed"
+    assert stored.message_snapshot == alert["message_snapshot"]
+    assert stored.recipient_policy_snapshot == alert["recipient_policy_snapshot"]
+
+
 def test_forecast_cannot_supersede_itself(migrated_engine, parents) -> None:
     job = _job_values(parents)
     forecast = _forecast_values(job["job_id"])

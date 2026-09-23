@@ -705,6 +705,10 @@ alert_jobs = Table(
         "message_snapshot = btrim(message_snapshot) AND message_snapshot <> ''",
         name="ck_alert_jobs_message",
     ),
+    CheckConstraint(
+        "jsonb_typeof(recipient_policy_snapshot) = 'object'",
+        name="ck_alert_jobs_recipient_policy_object",
+    ),
     CheckConstraint("expires_at > requested_at", name="ck_alert_jobs_expiry"),
     CheckConstraint(
         "(status IN ('resolving', 'delivering') AND lease_expires_at IS NOT NULL AND worker_execution_id IS NOT NULL) OR "

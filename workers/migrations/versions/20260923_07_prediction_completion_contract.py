@@ -218,6 +218,10 @@ def upgrade() -> None:
             "message_snapshot = btrim(message_snapshot) AND message_snapshot <> ''",
             name="ck_alert_jobs_message",
         ),
+        sa.CheckConstraint(
+            "jsonb_typeof(recipient_policy_snapshot) = 'object'",
+            name="ck_alert_jobs_recipient_policy_object",
+        ),
         sa.CheckConstraint("expires_at > requested_at", name="ck_alert_jobs_expiry"),
         sa.CheckConstraint(
             "(status IN ('resolving', 'delivering') AND lease_expires_at IS NOT NULL AND worker_execution_id IS NOT NULL) OR (status NOT IN ('resolving', 'delivering') AND lease_expires_at IS NULL AND worker_execution_id IS NULL)",
@@ -235,6 +239,28 @@ def upgrade() -> None:
         "alert_jobs",
         ["lease_expires_at"],
         postgresql_where=sa.text("status IN ('resolving', 'delivering')"),
+    )
+    op.execute(
+        """
+        CREATE FUNCTION enforce_alert_snapshots_immutable() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+            IF NEW.message_snapshot IS DISTINCT FROM OLD.message_snapshot
+               OR NEW.recipient_policy_snapshot IS DISTINCT FROM OLD.recipient_policy_snapshot THEN
+                RAISE EXCEPTION 'Alert snapshots are immutable.'
+                    USING ERRCODE = 'check_violation';
+            END IF;
+            RETURN NEW;
+        END;
+        $$
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_alert_jobs_snapshots_immutable
+        BEFORE UPDATE OF message_snapshot, recipient_policy_snapshot ON alert_jobs
+        FOR EACH ROW EXECUTE FUNCTION enforce_alert_snapshots_immutable()
+        """
     )
 
     op.create_table(
@@ -299,6 +325,8 @@ def downgrade() -> None:
     op.create_check_constraint(
         "ck_job_dispatches_alert_target_deferred", "job_dispatches", "alert_job_id IS NULL"
     )
+    op.execute("DROP TRIGGER trg_alert_jobs_snapshots_immutable ON alert_jobs")
+    op.execute("DROP FUNCTION enforce_alert_snapshots_immutable()")
     for name in (
         "audit_logs",
         "alert_jobs",
