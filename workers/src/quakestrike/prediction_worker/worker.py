@@ -1,8 +1,9 @@
-"""Versioned prediction queue consumer and runnable test-model worker."""
+"""Versioned prediction queue consumer and SEIS worker."""
 
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Callable, Mapping
 
 from celery import Celery
@@ -16,7 +17,7 @@ from quakestrike.infrastructure.database.engine import (
 )
 from quakestrike.infrastructure.database.prediction import SqlAlchemyPredictionStore
 from quakestrike.infrastructure.logging.json_logging import log_event, log_exception_event
-from quakestrike.infrastructure.models.deterministic_test import DeterministicTestModel
+from quakestrike.infrastructure.models.seis import SeisModel
 from quakestrike.infrastructure.queues.celery_app import PREDICTION_QUEUE, create_celery_app
 from quakestrike.infrastructure.queues.contracts import parse_prediction_command
 from quakestrike.infrastructure.queues.prediction_publisher import PREDICTION_TASK_NAME
@@ -57,7 +58,7 @@ def handle_prediction_command(
     return outcome
 
 
-def process_prediction_delivery(settings: Settings, payload: object) -> str:
+def process_prediction_delivery(settings: Settings, payload: object, model: PredictionModel) -> str:
     """Build database resources in the process that handles this delivery."""
 
     engine = create_database_engine(settings.database_url)
@@ -65,7 +66,7 @@ def process_prediction_delivery(settings: Settings, payload: object) -> str:
         return handle_prediction_command(
             payload,
             store=SqlAlchemyPredictionStore(create_session_factory(engine)),
-            model=DeterministicTestModel(),
+            model=model,
             logger=logging.getLogger("prediction-worker"),
         )
     finally:
@@ -73,12 +74,11 @@ def process_prediction_delivery(settings: Settings, payload: object) -> str:
 
 
 def create_prediction_app(
-    settings: Settings, *, command_handler: Callable[[object], str] | None = None
+    settings: Settings, *, command_handler: Callable[[object], str]
 ) -> Celery:
     """Register the existing wire task name on the prediction queue."""
 
     app = create_celery_app(settings)
-    handler = command_handler or (lambda payload: process_prediction_delivery(settings, payload))
 
     @app.task(
         name=PREDICTION_TASK_NAME,
@@ -88,7 +88,7 @@ def create_prediction_app(
     )
     def process_prediction(payload: object) -> str:
         try:
-            return handler(payload)
+            return command_handler(payload)
         except Exception as error:
             log_exception_event(
                 logging.getLogger("prediction-worker"),
@@ -102,10 +102,28 @@ def create_prediction_app(
     return app
 
 
-def run_prediction(settings: Settings) -> int:
-    """Consume the prediction queue with the deterministic issue #16 adapter."""
+def run_prediction(settings: Settings, *, model: PredictionModel | None = None) -> int:
+    """Load SEIS before consuming work, with a supplied adapter for isolated tests."""
 
-    app = create_prediction_app(settings)
+    selected_model = model or SeisModel(
+        settings.model_artifact_directory, settings.model_release_id
+    )
+
+    def handle(payload: object) -> str:
+        if isinstance(selected_model, SeisModel):
+            try:
+                selected_model.verify_artifacts()
+            except (OSError, ValueError):
+                log_event(
+                    logging.getLogger("prediction-worker"),
+                    logging.ERROR,
+                    "Model artifacts changed; stopping before a prediction claim.",
+                    event_code="prediction_artifacts_unhealthy",
+                )
+                os._exit(2)
+        return process_prediction_delivery(settings, payload, selected_model)
+
+    app = create_prediction_app(settings, command_handler=handle)
     app.worker_main(
         [
             "worker",

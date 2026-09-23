@@ -57,6 +57,27 @@ services:
         max-size: "20m"
         max-file: "5"
 
+  prediction-smoke-runner:
+    profiles: ["prediction-smoke"]
+    build:
+      context: ..
+      dockerfile: workers/Dockerfile.test
+      args:
+        TEST_EXTRA: prediction
+    environment:
+      TEST_DATABASE_URL: postgresql+psycopg://quakestrike_test:integration-only@postgres-test:5432/quakestrike_test
+      TEST_REDIS_URL: redis://redis-test:6379/0
+      MODEL_ARTIFACT_DIRECTORY: /workspace/model-artifacts
+    volumes:
+      - ${MODEL_ARTIFACT_HOST_DIRECTORY:-../model-artifacts}:/workspace/model-artifacts:ro
+    networks:
+      - phase2-test
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+
 networks:
   phase2-test:
     internal: true

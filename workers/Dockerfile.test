@@ -1,6 +1,7 @@
 FROM python:3.12.14-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254
 
 ARG UV_VERSION=0.11.32
+ARG TEST_EXTRA=""
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -8,10 +9,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /workspace
 
+RUN if [ -n "$TEST_EXTRA" ]; then apt-get update && apt-get install --no-install-recommends -y libgomp1 && rm -rf /var/lib/apt/lists/*; fi
 RUN pip install --no-cache-dir "uv==${UV_VERSION}"
 
 COPY workers/pyproject.toml workers/uv.lock ./workers/
-RUN uv sync --project workers --frozen --no-install-project
+RUN if [ -n "$TEST_EXTRA" ]; then uv sync --project workers --frozen --no-install-project --extra "$TEST_EXTRA"; else uv sync --project workers --frozen --no-install-project; fi
 
 COPY workers ./workers
 COPY packages ./packages
@@ -19,6 +21,6 @@ COPY infrastructure/compose.yml ./infrastructure/compose.yml
 COPY infrastructure/postgres/provision-roles.sh ./infrastructure/postgres/provision-roles.sh
 COPY .dockerignore ./.dockerignore
 COPY .env.example ./.env.example
-RUN uv sync --project workers --frozen
+RUN if [ -n "$TEST_EXTRA" ]; then uv sync --project workers --frozen --extra "$TEST_EXTRA"; else uv sync --project workers --frozen; fi
 
 ENTRYPOINT ["uv", "run", "--project", "workers", "--frozen", "--no-sync"]

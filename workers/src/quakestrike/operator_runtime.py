@@ -29,6 +29,7 @@ from quakestrike.infrastructure.queues.celery_app import (
 from quakestrike.infrastructure.settings import Settings
 from quakestrike.infrastructure.startup import (
     ConfiguredModelReleaseVerifier,
+    ModelReleaseStartupGate,
     phase_one_startup_gates,
 )
 from quakestrike.operator_output import print_json
@@ -51,7 +52,9 @@ def worker_health(action: str) -> int:
         elif action == "health-ingestor":
             active = ingestor_consuming(settings, local_only=True)
         elif action == "health-prediction":
-            active = prediction_consuming(settings, local_only=True)
+            active = ModelReleaseStartupGate(settings).check().ready and prediction_consuming(
+                settings, local_only=True
+            )
         else:
             active = evaluate_startup_gates(phase_one_startup_gates(settings)).ready
         ready = connected and active
