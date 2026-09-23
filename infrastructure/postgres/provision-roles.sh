@@ -25,6 +25,7 @@ WHERE schemaname = 'public'
     'alembic_version', 'ingestion_runs', 'ingestion_run_inputs',
     'earthquake_events', 'earthquake_bulletin_event_identities',
     'earthquake_event_revisions', 'model_releases', 'prediction_jobs',
+    'prediction_attempts', 'forecasts', 'alert_jobs', 'audit_logs',
     'job_dispatches'
   ) \gexec
 SELECT format('ALTER TYPE %I.%I OWNER TO quakestrike_migration', n.nspname, t.typname)
@@ -33,7 +34,10 @@ JOIN pg_namespace AS n ON n.oid = t.typnamespace
 WHERE n.nspname = 'public'
   AND t.typtype = 'e'
   AND pg_get_userbyid(t.typowner) <> 'quakestrike_migration'
-  AND t.typname IN ('ingestion_run_status', 'prediction_job_status', 'dispatch_status') \gexec
+  AND t.typname IN (
+    'ingestion_run_status', 'prediction_job_status', 'dispatch_status',
+    'prediction_attempt_status', 'alert_job_status'
+  ) \gexec
 SQL
     then
       echo '{"action":"provision-db-roles","status":"ready"}'
@@ -47,10 +51,11 @@ SQL
 GRANT SELECT ON TABLE alembic_version, model_releases TO quakestrike_worker;
 GRANT SELECT, INSERT, UPDATE ON TABLE
     ingestion_runs, ingestion_run_inputs, earthquake_events,
-    prediction_jobs, job_dispatches
+    prediction_jobs, prediction_attempts, job_dispatches
 TO quakestrike_worker;
 GRANT SELECT, INSERT ON TABLE
-    earthquake_bulletin_event_identities, earthquake_event_revisions
+    earthquake_bulletin_event_identities, earthquake_event_revisions,
+    forecasts, audit_logs
 TO quakestrike_worker;
 SQL
     then

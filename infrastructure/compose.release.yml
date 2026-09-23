@@ -80,6 +80,28 @@ services:
     mem_limit: 512m
     logging: *worker-logging
 
+  prediction-worker:
+    profiles: ["prediction-test"]
+    image: quakestrike-workers:${WORKER_IMAGE_TAG:?Set WORKER_IMAGE_TAG to the tested Git commit SHA}
+    command: ["quakestrike-prediction"]
+    environment: *worker-environment
+    volumes: *worker-volumes
+    networks: [private-data]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "uv", "run", "--frozen", "--no-dev", "--no-sync", "quakestrike", "health-prediction"]
+      interval: 10s
+      timeout: 8s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    mem_limit: 512m
+    logging: *worker-logging
+
   beat:
     profiles: ["beat"]
     image: quakestrike-workers:${WORKER_IMAGE_TAG:?Set WORKER_IMAGE_TAG to the tested Git commit SHA}

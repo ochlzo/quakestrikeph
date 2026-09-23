@@ -1,1 +1,1 @@
-"""Deferred prediction worker package."""
+"""Prediction queue consumer and model execution boundary."""

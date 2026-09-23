@@ -21,7 +21,11 @@ from quakestrike.infrastructure.health import (
     PostgresConnectivityHealthCheck,
     RedisConnectivityHealthCheck,
 )
-from quakestrike.infrastructure.queues.celery_app import INGESTION_QUEUE, create_celery_app
+from quakestrike.infrastructure.queues.celery_app import (
+    INGESTION_QUEUE,
+    PREDICTION_QUEUE,
+    create_celery_app,
+)
 from quakestrike.infrastructure.settings import Settings
 from quakestrike.infrastructure.startup import (
     ConfiguredModelReleaseVerifier,
@@ -46,6 +50,8 @@ def worker_health(action: str) -> int:
             active = dispatcher_running(settings)
         elif action == "health-ingestor":
             active = ingestor_consuming(settings, local_only=True)
+        elif action == "health-prediction":
+            active = prediction_consuming(settings, local_only=True)
         else:
             active = evaluate_startup_gates(phase_one_startup_gates(settings)).ready
         ready = connected and active
@@ -118,6 +124,19 @@ def ingestor_consuming(settings: Settings, *, local_only: bool = False) -> bool:
         worker.startswith("data-ingestor@")
         and (not local_only or worker == destination)
         and any(queue.get("name") == INGESTION_QUEUE for queue in worker_queues)
+        for worker, worker_queues in queues.items()
+    )
+
+
+def prediction_consuming(settings: Settings, *, local_only: bool = False) -> bool:
+    app = create_celery_app(settings)
+    destination = f"prediction-worker@{socket.gethostname()}" if local_only else None
+    inspector = app.control.inspect(destination=[destination] if destination else None, timeout=3)
+    queues = inspector.active_queues() or {}
+    return any(
+        worker.startswith("prediction-worker@")
+        and (not local_only or worker == destination)
+        and any(queue.get("name") == PREDICTION_QUEUE for queue in worker_queues)
         for worker, worker_queues in queues.items()
     )
 
