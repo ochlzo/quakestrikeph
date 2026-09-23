@@ -164,6 +164,20 @@ def _forecast_values(job_id: UUID, **changes):
     return values
 
 
+def _alert_values(forecast_id: UUID, **changes):
+    values = {
+        "alert_job_id": uuid4(),
+        "forecast_id": forecast_id,
+        "requested_at": NOW,
+        "message_snapshot": "Automatic earthquake alert",
+        "recipient_policy_snapshot": {"version": "1"},
+        "expires_at": NOW + timedelta(hours=24),
+        "correlation_id": uuid4(),
+    }
+    values.update(changes)
+    return values
+
+
 @pytest.mark.parametrize(
     ("changes"),
     [
@@ -509,15 +523,7 @@ def test_forecasts_reject_nonfinite_outputs(migrated_engine, parents, changes) -
 def test_one_alert_job_is_allowed_per_forecast(migrated_engine, parents) -> None:
     job = _job_values(parents)
     forecast = _forecast_values(job["job_id"])
-    first_alert = {
-        "alert_job_id": uuid4(),
-        "forecast_id": forecast["forecast_id"],
-        "requested_at": NOW,
-        "message_snapshot": "Automatic earthquake alert",
-        "recipient_policy_snapshot": {"version": "1"},
-        "expires_at": NOW + timedelta(hours=24),
-        "correlation_id": uuid4(),
-    }
+    first_alert = _alert_values(forecast["forecast_id"])
     with migrated_engine.begin() as connection:
         connection.execute(insert(prediction_jobs).values(**job))
         connection.execute(insert(forecasts).values(**forecast))
@@ -526,33 +532,35 @@ def test_one_alert_job_is_allowed_per_forecast(migrated_engine, parents) -> None
     _failed(
         migrated_engine,
         insert(alert_jobs).values(
-            alert_job_id=uuid4(),
-            forecast_id=forecast["forecast_id"],
-            requested_at=NOW,
-            message_snapshot="Duplicate automatic earthquake alert",
-            recipient_policy_snapshot={"version": "1"},
-            expires_at=NOW + timedelta(hours=24),
-            correlation_id=uuid4(),
+            **_alert_values(
+                forecast["forecast_id"], message_snapshot="Duplicate automatic earthquake alert"
+            )
         ),
     )
 
 
-def test_alert_snapshots_cannot_change_after_creation(migrated_engine, parents) -> None:
+def test_alert_assignment_and_snapshots_cannot_change_after_creation(
+    migrated_engine, parents
+) -> None:
     job = _job_values(parents)
     forecast = _forecast_values(job["job_id"])
+    later_revision = _revision_values(parents)
+    later_job = _job_values(parents, event_revision_id=later_revision["event_revision_id"])
+    later_forecast = _forecast_values(later_job["job_id"])
     alert_id = uuid4()
-    alert = {
-        "alert_job_id": alert_id,
-        "forecast_id": forecast["forecast_id"],
-        "requested_at": NOW,
-        "message_snapshot": "Automatic earthquake alert",
-        "recipient_policy_snapshot": {"version": "1"},
-        "expires_at": NOW + timedelta(hours=24),
-        "correlation_id": uuid4(),
-    }
+    alert = _alert_values(forecast["forecast_id"], alert_job_id=alert_id)
     with migrated_engine.begin() as connection:
         connection.execute(insert(prediction_jobs).values(**job))
         connection.execute(insert(forecasts).values(**forecast))
+        connection.execute(
+            insert(earthquake_bulletin_event_identities).values(
+                source_bulletin_id=later_revision["source_bulletin_id"],
+                event_id=parents["event"],
+            )
+        )
+        connection.execute(insert(earthquake_event_revisions).values(**later_revision))
+        connection.execute(insert(prediction_jobs).values(**later_job))
+        connection.execute(insert(forecasts).values(**later_forecast))
 
     _failed(
         migrated_engine,
@@ -562,6 +570,7 @@ def test_alert_snapshots_cannot_change_after_creation(migrated_engine, parents) 
         connection.execute(insert(alert_jobs).values(**alert))
 
     for changes in (
+        {"forecast_id": later_forecast["forecast_id"]},
         {"message_snapshot": "Changed alert"},
         {"recipient_policy_snapshot": {"version": "2"}},
     ):
@@ -580,6 +589,7 @@ def test_alert_snapshots_cannot_change_after_creation(migrated_engine, parents) 
             select(alert_jobs).where(alert_jobs.c.alert_job_id == alert_id)
         ).one()
     assert stored.status == "failed"
+    assert stored.forecast_id == forecast["forecast_id"]
     assert stored.message_snapshot == alert["message_snapshot"]
     assert stored.recipient_policy_snapshot == alert["recipient_policy_snapshot"]
 

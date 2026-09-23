@@ -260,12 +260,13 @@ def upgrade() -> None:
     )
     op.execute(
         """
-        CREATE FUNCTION enforce_alert_snapshots_immutable() RETURNS trigger
+        CREATE FUNCTION enforce_alert_assignment_and_snapshots_immutable() RETURNS trigger
         LANGUAGE plpgsql AS $$
         BEGIN
-            IF NEW.message_snapshot IS DISTINCT FROM OLD.message_snapshot
+            IF NEW.forecast_id IS DISTINCT FROM OLD.forecast_id
+               OR NEW.message_snapshot IS DISTINCT FROM OLD.message_snapshot
                OR NEW.recipient_policy_snapshot IS DISTINCT FROM OLD.recipient_policy_snapshot THEN
-                RAISE EXCEPTION 'Alert snapshots are immutable.'
+                RAISE EXCEPTION 'Alert forecast assignment and snapshots are immutable.'
                     USING ERRCODE = 'check_violation';
             END IF;
             RETURN NEW;
@@ -275,9 +276,9 @@ def upgrade() -> None:
     )
     op.execute(
         """
-        CREATE TRIGGER trg_alert_jobs_snapshots_immutable
-        BEFORE UPDATE OF message_snapshot, recipient_policy_snapshot ON alert_jobs
-        FOR EACH ROW EXECUTE FUNCTION enforce_alert_snapshots_immutable()
+        CREATE TRIGGER trg_alert_jobs_assignment_and_snapshots_immutable
+        BEFORE UPDATE OF forecast_id, message_snapshot, recipient_policy_snapshot ON alert_jobs
+        FOR EACH ROW EXECUTE FUNCTION enforce_alert_assignment_and_snapshots_immutable()
         """
     )
 
@@ -355,8 +356,8 @@ def downgrade() -> None:
     op.create_check_constraint(
         "ck_job_dispatches_alert_target_deferred", "job_dispatches", "alert_job_id IS NULL"
     )
-    op.execute("DROP TRIGGER trg_alert_jobs_snapshots_immutable ON alert_jobs")
-    op.execute("DROP FUNCTION enforce_alert_snapshots_immutable()")
+    op.execute("DROP TRIGGER trg_alert_jobs_assignment_and_snapshots_immutable ON alert_jobs")
+    op.execute("DROP FUNCTION enforce_alert_assignment_and_snapshots_immutable()")
     op.execute("DROP TRIGGER trg_forecasts_immutable ON forecasts")
     op.execute("DROP FUNCTION enforce_forecast_immutable()")
     for name in (
