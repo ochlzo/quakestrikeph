@@ -187,6 +187,17 @@ UTC wall-clock boundary of `POLL_INTERVAL_SECONDS` (five minutes by default).
 It does not poll on startup or replay missed boundaries. Beat has no automatic
 restart policy; enable it explicitly again after a stack restart.
 
+For an end-to-end prediction test, start the optional Prediction Worker before
+creating a poll:
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction-test up -d --wait prediction-worker
+```
+
+This profile consumes the `prediction` queue using issue #16's deterministic
+test adapter and writes forecasts. It is disabled by default; issue #17 will
+replace the adapter with the verified SEIS 1.0.1 runtime.
+
 For one early poll, use the separate operator command. It first checks both
 consumer health states and then checks readiness before creating or reusing a
 durable run and dispatch. A reused run may have been created by Beat.

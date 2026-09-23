@@ -3,10 +3,10 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from quakestrike.domain.prediction import (
-    DeterministicTestModel,
     InvalidPredictionOutput,
     compose_forecast,
 )
+from quakestrike.infrastructure.models.deterministic_test import DeterministicTestModel
 
 EVENT_TIME = datetime(2026, 9, 23, 12, tzinfo=UTC)
 

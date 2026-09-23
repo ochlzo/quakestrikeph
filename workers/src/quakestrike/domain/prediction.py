@@ -91,20 +91,3 @@ def compose_forecast(raw: Mapping[str, object], event_time: datetime) -> Forecas
         maximum_magnitude_q50_24h=quantiles[1],
         maximum_magnitude_q95_24h=quantiles[2],
     )
-
-
-class DeterministicTestModel:
-    """Stable CI adapter until the verified SEIS runner arrives in issue #17."""
-
-    def predict(self, features: Mapping[str, object]) -> Mapping[str, object]:
-        magnitude = float(features["anchor_magnitude"])
-        return {
-            "m1_probability": 0.6,
-            "m4_given_m1": 0.4,
-            "m5_given_m4": 0.25,
-            "expected_count": 1.0,
-            "radius_median": 50.0,
-            "maximum_q05": max(1.0, magnitude - 0.5),
-            "maximum_q50": max(1.0, magnitude),
-            "maximum_q95": max(1.0, magnitude + 0.5),
-        }

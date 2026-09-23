@@ -54,6 +54,7 @@ def main() -> int:
             "migrate",
             "health-dispatcher",
             "health-ingestor",
+            "health-prediction",
             "health-beat",
         ),
     )
@@ -83,7 +84,7 @@ def main() -> int:
         return operator_setup.verify_model_release()
     if args.command == "poll-now":
         return operator_runtime.immediate_poll()
-    if args.command in {"health-dispatcher", "health-ingestor", "health-beat"}:
+    if args.command in {"health-dispatcher", "health-ingestor", "health-prediction", "health-beat"}:
         return operator_runtime.worker_health(args.command)
     return run_service("cli", command=args.command)
 

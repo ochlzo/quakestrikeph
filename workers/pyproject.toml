@@ -25,6 +25,7 @@ quakestrike = "quakestrike.cli:main"
 quakestrike-beat = "quakestrike.scheduler.beat:main"
 quakestrike-dispatcher = "quakestrike.scheduler.dispatcher:main"
 quakestrike-ingestor = "quakestrike.data_ingestor.worker:main"
+quakestrike-prediction = "quakestrike.prediction_worker.worker:main"
 
 [dependency-groups]
 dev = [

@@ -2,19 +2,21 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
+import sys
+import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from kombu import Connection
 from redis import Redis
 from sqlalchemy import create_engine, event, func, insert, select, text
 
 from quakestrike.application.dispatch import PredictionDispatch
 from quakestrike.domain.features import INPUT_SCHEMA_VERSION, feature_snapshot_hash
-from quakestrike.domain.prediction import DeterministicTestModel, compose_forecast
+from quakestrike.domain.prediction import compose_forecast
 from quakestrike.infrastructure.database.engine import create_session_factory
 from quakestrike.infrastructure.database.prediction import (
     OUTPUT_SCHEMA_VERSION,
@@ -33,11 +35,9 @@ from quakestrike.infrastructure.database.tables import (
     prediction_attempts,
     prediction_jobs,
 )
+from quakestrike.infrastructure.models.deterministic_test import DeterministicTestModel
 from quakestrike.infrastructure.queues.contracts import PredictionCommandV1
-from quakestrike.infrastructure.queues.prediction_publisher import (
-    PREDICTION_TASK_NAME,
-    CeleryPredictionPublisher,
-)
+from quakestrike.infrastructure.queues.prediction_publisher import CeleryPredictionPublisher
 from quakestrike.infrastructure.settings import Settings
 from quakestrike.prediction_worker.worker import create_prediction_app, handle_prediction_command
 
@@ -171,7 +171,7 @@ def test_prediction_command_completes_once_and_stops_dispatch(migrated_engine):
         assert connection.scalar(select(func.count()).select_from(audit_logs)) == 1
 
 
-def test_published_v1_command_reaches_the_registered_consumer(migrated_engine):
+def test_published_v1_command_is_consumed_by_a_running_worker(migrated_engine):
     command = seed(migrated_engine)
     settings = Settings(
         _env_file=None,
@@ -180,28 +180,49 @@ def test_published_v1_command_reaches_the_registered_consumer(migrated_engine):
         phivolcs_catalog_url="https://example.invalid/catalog",
         model_release_id=uuid4(),
     )
-    app = create_prediction_app(
-        settings, store=store(migrated_engine), model=DeterministicTestModel()
-    )
+    app = create_prediction_app(settings)
     redis_client = Redis.from_url(settings.redis_url)
     redis_client.delete("prediction")
+    environment = os.environ | {
+        "DATABASE_URL": settings.database_url,
+        "REDIS_URL": settings.redis_url,
+        "PHIVOLCS_CATALOG_URL": settings.phivolcs_catalog_url,
+        "MODEL_RELEASE_ID": str(settings.model_release_id),
+    }
+    worker = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "from quakestrike.infrastructure.settings import Settings; "
+            "from quakestrike.prediction_worker.worker import run_prediction; "
+            "run_prediction(Settings(_env_file=None))",
+        ],
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
     try:
         CeleryPredictionPublisher(app).publish(
             PredictionDispatch(command.dispatch_id, command.job_id, command.correlation_id)
         )
-        with Connection(settings.redis_url) as connection:
-            queue = connection.SimpleQueue("prediction")
-            message = queue.get(block=False)
-            try:
-                assert message.headers["task"] == PREDICTION_TASK_NAME
-                assert (
-                    app.tasks[PREDICTION_TASK_NAME].apply(args=message.payload[0]).get()
-                    == "succeeded"
-                )
-            finally:
-                message.ack()
-                queue.close()
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            with migrated_engine.connect() as connection:
+                if connection.scalar(select(func.count()).select_from(forecasts)) == 1:
+                    break
+            if worker.poll() is not None:
+                pytest.fail(f"Prediction worker exited: {worker.stdout.read()[-2000:]}")
+            time.sleep(0.2)
+        else:
+            pytest.fail("Prediction worker did not consume the queued command.")
     finally:
+        worker.terminate()
+        try:
+            worker.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            worker.kill()
+            worker.communicate(timeout=5)
         redis_client.delete("prediction")
         redis_client.close()
     with migrated_engine.connect() as connection:
