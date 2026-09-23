@@ -758,6 +758,16 @@ audit_logs = Table(
         "(target_type IS NULL AND target_id IS NULL) OR (target_type IS NOT NULL AND target_id IS NOT NULL)",
         name="ck_audit_logs_target_pair",
     ),
+    CheckConstraint(
+        "action = btrim(action) AND action <> '' AND "
+        "(actor_service IS NULL OR (actor_service = btrim(actor_service) AND actor_service <> '')) AND "
+        "(target_type IS NULL OR (target_type = btrim(target_type) AND target_type <> '')) AND "
+        "(target_id IS NULL OR (target_id = btrim(target_id) AND target_id <> '')) AND "
+        "(target_revision IS NULL OR (target_revision = btrim(target_revision) AND target_revision <> '')) AND "
+        "(reason_code IS NULL OR (reason_code = btrim(reason_code) AND reason_code <> ''))",
+        name="ck_audit_logs_identifiers_nonblank",
+    ),
+    CheckConstraint("jsonb_typeof(metadata) = 'object'", name="ck_audit_logs_metadata_object"),
     CheckConstraint("actor_type <> 'user'", name="ck_audit_logs_user_actor_deferred"),
 )
 Index("ix_audit_logs_occurred_at", audit_logs.c.occurred_at)

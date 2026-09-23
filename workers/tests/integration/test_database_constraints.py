@@ -668,6 +668,28 @@ def test_forecast_supersession_cannot_form_a_cycle(migrated_engine, parents) -> 
     )
 
 
+def test_forecast_cannot_be_changed_after_creation(migrated_engine, parents) -> None:
+    job = _job_values(parents)
+    forecast = _forecast_values(job["job_id"])
+    with migrated_engine.begin() as connection:
+        connection.execute(insert(prediction_jobs).values(**job))
+        connection.execute(insert(forecasts).values(**forecast))
+
+    _failed(
+        migrated_engine,
+        update(forecasts)
+        .where(forecasts.c.forecast_id == forecast["forecast_id"])
+        .values(expected_m1_plus_count_24h=3.0),
+    )
+    with migrated_engine.begin() as connection:
+        stored_count = connection.execute(
+            select(forecasts.c.expected_m1_plus_count_24h).where(
+                forecasts.c.forecast_id == forecast["forecast_id"]
+            )
+        ).scalar_one()
+    assert stored_count == forecast["expected_m1_plus_count_24h"]
+
+
 def test_user_audit_actor_is_deferred_until_users_exist(migrated_engine) -> None:
     _failed(
         migrated_engine,
@@ -694,6 +716,63 @@ def test_system_audit_actor_remains_available(migrated_engine) -> None:
                 correlation_id=uuid4(),
             )
         )
+
+
+@pytest.mark.parametrize("metadata_value", [["invalid"], "invalid", 7, None])
+def test_audit_metadata_must_be_an_object(migrated_engine, metadata_value) -> None:
+    _failed(
+        migrated_engine,
+        insert(audit_logs).values(
+            audit_id=uuid4(),
+            actor_type="system",
+            actor_service="prediction-worker",
+            action="forecast_completed",
+            outcome="succeeded",
+            correlation_id=uuid4(),
+            metadata=metadata_value,
+        ),
+    )
+
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            insert(audit_logs).values(
+                audit_id=uuid4(),
+                actor_type="system",
+                actor_service="prediction-worker",
+                action="forecast_completed",
+                outcome="succeeded",
+                correlation_id=uuid4(),
+                metadata={"model_release": "SEIS 1.0.1"},
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"actor_service": " "},
+        {"action": " "},
+        {"target_type": " ", "target_id": "forecast"},
+        {"target_type": "forecast", "target_id": " "},
+        {"target_revision": " "},
+        {"reason_code": " "},
+    ],
+)
+def test_audit_identifiers_and_codes_cannot_be_blank(migrated_engine, changes) -> None:
+    _failed(
+        migrated_engine,
+        insert(audit_logs).values(
+            **{
+                "audit_id": uuid4(),
+                "actor_type": "system",
+                "actor_service": "prediction-worker",
+                "action": "forecast_completed",
+                "outcome": "succeeded",
+                "correlation_id": uuid4(),
+                **changes,
+            }
+        ),
+    )
 
 
 def test_foreign_keys_restrict_invalid_parents_updates_and_deletes(
