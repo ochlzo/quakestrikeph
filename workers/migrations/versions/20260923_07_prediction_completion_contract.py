@@ -18,7 +18,6 @@ ALERT_STATUSES = (
     "delivering",
     "completed",
     "failed",
-    "cancelled",
     "expired",
 )
 
@@ -94,7 +93,6 @@ def upgrade() -> None:
         sa.Column("maximum_magnitude_q05_24h", sa.Double()),
         sa.Column("maximum_magnitude_q50_24h", sa.Double()),
         sa.Column("maximum_magnitude_q95_24h", sa.Double()),
-        sa.Column("additional_output_json", postgresql.JSONB()),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
         ),
@@ -131,30 +129,14 @@ def upgrade() -> None:
     op.create_index("ix_forecasts_supersedes_forecast_id", "forecasts", ["supersedes_forecast_id"])
 
     op.create_table(
-        "forecast_reviews",
-        sa.Column("review_id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("forecast_id", postgresql.UUID(as_uuid=True), nullable=False, unique=True),
-        sa.ForeignKeyConstraint(
-            ["forecast_id"], ["forecasts.forecast_id"], onupdate="RESTRICT", ondelete="RESTRICT"
-        ),
-        sa.UniqueConstraint("review_id", "forecast_id", name="uq_forecast_reviews_review_forecast"),
-    )
-
-    op.create_table(
         "alert_jobs",
         sa.Column("alert_job_id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("forecast_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("review_id", postgresql.UUID(as_uuid=True)),
-        sa.Column("alert_type", sa.Text(), nullable=False),
-        sa.Column("requested_by_user_id", postgresql.UUID(as_uuid=True)),
-        sa.Column("requested_by_service", sa.Text()),
+        sa.Column("forecast_id", postgresql.UUID(as_uuid=True), nullable=False, unique=True),
         sa.Column(
             "requested_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
         ),
-        sa.Column("channel", sa.Text(), nullable=False, server_default="sms"),
         sa.Column("message_snapshot", sa.Text(), nullable=False),
         sa.Column("recipient_policy_snapshot", postgresql.JSONB(), nullable=False),
-        sa.Column("idempotency_key", sa.Text(), nullable=False, unique=True),
         sa.Column(
             "status",
             postgresql.ENUM(*ALERT_STATUSES, name="alert_job_status", create_type=False),
@@ -165,55 +147,24 @@ def upgrade() -> None:
         sa.Column("lease_expires_at", sa.DateTime(timezone=True)),
         sa.Column("worker_execution_id", postgresql.UUID(as_uuid=True)),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("cancelled_at", sa.DateTime(timezone=True)),
-        sa.Column("cancellation_reason", sa.Text()),
         sa.Column("completed_at", sa.DateTime(timezone=True)),
         sa.Column("correlation_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["forecast_id"], ["forecasts.forecast_id"], onupdate="RESTRICT", ondelete="RESTRICT"
         ),
-        sa.ForeignKeyConstraint(
-            ["review_id", "forecast_id"],
-            ["forecast_reviews.review_id", "forecast_reviews.forecast_id"],
-            onupdate="RESTRICT",
-            ondelete="RESTRICT",
-        ),
-        sa.CheckConstraint(
-            "alert_type IN ('operator_review', 'automatic_model')", name="ck_alert_jobs_type"
-        ),
-        sa.CheckConstraint("channel = 'sms'", name="ck_alert_jobs_channel"),
         sa.CheckConstraint(
             "message_snapshot = btrim(message_snapshot) AND message_snapshot <> ''",
             name="ck_alert_jobs_message",
         ),
-        sa.CheckConstraint(
-            "idempotency_key = btrim(idempotency_key) AND idempotency_key <> ''",
-            name="ck_alert_jobs_idempotency",
-        ),
         sa.CheckConstraint("expires_at > requested_at", name="ck_alert_jobs_expiry"),
-        sa.CheckConstraint(
-            "(alert_type = 'automatic_model' AND requested_by_service = btrim(requested_by_service) AND requested_by_service <> '' AND requested_by_user_id IS NULL AND review_id IS NULL) OR (alert_type = 'operator_review' AND requested_by_user_id IS NOT NULL AND requested_by_service IS NULL AND review_id IS NOT NULL)",
-            name="ck_alert_jobs_requester",
-        ),
         sa.CheckConstraint(
             "(status IN ('resolving', 'delivering') AND lease_expires_at IS NOT NULL AND worker_execution_id IS NOT NULL) OR (status NOT IN ('resolving', 'delivering') AND lease_expires_at IS NULL AND worker_execution_id IS NULL)",
             name="ck_alert_jobs_lease",
         ),
         sa.CheckConstraint(
-            "(status IN ('completed', 'failed', 'cancelled', 'expired') AND completed_at IS NOT NULL) OR (status IN ('pending', 'resolving', 'delivering') AND completed_at IS NULL)",
+            "(status IN ('completed', 'failed', 'expired') AND completed_at IS NOT NULL) OR (status IN ('pending', 'resolving', 'delivering') AND completed_at IS NULL)",
             name="ck_alert_jobs_completion",
         ),
-        sa.CheckConstraint(
-            "(status = 'cancelled' AND cancelled_at IS NOT NULL AND cancellation_reason IS NOT NULL) OR (status <> 'cancelled' AND cancelled_at IS NULL AND cancellation_reason IS NULL)",
-            name="ck_alert_jobs_cancellation",
-        ),
-    )
-    op.create_index(
-        "uq_alert_jobs_automatic_forecast_channel",
-        "alert_jobs",
-        ["forecast_id", "channel"],
-        unique=True,
-        postgresql_where=sa.text("alert_type = 'automatic_model'"),
     )
 
     op.create_table(
@@ -270,7 +221,6 @@ def downgrade() -> None:
     for name in (
         "audit_logs",
         "alert_jobs",
-        "forecast_reviews",
         "forecasts",
         "prediction_attempts",
     ):

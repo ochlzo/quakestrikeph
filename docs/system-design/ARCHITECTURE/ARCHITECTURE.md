@@ -2,7 +2,7 @@
 
 Status: intended platform design. The trees below specify ownership and dependency direction; they do not claim that the directories already exist or require every private filename to match an example.
 
-QuakeStrike PH is a client-server system on one OVHcloud VPS-2 with 4 vCores, 8 GB RAM, and 75 GB NVMe storage. Three Astro applications use one shared Backend. The Backend and workers organize code into Interface, Application, Domain, and Infrastructure layers. Separate Docker containers provide process isolation, not independent data ownership, high availability, or microservices. PostgreSQL is the durable source of truth; Redis is a broker. See the [system view](system-architecture-layers.png), [data-flow diagrams](../CFD-DFD/DFD-Level1.png), and [database contract](../ERD/DATABASE-DESIGN.md).
+QuakeStrike PH is a client-server system on one OVHcloud VPS-2 with 4 vCores, 8 GB RAM, and 75 GB NVMe storage. Two Astro applications use one shared Backend. The Backend and workers organize code into Interface, Application, Domain, and Infrastructure layers. Separate Docker containers provide process isolation, not independent data ownership, high availability, or microservices. PostgreSQL is the durable source of truth; Redis is a broker. The current system-view and data-flow PNGs still show the removed PHIVOLCS Monitoring application and review flow; they are temporarily stale until the separate diagram update. This written specification and the [database contract](../ERD/DATABASE-DESIGN.md) control meanwhile.
 
 ## Intended monorepo
 
@@ -10,7 +10,6 @@ QuakeStrike PH is a client-server system on one OVHcloud VPS-2 with 4 vCores, 8 
 quakestrikeph/
 ├── apps/
 │   ├── quakestrikeph-bulletin/       # Astro, React, TypeScript
-│   ├── phivolcs-monitoring/         # Astro, React, TypeScript
 │   ├── operations-console/          # Astro, React, TypeScript
 │   └── backend-api/                 # Node.js, Express, TypeScript
 ├── workers/                         # one Python 3.12 / uv workspace
@@ -54,7 +53,7 @@ quakestrikeph/
 
 | Area | Technology | Role |
 | --- | --- | --- |
-| Web applications | Astro, React, TypeScript | Pages and interactive browser UI for the three client applications. |
+| Web applications | Astro, React, TypeScript | Pages and interactive browser UI for the two client applications. |
 | Backend | Node.js, Express, TypeScript | Shared HTTP interface, authorization, use cases, and client-facing transactions. |
 | Workers | Python 3.12, Celery, Celery Beat, `uv` | Scheduling, durable dispatch, ingestion, prediction, and alert delivery. |
 | Persistence | PostgreSQL 16, SQLAlchemy 2, Alembic | Durable application, audit, run, dispatch, delivery, and selected technical records. |
@@ -71,12 +70,11 @@ Pin exact tested patch versions in deployment configuration. The major versions 
 
 ```mermaid
 flowchart LR
-  Public[Public users, operators, team] --> CF[Cloudflare edge]
+  Public[Public users and operations team] --> CF[Cloudflare edge]
   CF --> Tunnel[cloudflared: outbound tunnel]
   subgraph edge[edge network]
     Tunnel --> Proxy[Traefik]
     Proxy --> Bulletin[Bulletin]
-    Proxy --> Monitor[PHIVOLCS Monitoring]
     Proxy --> Ops[Operations Console]
     Proxy --> API[Backend API path]
   end
@@ -106,11 +104,11 @@ flowchart LR
   Alert --> SMS[SMS provider]
 ```
 
-Cloudflare sends only the three application hostnames through the tunnel. Traefik routes application pages and an explicit `/api` path on those hostnames to the Backend. Browser requests to the Backend stay on the public HTTPS origin; they never use a Docker-only address. Only `cloudflared` connects to Cloudflare, and only Traefik accepts tunnel traffic. Traefik has no public dashboard. PostgreSQL, Redis, and worker endpoints have neither tunnel routes nor host port mappings. Containers use Compose service names, not cached IP addresses. Browser code receives no database, Redis, or provider secrets.
+Cloudflare sends only the two application hostnames through the tunnel. Traefik routes application pages and an explicit `/api` path on those hostnames to the Backend. Browser requests to the Backend stay on the public HTTPS origin; they never use a Docker-only address. Only `cloudflared` connects to Cloudflare, and only Traefik accepts tunnel traffic. Traefik has no public dashboard. PostgreSQL, Redis, and worker endpoints have neither tunnel routes nor host port mappings. Containers use Compose service names, not cached IP addresses. Browser code receives no database, Redis, or provider secrets.
 
 | Network | Members | Permitted traffic |
 | --- | --- | --- |
-| Edge | `cloudflared`, Traefik, three web apps, Backend HTTP entry | Tunnel to explicit page and `/api` routes only. |
+| Edge | `cloudflared`, Traefik, two web apps, Backend HTTP entry | Tunnel to explicit page and `/api` routes only. |
 | Application | Backend and worker processes | Internal coordination and service health where needed; no public worker route. |
 | Private data | Backend, workers, PostgreSQL, Redis | Restricted database roles and typed queue commands. |
 
@@ -118,7 +116,7 @@ External PHIVOLCS, Clerk, and SMS calls use HTTPS. The exact Compose network nam
 
 ## Web applications
 
-All three apps use Astro for pages, React for interactive islands, and TypeScript. Each has its own image and deployment. They render UI, hold transient client state, and call the versioned Backend HTTP interface. They never perform direct SQL, queue publication, model inference, or privileged authorization. Clerk handles sign-in; the Backend verifies protected requests and checks live PostgreSQL role assignments.
+Both apps use Astro for pages, React for interactive islands, and TypeScript. Each has its own image and deployment. They render UI, hold transient client state, and call the versioned Backend HTTP interface. They never perform direct SQL, queue publication, model inference, or privileged authorization. Clerk handles sign-in; the Backend verifies protected requests and checks live PostgreSQL role assignments.
 
 ```text
 apps/<web-app>/
@@ -135,13 +133,13 @@ apps/<web-app>/
 └── tests/
 ```
 
-The Bulletin owns public event, forecast, playback, and published-review views, plus authenticated profile, saved-pin, and alert-preference screens. Public responses contain only approved fields and published reviews. PHIVOLCS Monitoring owns forecast review, internal notes, publication, and operator alert initiation screens. Its hidden buttons are convenience only; the Backend enforces operator policy. The Operations Console owns read-only run/job/delivery summaries, selected logs, audits, maintenance status, and direct forecast-versus-observation comparisons. It has no Docker socket, host-log reader, database connection, user-management authority, or container-control feature.
+The Bulletin owns public event, forecast, and playback views, plus authenticated profile and SMS alert-setting screens. Valid persisted forecasts need no review or approval before the public information path can return them. The Operations Console owns read-only run/job/delivery summaries, selected logs, audits, maintenance status, and direct forecast-versus-observation comparisons. It has no Docker socket, host-log reader, database connection, user-management authority, or container-control feature.
 
 Put app-specific routes under each app's `pages/` and `features/`. Put only genuinely reused browser code in a TypeScript package. The generated client follows `packages/contracts/openapi.yaml`; applications must not hand-roll divergent request shapes. The Console shows missing or stale records as unavailable or stale, never as a healthy zero. It does not claim live CPU, memory, disk, container restart, Redis depth, or request-rate metrics without an explicit collector. A comparison is per forecast and calls screened observations possibly related earthquakes, not confirmed aftershocks or a model-accuracy study.
 
 ## Shared Backend
 
-The one Backend uses Node.js, Express, and TypeScript. It serves all three clients through versioned HTTP routes. Its layers are code responsibilities inside one deployable module, not separate physical tiers.
+The one Backend uses Node.js, Express, and TypeScript. It serves both clients through versioned HTTP routes. Its layers are code responsibilities inside one deployable module, not separate physical tiers.
 
 ```text
 apps/backend-api/
@@ -149,17 +147,15 @@ apps/backend-api/
 ├── package.json
 ├── src/
 │   ├── interface/http/
-│   │   ├── routes/         # public, account, operator, operations, admin
+│   │   ├── routes/         # public, account, operations, admin
 │   │   ├── middleware/     # request IDs, Clerk verification, validation
 │   │   └── responses/      # contract mapping and error handling
 │   ├── application/
-│   │   ├── accounts/       # profile, pins, preferences
-│   │   ├── information/    # public events, forecasts, reviews
-│   │   ├── reviews/        # edit, publish, withdraw
-│   │   ├── alerts/         # operator alert-job creation and cancellation
+│   │   ├── accounts/       # profile and SMS settings
+│   │   ├── information/    # public events and forecasts
 │   │   ├── access/         # role assignment use cases
 │   │   └── operations/     # bounded summaries, logs, audits, comparisons
-│   ├── domain/             # visibility, access, revision, alert policies
+│   ├── domain/             # access, revision, and alert-setting rules
 │   ├── ports/              # interfaces consumed by application/domain
 │   ├── infrastructure/
 │   │   ├── postgres/       # approved repositories, transactions, queries
@@ -170,9 +166,9 @@ apps/backend-api/
 └── tests/
 ```
 
-HTTP routes verify identity, validate requests, and format responses. Application use cases coordinate transactions and call declared interfaces. Domain rules decide access, public visibility, review transitions, alert eligibility, and idempotency without importing Express, PostgreSQL, Redis, or Clerk. Infrastructure adapters implement the interfaces. Dependencies point inward; routes and adapters do not become the place where business policy is defined. The Backend never calls its own public HTTP routes to do internal work.
+HTTP routes verify identity, validate requests, and format responses. Application use cases coordinate transactions and call declared interfaces. Domain rules decide access, public visibility, alert settings, and idempotency without importing Express, PostgreSQL, Redis, or Clerk. Infrastructure adapters implement the interfaces. Dependencies point inward; routes and adapters do not become the place where business policy is defined. The Backend never calls its own public HTTP routes to do internal work.
 
-Clerk's stable user ID maps uniquely to an application user. Every protected request loads current assignments; revoked or unavailable assignments deny privileged access. `phivolcs_operator`, `operations_viewer`, and `access_administrator` are independent roles. Public registration grants none. The Backend owns audited role changes, review and publication transactions, and operator alert-job creation. The Console uses narrowly approved read queries and a separate restricted append-only path for access audits. It cannot use that path to forge arbitrary actors or alter records.
+Clerk's stable user ID maps uniquely to an application user. Every protected request loads current assignments; revoked or unavailable assignments deny privileged access. `operations_viewer` and `access_administrator` are independent roles. Public registration grants none. The Backend owns audited role changes, profile changes, phone verification, and SMS alert settings. The Console uses narrowly approved read queries and a separate restricted append-only path for access audits. It cannot use that path to forge arbitrary actors or alter records.
 
 ## Background workers and queues
 
@@ -198,9 +194,9 @@ workers/src/quakestrike/
 
 Beat alone owns the five-minute schedule. It creates one pending `ingestion_runs` record and its `job_dispatches` row in a PostgreSQL transaction, avoiding overlap with an active run. The long-lived Dispatcher claims committed dispatch rows, publishes IDs-only commands to the corresponding Redis/Celery queue, and records submission state. Its claim is not the worker's processing lease. The Ingestor claims the same logical run, fetches the full current PHIVOLCS catalog and each unique detail URL, validates and reconciles rows, then commits event revisions and any eligible prediction job plus dispatch row atomically. The Ingestor does not publish prediction commands directly; after commit, the shared Dispatcher claims the existing prediction dispatch and routes it to the prediction queue. Missing catalog structure or a conflicting duplicate bulletin ID fails the run; invalid or ambiguous individual rows are counted and do not block valid rows. A detail-page failure preserves a valid catalog row at minute precision with nullable origin and a diagnostic. Absent current-page rows do not delete history. See [identity](../../adr/0013-revision-level-source-identifiers.md), [enrichment](../../adr/0020-detail-page-enrichment.md), and [atomic processing](../../adr/0016-atomic-event-processing-and-release-registration.md).
 
-A new or changed M1+ revision can create prediction work only with a valid URL, source identity, a configured verified release, seven days of prior history, and a complete versioned feature snapshot. The v1 snapshot contains exactly `anchor_magnitude`, `anchor_depth_km`, `anchor_latitude`, `anchor_longitude`, `anchor_time_is_minute_precision`, `catalog_m1_plus_count_past_1h`, `catalog_m1_plus_count_past_24h`, `catalog_m1_plus_count_past_7d`, `local_m1_plus_count_past_24h_within_50km`, and `local_m1_plus_count_past_24h_within_100km`. It excludes future outcomes and uncertain same-minute ordering. Snapshot JSON and SHA-256 remain immutable. The Prediction Worker loads the referenced job and verified `SEIS 1.0` release, runs the selected model routes, and atomically records an attempt, immutable forecast, and eligible automatic alert job with dispatch and audit. Automatic alert creation uses observed anchor magnitude at least M4.5 and only a current, unexpired forecast, not historical backfill. See [feature contract](../../adr/0021-live-feature-contract.md) and [database transaction rules](../ERD/DATABASE-DESIGN.md#transactions-and-cross-table-rules).
+A new or changed M1+ revision can create prediction work only with a valid URL, source identity, a configured verified release, seven days of prior history, and a complete versioned feature snapshot. The v1 snapshot contains exactly `anchor_magnitude`, `anchor_depth_km`, `anchor_latitude`, `anchor_longitude`, `anchor_time_is_minute_precision`, `catalog_m1_plus_count_past_1h`, `catalog_m1_plus_count_past_24h`, `catalog_m1_plus_count_past_7d`, `local_m1_plus_count_past_24h_within_50km`, and `local_m1_plus_count_past_24h_within_100km`. It excludes future outcomes and uncertain same-minute ordering. Snapshot JSON and SHA-256 remain immutable. The Prediction Worker loads the referenced job and verified `SEIS 1.0` release, runs the selected model routes, and atomically records an attempt, immutable forecast, and one alert job with dispatch and audit for every current, unexpired live M1+ forecast. Historical and backfill work create no alert job. See [feature contract](../../adr/0021-live-feature-contract.md), [automatic-alert scope](../../adr/0027-automatic-alerts-without-forecast-review.md), and [database transaction rules](../ERD/DATABASE-DESIGN.md#transactions-and-cross-table-rules).
 
-The Alert Worker accepts only durable, authorized alert work. It resolves unique recipients, snapshots eligibility, rechecks current consent, verified number, account status, near-pin rule, and expiry before each new SMS call, and persists an attempt before calling the provider. Provider submission is outside the SQL transaction. Unknown outcomes require reconciliation, not blind resend; callbacks cannot regress a delivered result. A job stops new sends at its forecast window end, while late outcomes may still update evidence. Operator alerts require an authorized non-draft review; automatic alerts do not inherit later review text. See the [alert tables](../ERD/DATABASE-DESIGN.md#reviews-and-alerts).
+The Alert Worker accepts only durable automatic alert work. It resolves unique recipients from active accounts whose verified mobile number remains current, SMS remains enabled, and alert trigger magnitude is no greater than the observed anchor magnitude. It snapshots eligibility, rechecks those facts and expiry before each new SMS call, and persists an attempt before calling the provider. Provider submission is outside the SQL transaction. Unknown outcomes require reconciliation, not blind resend; callbacks cannot regress a delivered result. A job stops new sends at its forecast window end, while late outcomes may still update evidence. See the [alert tables](../ERD/DATABASE-DESIGN.md#alerts).
 
 Redis has separate ingestion, prediction, and alert queues. Commands carry a version and stable database identifiers, never scraped HTML, full events, or CSV paths. PostgreSQL owns status, retries, leases, dispatch, and idempotency. Celery uses late acknowledgement and worker-loss rejection; duplicate delivery is expected. The [queue ADR](../../adr/0012-queue-topology-and-operational-safeguards.md) sets the initial dispatcher batch, lease, concurrency, and retry safeguards. Manual recovery requeues existing run/dispatch identities rather than manufacturing replacements.
 
@@ -215,8 +211,8 @@ Redis has separate ingestion, prediction, and alert queues. Commands carry a ver
 | Dispatch submission | Dispatcher, after a creator inserts the row | Workers, Operations queries |
 | Prediction jobs and snapshots | Data Ingestor | Prediction Worker, Operations queries |
 | Prediction attempts and forecasts | Prediction Worker | Backend, Alert Worker, Operations queries |
-| Profiles, pins, preferences, roles, reviews | Backend | Alert Worker, public/operator reads as authorized |
-| Operator/automatic alert jobs | Backend / Prediction Worker | Alert Worker, protected queries |
+| Profiles, SMS settings, and roles | Backend | Alert Worker and authorized reads |
+| Automatic alert jobs | Prediction Worker | Alert Worker, protected queries |
 | Recipients and delivery attempts | Alert Worker | Backend and Operations queries |
 | Audits and selected technical logs | Acting/emitting server module | Protected Operations query path |
 | Maintenance results | Restricted host maintenance scripts | Protected Operations query path |
@@ -225,7 +221,7 @@ PostgreSQL runs in its own container on `postgres_data`; Redis uses a named volu
 
 ## Security and access
 
-Clerk authenticates; the Backend authorizes with current PostgreSQL assignments. No local password service or environment allowlist is the continuing role store. Seed the first access administrator once through a controlled, audited command. An administrator does not automatically gain operator or viewer powers. Deny protected work if role lookup fails. Public endpoints never return internal notes, recipient snapshots, raw security details, or technical logs. Privileged mutations and their success audits commit together. Failed or denied attempts use a bounded separate audit path and never claim a committed success.
+Clerk authenticates; the Backend authorizes with current PostgreSQL assignments. No local password service or environment allowlist is the continuing role store. Seed the first access administrator once through a controlled, audited command. An administrator does not automatically gain viewer powers. Deny protected work if role lookup fails. Public endpoints never return recipient snapshots, raw security details, or technical logs. Privileged mutations and their success audits commit together. Failed or denied attempts use a bounded separate audit path and never claim a committed success.
 
 Each container receives only required secrets and database grants. Store secrets in VPS-managed environment or secret files, not Git, browser code, Traefik labels, logs, or model manifests. Neither the Operations Console nor the Backend receives Docker socket access. Provider callbacks require provider-specific verification and idempotent status updates. Rate limiting and trusted proxy configuration protect HTTP entry. The [database contract](../ERD/DATABASE-DESIGN.md#audit-operations-and-dispatch) defines audit and delivery evidence.
 
@@ -241,11 +237,11 @@ A host scheduler, independent of Beat, runs technical-log retention cleanup, enc
 
 Pin exact tested official image tags; never deploy `latest`. Tag team-built images with the Git commit SHA and keep the previous tested image for rollback. Give long-running containers health checks, `restart: unless-stopped`, memory limits, and bounded logs. Services reconnect after database or broker restarts. Apply migrations once as an explicit job, register and hash-verify the model release, run and validate the finite bootstrap, start Dispatcher and Ingestor, then enable Beat only after readiness. Startup never silently migrates, imports, or changes the release registry. See [startup ADR](../../adr/0019-explicit-startup-and-runtime-configuration.md).
 
-Release one changed image at a time when contracts permit. Back up before a destructive migration, check queue compatibility before replacing workers, and verify health, freshness, prediction, publication, alert idempotency, SQL filtering, required audits, log rotation, and SQL-log fallback. A stopped web app does not stop the others; a stopped worker leaves durable work pending or retryable. Backend loss blocks fresh client data operations. Redis loss pauses new background processing while stored data remains readable. PostgreSQL loss blocks data-backed operations and SQL logs, leaving only bounded container diagnostics. VPS loss stops all local modules. Separate containers limit process crashes but do not remove the shared VPS and database failure points.
+Release one changed image at a time when contracts permit. Back up before a destructive migration, check queue compatibility before replacing workers, and verify health, freshness, prediction, public forecast availability, alert idempotency, SQL filtering, required audits, log rotation, and SQL-log fallback. A stopped web app does not stop the others; a stopped worker leaves durable work pending or retryable. Backend loss blocks fresh client data operations. Redis loss pauses new background processing while stored data remains readable. PostgreSQL loss blocks data-backed operations and SQL logs, leaving only bounded container diagnostics. VPS loss stops all local modules. Separate containers limit process crashes but do not remove the shared VPS and database failure points.
 
 ## Decisions before deployment
 
-Choose and record the SMS provider, sender identity, callback verification, phone-verification flow, country support, and cost limits before sending SMS. Choose the near-pin distance policy and any extra automatic-alert throttling before enabling recipient selection. Set separate retention periods and budgets for technical, audit, run, and delivery records. Select the off-VPS backup destination, encryption tool, cadence, restore-test cadence, and secret store. Configure host disk checks and external uptime monitoring. Choose exact tested Node.js and container versions, and whether Traefik uses file routes or restricted Docker discovery. These are configuration and policy decisions, not permission to invent database columns or extra services.
+Choose and record the SMS provider, sender identity, callback verification, phone-verification flow, country support, and cost limits before sending SMS. Set separate retention periods and budgets for technical, audit, run, and delivery records. Select the off-VPS backup destination, encryption tool, cadence, restore-test cadence, and secret store. Configure host disk checks and external uptime monitoring. Choose exact tested Node.js and container versions, and whether Traefik uses file routes or restricted Docker discovery. These are configuration and policy decisions, not permission to invent database columns or extra services.
 
 ## References
 

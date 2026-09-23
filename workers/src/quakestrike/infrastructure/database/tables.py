@@ -38,7 +38,6 @@ ALERT_JOB_STATUSES = (
     "delivering",
     "completed",
     "failed",
-    "cancelled",
     "expired",
 )
 
@@ -637,7 +636,6 @@ forecasts = Table(
     Column("maximum_magnitude_q05_24h", Double),
     Column("maximum_magnitude_q50_24h", Double),
     Column("maximum_magnitude_q95_24h", Double),
-    Column("additional_output_json", JSONB),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     CheckConstraint(
         "window_end = window_start + interval '24 hours'", name="ck_forecasts_24h_window"
@@ -678,20 +676,6 @@ forecasts = Table(
 )
 Index("ix_forecasts_supersedes_forecast_id", forecasts.c.supersedes_forecast_id)
 
-forecast_reviews = Table(
-    "forecast_reviews",
-    metadata,
-    Column("review_id", UUID(as_uuid=True), primary_key=True),
-    Column(
-        "forecast_id",
-        UUID(as_uuid=True),
-        ForeignKey("forecasts.forecast_id", onupdate="RESTRICT", ondelete="RESTRICT"),
-        nullable=False,
-        unique=True,
-    ),
-    UniqueConstraint("review_id", "forecast_id", name="uq_forecast_reviews_review_forecast"),
-)
-
 alert_jobs = Table(
     "alert_jobs",
     metadata,
@@ -701,72 +685,33 @@ alert_jobs = Table(
         UUID(as_uuid=True),
         ForeignKey("forecasts.forecast_id", onupdate="RESTRICT", ondelete="RESTRICT"),
         nullable=False,
+        unique=True,
     ),
-    Column("review_id", UUID(as_uuid=True)),
-    Column("alert_type", Text, nullable=False),
-    Column("requested_by_user_id", UUID(as_uuid=True)),
-    Column("requested_by_service", Text),
     Column("requested_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
-    Column("channel", Text, nullable=False, server_default="sms"),
     Column("message_snapshot", Text, nullable=False),
     Column("recipient_policy_snapshot", JSONB, nullable=False),
-    Column("idempotency_key", Text, nullable=False, unique=True),
     Column("status", alert_job_status, nullable=False, server_default="pending"),
     Column("recipient_resolution_completed_at", DateTime(timezone=True)),
     Column("lease_expires_at", DateTime(timezone=True)),
     Column("worker_execution_id", UUID(as_uuid=True)),
     Column("expires_at", DateTime(timezone=True), nullable=False),
-    Column("cancelled_at", DateTime(timezone=True)),
-    Column("cancellation_reason", Text),
     Column("completed_at", DateTime(timezone=True)),
     Column("correlation_id", UUID(as_uuid=True), nullable=False),
-    ForeignKeyConstraint(
-        ["review_id", "forecast_id"],
-        ["forecast_reviews.review_id", "forecast_reviews.forecast_id"],
-        onupdate="RESTRICT",
-        ondelete="RESTRICT",
-    ),
-    CheckConstraint(
-        "alert_type IN ('operator_review', 'automatic_model')", name="ck_alert_jobs_type"
-    ),
-    CheckConstraint("channel = 'sms'", name="ck_alert_jobs_channel"),
     CheckConstraint(
         "message_snapshot = btrim(message_snapshot) AND message_snapshot <> ''",
         name="ck_alert_jobs_message",
     ),
-    CheckConstraint(
-        "idempotency_key = btrim(idempotency_key) AND idempotency_key <> ''",
-        name="ck_alert_jobs_idempotency",
-    ),
     CheckConstraint("expires_at > requested_at", name="ck_alert_jobs_expiry"),
-    CheckConstraint(
-        "(alert_type = 'automatic_model' AND requested_by_service = btrim(requested_by_service) "
-        "AND requested_by_service <> '' AND requested_by_user_id IS NULL AND review_id IS NULL) OR "
-        "(alert_type = 'operator_review' AND requested_by_user_id IS NOT NULL AND requested_by_service IS NULL AND review_id IS NOT NULL)",
-        name="ck_alert_jobs_requester",
-    ),
     CheckConstraint(
         "(status IN ('resolving', 'delivering') AND lease_expires_at IS NOT NULL AND worker_execution_id IS NOT NULL) OR "
         "(status NOT IN ('resolving', 'delivering') AND lease_expires_at IS NULL AND worker_execution_id IS NULL)",
         name="ck_alert_jobs_lease",
     ),
     CheckConstraint(
-        "(status IN ('completed', 'failed', 'cancelled', 'expired') AND completed_at IS NOT NULL) OR "
+        "(status IN ('completed', 'failed', 'expired') AND completed_at IS NOT NULL) OR "
         "(status IN ('pending', 'resolving', 'delivering') AND completed_at IS NULL)",
         name="ck_alert_jobs_completion",
     ),
-    CheckConstraint(
-        "(status = 'cancelled' AND cancelled_at IS NOT NULL AND cancellation_reason IS NOT NULL) OR "
-        "(status <> 'cancelled' AND cancelled_at IS NULL AND cancellation_reason IS NULL)",
-        name="ck_alert_jobs_cancellation",
-    ),
-)
-Index(
-    "uq_alert_jobs_automatic_forecast_channel",
-    alert_jobs.c.forecast_id,
-    alert_jobs.c.channel,
-    unique=True,
-    postgresql_where=alert_jobs.c.alert_type == "automatic_model",
 )
 
 audit_logs = Table(

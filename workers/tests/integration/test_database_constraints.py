@@ -15,7 +15,6 @@ from quakestrike.infrastructure.database.tables import (
     earthquake_bulletin_event_identities,
     earthquake_event_revisions,
     earthquake_events,
-    forecast_reviews,
     forecasts,
     ingestion_runs,
     job_dispatches,
@@ -506,33 +505,29 @@ def test_forecasts_reject_nonfinite_outputs(migrated_engine, parents, changes) -
     _failed(migrated_engine, insert(forecasts).values(**_forecast_values(job["job_id"], **changes)))
 
 
-def test_operator_alert_requires_an_existing_review_for_its_forecast(
-    migrated_engine, parents
-) -> None:
+def test_one_alert_job_is_allowed_per_forecast(migrated_engine, parents) -> None:
     job = _job_values(parents)
     forecast = _forecast_values(job["job_id"])
-    review_id = uuid4()
+    first_alert = {
+        "alert_job_id": uuid4(),
+        "forecast_id": forecast["forecast_id"],
+        "message_snapshot": "Automatic earthquake alert",
+        "recipient_policy_snapshot": {"version": "1"},
+        "expires_at": NOW + timedelta(hours=24),
+        "correlation_id": uuid4(),
+    }
     with migrated_engine.begin() as connection:
         connection.execute(insert(prediction_jobs).values(**job))
         connection.execute(insert(forecasts).values(**forecast))
-        connection.execute(
-            insert(forecast_reviews).values(
-                review_id=review_id,
-                forecast_id=forecast["forecast_id"],
-            )
-        )
+        connection.execute(insert(alert_jobs).values(**first_alert))
 
     _failed(
         migrated_engine,
         insert(alert_jobs).values(
             alert_job_id=uuid4(),
             forecast_id=forecast["forecast_id"],
-            review_id=uuid4(),
-            alert_type="operator_review",
-            requested_by_user_id=uuid4(),
-            message_snapshot="Approved alert",
-            recipient_policy_snapshot={},
-            idempotency_key=str(uuid4()),
+            message_snapshot="Duplicate automatic earthquake alert",
+            recipient_policy_snapshot={"version": "1"},
             expires_at=NOW + timedelta(hours=24),
             correlation_id=uuid4(),
         ),

@@ -44,7 +44,9 @@ Start with issue #15. Do not implement tickets whose blockers are still open. Us
 ## Settled product and architecture decisions
 
 - The worker boundary includes prediction-job claiming, model inference, output validation, forecast persistence, automatic alert-job creation, dispatch creation, and the required system audit.
-- SMS delivery, recipient resolution, provider calls, Backend APIs, review screens, public presentation, and alert delivery remain out of scope.
+- SMS delivery, recipient resolution, provider calls, Backend APIs, public presentation, and alert delivery remain out of scope.
+- PHIVOLCS Monitoring, forecast review, publication approval, operator alerts, and saved-pin matching were removed from the product scope. A valid forecast is available to the Bulletin without review.
+- Every current, unexpired live M1+ forecast creates exactly one automatic alert job. The Alert Worker later compares the observed anchor magnitude with each user's alert trigger magnitude; backfill, historical, and expired work create no alert job.
 - The worker consumes the existing versioned identifier-only prediction command from the separate prediction queue. PostgreSQL is the source of truth; Redis and Celery result storage are not business state.
 - The real read-only `SEIS 1.0` bundle must work. Test doubles are for deterministic CI tests only.
 - Existing pending prediction jobs are processed, including historical jobs whose forecast window has ended. Historical, backfill, expired, or otherwise ineligible jobs never create automatic alerts.

@@ -1,16 +1,16 @@
 # QuakeStrike PH
 
-QuakeStrike PH is a Philippine earthquake information, forecasting, review,
-and alert platform. It ingests PHIVOLCS bulletins, retains corrections as event
-revisions, prepares versioned prediction inputs, and supports public
-information and protected review and alert workflows.
+QuakeStrike PH is a Philippine earthquake information, forecasting, and alert
+platform. It ingests PHIVOLCS bulletins, retains corrections as event
+revisions, prepares versioned prediction inputs, publishes forecasts, and
+delivers automatic SMS alerts.
 
 ## How the system fits together
 
-The intended system has three web applications: QuakeStrike PH Bulletin for
-the public, PHIVOLCS Monitoring for reviewers, and an Operations Console for
-the team. They use a shared Backend API. Python workers ingest bulletins, run
-predictions with an approved model release, and deliver approved alerts.
+The intended system has two web applications: QuakeStrike PH Bulletin for the
+public and an Operations Console for the team. They use a shared Backend API.
+Python workers ingest bulletins, run predictions with an approved model
+release, and deliver automatic SMS alerts.
 PostgreSQL owns durable records; Redis transports background commands.
 Cloudflare Tunnel and Traefik form the public edge.
 
@@ -28,7 +28,7 @@ PHIVOLCS bulletins
   -> Backend API serves public and protected applications
 ```
 
-Alert delivery follows its own approved workflow. Queue commands identify
+Alert delivery follows its own automatic workflow. Queue commands identify
 durable records; PostgreSQL remains the source of truth. The
 [architecture specification](docs/system-design/ARCHITECTURE/ARCHITECTURE.md)
 describes the full system and its boundaries.
@@ -37,7 +37,7 @@ describes the full system and its boundaries.
 
 | Path | Purpose |
 | --- | --- |
-| `apps/` | Intended homes for Bulletin, PHIVOLCS Monitoring, and Operations Console. |
+| `apps/` | Intended homes for Bulletin and Operations Console. |
 | `apps/backend-api/` | Intended home for the shared Backend API. |
 | `workers/` | Python scheduling, ingestion, prediction, and alert code; migrations and tests. |
 | `packages/contracts/queue/` | Versioned schemas for background commands. |

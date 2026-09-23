@@ -1,6 +1,6 @@
-# QuakeStrike PH ingestion context
+# QuakeStrike PH domain context
 
-This glossary defines the domain terms used by the PHIVOLCS ingestion workflow.
+This glossary defines the domain terms used by QuakeStrike PH.
 
 ## Ingestion workflow
 
@@ -129,3 +129,20 @@ revision is not edited in place.
 The state reached only after migrations, model-release verification, source
 snapshot checks, identifier checks, and seven-day history coverage succeed.
 The recurring Beat schedule remains disabled before this state.
+
+## Forecasts and alerts
+
+**Automatic alert**:
+A system-created SMS batch linked to one current live forecast. It does not
+require human review or approval.
+_Avoid_: Operator alert, reviewed alert
+
+**Alert trigger magnitude**:
+The minimum observed anchor magnitude at which one user is eligible for an
+automatic alert.
+_Avoid_: Global alert threshold
+
+**SMS enrollment**:
+The state in which a user has a verified mobile number and has not disabled SMS
+alerts.
+_Avoid_: PHIVOLCS consent, review approval
