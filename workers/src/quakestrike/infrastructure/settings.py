@@ -118,7 +118,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("RETRY_DELAYS_SECONDS", "retry_delays_seconds"),
     )
     max_response_bytes: int = Field(
-        default=2_000_000,
+        default=20_000_000,
         ge=1_024,
         le=50_000_000,
         validation_alias=AliasChoices("MAX_RESPONSE_BYTES", "max_response_bytes"),

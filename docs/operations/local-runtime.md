@@ -42,6 +42,9 @@ Edit `.env` before continuing:
 - Keep `DATABASE_URL` pointed at `postgres:5432` and `REDIS_URL` at
   `redis:6379`; these are private Compose service names.
 - Set `PHIVOLCS_CATALOG_URL` to the official HTTPS catalog URL.
+- Set `MAX_RESPONSE_BYTES` high enough for the current catalog while keeping a
+  finite limit. The default is 20,000,000 bytes; oversized catalog responses
+  fail the run.
 - Set `MODEL_RELEASE_ID` to the ID in the reviewed model manifest.
 - Set `MODEL_ARTIFACT_HOST_DIRECTORY` to the host directory where the
   packaged model will live. The default is the ignored `model-artifacts/`
