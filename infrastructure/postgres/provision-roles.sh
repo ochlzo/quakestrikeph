@@ -51,11 +51,11 @@ SQL
 GRANT SELECT ON TABLE alembic_version, model_releases TO quakestrike_worker;
 GRANT SELECT, INSERT, UPDATE ON TABLE
     ingestion_runs, ingestion_run_inputs, earthquake_events,
-    prediction_jobs, prediction_attempts, job_dispatches
+    earthquake_bulletin_event_identities, prediction_jobs,
+    prediction_attempts, job_dispatches
 TO quakestrike_worker;
 GRANT SELECT, INSERT ON TABLE
-    earthquake_bulletin_event_identities, earthquake_event_revisions,
-    forecasts, alert_jobs, audit_logs
+    earthquake_event_revisions, forecasts, alert_jobs, audit_logs
 TO quakestrike_worker;
 SQL
     then
