@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import insert, select, update
 
@@ -14,9 +15,12 @@ from quakestrike.domain.features import INPUT_SCHEMA_VERSION, create_feature_sna
 from quakestrike.domain.prediction import ForecastOutput
 from quakestrike.infrastructure.database.engine import SessionFactory
 from quakestrike.infrastructure.database.tables import (
+    alert_jobs,
     audit_logs,
     earthquake_event_revisions,
+    earthquake_events,
     forecasts,
+    ingestion_runs,
     job_dispatches,
     model_releases,
     prediction_attempts,
@@ -168,6 +172,11 @@ class SqlAlchemyPredictionStore:
                         earthquake_event_revisions.c.event_revision_id == job.event_revision_id
                     )
                 ).one()
+                event = session.execute(
+                    select(earthquake_events)
+                    .where(earthquake_events.c.event_id == revision.event_id)
+                    .with_for_update()
+                ).one()
                 if (
                     output.window_start != revision.event_time
                     or output.window_end != revision.event_time + timedelta(hours=24)
@@ -230,7 +239,85 @@ class SqlAlchemyPredictionStore:
                     )
                 )
                 self._stop_dispatch(session, claim.job_id, None)
-                self._audit(session, job.correlation_id, claim.job_id, "succeeded", None)
+                latest_revision_id = session.scalar(
+                    select(earthquake_event_revisions.c.event_revision_id)
+                    .where(earthquake_event_revisions.c.event_id == revision.event_id)
+                    .order_by(earthquake_event_revisions.c.revision_number.desc())
+                    .limit(1)
+                )
+                latest_successful_job_id = session.scalar(
+                    select(prediction_jobs.c.job_id)
+                    .where(
+                        prediction_jobs.c.event_revision_id == revision.event_revision_id,
+                        prediction_jobs.c.model_release_id == job.model_release_id,
+                        prediction_jobs.c.status == "succeeded",
+                    )
+                    .order_by(
+                        prediction_jobs.c.requested_at.desc(), prediction_jobs.c.job_id.desc()
+                    )
+                    .limit(1)
+                )
+                trigger_type = session.scalar(
+                    select(ingestion_runs.c.trigger_type).where(
+                        ingestion_runs.c.run_id == revision.ingestion_run_id
+                    )
+                )
+                alert_now = self._clock()
+                alert_job_id = None
+                if (
+                    event.superseded_by_event_id is None
+                    and latest_revision_id == revision.event_revision_id
+                    and latest_successful_job_id == claim.job_id
+                    and trigger_type in {"scheduled", "manual"}
+                    and revision.magnitude >= 1
+                    and alert_now < output.window_end
+                ):
+                    alert_job_id = uuid4()
+                    observed_at = revision.event_time.astimezone(ZoneInfo("Asia/Manila"))
+                    magnitude = revision.magnitude.normalize()
+                    session.execute(
+                        insert(alert_jobs).values(
+                            alert_job_id=alert_job_id,
+                            forecast_id=forecast_id,
+                            requested_at=alert_now,
+                            message_snapshot=(
+                                f"QuakeStrike PH: M{magnitude} earthquake observed "
+                                f"{observed_at:%Y-%m-%d %H:%M} PHT. "
+                                "Check PHIVOLCS for official updates."
+                            ),
+                            recipient_policy_snapshot={
+                                "version": "automatic_sms_v1",
+                                "observed_anchor_magnitude": float(revision.magnitude),
+                                "account_status": "active",
+                                "verified_mobile_required": True,
+                                "sms_enabled_required": True,
+                                "trigger_rule": (
+                                    "observed_anchor_magnitude >= "
+                                    "user.alert_trigger_magnitude"
+                                ),
+                            },
+                            expires_at=output.window_end,
+                            correlation_id=job.correlation_id,
+                        )
+                    )
+                    session.execute(
+                        insert(job_dispatches).values(
+                            dispatch_id=uuid4(),
+                            alert_job_id=alert_job_id,
+                            next_dispatch_at=alert_now,
+                        )
+                    )
+                self._audit(
+                    session,
+                    job.correlation_id,
+                    claim.job_id,
+                    "succeeded",
+                    None,
+                    metadata={
+                        "forecast_id": str(forecast_id),
+                        "alert_job_id": str(alert_job_id) if alert_job_id else None,
+                    },
+                )
                 return forecast_id
         except StalePredictionAttempt:
             self._record_stale(claim.job_id)
@@ -332,7 +419,13 @@ class SqlAlchemyPredictionStore:
 
     @staticmethod
     def _audit(
-        session, correlation_id: UUID, job_id: UUID, outcome: str, reason: str | None
+        session,
+        correlation_id: UUID,
+        job_id: UUID,
+        outcome: str,
+        reason: str | None,
+        *,
+        metadata: dict[str, str | None] | None = None,
     ) -> None:
         session.execute(
             insert(audit_logs).values(
@@ -345,5 +438,6 @@ class SqlAlchemyPredictionStore:
                 outcome=outcome,
                 reason_code=reason,
                 correlation_id=correlation_id,
+                **({"metadata": metadata} if metadata is not None else {}),
             )
         )
