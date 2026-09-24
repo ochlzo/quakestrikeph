@@ -366,6 +366,43 @@ docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/c
 This stops the containers and retains their volumes. Do not add `-v` unless
 you intend to delete the local PostgreSQL and Redis data.
 
+## Browse production PostgreSQL over Tailscale
+
+On the VPS, set `OBSERVER_DB_PASSWORD`, `PGADMIN_DEFAULT_EMAIL`, and
+`PGADMIN_DEFAULT_PASSWORD` in the ignored `.env` file. Use distinct, strong
+passwords. Apply migrations first, then create the read-only login and start
+the optional pgAdmin container:
+
+```bash
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.admin.yml --profile admin run --rm observer-init
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.admin.yml --profile admin up -d --wait pgadmin
+sudo tailscale serve --bg --https=443 http://127.0.0.1:5050
+tailscale serve status
+```
+
+Run these commands from the repository root after the production stack and
+Tailscale are running. The last command prints the private `https://...ts.net`
+address. Open it from a device connected to the tailnet. Sign in to pgAdmin,
+then register a server with host `postgres`, port `5432`, the configured
+`POSTGRES_DB` name, user `quakestrike_observer`, and
+`OBSERVER_DB_PASSWORD`. Refresh a table or rerun a query to see new committed
+production data. The read-only login cannot edit application records.
+
+The pgAdmin web port binds only to `127.0.0.1` on the VPS. Do not change it to
+`5050:80`: Docker-published ports can bypass UFW. Keep the Tailscale Serve
+route private to authorized operators in tailnet policy. PostgreSQL port 5432
+remains unpublished. pgAdmin has its own login and persistent settings volume.
+Changing `PGADMIN_DEFAULT_PASSWORD` in `.env` after first initialization does
+not rotate an existing pgAdmin account password; change that password in
+pgAdmin.
+
+To disable the private browser on the VPS:
+
+```bash
+sudo tailscale serve --https=443 off
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.admin.yml --profile admin stop pgadmin
+```
+
 ## More documentation
 
 - [Contributing](CONTRIBUTING.md)

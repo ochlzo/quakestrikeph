@@ -65,8 +65,33 @@ SQL
       exit 2
     fi
     ;;
+  create-observer)
+    if [ -z "${OBSERVER_DB_PASSWORD:-}" ]; then
+      echo '{"action":"create-observer","status":"failed","reason":"missing_observer_password"}'
+      exit 2
+    fi
+    if psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set ON_ERROR_STOP=1 >/dev/null 2>&1 <<'SQL'
+\getenv observer_password OBSERVER_DB_PASSWORD
+\getenv database_name POSTGRES_DB
+SELECT format('CREATE ROLE quakestrike_observer LOGIN PASSWORD %L', :'observer_password')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'quakestrike_observer') \gexec
+ALTER ROLE quakestrike_observer PASSWORD :'observer_password';
+ALTER ROLE quakestrike_observer SET default_transaction_read_only = on;
+GRANT CONNECT ON DATABASE :"database_name" TO quakestrike_observer;
+GRANT USAGE ON SCHEMA public TO quakestrike_observer;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO quakestrike_observer;
+ALTER DEFAULT PRIVILEGES FOR ROLE quakestrike_migration IN SCHEMA public
+  GRANT SELECT ON TABLES TO quakestrike_observer;
+SQL
+    then
+      echo '{"action":"create-observer","status":"ready"}'
+    else
+      echo '{"action":"create-observer","status":"failed","reason":"role_provisioning_failed"}'
+      exit 2
+    fi
+    ;;
   *)
-    echo 'Usage: provision-roles.sh create|grant-worker' >&2
+    echo 'Usage: provision-roles.sh create|grant-worker|create-observer' >&2
     exit 2
     ;;
 esac

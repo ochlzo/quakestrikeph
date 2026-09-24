@@ -63,6 +63,7 @@ quakestrikeph/
 | Prediction | Python model runtime and read-only `SEIS 1.0.1` artifacts | Verified training-compatible inference. |
 | SMS | Provider to be selected | External alert submission and delivery callbacks. |
 | Operations | Docker Compose, host scheduler, PostgreSQL records, bounded container logs | Deployment, maintenance, operational history, and local diagnostics. |
+| Private database browser | pgAdmin 4, Tailscale Serve | Optional operator access to live PostgreSQL through a read-only role. |
 
 Pin exact tested patch versions in deployment configuration. The major versions above follow the accepted runtime decisions; they are not permission to use floating image tags.
 
@@ -106,11 +107,19 @@ flowchart LR
 
 Cloudflare sends only the two application hostnames through the tunnel. Traefik routes application pages and an explicit `/api` path on those hostnames to the Backend. Browser requests to the Backend stay on the public HTTPS origin; they never use a Docker-only address. Only `cloudflared` connects to Cloudflare, and only Traefik accepts tunnel traffic. Traefik has no public dashboard. PostgreSQL, Redis, and worker endpoints have neither tunnel routes nor host port mappings. Containers use Compose service names, not cached IP addresses. Browser code receives no database, Redis, or provider secrets.
 
+The optional pgAdmin container joins the private data network and has a
+loopback-only HTTP port on the VPS. Tailscale Serve gives operators a private
+HTTPS URL in the tailnet. PgAdmin does not receive a public Cloudflare or
+Traefik route. Its PostgreSQL login has read-only grants; see
+[ADR 0029](../../adr/0029-private-production-database-browser.md). The
+loopback mapping is for the pgAdmin web UI, not PostgreSQL port 5432.
+
 | Network | Members | Permitted traffic |
 | --- | --- | --- |
 | Edge | `cloudflared`, Traefik, two web apps, Backend HTTP entry | Tunnel to explicit page and `/api` routes only. |
 | Application | Backend and worker processes | Internal coordination and service health where needed; no public worker route. |
 | Private data | Backend, workers, PostgreSQL, Redis | Restricted database roles and typed queue commands. |
+| Private operator access | pgAdmin on the private data network; Tailscale Serve on the VPS host | Tailnet HTTPS to loopback pgAdmin UI; read-only PostgreSQL login. |
 
 External PHIVOLCS, Clerk, and SMS calls use HTTPS. The exact Compose network names are incidental; exposure rules are not. Cloudflare Tunnel and Traefik handle routing, not authorization. TLS termination and forwarding headers must be configured so the Backend trusts only known proxy hops.
 
