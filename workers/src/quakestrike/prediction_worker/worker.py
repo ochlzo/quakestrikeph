@@ -51,23 +51,29 @@ def handle_prediction_command(
         "job_id": str(command.job_id),
         "correlation_id": str(command.correlation_id),
     }
-    outcome = ExecutePrediction(
-        store,
-        model,
-        on_claim=lambda claim: log_event(
+    attempt_context: dict[str, str] = {}
+
+    def record_claim(claim):
+        attempt_context["attempt_id"] = str(claim.attempt_id)
+        log_event(
             logger,
             logging.INFO,
             "Prediction attempt claimed.",
             event_code="prediction_attempt_claimed",
-            context=context | {"attempt_id": str(claim.attempt_id)},
-        ),
+            context=context | attempt_context,
+        )
+
+    outcome = ExecutePrediction(
+        store,
+        model,
+        on_claim=record_claim,
     ).execute(command.dispatch_id, command.job_id, command.correlation_id)
     log_event(
         logger,
         logging.INFO,
         "Prediction command processed.",
         event_code="prediction_command_processed",
-        context=context | {"status": outcome},
+        context=context | attempt_context | {"status": outcome},
     )
     if outcome == "stale":
         log_event(
@@ -116,12 +122,25 @@ def create_prediction_app(
         try:
             return command_handler(payload)
         except Exception as error:
+            context = {"worker": socket.gethostname()}
+            if isinstance(payload, Mapping):
+                try:
+                    command = parse_prediction_command(payload)
+                except ValidationError:
+                    pass
+                else:
+                    context.update(
+                        dispatch_id=str(command.dispatch_id),
+                        job_id=str(command.job_id),
+                        correlation_id=str(command.correlation_id),
+                    )
             log_exception_event(
                 logging.getLogger("prediction-worker"),
                 logging.ERROR,
                 "Prediction command processing failed.",
                 event_code="prediction_command_processing_failed",
                 error=error,
+                context=context,
             )
             raise Reject("Prediction command processing failed.", requeue=True) from None
 

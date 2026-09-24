@@ -11,6 +11,8 @@ from uuid import UUID
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from quakestrike.domain.prediction import PREDICTION_PROCESSING_LEASE_SECONDS
+
 DEFAULT_BOOTSTRAP_RUN_MANIFEST = Path("database/initialization/bootstrap-readiness.json")
 DEFAULT_BOOTSTRAP_REQUIRED_AVAILABLE_THROUGH = datetime.fromisoformat("2026-09-01T00:00:00+08:00")
 
@@ -197,9 +199,14 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_prediction_limits(self) -> Settings:
         if not (
-            self.prediction_soft_time_limit_seconds < self.prediction_hard_time_limit_seconds < 900
+            self.prediction_soft_time_limit_seconds
+            < self.prediction_hard_time_limit_seconds
+            < PREDICTION_PROCESSING_LEASE_SECONDS
         ):
-            raise ValueError("Prediction task limits must satisfy soft < hard < 900-second lease")
+            raise ValueError(
+                "Prediction task limits must satisfy soft < hard < "
+                f"{PREDICTION_PROCESSING_LEASE_SECONDS}-second lease"
+            )
         return self
 
     def safe_summary(self) -> dict[str, object]:

@@ -222,6 +222,18 @@ docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.inte
 docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v
 ```
 
+To measure one versus two replicas with the real bundle, use the same isolated
+test project and replace the smoke-test command with:
+
+```powershell
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile prediction-smoke run --build --rm prediction-smoke-runner pytest --config-file workers/pyproject.toml workers/tests/integration/test_prediction_worker.py -k test_real_seis_replica_benchmark -s
+```
+
+The benchmark reports throughput, p95 completion time, retry attempts, and
+parent/child peak resident memory for ten jobs at each replica count. These
+local measurements are a baseline; measure on the VPS before choosing its
+steady replica count.
+
 For one early poll, use the separate operator command. It first checks both
 consumer health states and then checks readiness before creating or reusing a
 durable run and dispatch. A reused run may have been created by Beat.
