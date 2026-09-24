@@ -21,26 +21,26 @@ release_enable_beat() {
     for service in dispatcher data-ingestor; do
         if ! release_service_healthy "$service"; then
             release_stop_beat
-            echo "Beat not enabled: $service is unhealthy" >&2
+            printf '{"action":"enable-beat","status":"not_ready","reason":"%s_unhealthy"}\n' "$service"
             return 2
         fi
     done
 
     if ! release_compose --profile beat up -d --wait beat; then
         release_stop_beat
-        echo 'Beat not enabled: startup failed' >&2
+        printf '%s\n' '{"action":"enable-beat","status":"failed","reason":"startup_failed"}'
         return 2
     fi
 
     for service in beat dispatcher data-ingestor; do
         if ! release_service_healthy "$service"; then
             release_stop_beat
-            echo "Beat stopped: $service is unhealthy after startup" >&2
+            printf '{"action":"enable-beat","status":"not_ready","reason":"%s_unhealthy_after_startup"}\n' "$service"
             return 2
         fi
     done
 
-    echo 'Beat enabled with healthy consumers'
+    printf '%s\n' '{"action":"enable-beat","status":"enabled"}'
 }
 
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
