@@ -316,4 +316,3 @@ docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/c
 
 This stops the containers and retains their volumes. Do not add `-v` unless
 you intend to delete the local PostgreSQL and Redis data.
-

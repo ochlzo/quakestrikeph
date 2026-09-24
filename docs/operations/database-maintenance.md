@@ -76,4 +76,3 @@ To disable the private browser on the VPS:
 sudo tailscale serve --https=443 off
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.admin.yml --profile admin stop pgadmin
 ```
-

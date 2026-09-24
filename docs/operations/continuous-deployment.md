@@ -52,7 +52,15 @@ On the Linux VPS, run the equivalent Compose commands from
 
 ```bash
 cd /srv/quakestrikeph
+set -euo pipefail
 sha=$(git rev-parse HEAD)
+test -z "$(git status --porcelain --untracked-files=all)"
+grep -qx "WORKER_IMAGE_TAG=$sha" .env
+if docker image inspect "quakestrike-workers:$sha" >/dev/null 2>&1 ||
+   docker image inspect "quakestrike-prediction:$sha" >/dev/null 2>&1; then
+    echo 'A SHA-tagged image already exists; inspect it rather than overwriting it.' >&2
+    exit 1
+fi
 export WORKER_IMAGE_TAG=$sha
 docker build --label "org.opencontainers.image.revision=$sha" -t "quakestrike-workers:$sha" -f workers/Dockerfile workers
 docker build --build-arg "BASE_IMAGE_TAG=$sha" --label "org.opencontainers.image.revision=$sha" -t "quakestrike-prediction:$sha" -f workers/prediction-worker/Dockerfile workers
@@ -68,11 +76,13 @@ compose=(docker compose --env-file .env -f infrastructure/compose.yml -f infrast
 "${compose[@]}" up -d --wait dispatcher
 "${compose[@]}" up -d --wait data-ingestor
 "${compose[@]}" --profile prediction up -d --wait prediction-worker
-"${compose[@]}" --profile beat up -d --wait beat
+bash infrastructure/scripts/enable-beat.sh
 ```
 
 Stop at any failed command and inspect its error. Confirm Dispatcher and Data
-Ingestor remain healthy after enabling Beat. The snapshot must be a preserved
+Ingestor remain healthy after enabling Beat. The Beat helper checks consumer
+health before and after startup, and stops Beat if a consumer becomes unhealthy.
+The snapshot must be a preserved
 raw or enriched source snapshot with provenance, as described in
 [ADR 0018](../adr/0018-bootstrap-source-enrichment.md); a cleaned CSV is insufficient. The generated readiness manifest
 belongs to this VPS database and cannot be copied from another machine.

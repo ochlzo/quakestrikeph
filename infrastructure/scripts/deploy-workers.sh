@@ -48,7 +48,7 @@ rollback() {
             fi
             compose up -d --wait --no-deps dispatcher >&2 || true
             if [[ -n $beat_running ]]; then
-                compose --profile beat up -d --wait beat >&2 || true
+                release_enable_beat >&2 || true
             fi
         fi
     fi
@@ -58,6 +58,7 @@ trap rollback EXIT
 
 git switch --detach "$sha"
 export WORKER_IMAGE_TAG=$sha
+source infrastructure/scripts/enable-beat.sh
 compose --profile init --profile prediction --profile beat config --quiet
 
 if docker image inspect "quakestrike-workers:$sha" >/dev/null 2>&1; then
@@ -87,7 +88,7 @@ if (( prediction_count > 0 )); then
 fi
 compose up -d --wait --no-deps dispatcher
 if [[ -n $beat_running ]]; then
-    compose --profile beat up -d --wait beat
+    release_enable_beat
 fi
 
 sed -i "s/^WORKER_IMAGE_TAG=.*/WORKER_IMAGE_TAG=$sha/" .env
