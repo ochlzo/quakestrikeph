@@ -1,22 +1,4 @@
 services:
-  observer-init:
-    profiles: ["admin"]
-    image: postgres:16.15-bookworm
-    command: ["sh", "/opt/quakestrike/provision-roles.sh", "create-observer"]
-    environment:
-      PGHOST: postgres
-      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-      POSTGRES_DB: ${POSTGRES_DB:-quakestrike}
-      POSTGRES_USER: ${POSTGRES_USER:-quakestrike}
-      OBSERVER_DB_PASSWORD: ${OBSERVER_DB_PASSWORD:?Set OBSERVER_DB_PASSWORD in .env}
-    volumes:
-      - ./postgres/provision-roles.sh:/opt/quakestrike/provision-roles.sh:ro
-    networks:
-      - private-data
-    depends_on:
-      postgres:
-        condition: service_healthy
-
   pgadmin:
     profiles: ["admin"]
     image: dpage/pgadmin4:9.18

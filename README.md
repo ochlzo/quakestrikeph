@@ -368,13 +368,16 @@ you intend to delete the local PostgreSQL and Redis data.
 
 ## Browse production PostgreSQL over Tailscale
 
+Run this section in an SSH shell on the VPS. Running it from Windows starts or
+uses a separate local Compose database and will show local data, not production.
+
 On the VPS, set `OBSERVER_DB_PASSWORD`, `PGADMIN_DEFAULT_EMAIL`, and
 `PGADMIN_DEFAULT_PASSWORD` in the ignored `.env` file. Use distinct, strong
 passwords. Apply migrations first, then create the read-only login and start
 the optional pgAdmin container:
 
 ```bash
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.admin.yml --profile admin run --rm observer-init
+python3 infrastructure/scripts/create-observer.py
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.admin.yml --profile admin up -d --wait pgadmin
 sudo tailscale serve --bg --https=443 http://127.0.0.1:5050
 tailscale serve status
@@ -387,6 +390,10 @@ then register a server with host `postgres`, port `5432`, the configured
 `POSTGRES_DB` name, user `quakestrike_observer`, and
 `OBSERVER_DB_PASSWORD`. Refresh a table or rerun a query to see new committed
 production data. The read-only login cannot edit application records.
+On Windows PowerShell, use `python infrastructure/scripts/create-observer.py`
+for the first command. It uses the PostgreSQL container's local connection, so
+an older database volume does not require the current `.env` superuser password
+to match its original password.
 
 The pgAdmin web port binds only to `127.0.0.1` on the VPS. Do not change it to
 `5050:80`: Docker-published ports can bypass UFW. Keep the Tailscale Serve
