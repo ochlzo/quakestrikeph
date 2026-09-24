@@ -85,7 +85,9 @@ Edit `.env` before continuing:
 
 - Set distinct `POSTGRES_PASSWORD`, `MIGRATION_DB_PASSWORD`, and
   `WORKER_DB_PASSWORD`. Match the last two in `MIGRATION_DATABASE_URL` and
-  `DATABASE_URL`, respectively.
+  `DATABASE_URL`, respectively. If this database already has a Docker volume,
+  follow [the password change steps](#change-database-passwords-on-an-existing-volume)
+  after editing `.env`.
 - Set `WORKER_IMAGE_TAG` to the tested Git commit SHA. Keep the previous tested
   image tag available for rollback; do not prune it during enablement.
 - Keep `DATABASE_URL` pointed at `postgres:5432` and `REDIS_URL` at
@@ -366,6 +368,39 @@ docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/c
 This stops the containers and retains their volumes. Do not add `-v` unless
 you intend to delete the local PostgreSQL and Redis data.
 
+## Change database passwords on an existing volume
+
+Run these commands from the repository root on the machine whose database you
+want to update: your Windows machine for local data, or the VPS for production
+data. Editing `.env` does not change passwords already stored in PostgreSQL.
+First, update `POSTGRES_PASSWORD`, `MIGRATION_DB_PASSWORD`, and
+`WORKER_DB_PASSWORD` in that machine's `.env`, and match the latter two in
+`MIGRATION_DATABASE_URL` and `DATABASE_URL`.
+
+Start PostgreSQL with the updated environment, then open `psql`:
+
+```text
+docker compose --env-file .env -f infrastructure/compose.yml up -d --wait postgres
+docker compose --env-file .env -f infrastructure/compose.yml exec postgres psql -U quakestrike -d quakestrike
+```
+
+At the `quakestrike=#` prompt, run `\password quakestrike`, enter the new
+`POSTGRES_PASSWORD` twice, then run `\q`. Substitute your configured
+`POSTGRES_USER` and `POSTGRES_DB` if they differ from `quakestrike`. Next,
+update the migration and worker roles to match `.env`:
+
+```text
+docker compose --env-file .env -f infrastructure/compose.yml exec -T postgres sh /opt/quakestrike/provision-roles.sh create
+```
+
+If you use pgAdmin, also set `OBSERVER_DB_PASSWORD` in `.env` and update its
+read-only database login with `python infrastructure/scripts/create-observer.py`
+on Windows or `python3 infrastructure/scripts/create-observer.py` on the VPS.
+There is no `observer-init` Compose service. Recreate application containers
+through the normal deployment steps so they receive the updated credentials.
+Changing `PGADMIN_DEFAULT_PASSWORD` on an existing pgAdmin volume requires a
+separate password change in pgAdmin.
+
 ## Browse production PostgreSQL over Tailscale
 
 Run this section in an SSH shell on the VPS. Running it from Windows starts or
@@ -390,10 +425,10 @@ then register a server with host `postgres`, port `5432`, the configured
 `POSTGRES_DB` name, user `quakestrike_observer`, and
 `OBSERVER_DB_PASSWORD`. Refresh a table or rerun a query to see new committed
 production data. The read-only login cannot edit application records.
-On Windows PowerShell, use `python infrastructure/scripts/create-observer.py`
-for the first command. It uses the PostgreSQL container's local connection, so
-an older database volume does not require the current `.env` superuser password
-to match its original password.
+The observer script uses the PostgreSQL container's local connection. If you
+changed passwords in `.env` on an existing VPS database, follow
+[the password change steps](#change-database-passwords-on-an-existing-volume)
+to keep the other database logins aligned.
 
 The pgAdmin web port binds only to `127.0.0.1` on the VPS. Do not change it to
 `5050:80`: Docker-published ports can bypass UFW. Keep the Tailscale Serve

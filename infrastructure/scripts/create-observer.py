@@ -4,9 +4,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
-COMPOSE = ["docker", "compose", "--env-file", ".env", "-f", "infrastructure/compose.yml"]
+COMPOSE = [
+    "docker",
+    "compose",
+    "--env-file",
+    ".env",
+    "-f",
+    "infrastructure/compose.yml",
+]
 
 
 def main() -> int:
@@ -41,8 +47,7 @@ def main() -> int:
     result = subprocess.run(
         [*COMPOSE, "exec", "-T", "postgres", "sh", "-c", command],
         cwd=ROOT,
-        input=password + "\n",
-        text=True,
+        input=(password + "\n").encode("utf-8"),
         check=False,
     )
     return result.returncode
