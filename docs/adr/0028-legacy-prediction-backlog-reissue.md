@@ -39,4 +39,4 @@ Operators stop Beat, Data Ingestor, Dispatcher, and Prediction Worker, allow
 in-flight work to settle, then run the command in `release-init` after
 migrations and `SEIS 1.0.1` registration and verification. They inspect its
 result before starting Dispatcher or Prediction Worker. Startup does not run
-this migration implicitly. See the [operator steps](../../README.md#5-initialize-the-database-and-model-release).
+this migration implicitly. See the [operator steps](../operations/local-runtime.md#5-initialize-the-database-and-model-release).

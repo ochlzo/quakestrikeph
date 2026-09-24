@@ -27,5 +27,5 @@ a copy, and newly committed records appear after refresh or a new query.
 
 This decision adds an optional private operator path to the architecture's
 network rules. The existing public edge still routes only the two application
-hostnames. The [operator steps](../../README.md#browse-production-postgresql-over-tailscale)
+hostnames. The [operator steps](../operations/database-maintenance.md#browse-production-postgresql-over-tailscale)
 define how to enable and stop the browser.

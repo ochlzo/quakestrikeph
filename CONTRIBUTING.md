@@ -1,12 +1,14 @@
 # Contributing to QuakeStrike PH
 
-This guide covers how to make and submit changes. For the system overview and
-local runtime setup, start with [README.md](README.md).
+Follow this guide before pushing any change from your machine, including code,
+tests, documentation, and configuration. If you are new to the project, start
+with the [README](README.md) for the current scope and repository map. The
+[local runtime guide](docs/operations/local-runtime.md) is for running the
+complete worker pipeline.
 
-## Work on your own branch
+## Start on your own branch
 
-Create a branch for each change from the current shared base branch. Use a
-short name that describes the work:
+Update `main` and create a branch for one focused change:
 
 ```powershell
 git switch main
@@ -14,42 +16,30 @@ git pull --ff-only
 git switch -c feat/ingestion-reconciliation
 ```
 
-Use `feat/` for features, `fix/` for bug fixes, `docs/` for documentation,
-`test/` for tests, and `chore/` for maintenance. Codex-created branches use
-`codex/`. Keep unrelated changes on separate branches.
-
-Push only to a branch you own. Do not push directly to `main` or to another
-contributor's branch. Bring changes into `main` through a reviewed pull
+Use `feat/` for features, `fix/` for fixes, `docs/` for documentation, `test/`
+for tests, and `chore/` for maintenance. Codex-created branches use `codex/`.
+Push only to a branch you own. Changes reach `main` through a reviewed pull
 request.
 
-## Make focused commits
-
-Use a short subject in the form `type: summary`, such as:
-
-```text
-feat: add ingestion dispatch retry
-fix: preserve bulletin revision identity
-docs: clarify local bootstrap steps
-```
-
-Prefer one purpose per commit. Before committing, inspect `git status` and
-`git diff --staged` so generated files, credentials, model weights, and
-source datasets do not enter the commit.
+Read [CONTEXT.md](CONTEXT.md) before changing domain behavior. Read the
+relevant [ADRs](docs/adr/) before changing behavior, architecture,
+dependencies, data, queues, runtime, deployment, or interfaces. For changes to
+schema, ownership, or module boundaries, consult the matching specification in
+[docs/system-design](docs/system-design/).
 
 ## Local setup for contributor checks
 
-From the repository root, install the locked Python dependencies:
+For Python worker checks, install [`uv`](https://docs.astral.sh/uv/) and the
+locked dependencies from the repository root:
 
 ```powershell
-Copy-Item .env.example .env
 uv python install 3.12
 uv sync --project workers --frozen
 ```
 
-The full local runtime setup is in the [README](README.md#get-started-locally).
-For database and Redis integration tests, use the separate disposable Compose
-project below. Its test runner sets `TEST_DATABASE_URL` and `TEST_REDIS_URL`;
-running the same tests on the host without those variables skips them.
+The unit tests and lint checks do not need `.env` or the full runtime. For
+database and Redis integration tests, install Docker with Compose v2 and run
+this disposable test project from the repository root:
 
 ```powershell
 docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test redis-test
@@ -57,40 +47,54 @@ docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.inte
 docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v
 ```
 
-Use this exact project name. The test database is isolated from the local
-development database and uses temporary storage. The last command removes
-only the test project's resources. Check the pytest summary to confirm the
-integration tests ran rather than being skipped.
+Use this exact project name. The test runner sets `TEST_DATABASE_URL` and
+`TEST_REDIS_URL`; host pytest without them skips integration tests. Confirm the
+pytest summary shows that integration tests ran. The fixtures migrate and
+truncate their database, so never point `TEST_DATABASE_URL` at a development
+database. The final command removes only the test project's resources.
 
-## Check your change
+## Check before every push
 
-Run the checks that cover the files you changed. For Python worker changes,
-the standard checks are:
+Run checks that match your change:
+
+| Change | Required check |
+| --- | --- |
+| Any change, including docs | Inspect the diff and run the Git whitespace checks below. |
+| Python worker code or tests | Run the worker tests and Ruff checks below. |
+| PostgreSQL, Redis, bootstrap, ingestion, or dispatch behavior | Also run the isolated integration suite above. |
 
 ```powershell
 uv run --project workers pytest --config-file workers/pyproject.toml workers/tests
 uv run --project workers ruff check workers
 uv run --project workers ruff format --check workers
-git diff --check
 ```
 
-Run the integration suite above when changing PostgreSQL, Redis, bootstrap,
-ingestion, or dispatch behavior. Keep automated tests independent of the live
-PHIVOLCS website; use sanitized fixtures. Do not point
-`TEST_DATABASE_URL` at the development database: the test fixtures migrate
-and truncate their database.
+The Python commands apply when you change worker code or tests. Keep automated
+tests independent of the live PHIVOLCS website; use sanitized fixtures.
 
-## Open a pull request
+Before committing, check both unstaged and staged changes:
 
-Push your branch and open a pull request into the shared base branch. In the
-description, include:
+```powershell
+git status --short
+git diff --check
+git diff --cached --check
+git diff
+git diff --cached
+```
 
-- What changed and why.
-- How you verified it, including commands and results.
-- Any setup needed to reproduce the behavior.
-- Any known limitation or follow-up work.
+Review the actual files and contents for secrets, `.env` files, model weights,
+raw source snapshots, generated readiness manifests, and unrelated changes.
+After committing, check `git status --short` again before pushing.
 
-Review the diff before requesting review. Keep secrets, `.env` files,
-model artifacts, raw source snapshots, and local readiness manifests out of
-Git. Address review feedback on your own branch, then wait for the required
-review before merging.
+## Commit, push, and open a pull request
+
+Use a short commit subject in the form `type: summary`, for example
+`fix: preserve bulletin revision identity` or
+`docs: clarify local bootstrap steps`. Prefer one purpose per commit.
+
+Push your branch with `git push -u origin HEAD` and open a pull request into
+`main`. In its description, state what changed and why, list the verification
+commands and results, note any setup needed to reproduce the behavior, and
+identify known limitations or follow-up work. Review the pull request diff
+before requesting review. Address feedback on your branch and wait for the
+required review before merging.
