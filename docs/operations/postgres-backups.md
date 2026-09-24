@@ -139,9 +139,12 @@ The snapshot list proves that an encrypted upload exists. A successful weekly
 restore test proves more: it downloads the snapshot, checks its source files
 against `SHA256SUMS`, restores roles and data in a fresh PostgreSQL 16
 container, and queries the restored `earthquake_events` table. The test
-restores schema first and sets the snapshot-check function's `search_path`
-before loading rows so older, pre-migration snapshots also restore. Keep the
-Restic password, B2 key, and database credentials available to authorized
+initializes with the backed-up bootstrap superuser, skipping only that role's
+duplicate `CREATE ROLE` statement. This preserves PostgreSQL 16 role grants
+attributed to that superuser. It then restores schema first and sets the
+snapshot-check function's `search_path` before loading rows so older,
+pre-migration snapshots also restore. Keep the Restic password, B2 key, and
+database credentials available to authorized
 operators for disaster recovery. This job protects PostgreSQL only: model
 artifacts, bootstrap snapshots, and `.env` need separate protected recovery
 copies.

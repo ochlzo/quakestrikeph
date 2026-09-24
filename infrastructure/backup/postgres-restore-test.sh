@@ -74,6 +74,33 @@ dump_file=$(find "$restored" -type f -name database.dump -print -quit)
 test -n "$dump_file"
 backup_dir=${dump_file%/*}
 (cd "$backup_dir" && sha256sum --check SHA256SUMS)
+database_name=$(< "$backup_dir/database-name")
+database_user=$(< "$backup_dir/database-user")
+
+# Initialize with the original bootstrap superuser. PostgreSQL 16 will reject
+# role grants attributed to it if a different bootstrap user owns the cluster.
+# Skip only its duplicate CREATE ROLE statement; keep all other role SQL.
+globals_for_restore="$restored/globals-for-test.sql"
+python3 - "$backup_dir/globals.sql" "$globals_for_restore" "$database_user" <<'PY'
+import re
+import sys
+
+source, destination, user = sys.argv[1:]
+quoted = '"' + user.replace('"', '""') + '"'
+role_names = {quoted}
+if re.fullmatch(r"[a-z_][a-z0-9_]*", user):
+    role_names.add(user)
+skip = {f"CREATE ROLE {name};" for name in role_names}
+with open(source, encoding="utf-8") as input_file, open(destination, "w", encoding="utf-8") as output_file:
+    skipped = 0
+    for line in input_file:
+        if line.rstrip("\n") in skip:
+            skipped += 1
+        else:
+            output_file.write(line)
+if skipped != 1:
+    raise SystemExit("Expected one bootstrap role in the cluster export")
+PY
 
 postgres_image=$("${compose[@]}" images -q postgres)
 test -n "$postgres_image"
@@ -81,10 +108,11 @@ test -n "$postgres_image"
 # The test container has no network and no persistent volume. Trust auth is
 # confined to its local Unix socket and disappears when the container exits.
 docker run --rm --detach --name "$container" --network none \
-  --env POSTGRES_HOST_AUTH_METHOD=trust "$postgres_image" > /dev/null
+  --env POSTGRES_HOST_AUTH_METHOD=trust --env POSTGRES_USER="$database_user" \
+  --env POSTGRES_DB=postgres "$postgres_image" > /dev/null
 ready=false
 for _ in {1..60}; do
-  if docker exec "$container" pg_isready -U postgres -d postgres > /dev/null 2>&1; then
+  if docker exec "$container" pg_isready -U "$database_user" -d postgres > /dev/null 2>&1; then
     ready=true
     break
   fi
@@ -95,21 +123,19 @@ if [[ $ready != true ]]; then
   exit 1
 fi
 
-docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
-  < "$backup_dir/globals.sql"
-database_name=$(< "$backup_dir/database-name")
-database_user=$(< "$backup_dir/database-user")
-docker exec "$container" createdb -U postgres -O "$database_user" "$database_name"
-docker exec -i "$container" pg_restore --exit-on-error -U postgres \
+docker exec -i "$container" psql -v ON_ERROR_STOP=1 -U "$database_user" -d postgres \
+  < "$globals_for_restore"
+docker exec "$container" createdb -U "$database_user" -O "$database_user" "$database_name"
+docker exec -i "$container" pg_restore --exit-on-error -U "$database_user" \
   --section=pre-data --dbname="$database_name" < "$backup_dir/database.dump"
-# The existing snapshot-check function calls public.digest without a schema.
-# pg_restore's empty search_path otherwise breaks COPY on prediction_jobs.
-docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d "$database_name" \
+# Older snapshots call digest without a schema. pg_restore's empty search_path
+# otherwise breaks COPY on prediction_jobs.
+docker exec "$container" psql -v ON_ERROR_STOP=1 -U "$database_user" -d "$database_name" \
   -c 'ALTER FUNCTION public.quakestrike_prediction_input_snapshot_sha256(jsonb) SET search_path = public, pg_catalog'
-docker exec -i "$container" pg_restore --exit-on-error -U postgres \
+docker exec -i "$container" pg_restore --exit-on-error -U "$database_user" \
   --section=data --section=post-data --dbname="$database_name" \
   < "$backup_dir/database.dump"
-event_count=$(docker exec "$container" psql -v ON_ERROR_STOP=1 -At -U postgres \
+event_count=$(docker exec "$container" psql -v ON_ERROR_STOP=1 -At -U "$database_user" \
   -d "$database_name" \
   -c 'SELECT count(*) FROM earthquake_events')
 maintenance_end succeeded "restic snapshot:$snapshot_id" '' "$backup_run_id" \
