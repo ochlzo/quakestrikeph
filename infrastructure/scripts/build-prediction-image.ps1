@@ -1,5 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path "$PSScriptRoot/../..").Path
+$compose = @('--env-file', '.env', '-f', 'infrastructure/compose.yml', '-f', 'infrastructure/compose.release.yml')
 
 function Fail-Build {
     param([string]$Reason)
@@ -20,6 +21,11 @@ try {
 
     $baseTag = 'quakestrike-workers:' + $commit
     $tag = 'quakestrike-prediction:' + $commit
+    $images = & docker compose @compose --profile prediction config --images 2>$null
+    if ($LASTEXITCODE -ne 0 -or @($images) -notcontains $tag) {
+        Fail-Build 'configured_tag_mismatch'
+    }
+
     $baseRevision = & docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' $baseTag 2>$null
     if ($LASTEXITCODE -ne 0 -or $baseRevision.Trim() -ne $commit) {
         Fail-Build 'base_image_unavailable'
