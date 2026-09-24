@@ -1,0 +1,85 @@
+name: Worker checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  workers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.11.32"
+
+      - name: Install worker dependencies
+        run: |
+          uv python install 3.12
+          uv sync --project workers --frozen
+
+      - name: Run unit tests
+        run: uv run --project workers pytest --config-file workers/pyproject.toml workers/tests/unit
+
+      - name: Check Python style
+        run: |
+          uv run --project workers ruff check workers
+          uv run --project workers ruff format --check workers
+
+      - name: Start isolated test services
+        run: docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test redis-test
+
+      - name: Run integration tests
+        run: docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --build --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration
+
+      - name: Remove isolated test services
+        if: always()
+        run: docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v
+
+  deploy:
+    if: github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true'
+    needs: workers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    concurrency:
+      group: production-workers
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Join the deployment tailnet
+        uses: tailscale/github-action@a392da0a182bba0e9613b6243ebd69529b1878aa # v4.1.0
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:github-deploy
+          ping: ${{ vars.VPS_TAILSCALE_HOST }}
+
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+
+      - name: Deploy tested commit
+        env:
+          DEPLOY_USER: ${{ vars.VPS_DEPLOY_USER }}
+          DEPLOY_HOST: ${{ vars.VPS_TAILSCALE_HOST }}
+        run: |
+          ssh -T -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" "bash -s -- '$GITHUB_SHA'" < infrastructure/scripts/deploy-workers.sh

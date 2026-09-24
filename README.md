@@ -1,454 +1,88 @@
 # QuakeStrike PH
 
 QuakeStrike PH is a Philippine earthquake information, forecasting, and alert
-platform. It ingests PHIVOLCS bulletins, retains corrections as event
-revisions, prepares versioned prediction inputs, publishes forecasts, and
-delivers automatic SMS alerts.
+project. It reconciles PHIVOLCS bulletins into earthquake records, prepares
+versioned prediction inputs, and records forecasts.
 
-## How the system fits together
+This README is the starting point for a developer joining the project. For the
+rules to follow before pushing any change, including documentation, use
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
-The intended system has two web applications: QuakeStrike PH Bulletin for the
-public and an Operations Console for the team. They use a shared Backend API.
-Python workers ingest bulletins, run predictions with an approved model
-release, and deliver automatic SMS alerts.
-PostgreSQL owns durable records; Redis transports background commands.
-Cloudflare Tunnel and Traefik form the public edge.
+## What is implemented
+
+The current code is the Python worker and data pipeline. It includes the
+scheduler, bulletin ingestion, event revision history, prediction jobs, a
+Prediction Worker, PostgreSQL migrations, Redis queues, and local Compose
+configuration. The public Bulletin app, Operations Console, Backend API,
+automatic SMS delivery, and production monitoring are still planned.
+
+The main flow is:
+
+```text
+PHIVOLCS bulletin -> ingestion run -> event and revision -> prediction job
+                  -> Prediction Worker -> forecast
+```
+
+PostgreSQL stores durable records. Redis carries commands that identify those
+records. The [architecture specification](docs/system-design/ARCHITECTURE/ARCHITECTURE.md)
+describes the intended full system; its diagram includes components that are
+not implemented yet.
 
 ![System and layered architecture](docs/system-design/ARCHITECTURE/system-architecture-layers.png)
 
-The main data flow is:
+## Find your way around
 
-```text
-PHIVOLCS bulletins
-  -> Beat creates an ingestion run in PostgreSQL
-  -> Dispatcher sends the run ID through Redis
-  -> Data Ingestor stores events and revisions in PostgreSQL
-  -> Dispatcher sends eligible prediction job IDs through Redis
-  -> Prediction Worker records forecasts
-  -> Backend API serves public and protected applications
-```
-
-Alert delivery follows its own automatic workflow. Queue commands identify
-durable records; PostgreSQL remains the source of truth. The
-[architecture specification](docs/system-design/ARCHITECTURE/ARCHITECTURE.md)
-describes the full system and its boundaries.
-
-## Repository layout
-
-| Path | Purpose |
+| Path | What is there now |
 | --- | --- |
-| `apps/` | Intended homes for Bulletin and Operations Console. |
-| `apps/backend-api/` | Intended home for the shared Backend API. |
-| `workers/` | Python scheduling, ingestion, prediction, and alert code; migrations and tests. |
-| `packages/contracts/queue/` | Versioned schemas for background commands. |
-| `infrastructure/` | Local Compose services and deployment configuration. |
-| `docs/system-design/` | Architecture, database design, and data-flow diagrams. |
-| `docs/adr/` | Accepted architecture decisions. |
+| `workers/src/quakestrike/` | Scheduling, ingestion, prediction, and shared application code. |
+| `workers/tests/` | Unit and integration tests. |
+| `workers/migrations/` | PostgreSQL schema migrations. |
+| `packages/contracts/queue/` | Versioned ingestion and prediction command schemas. |
+| `infrastructure/` | Compose files and operator scripts. |
+| `docs/adr/` | Accepted decisions that govern implementation. |
+| `docs/system-design/` | Intended architecture, database design, and data flows. |
 
-This table describes the intended layout; some paths will appear as their
-components are built. For branch, commit, test, and pull request instructions,
-see [CONTRIBUTING.md](CONTRIBUTING.md).
+The planned web applications and Backend API do not have code under `apps/`
+yet.
 
-## Get started locally
+## Your first development session
 
-These steps use PowerShell from the repository root. They start the local data
-services, initialize the database and model release, import preserved history,
-and check whether the runtime is ready. Initialization is explicit: starting
-containers alone does not migrate or bootstrap an empty database.
-
-### 1. Gather the prerequisites
-
-Install Git, Docker Desktop (or Docker Engine with Compose v2), Python 3.12,
-and [`uv`](https://docs.astral.sh/uv/). You also need two inputs kept
-outside Git:
-
-1. The approved `SEIS 1.0.1` model package, including its weight files. Ask the
-   project maintainer for the reviewed package.
-2. A preserved raw or enriched PHIVOLCS bootstrap snapshot. It must include
-   source IDs and URLs, retrieval metadata, counts, and the required August
-   25–31, 2026 lookback plus available September records. A cleaned CSV alone
-   is not a valid bootstrap input. Ask the maintainer for the preserved
-   snapshot or collect a new one from PHIVOLCS with the project scraper.
-
-The snapshot may be copied into the ignored `bootstrap-snapshots/` directory
-for the import below.
-
-### 2. Configure the local environment
+From the repository root, install Python 3.12 and
+[`uv`](https://docs.astral.sh/uv/), then install the locked worker dependencies
+and run the unit tests:
 
 ```powershell
-Copy-Item .env.example .env
 uv python install 3.12
 uv sync --project workers --frozen
+uv run --project workers pytest --config-file workers/pyproject.toml workers/tests/unit
 ```
 
-Edit `.env` before continuing:
-
-- Set distinct `POSTGRES_PASSWORD`, `MIGRATION_DB_PASSWORD`, and
-  `WORKER_DB_PASSWORD`. Match the last two in `MIGRATION_DATABASE_URL` and
-  `DATABASE_URL`, respectively. If this database already has a Docker volume,
-  follow [the password change steps](#change-database-passwords-on-an-existing-volume)
-  after editing `.env`.
-- Set `WORKER_IMAGE_TAG` to the tested Git commit SHA. Keep the previous tested
-  image tag available for rollback; do not prune it during enablement.
-- Keep `DATABASE_URL` pointed at `postgres:5432` and `REDIS_URL` at
-  `redis:6379`; these are private Compose service names.
-- Set `PHIVOLCS_CATALOG_URL` to the official HTTPS catalog URL.
-- Set `MODEL_RELEASE_ID` to the ID in the reviewed model manifest.
-- Set `MODEL_ARTIFACT_HOST_DIRECTORY` to the host directory where the
-  packaged model will live. The default is the ignored `model-artifacts/`
-  directory in this repository.
-- Set `BOOTSTRAP_REQUIRED_AVAILABLE_THROUGH` to the independently verified
-  latest source time that your snapshot must cover.
-
-Do not commit `.env`, model weights, or source data.
-
-### 3. Package the model and prepare the snapshot
-
-Replace the two example paths with the inputs you obtained in step 1:
-
-```powershell
-$sourcePackage = 'C:\path\to\reviewed-model-package'
-$snapshotPath = 'C:\path\to\preserved-bootstrap-snapshot.json'
-New-Item -ItemType Directory -Force bootstrap-snapshots | Out-Null
-Copy-Item -LiteralPath $snapshotPath -Destination bootstrap-snapshots/input.json
-uv run --project workers quakestrike package-model-release --source-package $sourcePackage
-```
-
-The package command verifies the selected release and artifact hashes. Do not
-edit the collected snapshot.
-
-### 4. Start PostgreSQL and Redis
-
-```powershell
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml up -d --wait postgres redis
-& infrastructure/scripts/build-worker-image.ps1
-& infrastructure/scripts/build-prediction-image.ps1
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml exec -T postgres sh /opt/quakestrike/provision-roles.sh create
-```
-
-The services stay on a private Docker network. PostgreSQL uses a persistent
-Docker volume. The image command requires a clean checkout at the full SHA
-configured in `.env` and refuses to replace an existing image tag. Keep the
-previous tested image tag for rollback. The containers do not run migrations
-or import history for you.
-
-### 5. Initialize the database and model release
-
-For an existing database, stop all work producers and consumers before these
-release steps. Let in-flight prediction attempts finish before stopping the
-workers when possible:
-
-```powershell
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile beat --profile prediction stop beat data-ingestor dispatcher prediction-worker
-```
-
-```powershell
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike migrate
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml exec -T postgres sh /opt/quakestrike/provision-roles.sh grant-worker
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike register-model-release
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike verify-model-release
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike reissue-legacy-predictions
-```
-
-Registration verifies the packaged model before storing its immutable release
-reference. Role provisioning and grants are explicit, repeatable actions. The
-init container uses the migration role; long-running workers use the worker
-role, which can read model releases but cannot change the registry or schema.
-On an existing local database, role provisioning transfers only the known
-worker tables and enum types to the migration role so later migrations can run.
-An exact registration repeat is safe.
-
-The reissue command handles durable `SEIS 1.0` prediction work that cannot
-produce a v2 forecast. It creates new `SEIS 1.0.1` jobs and dispatches from
-preserved input snapshots, closes eligible old jobs and dispatches, and audits
-the linked IDs. It accepts old `pending` and `retry_wait` jobs, and old
-`failed` jobs with `unsupported_schema` or `release_mismatch` errors. It
-refuses a running job or active attempt; let that work settle and rerun the
-command. It skips successful, cancelled, and unrelated failed work. Reruns are
-safe, but a conflicting existing replacement fails for investigation. Check
-that the command prints `"status": "completed"` and inspect its `reissued`
-and `reused` counts before starting Dispatcher or Prediction Worker. Each
-reissue cancels the old job with `reissued_for_release` and writes a
-`prediction_backlog_reissued` audit linking the old and new job and dispatch
-IDs. No alert is sent by reissue itself. See
-[ADR 0028](docs/adr/0028-legacy-prediction-backlog-reissue.md) for the
-transaction and identity rules.
-
-### 6. Import history and check readiness
-
-The ignored snapshot directory is mounted into the one-off initialization
-container and read-only into the runtime services:
-
-```powershell
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike bootstrap --snapshot /app/bootstrap-snapshots/input.json --run-manifest /app/bootstrap-snapshots/bootstrap-readiness.json
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike startup-check --run-manifest /app/bootstrap-snapshots/bootstrap-readiness.json
-```
-
-The last command exits with `0` and prints `"ready": true` when all gates
-pass. It checks migrations, PostgreSQL and Redis, the model release and hashes,
-the preserved source evidence, the completed backfill, and usable seven-day
-history. A failed gate leaves Beat disabled; inspect its diagnostic, correct
-the cause, and run the check again. The generated manifest and hash-named
-source copy stay in ignored `bootstrap-snapshots/`.
-
-If you later replace the PostgreSQL volume, the imported records disappear.
-Starting the containers again will **not** reimport them. Keep the model
-package and preserved snapshot. Archive the old
-`bootstrap-snapshots/bootstrap-readiness.json` before repeating steps 4–6
-against the fresh database: it names a run from the old database. A fresh
-manifest gets a new run identity. You do not need to scrape again while the
-snapshot remains valid and available.
-
-### 7. Start consumers, then enable Beat
-
-```powershell
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml up -d --wait dispatcher
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml up -d --wait data-ingestor
-& infrastructure/scripts/enable-beat.ps1
-```
-
-The Beat enable command checks both consumer health states before starting it.
-Compose also enforces both as healthy dependencies and the command checks again
-after Beat becomes healthy, stopping it if a consumer failed during startup. Each process
-also evaluates its read-only startup gates. Beat waits for the strictly next
-UTC wall-clock boundary of `POLL_INTERVAL_SECONDS` (five minutes by default).
-It does not poll on startup or replay missed boundaries. Beat has no automatic
-restart policy; enable it explicitly again after a stack restart.
-
-To consume prediction work, start the separate Prediction image before creating
-a poll. It loads and verifies the `SEIS 1.0.1` bundle before consuming the queue.
-The model files remain on the read-only artifact mount.
-
-```powershell
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction up -d --wait prediction-worker
-```
-
-The default is one healthy Prediction Worker container with one Celery child.
-To run two identical replicas on the same prediction queue, scale the service:
-
-```powershell
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction up -d --wait --scale prediction-worker=2 prediction-worker
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction ps prediction-worker
-```
-
-Set `--scale prediction-worker=1` to return to one replica. Each container has
-its own health check for PostgreSQL, Redis, migrations, the selected model
-release and artifact hashes, output schema, and local queue consumption. The
-worker uses a 300-second soft limit and 360-second hard limit by default; set
-`PREDICTION_SOFT_TIME_LIMIT_SECONDS` and
-`PREDICTION_HARD_TIME_LIMIT_SECONDS` in `.env` only with soft < hard < the
-900-second prediction processing lease. A hard limit terminates the stuck
-child; durable lease recovery retries the same job and dispatch after expiry.
-Watch memory use on the VPS before keeping additional replicas running.
-
-#### Prediction Worker operations
-
-Run these commands from the repository root with the release `.env`. Start one
-replica, or set `--scale prediction-worker=2` for the measured scale-out option:
-
-```powershell
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction up -d --wait --scale prediction-worker=1 prediction-worker
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction ps prediction-worker dispatcher
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml logs --since 10m --tail 100 prediction-worker dispatcher
-```
-
-`--wait` requires every started replica to be healthy. Each prediction health
-check verifies PostgreSQL, Redis, migrations, the selected release and model
-hashes, the output contract, and consumption of its local queue. Check both
-replicas in `ps` after scaling. For memory on the deployment host, run
-`docker stats` for the prediction containers and compare with the 512 MiB
-per-container limit in `infrastructure/compose.release.yml`.
-
-Stop all prediction replicas for maintenance without deleting PostgreSQL work:
-
-```powershell
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction stop prediction-worker
-```
-
-Wait for in-flight predictions to finish before a planned stop when possible.
-Stopping a worker during inference leaves its processing attempt leased until
-expiry. The shared Dispatcher and database retain the job and dispatch IDs.
-To resume and requeue eligible durable work, first restore healthy PostgreSQL,
-Redis, Dispatcher, and the verified model bundle, then start the worker again:
-
-```powershell
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml up -d --wait dispatcher
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction up -d --wait --scale prediction-worker=1 prediction-worker
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml exec postgres psql -U quakestrike -d quakestrike -c "SELECT p.job_id, p.status AS job_status, p.next_attempt_at, p.last_error_code, d.dispatch_id, d.status AS dispatch_status, d.next_dispatch_at, d.last_dispatched_at, f.forecast_id FROM prediction_jobs p JOIN job_dispatches d ON d.prediction_job_id = p.job_id LEFT JOIN forecasts f ON f.job_id = p.job_id ORDER BY p.requested_at DESC LIMIT 20;"
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml logs --since 30m --tail 200 dispatcher prediction-worker
-```
-
-Use your configured `POSTGRES_USER` and `POSTGRES_DB` if different. Dispatcher
-publishes due `pending` dispatches, due processing retries, and work whose
-processing lease expired. It also republishes an `enqueued` prediction that
-remains `pending` for 900 seconds after its last submission, such as when Redis
-lost the command. An expired running attempt is abandoned before its job is
-retried, usually after the 30-second first retry delay. These paths reuse the
-same `job_id` and `dispatch_id`; do not insert replacement rows or publish
-commands by hand. `failed` and `cancelled` jobs are terminal and are not
-automatically requeued. Diagnose their recorded error before any separate,
-reviewed recovery action. Confirm the existing job reaches `succeeded`, its
-dispatch reaches `stopped`, and a forecast exists for that job.
-
-The isolated one-versus-two-replica results and reproduction details are in
-[the prediction benchmark report](docs/benchmarks/prediction-worker-issue-21.md).
-
-For an isolated database smoke test with the real ignored bundle, run:
-
-```powershell
-docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test redis-test
-docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile prediction-smoke run --build --rm prediction-smoke-runner pytest --config-file workers/pyproject.toml workers/tests/integration/test_prediction_worker.py -k test_real_seis_bundle_persists_known_forecast
-docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v
-```
-
-To measure one versus two replicas with the real bundle, use the same isolated
-test project and replace the smoke-test command with:
-
-```powershell
-docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile prediction-smoke run --build --rm prediction-smoke-runner pytest --config-file workers/pyproject.toml workers/tests/integration/test_prediction_worker.py -k test_real_seis_replica_benchmark -s
-```
-
-The benchmark reports throughput, p95 completion time, retry attempts, and
-parent/child peak resident memory for ten jobs at each replica count. These
-local measurements are a baseline; measure on the VPS before choosing its
-steady replica count.
-
-For one early poll, use the separate operator command. It first checks both
-consumer health states and then checks readiness before creating or reusing a
-durable run and dispatch. A reused run may have been created by Beat.
-The command runs inside the Dispatcher container so it can verify that the
-Dispatcher process is still alive; calling it in the init container fails closed.
-
-```powershell
-& infrastructure/scripts/poll-now.ps1
-```
-
-Each action prints a bounded result. Inspect recent durable work with:
-
-```powershell
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml exec postgres psql -U quakestrike -d quakestrike -c "SELECT run_id, trigger_type, status, requested_at, events_found, events_rejected FROM ingestion_runs ORDER BY requested_at DESC LIMIT 5;"
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml exec postgres psql -U quakestrike -d quakestrike -c "SELECT dispatch_id, ingestion_run_id, prediction_job_id, status, attempt_count FROM job_dispatches ORDER BY created_at DESC LIMIT 10;"
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml logs --tail 100 dispatcher data-ingestor beat
-```
-
-Use your configured `POSTGRES_USER` and `POSTGRES_DB` if they differ from the
-example. The ignored bootstrap readiness manifest retains the source and
-release proof.
-
-The poll command proves only that a durable run exists. Confirm processing by
-checking whether that run reaches `succeeded` or a diagnosed terminal state,
-then compare its event, revision, prediction-job, and dispatch counts with the
-counts before the poll. A pending run with zero attempts may be waiting for
-Dispatcher to drain due prediction dispatches. Inspect bounded JSON logs by
-`event_code`, `message_id`, `run_id`, `dispatch_id`, and `correlation_id`:
-
-```powershell
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml logs --since 30m --tail 200 dispatcher data-ingestor beat
-```
-
-The isolated proof in `workers/tests/integration/test_local_enablement.py` uses
-sanitized source fixtures and the disposable Compose project described in
-[CONTRIBUTING.md](CONTRIBUTING.md#local-setup-for-contributor-checks). It does
-not contact PHIVOLCS. Keep the hash-addressed source snapshot, generated
-readiness manifest, and verified model artifacts outside Git through handoff;
-archive them outside Git afterward. Docker's existing `local` logging driver
-retains five approximately 20 MiB files per container. Logs can rotate and are
-not a replacement for durable run and dispatch records.
-
-The local enablement execution record is in
-[the issue #13 report](docs/reports/issue-13-local-enablement-2026-09-19.md).
-Automatic alerts, public APIs, web apps, and production monitoring remain deferred.
-
-### 8. Stop local services
-
-```powershell
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml down
-```
-
-This stops the containers and retains their volumes. Do not add `-v` unless
-you intend to delete the local PostgreSQL and Redis data.
-
-## Change database passwords on an existing volume
-
-Run these commands from the repository root on the machine whose database you
-want to update: your Windows machine for local data, or the VPS for production
-data. Editing `.env` does not change passwords already stored in PostgreSQL.
-First, update `POSTGRES_PASSWORD`, `MIGRATION_DB_PASSWORD`, and
-`WORKER_DB_PASSWORD` in that machine's `.env`, and match the latter two in
-`MIGRATION_DATABASE_URL` and `DATABASE_URL`.
-
-Start PostgreSQL with the updated environment, then open `psql`:
-
-```text
-docker compose --env-file .env -f infrastructure/compose.yml up -d --wait postgres
-docker compose --env-file .env -f infrastructure/compose.yml exec postgres psql -U quakestrike -d quakestrike
-```
-
-At the `quakestrike=#` prompt, run `\password quakestrike`, enter the new
-`POSTGRES_PASSWORD` twice, then run `\q`. Substitute your configured
-`POSTGRES_USER` and `POSTGRES_DB` if they differ from `quakestrike`. Next,
-update the migration and worker roles to match `.env`:
-
-```text
-docker compose --env-file .env -f infrastructure/compose.yml exec -T postgres sh /opt/quakestrike/provision-roles.sh create
-```
-
-If you use pgAdmin, also set `OBSERVER_DB_PASSWORD` in `.env` and update its
-read-only database login with `python infrastructure/scripts/create-observer.py`
-on Windows or `python3 infrastructure/scripts/create-observer.py` on the VPS.
-There is no `observer-init` Compose service. Recreate application containers
-through the normal deployment steps so they receive the updated credentials.
-Changing `PGADMIN_DEFAULT_PASSWORD` on an existing pgAdmin volume requires a
-separate password change in pgAdmin.
-
-## Browse production PostgreSQL over Tailscale
-
-Run this section in an SSH shell on the VPS. Running it from Windows starts or
-uses a separate local Compose database and will show local data, not production.
-
-On the VPS, set `OBSERVER_DB_PASSWORD`, `PGADMIN_DEFAULT_EMAIL`, and
-`PGADMIN_DEFAULT_PASSWORD` in the ignored `.env` file. Use distinct, strong
-passwords. Apply migrations first, then create the read-only login and start
-the optional pgAdmin container:
-
-```bash
-python3 infrastructure/scripts/create-observer.py
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.admin.yml --profile admin up -d --wait pgadmin
-sudo tailscale serve --bg --https=443 http://127.0.0.1:5050
-tailscale serve status
-```
-
-Run these commands from the repository root after the production stack and
-Tailscale are running. The last command prints the private `https://...ts.net`
-address. Open it from a device connected to the tailnet. Sign in to pgAdmin,
-then register a server with host `postgres`, port `5432`, the configured
-`POSTGRES_DB` name, user `quakestrike_observer`, and
-`OBSERVER_DB_PASSWORD`. Refresh a table or rerun a query to see new committed
-production data. The read-only login cannot edit application records.
-The observer script uses the PostgreSQL container's local connection. If you
-changed passwords in `.env` on an existing VPS database, follow
-[the password change steps](#change-database-passwords-on-an-existing-volume)
-to keep the other database logins aligned.
-
-The pgAdmin web port binds only to `127.0.0.1` on the VPS. Do not change it to
-`5050:80`: Docker-published ports can bypass UFW. Keep the Tailscale Serve
-route private to authorized operators in tailnet policy. PostgreSQL port 5432
-remains unpublished. pgAdmin has its own login and persistent settings volume.
-Changing `PGADMIN_DEFAULT_PASSWORD` in `.env` after first initialization does
-not rotate an existing pgAdmin account password; change that password in
-pgAdmin.
-
-To disable the private browser on the VPS:
-
-```bash
-sudo tailscale serve --https=443 off
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.admin.yml --profile admin stop pgadmin
-```
-
-## More documentation
-
-- [Contributing](CONTRIBUTING.md)
-- [Architecture specification](docs/system-design/ARCHITECTURE/ARCHITECTURE.md)
-- [Database design](docs/system-design/ERD/DATABASE-DESIGN.md)
-- [Ingestion vocabulary](CONTEXT.md)
-- [Architecture decisions](docs/adr/)
+This path lets you inspect and test the worker code without a model package,
+historical PHIVOLCS snapshot, or running services. To test changes involving
+PostgreSQL, Redis, bootstrap, ingestion, or dispatch, use the isolated Compose
+integration suite in [CONTRIBUTING.md](CONTRIBUTING.md#local-setup-for-contributor-checks).
+It requires Docker with Compose v2. Host pytest skips those integration tests
+when its test database and Redis variables are absent.
+
+Before changing domain behavior, read [CONTEXT.md](CONTEXT.md). Read the
+relevant [ADRs](docs/adr/) before changing behavior, architecture, data,
+dependencies, queues, runtime, deployment, or interfaces. The specifications
+describe the intended system; check the code to see what is implemented.
+
+## When you need the full local runtime
+
+Follow the [local runtime guide](docs/operations/local-runtime.md) to start
+PostgreSQL, Redis, the workers, and the scheduler. That workflow needs a
+reviewed SEIS 1.0.1 model package and a preserved PHIVOLCS bootstrap snapshot
+from a maintainer. It explicitly provisions database roles, applies migrations,
+imports history, and checks readiness before polling.
+
+For password changes or private production database access, see
+[database maintenance](docs/operations/database-maintenance.md). These are
+operator tasks, not prerequisites for a first code change.
+
+## Make a change
+
+Use [CONTRIBUTING.md](CONTRIBUTING.md) for branch names, checks, commits,
+pushes, and pull requests. Keep `.env`, model weights, source snapshots, and
+generated readiness manifests out of Git.

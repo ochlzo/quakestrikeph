@@ -10,14 +10,20 @@ dependencies, data, queues, runtime, deployment, or interfaces. ADRs are
 binding decisions for this repository. Follow them unless a later ADR replaces
 the decision.
 
+Before pushing any change, follow `CONTRIBUTING.md` for checks, branch, commit,
+and pull request conventions. Use `docs/operations/local-runtime.md` when
+enabling or maintaining the full worker runtime, and
+`docs/operations/database-maintenance.md` for database passwords or private
+production database access.
+
 ## Integration tests
 
 When changing PostgreSQL, Redis, bootstrap, ingestion, or dispatch behavior,
 run the isolated integration suite using the three Compose commands in
-`CONTRIBUTING.md` under "Local setup". The Compose `test-runner`
-sets `TEST_DATABASE_URL` and `TEST_REDIS_URL`; running pytest on the host without
-those variables skips integration tests. Confirm the pytest summary shows the
-integration tests ran.
+`CONTRIBUTING.md` under "Local setup for contributor checks". The Compose
+`test-runner` sets `TEST_DATABASE_URL` and `TEST_REDIS_URL`; running pytest on
+the host without those variables skips integration tests. Confirm the pytest
+summary shows the integration tests ran.
 
 Use the documented `quakestrike-data-ingestion-test` Compose project. The test
 fixtures migrate and truncate its database, so never point `TEST_DATABASE_URL`
@@ -27,11 +33,11 @@ suite as unverified with the Docker error.
 ## Project
 
 This repository is the implementation target for QuakeStrike PH, a Philippine
-earthquake information, forecasting, and alert platform. It ingests and
-reconciles PHIVOLCS earthquake bulletins, stores earthquake and processing
-records, generates forecasts with approved Python model artifacts, publishes
-public information, delivers automatic SMS alerts, and provides an Operations
-Console for authorized team members.
+earthquake information, forecasting, and alert platform. The current code
+ingests and reconciles PHIVOLCS bulletins, stores events and processing records,
+and generates forecasts with approved Python model artifacts. The public web
+apps, Backend API, automatic SMS delivery, and production monitoring remain
+planned. See `README.md` for the current scope and repository map.
 
 The planned system has two web applications—QuakeStrike PH Bulletin and
 Operations Console—a Backend API, and background workers for scheduling,
