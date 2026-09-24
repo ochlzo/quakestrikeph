@@ -13,12 +13,13 @@ from uuid import uuid4
 
 import pytest
 from redis import Redis
-from sqlalchemy import create_engine, event, func, insert, select, text
+from sqlalchemy import create_engine, event, func, insert, select, text, update
 
-from quakestrike.application.dispatch import PredictionDispatch
+from quakestrike.application.dispatch import DispatchClaim, DispatchClaimLost, PredictionDispatch
 from quakestrike.application.prediction import StalePredictionAttempt
 from quakestrike.domain.features import INPUT_SCHEMA_VERSION, feature_snapshot_hash
 from quakestrike.domain.prediction import compose_forecast
+from quakestrike.infrastructure.database.dispatch import SqlAlchemyDispatchStore
 from quakestrike.infrastructure.database.engine import create_session_factory
 from quakestrike.infrastructure.database.prediction import (
     OUTPUT_SCHEMA_VERSION,
@@ -442,6 +443,7 @@ def test_expired_attempt_is_abandoned_and_stale_completion_is_audited(migrated_e
     assert first is not None
     assert repository.claim(command.dispatch_id, command.job_id, command.correlation_id) is None
     current[0] += timedelta(minutes=16)
+    assert repository.claim(command.dispatch_id, command.job_id, command.correlation_id) is None
     second = repository.claim(command.dispatch_id, command.job_id, command.correlation_id)
     assert second is not None and second.execution_id != first.execution_id
     with pytest.raises(StalePredictionAttempt):
@@ -458,6 +460,281 @@ def test_expired_attempt_is_abandoned_and_stale_completion_is_audited(migrated_e
         )
         is not None
     )
+
+
+def test_runtime_failures_retry_on_schedule_then_stop_with_stable_ids(migrated_engine):
+    command = seed(migrated_engine)
+    current = [NOW]
+    prediction_store = store(migrated_engine, clock=lambda: current[0])
+    dispatch_store = SqlAlchemyDispatchStore(create_session_factory(migrated_engine))
+
+    class FailingModel:
+        def predict(self, features):
+            raise RuntimeError("model unavailable")
+
+    for attempt_number, delay in enumerate((30, 120, 600), start=1):
+        assert (
+            handle_prediction_command(
+                command.to_message(),
+                store=prediction_store,
+                model=FailingModel(),
+                logger=logging.getLogger(__name__),
+            )
+            == "retry_wait"
+        )
+        with migrated_engine.connect() as connection:
+            job = connection.execute(select(prediction_jobs)).one()
+            dispatch = connection.execute(select(job_dispatches)).one()
+            assert job.status == "retry_wait"
+            assert job.next_attempt_at == current[0] + timedelta(seconds=delay)
+            assert dispatch.dispatch_id == command.dispatch_id
+            assert dispatch.status == "enqueued"
+            assert (
+                connection.scalar(select(func.count()).select_from(prediction_attempts))
+                == attempt_number
+            )
+        assert dispatch_store.claim_due(1, now=current[0]) == ()
+        current[0] += timedelta(seconds=delay)
+        claim = dispatch_store.claim_due(1, now=current[0])[0]
+        assert claim.dispatch == PredictionDispatch(
+            command.dispatch_id, command.job_id, command.correlation_id
+        )
+        dispatch_store.mark_enqueued(claim)
+
+    assert (
+        handle_prediction_command(
+            command.to_message(),
+            store=prediction_store,
+            model=FailingModel(),
+            logger=logging.getLogger(__name__),
+        )
+        == "failed"
+    )
+    with migrated_engine.connect() as connection:
+        job = connection.execute(select(prediction_jobs)).one()
+        dispatch = connection.execute(select(job_dispatches)).one()
+        attempts = connection.execute(
+            select(prediction_attempts).order_by(prediction_attempts.c.attempt_number)
+        ).all()
+        assert job.job_id == command.job_id
+        assert job.status == "failed"
+        assert job.next_attempt_at is None
+        assert job.last_error_code == "model_runtime_error"
+        assert dispatch.dispatch_id == command.dispatch_id
+        assert dispatch.status == "stopped"
+        assert [attempt.attempt_number for attempt in attempts] == [1, 2, 3, 4]
+        assert [attempt.status for attempt in attempts] == ["failed"] * 4
+        assert connection.scalar(select(func.count()).select_from(forecasts)) == 0
+
+
+def test_transient_forecast_write_failure_retries_without_partial_result(migrated_engine):
+    command = seed(migrated_engine)
+    current = [NOW]
+    prediction_store = store(migrated_engine, clock=lambda: current[0])
+
+    def reject_forecast_once(connection, cursor, statement, parameters, context, executemany):
+        if statement.startswith("INSERT INTO forecasts"):
+            raise RuntimeError("database write interrupted")
+
+    event.listen(migrated_engine, "before_cursor_execute", reject_forecast_once)
+    try:
+        assert (
+            handle_prediction_command(
+                command.to_message(),
+                store=prediction_store,
+                model=DeterministicTestModel(),
+                logger=logging.getLogger(__name__),
+            )
+            == "retry_wait"
+        )
+    finally:
+        event.remove(migrated_engine, "before_cursor_execute", reject_forecast_once)
+    with migrated_engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(forecasts)) == 0
+        assert connection.scalar(select(func.count()).select_from(alert_jobs)) == 0
+        assert connection.scalar(select(prediction_jobs.c.status)) == "retry_wait"
+        assert connection.scalar(select(prediction_jobs.c.last_error_code)) == "persistence_error"
+
+    current[0] += timedelta(seconds=30)
+    dispatch_store = SqlAlchemyDispatchStore(create_session_factory(migrated_engine))
+    claim = dispatch_store.claim_due(1, now=current[0])[0]
+    dispatch_store.mark_enqueued(claim)
+    assert (
+        handle_prediction_command(
+            command.to_message(),
+            store=prediction_store,
+            model=DeterministicTestModel(),
+            logger=logging.getLogger(__name__),
+        )
+        == "succeeded"
+    )
+    with migrated_engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(forecasts)) == 1
+        assert connection.scalar(select(func.count()).select_from(prediction_attempts)) == 2
+
+
+def test_prediction_dispatch_recovery_fences_live_lease_and_old_submission_token(migrated_engine):
+    command = seed(migrated_engine)
+    current = [NOW]
+    prediction_store = store(migrated_engine, clock=lambda: current[0])
+    dispatch_store = SqlAlchemyDispatchStore(create_session_factory(migrated_engine))
+    first = prediction_store.claim(command.dispatch_id, command.job_id, command.correlation_id)
+    assert first is not None
+    assert dispatch_store.claim_due(1, now=NOW + timedelta(minutes=14)) == ()
+
+    current[0] += timedelta(minutes=15)
+    assert dispatch_store.claim_due(1, now=current[0]) == ()
+    with migrated_engine.connect() as connection:
+        job = connection.execute(select(prediction_jobs)).one()
+        assert job.status == "retry_wait"
+        assert job.next_attempt_at == current[0] + timedelta(seconds=30)
+        assert connection.scalar(select(prediction_attempts.c.status)) == "abandoned"
+    assert dispatch_store.claim_due(1, now=current[0] + timedelta(seconds=29)) == ()
+    current[0] += timedelta(seconds=30)
+    recovered = dispatch_store.claim_due(1, now=current[0])[0]
+    old_token = uuid4()
+    with pytest.raises(DispatchClaimLost):
+        dispatch_store.mark_enqueued(DispatchClaim(recovered.dispatch, old_token))
+    dispatch_store.mark_enqueued(recovered)
+    second = prediction_store.claim(command.dispatch_id, command.job_id, command.correlation_id)
+    assert second is not None and second.attempt_id != first.attempt_id
+    with pytest.raises(StalePredictionAttempt):
+        prediction_store.fail(
+            first, "model_runtime_error", "The prediction model could not finish."
+        )
+    with migrated_engine.connect() as connection:
+        attempts = connection.execute(
+            select(prediction_attempts).order_by(prediction_attempts.c.attempt_number)
+        ).all()
+        assert [attempt.status for attempt in attempts] == ["abandoned", "running"]
+        assert connection.scalar(select(func.count()).select_from(job_dispatches)) == 1
+
+
+def test_broker_loss_republishes_pending_prediction_without_replacing_dispatch(migrated_engine):
+    command = seed(migrated_engine)
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            update(job_dispatches)
+            .where(job_dispatches.c.dispatch_id == command.dispatch_id)
+            .values(last_dispatched_at=NOW, attempt_count=0)
+        )
+    dispatch_store = SqlAlchemyDispatchStore(create_session_factory(migrated_engine))
+    assert dispatch_store.claim_due(1, now=NOW + timedelta(minutes=14)) == ()
+    claim = dispatch_store.claim_due(1, now=NOW + timedelta(minutes=15))[0]
+    assert claim.dispatch.dispatch_id == command.dispatch_id
+    assert (
+        dispatch_store.mark_retry(
+            claim, RuntimeError("broker unavailable"), now=NOW + timedelta(minutes=15)
+        )
+        == "retry_wait"
+    )
+    assert dispatch_store.claim_due(1, now=NOW + timedelta(minutes=15, seconds=29)) == ()
+    retry = dispatch_store.claim_due(1, now=NOW + timedelta(minutes=15, seconds=30))[0]
+    dispatch_store.mark_enqueued(retry)
+    with migrated_engine.connect() as connection:
+        dispatch = connection.execute(select(job_dispatches)).one()
+        assert dispatch.dispatch_id == command.dispatch_id
+        assert dispatch.status == "enqueued"
+        assert dispatch.attempt_count == 0
+        assert connection.scalar(select(prediction_jobs.c.status)) == "pending"
+
+
+def test_prediction_submission_exhaustion_fails_unclaimed_job(migrated_engine):
+    command = seed(migrated_engine)
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            update(job_dispatches)
+            .where(job_dispatches.c.dispatch_id == command.dispatch_id)
+            .values(status="pending", next_dispatch_at=NOW, last_dispatched_at=None)
+        )
+    dispatch_store = SqlAlchemyDispatchStore(create_session_factory(migrated_engine))
+    now = NOW
+    for delay in (30, 120, 600):
+        claim = dispatch_store.claim_due(1, now=now)[0]
+        assert (
+            dispatch_store.mark_retry(claim, RuntimeError("broker unavailable"), now=now)
+            == "retry_wait"
+        )
+        now += timedelta(seconds=delay)
+    claim = dispatch_store.claim_due(1, now=now)[0]
+    assert (
+        dispatch_store.mark_retry(claim, RuntimeError("broker unavailable"), now=now) == "stopped"
+    )
+    with migrated_engine.connect() as connection:
+        job = connection.execute(select(prediction_jobs)).one()
+        dispatch = connection.execute(select(job_dispatches)).one()
+        assert job.job_id == command.job_id
+        assert job.status == "failed"
+        assert job.last_error_code == "dispatch_exhausted"
+        assert dispatch.dispatch_id == command.dispatch_id
+        assert dispatch.status == "stopped"
+        assert connection.scalar(select(func.count()).select_from(prediction_attempts)) == 0
+
+
+def test_uncertain_submission_does_not_strand_a_live_prediction_attempt(migrated_engine):
+    command = seed(migrated_engine)
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            update(job_dispatches)
+            .where(job_dispatches.c.dispatch_id == command.dispatch_id)
+            .values(status="pending", next_dispatch_at=NOW, last_dispatched_at=None)
+        )
+    dispatch_store = SqlAlchemyDispatchStore(create_session_factory(migrated_engine))
+    submission = dispatch_store.claim_due(1, now=NOW)[0]
+    current = [NOW]
+    prediction_store = store(migrated_engine, clock=lambda: current[0])
+    first = prediction_store.claim(command.dispatch_id, command.job_id, command.correlation_id)
+    assert first is not None
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            update(job_dispatches)
+            .where(job_dispatches.c.dispatch_id == command.dispatch_id)
+            .values(attempt_count=4)
+        )
+    assert (
+        dispatch_store.mark_retry(submission, RuntimeError("broker outcome unknown"), now=NOW)
+        == "retry_wait"
+    )
+    assert dispatch_store.claim_due(1, now=NOW + timedelta(minutes=14)) == ()
+    current[0] += timedelta(minutes=16)
+    assert dispatch_store.claim_due(1, now=current[0]) == ()
+    recovery = dispatch_store.claim_due(1, now=current[0])[0]
+    dispatch_store.mark_enqueued(recovery)
+    second = prediction_store.claim(command.dispatch_id, command.job_id, command.correlation_id)
+    assert second is not None and second.attempt_id != first.attempt_id
+    with migrated_engine.connect() as connection:
+        assert connection.scalar(select(prediction_jobs.c.status)) == "running"
+        assert connection.scalar(select(job_dispatches.c.dispatch_id)) == command.dispatch_id
+        assert connection.execute(
+            select(prediction_attempts.c.status).order_by(prediction_attempts.c.attempt_number)
+        ).scalars().all() == ["abandoned", "running"]
+
+
+def test_fourth_expired_attempt_is_abandoned_and_job_stops(migrated_engine):
+    command = seed(migrated_engine)
+    current = [NOW]
+    repository = store(migrated_engine, clock=lambda: current[0])
+    for delay in (30, 120, 600):
+        claim = repository.claim(command.dispatch_id, command.job_id, command.correlation_id)
+        assert claim is not None
+        current[0] += timedelta(minutes=15, seconds=delay)
+        assert repository.claim(command.dispatch_id, command.job_id, command.correlation_id) is None
+    fourth = repository.claim(command.dispatch_id, command.job_id, command.correlation_id)
+    assert fourth is not None
+    current[0] += timedelta(minutes=16)
+    dispatch_store = SqlAlchemyDispatchStore(create_session_factory(migrated_engine))
+    assert dispatch_store.claim_due(1, now=current[0]) == ()
+    with migrated_engine.connect() as connection:
+        job = connection.execute(select(prediction_jobs)).one()
+        dispatch = connection.execute(select(job_dispatches)).one()
+        attempts = connection.execute(
+            select(prediction_attempts).order_by(prediction_attempts.c.attempt_number)
+        ).all()
+        assert job.status == "failed"
+        assert job.last_error_code == "lease_expired"
+        assert dispatch.status == "stopped"
+        assert [attempt.attempt_number for attempt in attempts] == [1, 2, 3, 4]
+        assert [attempt.status for attempt in attempts] == ["abandoned"] * 4
 
 
 def test_prediction_runs_with_the_provisioned_worker_role(migrated_engine):
