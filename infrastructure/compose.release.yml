@@ -64,7 +64,7 @@ services:
     command: ["quakestrike-ingestor"]
     environment: *worker-environment
     volumes: *worker-volumes
-    networks: [private-data]
+    networks: [private-data, source-egress]
     depends_on:
       postgres:
         condition: service_healthy
@@ -126,3 +126,6 @@ services:
     restart: "no"
     mem_limit: 512m
     logging: *worker-logging
+
+networks:
+  source-egress:
