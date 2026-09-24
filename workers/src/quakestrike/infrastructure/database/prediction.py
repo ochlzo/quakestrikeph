@@ -130,6 +130,16 @@ class SqlAlchemyPredictionStore:
                 event_time=revision.event_time,
                 features=job.input_snapshot_json,
             )
+            if job.model_release_id != self._configured_release_id:
+                self._finish_failed(
+                    session,
+                    job_id,
+                    attempt_id,
+                    now,
+                    "release_mismatch",
+                    "The prediction job requests a different model release.",
+                )
+                return None
             if (
                 release.input_schema_version != INPUT_SCHEMA_VERSION
                 or release.output_schema_version != OUTPUT_SCHEMA_VERSION

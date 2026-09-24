@@ -50,6 +50,7 @@ def main() -> int:
             "package-model-release",
             "register-model-release",
             "verify-model-release",
+            "reissue-legacy-predictions",
             "poll-now",
             "migrate",
             "health-dispatcher",
@@ -82,6 +83,8 @@ def main() -> int:
         return operator_setup.register_model_release()
     if args.command == "verify-model-release":
         return operator_setup.verify_model_release()
+    if args.command == "reissue-legacy-predictions":
+        return operator_setup.reissue_legacy_predictions()
     if args.command == "poll-now":
         return operator_runtime.immediate_poll()
     if args.command in {"health-dispatcher", "health-ingestor", "health-prediction", "health-beat"}:

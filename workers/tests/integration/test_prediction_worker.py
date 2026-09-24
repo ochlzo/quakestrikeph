@@ -323,19 +323,28 @@ def test_backfill_and_expired_forecasts_create_no_alert(migrated_engine, trigger
         assert connection.scalar(select(func.count()).select_from(job_dispatches)) == 1
 
 
-def test_forecast_from_another_model_release_creates_no_alert(migrated_engine):
+def test_job_for_another_model_release_cannot_create_forecast(migrated_engine):
     command = seed(migrated_engine)
-    assert (
-        handle_prediction_command(
-            command.to_message(),
-            store=store(migrated_engine, configured_release_id=uuid4()),
-            model=DeterministicTestModel(),
-            logger=logging.getLogger(__name__),
+    configured_release_id = uuid4()
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            insert(model_releases).values(
+                model_release_id=configured_release_id,
+                version_label="Other compatible release",
+                artifact_manifest_uri="other/manifest.json",
+                artifact_manifest_hash="b" * 64,
+                input_schema_version=INPUT_SCHEMA_VERSION,
+                output_schema_version=OUTPUT_SCHEMA_VERSION,
+            )
         )
-        == "succeeded"
+    handle_prediction_command(
+        command.to_message(),
+        store=store(migrated_engine, configured_release_id=configured_release_id),
+        model=DeterministicTestModel(),
+        logger=logging.getLogger(__name__),
     )
     with migrated_engine.connect() as connection:
-        assert connection.scalar(select(func.count()).select_from(forecasts)) == 1
+        assert connection.scalar(select(func.count()).select_from(forecasts)) == 0
         assert connection.scalar(select(func.count()).select_from(alert_jobs)) == 0
 
 

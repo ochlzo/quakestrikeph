@@ -14,6 +14,10 @@ from quakestrike.infrastructure.database.engine import (
 )
 from quakestrike.infrastructure.database.migration_state import AlembicMigrationStateGate
 from quakestrike.infrastructure.database.model_releases import SqlAlchemyModelReleaseRegistry
+from quakestrike.infrastructure.database.prediction_backlog import (
+    SqlAlchemyPredictionBacklogReissuer,
+    UnsafePredictionBacklog,
+)
 from quakestrike.infrastructure.models.packaging import package_selected_release
 from quakestrike.infrastructure.models.release_manifest import (
     SELECTED_RELEASE_MANIFEST_URI,
@@ -108,3 +112,39 @@ def verify_model_release() -> int:
             }
         )
         return 2
+
+
+def reissue_legacy_predictions() -> int:
+    """Run the reviewed SEIS 1.0 backlog transition before worker startup."""
+
+    try:
+        settings = Settings()
+        migration = AlembicMigrationStateGate(settings).check()
+        release = ModelReleaseStartupGate(settings).check()
+        if not migration.ready or not release.ready:
+            print_json(
+                {
+                    "action": "reissue-legacy-predictions",
+                    "status": "not_ready",
+                    "reason": "Migration or selected model release verification failed.",
+                }
+            )
+            return 2
+        engine = create_database_engine(settings.database_url)
+        try:
+            counts = SqlAlchemyPredictionBacklogReissuer(
+                create_session_factory(engine), target_release_id=settings.model_release_id
+            ).run()
+        finally:
+            engine.dispose()
+    except (UnsafePredictionBacklog, SQLAlchemyError, ValueError):
+        print_json(
+            {
+                "action": "reissue-legacy-predictions",
+                "status": "rejected",
+                "reason": "Legacy work is active or inconsistent; no jobs were reissued.",
+            }
+        )
+        return 2
+    print_json({"action": "reissue-legacy-predictions", "status": "completed", **counts})
+    return 0

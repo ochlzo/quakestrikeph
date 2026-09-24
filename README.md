@@ -132,11 +132,20 @@ or import history for you.
 
 ### 5. Initialize the database and model release
 
+For an existing database, stop all work producers and consumers before these
+release steps. Let in-flight prediction attempts finish before stopping the
+workers when possible:
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile beat --profile prediction stop beat data-ingestor dispatcher prediction-worker
+```
+
 ```powershell
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike migrate
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml exec -T postgres sh /opt/quakestrike/provision-roles.sh grant-worker
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike register-model-release
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike verify-model-release
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike reissue-legacy-predictions
 ```
 
 Registration verifies the packaged model before storing its immutable release
@@ -146,6 +155,22 @@ role, which can read model releases but cannot change the registry or schema.
 On an existing local database, role provisioning transfers only the known
 worker tables and enum types to the migration role so later migrations can run.
 An exact registration repeat is safe.
+
+The reissue command handles durable `SEIS 1.0` prediction work that cannot
+produce a v2 forecast. It creates new `SEIS 1.0.1` jobs and dispatches from
+preserved input snapshots, closes eligible old jobs and dispatches, and audits
+the linked IDs. It accepts old `pending` and `retry_wait` jobs, and old
+`failed` jobs with `unsupported_schema` or `release_mismatch` errors. It
+refuses a running job or active attempt; let that work settle and rerun the
+command. It skips successful, cancelled, and unrelated failed work. Reruns are
+safe, but a conflicting existing replacement fails for investigation. Check
+that the command prints `"status": "completed"` and inspect its `reissued`
+and `reused` counts before starting Dispatcher or Prediction Worker. Each
+reissue cancels the old job with `reissued_for_release` and writes a
+`prediction_backlog_reissued` audit linking the old and new job and dispatch
+IDs. No alert is sent by reissue itself. See
+[ADR 0028](docs/adr/0028-legacy-prediction-backlog-reissue.md) for the
+transaction and identity rules.
 
 ### 6. Import history and check readiness
 
