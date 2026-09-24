@@ -1,0 +1,9 @@
+[Unit]
+Description=Back up QuakeStrike PostgreSQL to Backblaze B2
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+TimeoutStartSec=0
+ExecStart=/usr/local/libexec/quakestrike/postgres-backup.sh

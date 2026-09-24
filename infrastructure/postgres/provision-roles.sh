@@ -26,7 +26,7 @@ WHERE schemaname = 'public'
     'earthquake_events', 'earthquake_bulletin_event_identities',
     'earthquake_event_revisions', 'model_releases', 'prediction_jobs',
     'prediction_attempts', 'forecasts', 'alert_jobs', 'audit_logs',
-    'job_dispatches'
+    'job_dispatches', 'maintenance_runs'
   ) \gexec
 SELECT format('ALTER TYPE %I.%I OWNER TO quakestrike_migration', n.nspname, t.typname)
 FROM pg_type AS t
@@ -36,7 +36,7 @@ WHERE n.nspname = 'public'
   AND pg_get_userbyid(t.typowner) <> 'quakestrike_migration'
   AND t.typname IN (
     'ingestion_run_status', 'prediction_job_status', 'dispatch_status',
-    'prediction_attempt_status', 'alert_job_status'
+    'prediction_attempt_status', 'alert_job_status', 'maintenance_run_status'
   ) \gexec
 SQL
     then
@@ -90,8 +90,29 @@ SQL
       exit 2
     fi
     ;;
+  create-maintenance)
+    if psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set ON_ERROR_STOP=1 >/dev/null 2>&1 <<'SQL'
+\getenv database_name POSTGRES_DB
+SELECT 'CREATE ROLE quakestrike_backup LOGIN'
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'quakestrike_backup') \gexec
+SELECT 'CREATE ROLE quakestrike_maintenance LOGIN'
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'quakestrike_maintenance') \gexec
+ALTER ROLE quakestrike_backup NOSUPERUSER NOCREATEROLE NOCREATEDB NOREPLICATION NOBYPASSRLS PASSWORD NULL;
+ALTER ROLE quakestrike_maintenance NOSUPERUSER NOCREATEROLE NOCREATEDB NOREPLICATION NOBYPASSRLS PASSWORD NULL;
+GRANT CONNECT ON DATABASE :"database_name" TO quakestrike_backup, quakestrike_maintenance;
+GRANT pg_read_all_data TO quakestrike_backup;
+GRANT USAGE ON SCHEMA public TO quakestrike_maintenance;
+GRANT SELECT, INSERT, UPDATE ON maintenance_runs TO quakestrike_maintenance;
+SQL
+    then
+      echo '{"action":"create-maintenance","status":"ready"}'
+    else
+      echo '{"action":"create-maintenance","status":"failed","reason":"role_provisioning_failed"}'
+      exit 2
+    fi
+    ;;
   *)
-    echo 'Usage: provision-roles.sh create|grant-worker|create-observer' >&2
+    echo 'Usage: provision-roles.sh create|grant-worker|create-observer|create-maintenance' >&2
     exit 2
     ;;
 esac

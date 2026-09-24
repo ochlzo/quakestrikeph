@@ -95,7 +95,8 @@ belongs to this VPS database and cannot be copied from another machine.
 
 These are operator steps because an empty database cannot become ready by
 starting containers. A database backup and restore plan is also needed before
-using this as a production service. The workflow never migrates the database,
+using this as a production service. See [PostgreSQL backups](postgres-backups.md)
+for the B2 setup and isolated restore test. The workflow never migrates the database,
 reimports history, or changes the model registry. A code push containing a new
 unapplied migration fails the pre-deploy `startup-check`; apply that migration
 through the reviewed operator procedure before retrying deployment.

@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily QuakeStrike PostgreSQL backup
+
+[Timer]
+OnCalendar=*-*-* 19:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
