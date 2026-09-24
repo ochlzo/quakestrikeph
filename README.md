@@ -120,6 +120,7 @@ edit the collected snapshot.
 ```powershell
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml up -d --wait postgres redis
 & infrastructure/scripts/build-worker-image.ps1
+& infrastructure/scripts/build-prediction-image.ps1
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml exec -T postgres sh /opt/quakestrike/provision-roles.sh create
 ```
 
@@ -187,16 +188,21 @@ UTC wall-clock boundary of `POLL_INTERVAL_SECONDS` (five minutes by default).
 It does not poll on startup or replay missed boundaries. Beat has no automatic
 restart policy; enable it explicitly again after a stack restart.
 
-For an end-to-end prediction test, start the optional Prediction Worker before
-creating a poll:
+To consume prediction work, start the separate Prediction image before creating
+a poll. It loads and verifies the `SEIS 1.0.1` bundle before consuming the queue.
+The model files remain on the read-only artifact mount.
 
 ```powershell
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction-test up -d --wait prediction-worker
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction up -d --wait prediction-worker
 ```
 
-This profile consumes the `prediction` queue using issue #16's deterministic
-test adapter and writes forecasts. It is disabled by default; issue #17 will
-replace the adapter with the verified SEIS 1.0.1 runtime.
+For an isolated database smoke test with the real ignored bundle, run:
+
+```powershell
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test redis-test
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile prediction-smoke run --build --rm prediction-smoke-runner pytest --config-file workers/pyproject.toml workers/tests/integration/test_prediction_worker.py -k test_real_seis_bundle_persists_known_forecast
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v
+```
 
 For one early poll, use the separate operator command. It first checks both
 consumer health states and then checks readiness before creating or reusing a
@@ -242,8 +248,7 @@ not a replacement for durable run and dispatch records.
 
 The local enablement execution record is in
 [the issue #13 report](docs/reports/issue-13-local-enablement-2026-09-19.md).
-Prediction inference, forecasts, alerts, public APIs, web apps, and production
-monitoring remain deferred.
+Automatic alerts, public APIs, web apps, and production monitoring remain deferred.
 
 ### 8. Stop local services
 

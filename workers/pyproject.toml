@@ -27,6 +27,12 @@ quakestrike-dispatcher = "quakestrike.scheduler.dispatcher:main"
 quakestrike-ingestor = "quakestrike.data_ingestor.worker:main"
 quakestrike-prediction = "quakestrike.prediction_worker.worker:main"
 
+[project.optional-dependencies]
+prediction = [
+    "catboost>=1.2.10,<2",
+    "lightgbm>=4.6,<5",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=9,<10",

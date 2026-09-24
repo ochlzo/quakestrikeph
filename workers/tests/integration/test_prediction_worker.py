@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import logging
 import os
 import subprocess
@@ -36,9 +37,15 @@ from quakestrike.infrastructure.database.tables import (
     prediction_jobs,
 )
 from quakestrike.infrastructure.models.deterministic_test import DeterministicTestModel
+from quakestrike.infrastructure.models.release_manifest import (
+    SELECTED_RELEASE_MANIFEST_URI,
+    load_verified_release_manifest,
+)
+from quakestrike.infrastructure.models.seis import SeisModel
 from quakestrike.infrastructure.queues.contracts import PredictionCommandV1
 from quakestrike.infrastructure.queues.prediction_publisher import CeleryPredictionPublisher
 from quakestrike.infrastructure.settings import Settings
+from quakestrike.infrastructure.startup import ModelReleaseStartupGate
 from quakestrike.prediction_worker.worker import create_prediction_app, handle_prediction_command
 
 pytestmark = pytest.mark.integration
@@ -57,10 +64,12 @@ SNAPSHOT = {
 }
 
 
-def seed(migrated_engine):
+def seed(migrated_engine, *, selected_release=None):
     run_id, event_id, revision_id, release_id, job_id, dispatch_id, correlation_id = (
         uuid4() for _ in range(7)
     )
+    if selected_release is not None:
+        release_id = selected_release.release_id
     with migrated_engine.begin() as connection:
         connection.execute(
             insert(ingestion_runs).values(
@@ -107,8 +116,10 @@ def seed(migrated_engine):
             insert(model_releases).values(
                 model_release_id=release_id,
                 version_label="SEIS 1.0.1",
-                artifact_manifest_uri="model-artifacts/seis-1.0.1/manifest.json",
-                artifact_manifest_hash="a" * 64,
+                artifact_manifest_uri="seis-1.0.1/manifest.json",
+                artifact_manifest_hash=(
+                    selected_release.manifest_hash if selected_release is not None else "a" * 64
+                ),
                 input_schema_version=INPUT_SCHEMA_VERSION,
                 output_schema_version=OUTPUT_SCHEMA_VERSION,
             )
@@ -171,6 +182,46 @@ def test_prediction_command_completes_once_and_stops_dispatch(migrated_engine):
         assert connection.scalar(select(func.count()).select_from(audit_logs)) == 1
 
 
+def test_real_seis_bundle_persists_known_forecast(migrated_engine):
+    artifact_directory = Path(os.environ.get("MODEL_ARTIFACT_DIRECTORY", "model-artifacts"))
+    if not (artifact_directory / SELECTED_RELEASE_MANIFEST_URI).is_file():
+        pytest.skip("The ignored SEIS 1.0.1 bundle is unavailable.")
+    if any(importlib.util.find_spec(name) is None for name in ("catboost", "lightgbm")):
+        pytest.skip("The optional SEIS native dependencies are unavailable.")
+    release = load_verified_release_manifest(
+        artifact_directory, SELECTED_RELEASE_MANIFEST_URI, require_selected_policy=True
+    )
+    command = seed(migrated_engine, selected_release=release)
+    settings = Settings(
+        _env_file=None,
+        database_url=os.environ["TEST_DATABASE_URL"],
+        redis_url=os.environ["TEST_REDIS_URL"],
+        phivolcs_catalog_url="https://example.invalid/catalog",
+        model_release_id=release.release_id,
+        model_artifact_directory=artifact_directory,
+    )
+    assert ModelReleaseStartupGate(settings).check().ready
+    model = SeisModel(artifact_directory, release.release_id)
+    assert (
+        handle_prediction_command(
+            command.to_message(),
+            store=store(migrated_engine),
+            model=model,
+            logger=logging.getLogger(__name__),
+        )
+        == "succeeded"
+    )
+    with migrated_engine.connect() as connection:
+        forecast = connection.execute(select(forecasts)).one()
+        assert forecast.probability_m1_plus_24h == pytest.approx(0.39094539947013085)
+        assert forecast.expected_m1_plus_count_24h == pytest.approx(0.7486037220152986)
+        assert forecast.maximum_magnitude_q05_24h == pytest.approx(1.8372190888812674)
+        assert forecast.maximum_magnitude_q50_24h == pytest.approx(2.815279071307258)
+        assert forecast.maximum_magnitude_q95_24h == pytest.approx(4.97934202670072)
+        assert forecast.activity_radius_median_km_24h == pytest.approx(11.585661189276763)
+        assert connection.scalar(select(prediction_jobs.c.status)) == "succeeded"
+
+
 def test_published_v1_command_is_consumed_by_a_running_worker(migrated_engine):
     command = seed(migrated_engine)
     settings = Settings(
@@ -180,7 +231,7 @@ def test_published_v1_command_is_consumed_by_a_running_worker(migrated_engine):
         phivolcs_catalog_url="https://example.invalid/catalog",
         model_release_id=uuid4(),
     )
-    app = create_prediction_app(settings)
+    app = create_prediction_app(settings, command_handler=lambda _: "unused")
     redis_client = Redis.from_url(settings.redis_url)
     redis_client.delete("prediction")
     environment = os.environ | {
@@ -195,7 +246,9 @@ def test_published_v1_command_is_consumed_by_a_running_worker(migrated_engine):
             "-c",
             "from quakestrike.infrastructure.settings import Settings; "
             "from quakestrike.prediction_worker.worker import run_prediction; "
-            "run_prediction(Settings(_env_file=None))",
+            "from quakestrike.infrastructure.models.deterministic_test "
+            "import DeterministicTestModel; "
+            "run_prediction(Settings(_env_file=None), model=DeterministicTestModel())",
         ],
         env=environment,
         stdout=subprocess.PIPE,

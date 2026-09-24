@@ -175,6 +175,27 @@ def test_worker_health_rejects_missing_migration(monkeypatch, capsys) -> None:
     assert json.loads(capsys.readouterr().out)["status"] == "unhealthy"
 
 
+def test_prediction_health_fails_when_release_verification_fails(monkeypatch, capsys) -> None:
+    ready = SimpleNamespace(check=lambda: SimpleNamespace(ready=True))
+    failed = SimpleNamespace(check=lambda: SimpleNamespace(ready=False))
+    monkeypatch.setattr(operator_runtime, "Settings", lambda: object())
+    for name in (
+        "PostgresConnectivityHealthCheck",
+        "RedisConnectivityHealthCheck",
+        "AlembicMigrationStateGate",
+    ):
+        monkeypatch.setattr(operator_runtime, name, lambda _: ready)
+    monkeypatch.setattr(operator_runtime, "ModelReleaseStartupGate", lambda _: failed)
+    monkeypatch.setattr(
+        operator_runtime,
+        "prediction_consuming",
+        lambda *_, **__: (_ for _ in ()).throw(AssertionError("must not claim work")),
+    )
+
+    assert operator_runtime.worker_health("health-prediction") == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "unhealthy"
+
+
 def test_compose_orders_consumers_before_healthy_beat() -> None:
     docker = shutil.which("docker")
     if docker is None:

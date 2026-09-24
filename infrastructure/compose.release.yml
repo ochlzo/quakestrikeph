@@ -81,8 +81,8 @@ services:
     logging: *worker-logging
 
   prediction-worker:
-    profiles: ["prediction-test"]
-    image: quakestrike-workers:${WORKER_IMAGE_TAG:?Set WORKER_IMAGE_TAG to the tested Git commit SHA}
+    profiles: ["prediction"]
+    image: quakestrike-prediction:${WORKER_IMAGE_TAG:?Set WORKER_IMAGE_TAG to the tested Git commit SHA}
     command: ["quakestrike-prediction"]
     environment: *worker-environment
     volumes: *worker-volumes
