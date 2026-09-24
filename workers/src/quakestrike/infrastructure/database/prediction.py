@@ -6,11 +6,11 @@ from collections.abc import Callable
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import insert, select, update
 
 from quakestrike.application.prediction import PredictionClaim, StalePredictionAttempt
+from quakestrike.domain.alerts import AutomaticAlertCandidate, create_automatic_alert_snapshots
 from quakestrike.domain.features import INPUT_SCHEMA_VERSION, create_feature_snapshot
 from quakestrike.domain.prediction import ForecastOutput
 from quakestrike.infrastructure.database.engine import SessionFactory
@@ -35,12 +35,14 @@ class SqlAlchemyPredictionStore:
         self,
         session_factory: SessionFactory,
         *,
+        configured_release_id: UUID,
         lease_seconds: int = 900,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         if lease_seconds <= 0:
             raise ValueError("Prediction lease must be positive.")
         self._session_factory = session_factory
+        self._configured_release_id = configured_release_id
         self._lease = timedelta(seconds=lease_seconds)
         self._clock = clock
 
@@ -263,39 +265,32 @@ class SqlAlchemyPredictionStore:
                     )
                 )
                 alert_now = self._clock()
+                snapshots = create_automatic_alert_snapshots(
+                    AutomaticAlertCandidate(
+                        job_id=claim.job_id,
+                        job_release_id=job.model_release_id,
+                        configured_release_id=self._configured_release_id,
+                        revision_id=revision.event_revision_id,
+                        latest_revision_id=latest_revision_id,
+                        latest_successful_job_id=latest_successful_job_id,
+                        trigger_type=trigger_type,
+                        event_superseded=event.superseded_by_event_id is not None,
+                        magnitude=revision.magnitude,
+                        event_time=revision.event_time,
+                        window_end=output.window_end,
+                        now=alert_now,
+                    )
+                )
                 alert_job_id = None
-                if (
-                    event.superseded_by_event_id is None
-                    and latest_revision_id == revision.event_revision_id
-                    and latest_successful_job_id == claim.job_id
-                    and trigger_type in {"scheduled", "manual"}
-                    and revision.magnitude >= 1
-                    and alert_now < output.window_end
-                ):
+                if snapshots is not None:
                     alert_job_id = uuid4()
-                    observed_at = revision.event_time.astimezone(ZoneInfo("Asia/Manila"))
-                    magnitude = revision.magnitude.normalize()
                     session.execute(
                         insert(alert_jobs).values(
                             alert_job_id=alert_job_id,
                             forecast_id=forecast_id,
                             requested_at=alert_now,
-                            message_snapshot=(
-                                f"QuakeStrike PH: M{magnitude} earthquake observed "
-                                f"{observed_at:%Y-%m-%d %H:%M} PHT. "
-                                "Check PHIVOLCS for official updates."
-                            ),
-                            recipient_policy_snapshot={
-                                "version": "automatic_sms_v1",
-                                "observed_anchor_magnitude": float(revision.magnitude),
-                                "account_status": "active",
-                                "verified_mobile_required": True,
-                                "sms_enabled_required": True,
-                                "trigger_rule": (
-                                    "observed_anchor_magnitude >= "
-                                    "user.alert_trigger_magnitude"
-                                ),
-                            },
+                            message_snapshot=snapshots.message,
+                            recipient_policy_snapshot=snapshots.recipient_policy,
                             expires_at=output.window_end,
                             correlation_id=job.correlation_id,
                         )

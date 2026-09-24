@@ -151,8 +151,15 @@ def seed(migrated_engine, *, selected_release=None, trigger_type="manual"):
     )
 
 
-def store(migrated_engine, clock=lambda: NOW):
-    return SqlAlchemyPredictionStore(create_session_factory(migrated_engine), clock=clock)
+def store(migrated_engine, clock=lambda: NOW, *, configured_release_id=None):
+    if configured_release_id is None:
+        with migrated_engine.connect() as connection:
+            configured_release_id = connection.scalar(select(model_releases.c.model_release_id))
+    return SqlAlchemyPredictionStore(
+        create_session_factory(migrated_engine),
+        configured_release_id=configured_release_id,
+        clock=clock,
+    )
 
 
 def test_prediction_command_completes_once_and_stops_dispatch(migrated_engine):
@@ -221,6 +228,22 @@ def test_backfill_and_expired_forecasts_create_no_alert(migrated_engine, trigger
         assert connection.scalar(select(func.count()).select_from(forecasts)) == 1
         assert connection.scalar(select(func.count()).select_from(alert_jobs)) == 0
         assert connection.scalar(select(func.count()).select_from(job_dispatches)) == 1
+
+
+def test_forecast_from_another_model_release_creates_no_alert(migrated_engine):
+    command = seed(migrated_engine)
+    assert (
+        handle_prediction_command(
+            command.to_message(),
+            store=store(migrated_engine, configured_release_id=uuid4()),
+            model=DeterministicTestModel(),
+            logger=logging.getLogger(__name__),
+        )
+        == "succeeded"
+    )
+    with migrated_engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(forecasts)) == 1
+        assert connection.scalar(select(func.count()).select_from(alert_jobs)) == 0
 
 
 def test_historical_revision_creates_no_alert(migrated_engine):
@@ -328,12 +351,14 @@ def test_real_seis_bundle_persists_known_forecast(migrated_engine):
 
 def test_published_v1_command_is_consumed_by_a_running_worker(migrated_engine):
     command = seed(migrated_engine)
+    with migrated_engine.connect() as connection:
+        release_id = connection.scalar(select(model_releases.c.model_release_id))
     settings = Settings(
         _env_file=None,
         database_url=os.environ["TEST_DATABASE_URL"],
         redis_url=os.environ["TEST_REDIS_URL"],
         phivolcs_catalog_url="https://example.invalid/catalog",
-        model_release_id=uuid4(),
+        model_release_id=release_id,
     )
     app = create_prediction_app(settings, command_handler=lambda _: "unused")
     redis_client = Redis.from_url(settings.redis_url)
@@ -437,6 +462,8 @@ def test_expired_attempt_is_abandoned_and_stale_completion_is_audited(migrated_e
 
 def test_prediction_runs_with_the_provisioned_worker_role(migrated_engine):
     command = seed(migrated_engine)
+    with migrated_engine.connect() as connection:
+        release_id = connection.scalar(select(model_releases.c.model_release_id))
     script = (
         Path(__file__).resolve().parents[3] / "infrastructure/postgres/provision-roles.sh"
     ).read_text(encoding="utf-8")
@@ -459,7 +486,7 @@ def test_prediction_runs_with_the_provisioned_worker_role(migrated_engine):
             cursor.execute("SET ROLE quakestrike_worker")
 
     try:
-        repository = store(worker_engine)
+        repository = store(worker_engine, configured_release_id=release_id)
         assert (
             handle_prediction_command(
                 command.to_message(),
