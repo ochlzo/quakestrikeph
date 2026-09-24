@@ -29,21 +29,47 @@ test -r "$RESTIC_PASSWORD_FILE"
 exec 9>/run/quakestrike-postgres-backup.lock
 flock -w 7200 9 || { echo 'Timed out waiting for another backup or restore test' >&2; exit 1; }
 
+compose=(docker compose --env-file "$repo_root/.env" -f "$repo_root/infrastructure/compose.yml")
+maintenance_database_name=$("${compose[@]}" config --format json | python3 -c \
+  'import json,sys; print(json.load(sys.stdin)["services"]["postgres"]["environment"]["POSTGRES_DB"])')
+# shellcheck source=maintenance-run.sh
+source "$(dirname "$0")/maintenance-run.sh"
 restored=$(mktemp -d /var/tmp/quakestrike-restore.XXXXXXXX)
 container="quakestrike-restore-test-$$"
 cleanup() {
+  local result=$?
+  if (( result != 0 )); then
+    maintenance_end failed '' '' '' '' 'See systemd journal for failed command'
+  fi
   docker rm -fv "$container" > /dev/null 2>&1 || true
   rm -rf -- "$restored"
+  exit "$result"
 }
 trap cleanup EXIT
 
-restic restore latest --tag quakestrike-postgres --target "$restored"
+snapshot_id=$(restic snapshots --json --tag quakestrike-postgres | python3 -c \
+  'import json,sys; rows=json.load(sys.stdin); print(max(rows, key=lambda row: row["time"])["id"])')
+if backup_run_id=$(maintenance_psql -v snapshot_ref="restic snapshot:$snapshot_id" <<'SQL'
+SELECT maintenance_run_id FROM maintenance_runs
+WHERE operation_type = 'backup' AND status = 'succeeded'
+  AND artifact_reference = :'snapshot_ref'
+ORDER BY started_at DESC LIMIT 1;
+SQL
+); then
+  if [[ -z $backup_run_id ]]; then
+    echo 'Snapshot predates maintenance records; recording restore in systemd journal' >&2
+  fi
+else
+  backup_run_id=
+  echo 'Backup record unavailable; recording restore in systemd journal' >&2
+fi
+maintenance_begin restore_test "restic snapshot:$snapshot_id" "$backup_run_id"
+restic restore "$snapshot_id" --target "$restored"
 dump_file=$(find "$restored" -type f -name database.dump -print -quit)
 test -n "$dump_file"
 backup_dir=${dump_file%/*}
 (cd "$backup_dir" && sha256sum --check SHA256SUMS)
 
-compose=(docker compose --env-file "$repo_root/.env" -f "$repo_root/infrastructure/compose.yml")
 postgres_image=$("${compose[@]}" images -q postgres)
 test -n "$postgres_image"
 
@@ -78,8 +104,13 @@ docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d "$database_name"
 docker exec -i "$container" pg_restore --exit-on-error -U postgres \
   --section=data --section=post-data --dbname="$database_name" \
   < "$backup_dir/database.dump"
-docker exec "$container" psql -v ON_ERROR_STOP=1 -At -U postgres \
+event_count=$(docker exec "$container" psql -v ON_ERROR_STOP=1 -At -U postgres \
   -d "$database_name" \
-  -c 'SELECT count(*) FROM earthquake_events'
+  -c 'SELECT count(*) FROM earthquake_events')
+maintenance_end succeeded "restic snapshot:$snapshot_id" '' "$backup_run_id" \
+  "Checksums and isolated PostgreSQL restore passed; earthquake_events=$event_count" '' "$event_count"
 
-echo 'Isolated PostgreSQL restore test succeeded'
+echo "Isolated PostgreSQL restore test succeeded; earthquake_events=$event_count"
+if (( ${maintenance_logging_failed:-0} )); then
+  exit 1
+fi

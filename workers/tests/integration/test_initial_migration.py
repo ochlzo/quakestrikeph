@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from uuid import uuid4
+
+import pytest
 from alembic import command
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import IntegrityError
 
 from quakestrike.infrastructure.database.migration_state import AlembicMigrationStateGate
 from quakestrike.infrastructure.settings import Settings
@@ -24,6 +28,7 @@ EXPECTED_TABLES = {
     "forecasts",
     "alert_jobs",
     "audit_logs",
+    "maintenance_runs",
 }
 EXPECTED_ENUMS = {
     "ingestion_run_status",
@@ -31,6 +36,7 @@ EXPECTED_ENUMS = {
     "dispatch_status",
     "prediction_attempt_status",
     "alert_job_status",
+    "maintenance_run_status",
 }
 
 
@@ -110,7 +116,7 @@ def test_migration_gate_is_ready_at_head_and_read_only_when_revision_is_stale(
     settings = _settings(str(migrated_engine.url))
     ready = AlembicMigrationStateGate(settings, engine=migrated_engine).check()
     assert ready.ready is True
-    assert ready.details["current_revision"] == "20260923_07"
+    assert ready.details["current_revision"] == "20260924_08"
 
     with migrated_engine.begin() as connection:
         connection.execute(text("UPDATE alembic_version SET version_num = 'stale_revision'"))
@@ -121,4 +127,49 @@ def test_migration_gate_is_ready_at_head_and_read_only_when_revision_is_stale(
             connection.scalar(text("SELECT version_num FROM alembic_version")) == "stale_revision"
         )
     with migrated_engine.begin() as connection:
-        connection.execute(text("UPDATE alembic_version SET version_num = '20260923_07'"))
+        connection.execute(text("UPDATE alembic_version SET version_num = '20260924_08'"))
+
+
+def test_maintenance_evidence_requires_artifact_and_restore_link(migrated_engine) -> None:
+    backup_id = uuid4()
+    restore_id = uuid4()
+    with pytest.raises(IntegrityError), migrated_engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO maintenance_runs
+                (maintenance_run_id, operation_type, status, target, correlation_id, finished_at)
+                VALUES (:id, 'backup', 'succeeded', 'b2', :id, now())"""),
+            {"id": backup_id},
+        )
+
+    with pytest.raises(IntegrityError), migrated_engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO maintenance_runs
+                (maintenance_run_id, operation_type, status, target, correlation_id,
+                 finished_at, artifact_reference)
+                VALUES (:id, 'backup', 'succeeded', 'b2', :id, now(), :ref)"""),
+            {"id": backup_id, "ref": "restic snapshot:abc"},
+        )
+
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO maintenance_runs
+                (maintenance_run_id, operation_type, status, target, correlation_id,
+                 finished_at, artifact_reference, artifact_checksum)
+                VALUES (:id, 'backup', 'succeeded', 'b2', :id, now(), :ref, :checksum)"""),
+            {"id": backup_id, "ref": "restic snapshot:abc", "checksum": "a" * 64},
+        )
+        connection.execute(
+            text("""INSERT INTO maintenance_runs
+                (maintenance_run_id, operation_type, status, target, correlation_id,
+                 related_backup_run_id, finished_at, verification_summary)
+                VALUES (:id, 'restore_test', 'succeeded', 'isolated', :id,
+                        :backup_id, now(), 'checksums and rows verified')"""),
+            {"id": restore_id, "backup_id": backup_id},
+        )
+        assert connection.scalar(text("SELECT count(*) FROM maintenance_runs")) == 2
+        assert "public.digest(" in connection.scalar(
+            text(
+                "SELECT pg_get_functiondef("
+                "'quakestrike_prediction_input_snapshot_sha256(jsonb)'::regprocedure)"
+            )
+        )
