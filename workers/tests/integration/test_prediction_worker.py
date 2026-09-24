@@ -375,6 +375,87 @@ def test_historical_revision_creates_no_alert(migrated_engine):
         assert connection.scalar(select(func.count()).select_from(alert_jobs)) == 0
 
 
+def test_later_revision_forecast_supersedes_prior_forecast(migrated_engine):
+    first = seed(migrated_engine)
+    repository = store(migrated_engine)
+    assert (
+        handle_prediction_command(
+            first.to_message(),
+            store=repository,
+            model=DeterministicTestModel(),
+            logger=logging.getLogger(__name__),
+        )
+        == "succeeded"
+    )
+    second_job_id, second_dispatch_id = uuid4(), uuid4()
+    with migrated_engine.begin() as connection:
+        first_forecast = connection.execute(select(forecasts)).one()
+        first_job = connection.execute(select(prediction_jobs)).one()
+        first_revision = connection.execute(select(earthquake_event_revisions)).one()
+        second_revision_id = uuid4()
+        connection.execute(
+            insert(earthquake_bulletin_event_identities).values(
+                source_bulletin_id="2026_0923_1201_B1", event_id=first_revision.event_id
+            )
+        )
+        connection.execute(
+            insert(earthquake_event_revisions).values(
+                **(
+                    dict(first_revision._mapping)
+                    | {
+                        "event_revision_id": second_revision_id,
+                        "revision_number": 2,
+                        "source_bulletin_id": "2026_0923_1201_B1",
+                        "source_event_group_id": "2026_0923_1201",
+                    }
+                )
+            )
+        )
+        connection.execute(
+            insert(prediction_jobs).values(
+                job_id=second_job_id,
+                event_revision_id=second_revision_id,
+                model_release_id=first_job.model_release_id,
+                input_snapshot_hash=first_job.input_snapshot_hash,
+                input_snapshot_json=first_job.input_snapshot_json,
+                idempotency_key=str(second_job_id),
+                correlation_id=first.correlation_id,
+            )
+        )
+        connection.execute(
+            insert(job_dispatches).values(
+                dispatch_id=second_dispatch_id,
+                prediction_job_id=second_job_id,
+                status="enqueued",
+                next_dispatch_at=None,
+                last_dispatched_at=NOW,
+            )
+        )
+    second = PredictionCommandV1(
+        dispatch_id=second_dispatch_id, job_id=second_job_id, correlation_id=first.correlation_id
+    )
+    assert (
+        handle_prediction_command(
+            second.to_message(),
+            store=repository,
+            model=DeterministicTestModel(),
+            logger=logging.getLogger(__name__),
+        )
+        == "succeeded"
+    )
+    with migrated_engine.connect() as connection:
+        prior = connection.execute(
+            select(forecasts).where(forecasts.c.job_id == first.job_id)
+        ).one()
+        current = connection.execute(
+            select(forecasts).where(forecasts.c.job_id == second.job_id)
+        ).one()
+        assert prior.forecast_id == first_forecast.forecast_id
+        assert prior.supersedes_forecast_id is None
+        assert current.supersedes_forecast_id == prior.forecast_id
+        assert connection.scalar(select(func.count()).select_from(alert_jobs)) == 2
+
+
 def test_alert_dispatch_failure_rolls_back_forecast_completion(migrated_engine):
     command = seed(migrated_engine)
     repository = store(migrated_engine)

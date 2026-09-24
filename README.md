@@ -214,6 +214,58 @@ worker uses a 300-second soft limit and 360-second hard limit by default; set
 child; durable lease recovery retries the same job and dispatch after expiry.
 Watch memory use on the VPS before keeping additional replicas running.
 
+#### Prediction Worker operations
+
+Run these commands from the repository root with the release `.env`. Start one
+replica, or set `--scale prediction-worker=2` for the measured scale-out option:
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction up -d --wait --scale prediction-worker=1 prediction-worker
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction ps prediction-worker dispatcher
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml logs --since 10m --tail 100 prediction-worker dispatcher
+```
+
+`--wait` requires every started replica to be healthy. Each prediction health
+check verifies PostgreSQL, Redis, migrations, the selected release and model
+hashes, the output contract, and consumption of its local queue. Check both
+replicas in `ps` after scaling. For memory on the deployment host, run
+`docker stats` for the prediction containers and compare with the 512 MiB
+per-container limit in `infrastructure/compose.release.yml`.
+
+Stop all prediction replicas for maintenance without deleting PostgreSQL work:
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction stop prediction-worker
+```
+
+Wait for in-flight predictions to finish before a planned stop when possible.
+Stopping a worker during inference leaves its processing attempt leased until
+expiry. The shared Dispatcher and database retain the job and dispatch IDs.
+To resume and requeue eligible durable work, first restore healthy PostgreSQL,
+Redis, Dispatcher, and the verified model bundle, then start the worker again:
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml up -d --wait dispatcher
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction up -d --wait --scale prediction-worker=1 prediction-worker
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml exec postgres psql -U quakestrike -d quakestrike -c "SELECT p.job_id, p.status AS job_status, p.next_attempt_at, p.last_error_code, d.dispatch_id, d.status AS dispatch_status, d.next_dispatch_at, d.last_dispatched_at, f.forecast_id FROM prediction_jobs p JOIN job_dispatches d ON d.prediction_job_id = p.job_id LEFT JOIN forecasts f ON f.job_id = p.job_id ORDER BY p.requested_at DESC LIMIT 20;"
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml logs --since 30m --tail 200 dispatcher prediction-worker
+```
+
+Use your configured `POSTGRES_USER` and `POSTGRES_DB` if different. Dispatcher
+publishes due `pending` dispatches, due processing retries, and work whose
+processing lease expired. It also republishes an `enqueued` prediction that
+remains `pending` for 900 seconds after its last submission, such as when Redis
+lost the command. An expired running attempt is abandoned before its job is
+retried, usually after the 30-second first retry delay. These paths reuse the
+same `job_id` and `dispatch_id`; do not insert replacement rows or publish
+commands by hand. `failed` and `cancelled` jobs are terminal and are not
+automatically requeued. Diagnose their recorded error before any separate,
+reviewed recovery action. Confirm the existing job reaches `succeeded`, its
+dispatch reaches `stopped`, and a forecast exists for that job.
+
+The isolated one-versus-two-replica results and reproduction details are in
+[the prediction benchmark report](docs/benchmarks/prediction-worker-issue-21.md).
+
 For an isolated database smoke test with the real ignored bundle, run:
 
 ```powershell
