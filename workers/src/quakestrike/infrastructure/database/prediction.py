@@ -12,7 +12,7 @@ from sqlalchemy import insert, select, update
 from quakestrike.application.prediction import PredictionClaim, StalePredictionAttempt
 from quakestrike.domain.alerts import AutomaticAlertCandidate, create_automatic_alert_snapshots
 from quakestrike.domain.features import INPUT_SCHEMA_VERSION, create_feature_snapshot
-from quakestrike.domain.prediction import ForecastOutput
+from quakestrike.domain.prediction import PREDICTION_PROCESSING_LEASE_SECONDS, ForecastOutput
 from quakestrike.infrastructure.database.engine import SessionFactory
 from quakestrike.infrastructure.database.tables import (
     alert_jobs,
@@ -37,7 +37,7 @@ class SqlAlchemyPredictionStore:
         session_factory: SessionFactory,
         *,
         configured_release_id: UUID,
-        lease_seconds: int = 900,
+        lease_seconds: int = PREDICTION_PROCESSING_LEASE_SECONDS,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         if lease_seconds <= 0:

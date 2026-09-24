@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
@@ -41,14 +41,23 @@ class PredictionModel(Protocol):
 
 
 class ExecutePrediction:
-    def __init__(self, store: PredictionStore, model: PredictionModel) -> None:
+    def __init__(
+        self,
+        store: PredictionStore,
+        model: PredictionModel,
+        *,
+        on_claim: Callable[[PredictionClaim], None] | None = None,
+    ) -> None:
         self._store = store
         self._model = model
+        self._on_claim = on_claim
 
     def execute(self, dispatch_id: UUID, job_id: UUID, correlation_id: UUID) -> str:
         claim = self._store.claim(dispatch_id, job_id, correlation_id)
         if claim is None:
             return "unclaimed"
+        if self._on_claim is not None:
+            self._on_claim(claim)
         try:
             try:
                 output = compose_forecast(self._model.predict(claim.features), claim.event_time)

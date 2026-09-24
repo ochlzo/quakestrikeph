@@ -84,7 +84,10 @@ services:
     profiles: ["prediction"]
     image: quakestrike-prediction:${WORKER_IMAGE_TAG:?Set WORKER_IMAGE_TAG to the tested Git commit SHA}
     command: ["quakestrike-prediction"]
-    environment: *worker-environment
+    environment:
+      <<: *worker-environment
+      PREDICTION_SOFT_TIME_LIMIT_SECONDS: ${PREDICTION_SOFT_TIME_LIMIT_SECONDS:-300}
+      PREDICTION_HARD_TIME_LIMIT_SECONDS: ${PREDICTION_HARD_TIME_LIMIT_SECONDS:-360}
     volumes: *worker-volumes
     networks: [private-data]
     depends_on:

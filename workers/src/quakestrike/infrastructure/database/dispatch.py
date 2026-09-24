@@ -16,6 +16,7 @@ from quakestrike.application.dispatch import (
     IngestionDispatch,
     PredictionDispatch,
 )
+from quakestrike.domain.prediction import PREDICTION_PROCESSING_LEASE_SECONDS
 from quakestrike.infrastructure.database.engine import SessionFactory
 from quakestrike.infrastructure.database.prediction import SqlAlchemyPredictionStore
 from quakestrike.infrastructure.database.tables import (
@@ -133,7 +134,7 @@ class SqlAlchemyDispatchStore(DispatchStore):
         retry_delays_seconds: Sequence[int] = (30, 120, 600),
         clock: Callable[[], datetime] = _utc_now,
         token_factory: Callable[[], UUID] = uuid4,
-        prediction_recovery_seconds: int = 900,
+        prediction_recovery_seconds: int = PREDICTION_PROCESSING_LEASE_SECONDS,
     ) -> None:
         retry_delays = tuple(retry_delays_seconds)
         if (

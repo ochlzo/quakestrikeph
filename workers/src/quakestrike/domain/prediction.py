@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+PREDICTION_PROCESSING_LEASE_SECONDS = 900
+
 
 class InvalidPredictionOutput(ValueError):
     """A model value cannot be published as a forecast."""

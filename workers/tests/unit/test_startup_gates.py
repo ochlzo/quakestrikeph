@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from quakestrike.application.startup import evaluate_startup_gates
+from quakestrike.domain.features import INPUT_SCHEMA_VERSION
 from quakestrike.infrastructure import startup
 from quakestrike.infrastructure.models import release_manifest
 from quakestrike.infrastructure.models.release_manifest import (
@@ -17,6 +18,7 @@ from quakestrike.infrastructure.models.release_manifest import (
     VerifiedReleaseManifest,
     model_release_record,
 )
+from quakestrike.infrastructure.models.seis import OUTPUT_SCHEMA_VERSION
 from quakestrike.infrastructure.settings import Settings
 from quakestrike.infrastructure.startup import (
     BootstrapReadinessStartupGate,
@@ -58,8 +60,8 @@ def verified_manifest(settings: Settings) -> VerifiedReleaseManifest:
     return VerifiedReleaseManifest(
         release_id=settings.model_release_id,
         version_label="SEIS 1.0.1",
-        input_schema_version="input.v1",
-        output_schema_version="output.v2",
+        input_schema_version=INPUT_SCHEMA_VERSION,
+        output_schema_version=OUTPUT_SCHEMA_VERSION,
         manifest_uri="seis-1.0.1/manifest.json",
         manifest_hash="a" * 64,
         artifact_paths=("models/example.bin",),
@@ -171,8 +173,8 @@ def test_model_release_gate_is_ready_for_a_matching_manifest_and_registration(
         "version_label": "SEIS 1.0.1",
         "manifest_uri": "seis-1.0.1/manifest.json",
         "manifest_hash": "a" * 64,
-        "input_schema_version": "input.v1",
-        "output_schema_version": "output.v2",
+        "input_schema_version": INPUT_SCHEMA_VERSION,
+        "output_schema_version": OUTPUT_SCHEMA_VERSION,
         "artifact_hashes": json.dumps({"models/example.bin": "b" * 64}, sort_keys=True),
     }
     assert engine.disposed is True
@@ -204,6 +206,22 @@ def test_model_release_gate_is_not_ready_when_the_registered_row_differs(
 def test_model_release_gate_rejects_a_non_selected_release(monkeypatch) -> None:
     settings = valid_settings()
     manifest = replace(verified_manifest(settings), version_label="SEIS 0.9")
+    monkeypatch.setattr(startup, "load_verified_release_manifest", lambda *_, **__: manifest)
+    monkeypatch.setattr(
+        startup,
+        "create_database_engine",
+        lambda _: (_ for _ in ()).throw(AssertionError("database reached")),
+    )
+
+    result = ModelReleaseStartupGate(settings).check()
+
+    assert result.ready is False
+    assert result.reason == "Model release verification failed."
+
+
+def test_model_release_gate_rejects_an_unsupported_output_contract(monkeypatch) -> None:
+    settings = valid_settings()
+    manifest = replace(verified_manifest(settings), output_schema_version="output.v1")
     monkeypatch.setattr(startup, "load_verified_release_manifest", lambda *_, **__: manifest)
     monkeypatch.setattr(
         startup,

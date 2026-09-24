@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import socket
 from collections.abc import Callable, Mapping
 
 from celery import Celery
@@ -44,8 +45,35 @@ def handle_prediction_command(
             event_code="prediction_command_invalid",
         )
         return "rejected"
-    outcome = ExecutePrediction(store, model).execute(
-        command.dispatch_id, command.job_id, command.correlation_id
+    context = {
+        "worker": socket.gethostname(),
+        "dispatch_id": str(command.dispatch_id),
+        "job_id": str(command.job_id),
+        "correlation_id": str(command.correlation_id),
+    }
+    attempt_context: dict[str, str] = {}
+
+    def record_claim(claim):
+        attempt_context["attempt_id"] = str(claim.attempt_id)
+        log_event(
+            logger,
+            logging.INFO,
+            "Prediction attempt claimed.",
+            event_code="prediction_attempt_claimed",
+            context=context | attempt_context,
+        )
+
+    outcome = ExecutePrediction(
+        store,
+        model,
+        on_claim=record_claim,
+    ).execute(command.dispatch_id, command.job_id, command.correlation_id)
+    log_event(
+        logger,
+        logging.INFO,
+        "Prediction command processed.",
+        event_code="prediction_command_processed",
+        context=context | attempt_context | {"status": outcome},
     )
     if outcome == "stale":
         log_event(
@@ -53,7 +81,7 @@ def handle_prediction_command(
             logging.WARNING,
             "Prediction completion lost its processing lease.",
             event_code="prediction_completion_stale",
-            context={"job_id": str(command.job_id)},
+            context=context,
         )
     return outcome
 
@@ -87,24 +115,44 @@ def create_prediction_app(
         acks_late=True,
         reject_on_worker_lost=True,
         acks_on_failure_or_timeout=False,
+        soft_time_limit=settings.prediction_soft_time_limit_seconds,
+        time_limit=settings.prediction_hard_time_limit_seconds,
     )
     def process_prediction(payload: object) -> str:
         try:
             return command_handler(payload)
         except Exception as error:
+            context = {"worker": socket.gethostname()}
+            if isinstance(payload, Mapping):
+                try:
+                    command = parse_prediction_command(payload)
+                except ValidationError:
+                    pass
+                else:
+                    context.update(
+                        dispatch_id=str(command.dispatch_id),
+                        job_id=str(command.job_id),
+                        correlation_id=str(command.correlation_id),
+                    )
             log_exception_event(
                 logging.getLogger("prediction-worker"),
                 logging.ERROR,
                 "Prediction command processing failed.",
                 event_code="prediction_command_processing_failed",
                 error=error,
+                context=context,
             )
             raise Reject("Prediction command processing failed.", requeue=True) from None
 
     return app
 
 
-def run_prediction(settings: Settings, *, model: PredictionModel | None = None) -> int:
+def run_prediction(
+    settings: Settings,
+    *,
+    model: PredictionModel | None = None,
+    hostname: str = "prediction-worker@%h",
+) -> int:
     """Load SEIS before consuming work, with a supplied adapter for isolated tests."""
 
     selected_model = model or SeisModel(
@@ -136,9 +184,9 @@ def run_prediction(settings: Settings, *, model: PredictionModel | None = None) 
             "--concurrency",
             "1",
             "--pool",
-            "solo",
+            "prefork",
             "--hostname",
-            "prediction-worker@%h",
+            hostname,
         ]
     )
     return 0
