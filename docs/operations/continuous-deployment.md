@@ -37,6 +37,9 @@ Follow the initialization order in [ADR 0025](../adr/0025-explicit-local-runtime
 1. Fill in the VPS `.env` with production credentials and set
    `WORKER_IMAGE_TAG` to the full checked-out Git SHA. Put the model artifacts
    and preserved source snapshot in the configured host directories.
+   Percent-encode reserved characters in the passwords embedded in
+   `DATABASE_URL` and `MIGRATION_DATABASE_URL`; leave the matching standalone
+   database password values unchanged.
 2. Build the `quakestrike-workers:<SHA>` and
    `quakestrike-prediction:<SHA>` images from that exact checkout. Start
    PostgreSQL and Redis with Compose.
@@ -45,6 +48,9 @@ Follow the initialization order in [ADR 0025](../adr/0025-explicit-local-runtime
    Confirm it prints `"ready": true`.
 4. Start Dispatcher and Data Ingestor, wait for both to become healthy, then
    start Prediction Worker. Enable Beat only after the consumers are healthy.
+
+Data Ingestor joins a separate outbound network to fetch PHIVOLCS over HTTPS.
+PostgreSQL and Redis stay on the internal data network without host ports.
 
 On the Linux VPS, run the equivalent Compose commands from
 `/srv/quakestrikeph` after preparing `.env`, the reviewed model bundle, and
