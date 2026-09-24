@@ -28,6 +28,7 @@ from quakestrike.infrastructure.database.tables import (
 )
 
 OUTPUT_SCHEMA_VERSION = "quakestrike.prediction-output.v2"
+PROCESSING_RETRY_DELAYS = (timedelta(seconds=30), timedelta(minutes=2), timedelta(minutes=10))
 
 
 class SqlAlchemyPredictionStore:
@@ -84,17 +85,8 @@ class SqlAlchemyPredictionStore:
             if active is not None:
                 if active.lease_expires_at > now:
                     return None
-                session.execute(
-                    update(prediction_attempts)
-                    .where(prediction_attempts.c.attempt_id == active.attempt_id)
-                    .values(
-                        status="abandoned",
-                        lease_expires_at=None,
-                        finished_at=now,
-                        error_code="lease_expired",
-                        error_message="The prediction processing lease expired.",
-                    )
-                )
+                self.recover_expired(session, job, active, now)
+                return None
             elif job.status == "running":
                 return None
 
@@ -143,7 +135,12 @@ class SqlAlchemyPredictionStore:
                 or release.output_schema_version != OUTPUT_SCHEMA_VERSION
             ):
                 self._finish_failed(
-                    session, claim, now, "unsupported_schema", "The model schema is unsupported."
+                    session,
+                    job_id,
+                    attempt_id,
+                    now,
+                    "unsupported_schema",
+                    "The model schema is unsupported.",
                 )
                 return None
             try:
@@ -155,7 +152,8 @@ class SqlAlchemyPredictionStore:
             except ValueError:
                 self._finish_failed(
                     session,
-                    claim,
+                    job_id,
+                    attempt_id,
                     now,
                     "invalid_snapshot",
                     "The stored feature snapshot is invalid.",
@@ -185,7 +183,8 @@ class SqlAlchemyPredictionStore:
                 ):
                     self._finish_failed(
                         session,
-                        claim,
+                        claim.job_id,
+                        claim.attempt_id,
                         now,
                         "invalid_output",
                         "The forecast window does not match the event.",
@@ -318,13 +317,40 @@ class SqlAlchemyPredictionStore:
             self._record_stale(claim.job_id)
             raise
 
-    def fail(self, claim: PredictionClaim, code: str, message: str) -> None:
+    def fail(
+        self, claim: PredictionClaim, code: str, message: str, *, retryable: bool = False
+    ) -> str:
         now = self._clock()
         try:
             with self._session_factory() as session, session.begin():
                 self._lock_dispatch(session, claim.job_id)
-                self._locked_owner(session, claim, now)
-                self._finish_failed(session, claim, now, code, message)
+                _, attempt = self._locked_owner(session, claim, now)
+                if retryable and attempt.attempt_number <= len(PROCESSING_RETRY_DELAYS):
+                    session.execute(
+                        update(prediction_attempts)
+                        .where(prediction_attempts.c.attempt_id == claim.attempt_id)
+                        .values(
+                            status="failed",
+                            finished_at=now,
+                            lease_expires_at=None,
+                            error_code=code,
+                            error_message=message,
+                        )
+                    )
+                    session.execute(
+                        update(prediction_jobs)
+                        .where(prediction_jobs.c.job_id == claim.job_id)
+                        .values(
+                            status="retry_wait",
+                            next_attempt_at=now
+                            + PROCESSING_RETRY_DELAYS[attempt.attempt_number - 1],
+                            last_error_code=code,
+                            last_error_message=message,
+                        )
+                    )
+                    return "retry_wait"
+                self._finish_failed(session, claim.job_id, claim.attempt_id, now, code, message)
+                return "failed"
         except StalePredictionAttempt:
             self._record_stale(claim.job_id)
             raise
@@ -366,14 +392,63 @@ class SqlAlchemyPredictionStore:
             if correlation_id is not None:
                 self._audit(session, correlation_id, job_id, "failed", "stale_execution_token")
 
+    @staticmethod
+    def abandon_expired(session, active, now: datetime) -> None:
+        session.execute(
+            update(prediction_attempts)
+            .where(prediction_attempts.c.attempt_id == active.attempt_id)
+            .values(
+                status="abandoned",
+                lease_expires_at=None,
+                finished_at=now,
+                error_code="lease_expired",
+                error_message="The prediction processing lease expired.",
+            )
+        )
+
+    @classmethod
+    def recover_expired(cls, session, job, active, now: datetime) -> None:
+        cls.abandon_expired(session, active, now)
+        if active.attempt_number > len(PROCESSING_RETRY_DELAYS):
+            cls._finish_failed(
+                session,
+                job.job_id,
+                active.attempt_id,
+                now,
+                "lease_expired",
+                "The prediction processing lease expired.",
+                attempt_status="abandoned",
+            )
+            return
+        session.execute(
+            update(prediction_jobs)
+            .where(prediction_jobs.c.job_id == job.job_id)
+            .values(
+                status="retry_wait",
+                next_attempt_at=active.lease_expires_at
+                + PROCESSING_RETRY_DELAYS[active.attempt_number - 1],
+                last_error_code="lease_expired",
+                last_error_message="The prediction processing lease expired.",
+            )
+        )
+
+    @classmethod
     def _finish_failed(
-        self, session, claim: PredictionClaim, now: datetime, code: str, message: str
+        cls,
+        session,
+        job_id: UUID,
+        attempt_id: UUID,
+        now: datetime,
+        code: str,
+        message: str,
+        *,
+        attempt_status: str = "failed",
     ) -> None:
         session.execute(
             update(prediction_attempts)
-            .where(prediction_attempts.c.attempt_id == claim.attempt_id)
+            .where(prediction_attempts.c.attempt_id == attempt_id)
             .values(
-                status="failed",
+                status=attempt_status,
                 finished_at=now,
                 lease_expires_at=None,
                 error_code=code,
@@ -382,7 +457,7 @@ class SqlAlchemyPredictionStore:
         )
         session.execute(
             update(prediction_jobs)
-            .where(prediction_jobs.c.job_id == claim.job_id)
+            .where(prediction_jobs.c.job_id == job_id)
             .values(
                 status="failed",
                 completed_at=now,
@@ -391,11 +466,11 @@ class SqlAlchemyPredictionStore:
                 last_error_message=message,
             )
         )
-        self._stop_dispatch(session, claim.job_id, code)
+        cls._stop_dispatch(session, job_id, code)
         correlation_id = session.scalar(
-            select(prediction_jobs.c.correlation_id).where(prediction_jobs.c.job_id == claim.job_id)
+            select(prediction_jobs.c.correlation_id).where(prediction_jobs.c.job_id == job_id)
         )
-        self._audit(session, correlation_id, claim.job_id, "failed", code)
+        cls._audit(session, correlation_id, job_id, "failed", code)
 
     @staticmethod
     def _stop_dispatch(session, job_id: UUID, reason: str | None) -> None:

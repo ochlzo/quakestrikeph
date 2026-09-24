@@ -31,7 +31,9 @@ class PredictionStore(Protocol):
 
     def complete(self, claim: PredictionClaim, output: ForecastOutput) -> UUID | None: ...
 
-    def fail(self, claim: PredictionClaim, code: str, message: str) -> None: ...
+    def fail(
+        self, claim: PredictionClaim, code: str, message: str, *, retryable: bool = False
+    ) -> str: ...
 
 
 class PredictionModel(Protocol):
@@ -56,10 +58,23 @@ class ExecutePrediction:
                 )
                 return "failed"
             except Exception:
-                self._store.fail(
-                    claim, "model_runtime_error", "The prediction model could not finish."
+                return self._store.fail(
+                    claim,
+                    "model_runtime_error",
+                    "The prediction model could not finish.",
+                    retryable=True,
                 )
-                return "failed"
-            return "succeeded" if self._store.complete(claim, output) is not None else "failed"
+            try:
+                completed = self._store.complete(claim, output)
+            except StalePredictionAttempt:
+                raise
+            except Exception:
+                return self._store.fail(
+                    claim,
+                    "persistence_error",
+                    "The prediction result could not be saved.",
+                    retryable=True,
+                )
+            return "succeeded" if completed is not None else "failed"
         except StalePredictionAttempt:
             return "stale"
