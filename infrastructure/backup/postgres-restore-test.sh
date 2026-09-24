@@ -57,11 +57,16 @@ ORDER BY started_at DESC LIMIT 1;
 SQL
 ); then
   if [[ -z $backup_run_id ]]; then
-    echo 'Snapshot predates maintenance records; recording restore in systemd journal' >&2
+    echo 'Latest snapshot has no successful backup record; take a fresh backup first' >&2
+    exit 1
   fi
 else
   backup_run_id=
-  echo 'Backup record unavailable; recording restore in systemd journal' >&2
+  if "${compose[@]}" exec -T postgres pg_isready -q -d "$maintenance_database_name"; then
+    echo 'PostgreSQL is ready but the backup record lookup failed' >&2
+    exit 1
+  fi
+  echo 'PostgreSQL unavailable; recording restore in systemd journal' >&2
 fi
 maintenance_begin restore_test "restic snapshot:$snapshot_id" "$backup_run_id"
 restic restore "$snapshot_id" --target "$restored"

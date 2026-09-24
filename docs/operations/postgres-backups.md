@@ -17,6 +17,9 @@ backup and records the verified event count. Interrupted attempts become
 journal for the fallback result. If PostgreSQL is healthy but a record cannot
 be written, the service fails after its backup or restore work. Missing rows
 never prove a backup succeeded.
+The restore test requires the latest snapshot to have a successful backup row
+when PostgreSQL is healthy; if it predates this ledger or its record is missing,
+run a fresh backup before rerunning the restore test.
 
 The database dump uses a dedicated `quakestrike_backup` login with
 `pg_read_all_data`, no schema or write grant, and no superuser privilege. The
