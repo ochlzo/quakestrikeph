@@ -75,7 +75,7 @@ if (( prediction_count > 0 )); then
 fi
 
 # A schema change fails here until an operator runs the migration and readiness steps.
-compose --profile init run --rm --no-deps release-init quakestrike startup-check --run-manifest /app/bootstrap-snapshots/bootstrap-readiness.json
+compose --profile init run -T --rm --no-deps release-init quakestrike startup-check --run-manifest /app/bootstrap-snapshots/bootstrap-readiness.json </dev/null
 
 rollout_started=1
 if [[ -n $beat_running ]]; then
