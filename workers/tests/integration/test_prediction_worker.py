@@ -6,9 +6,11 @@ import os
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from threading import Barrier, Event
 from uuid import uuid4
 
 import pytest
@@ -66,12 +68,21 @@ SNAPSHOT = {
 }
 
 
-def seed(migrated_engine, *, selected_release=None, trigger_type="manual"):
+def seed(
+    migrated_engine,
+    *,
+    selected_release=None,
+    existing_release_id=None,
+    trigger_type="manual",
+    source_minute="1200",
+):
     run_id, event_id, revision_id, release_id, job_id, dispatch_id, correlation_id = (
         uuid4() for _ in range(7)
     )
     if selected_release is not None:
         release_id = selected_release.release_id
+    elif existing_release_id is not None:
+        release_id = existing_release_id
     with migrated_engine.begin() as connection:
         connection.execute(
             insert(ingestion_runs).values(
@@ -93,7 +104,7 @@ def seed(migrated_engine, *, selected_release=None, trigger_type="manual"):
         )
         connection.execute(
             insert(earthquake_bulletin_event_identities).values(
-                source_bulletin_id="2026_0923_1200_B1",
+                source_bulletin_id=f"2026_0923_{source_minute}_B1",
                 event_id=event_id,
             )
         )
@@ -103,8 +114,8 @@ def seed(migrated_engine, *, selected_release=None, trigger_type="manual"):
                 event_id=event_id,
                 revision_number=1,
                 ingestion_run_id=run_id,
-                source_bulletin_id="2026_0923_1200_B1",
-                source_event_group_id="2026_0923_1200",
+                source_bulletin_id=f"2026_0923_{source_minute}_B1",
+                source_event_group_id=f"2026_0923_{source_minute}",
                 source_url="https://earthquake.phivolcs.dost.gov.ph/example",
                 source_time_precision="minute",
                 event_time=NOW,
@@ -115,18 +126,19 @@ def seed(migrated_engine, *, selected_release=None, trigger_type="manual"):
                 location_description="Example",
             )
         )
-        connection.execute(
-            insert(model_releases).values(
-                model_release_id=release_id,
-                version_label="SEIS 1.0.1",
-                artifact_manifest_uri="seis-1.0.1/manifest.json",
-                artifact_manifest_hash=(
-                    selected_release.manifest_hash if selected_release is not None else "a" * 64
-                ),
-                input_schema_version=INPUT_SCHEMA_VERSION,
-                output_schema_version=OUTPUT_SCHEMA_VERSION,
+        if existing_release_id is None:
+            connection.execute(
+                insert(model_releases).values(
+                    model_release_id=release_id,
+                    version_label="SEIS 1.0.1",
+                    artifact_manifest_uri="seis-1.0.1/manifest.json",
+                    artifact_manifest_hash=(
+                        selected_release.manifest_hash if selected_release is not None else "a" * 64
+                    ),
+                    input_schema_version=INPUT_SCHEMA_VERSION,
+                    output_schema_version=OUTPUT_SCHEMA_VERSION,
+                )
             )
-        )
         connection.execute(
             insert(prediction_jobs).values(
                 job_id=job_id,
@@ -163,7 +175,7 @@ def store(migrated_engine, clock=lambda: NOW, *, configured_release_id=None):
     )
 
 
-def test_prediction_command_completes_once_and_stops_dispatch(migrated_engine):
+def test_prediction_command_completes_once_and_stops_dispatch(migrated_engine, caplog):
     command = seed(migrated_engine)
 
     def process():
@@ -174,8 +186,17 @@ def test_prediction_command_completes_once_and_stops_dispatch(migrated_engine):
             logger=logging.getLogger(__name__),
         )
 
-    assert process() == "succeeded"
+    with caplog.at_level(logging.INFO, logger=__name__):
+        assert process() == "succeeded"
     assert process() == "unclaimed"
+    claimed = next(
+        record for record in caplog.records if record.event_code == "prediction_attempt_claimed"
+    )
+    assert claimed.context["dispatch_id"] == str(command.dispatch_id)
+    assert claimed.context["job_id"] == str(command.job_id)
+    assert claimed.context["correlation_id"] == str(command.correlation_id)
+    assert claimed.context["attempt_id"]
+    assert claimed.context["worker"]
     with migrated_engine.connect() as connection:
         job = connection.execute(
             select(prediction_jobs).where(prediction_jobs.c.job_id == command.job_id)
@@ -210,6 +231,70 @@ def test_prediction_command_completes_once_and_stops_dispatch(migrated_engine):
             "forecast_id": str(forecast.forecast_id),
             "alert_job_id": str(alert.alert_job_id),
         }
+
+
+def test_two_prediction_executions_complete_independent_jobs_concurrently(migrated_engine):
+    first = seed(migrated_engine)
+    with migrated_engine.connect() as connection:
+        release_id = connection.scalar(select(model_releases.c.model_release_id))
+    commands = [
+        first,
+        seed(migrated_engine, existing_release_id=release_id, source_minute="1201"),
+    ]
+    overlap = Barrier(2, timeout=10)
+
+    class OverlapModel(DeterministicTestModel):
+        def predict(self, features):
+            overlap.wait()
+            return super().predict(features)
+
+    def process(command):
+        return handle_prediction_command(
+            command.to_message(),
+            store=store(migrated_engine, configured_release_id=release_id),
+            model=OverlapModel(),
+            logger=logging.getLogger(__name__),
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(process, commands))
+    assert results == ["succeeded", "succeeded"]
+    with migrated_engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(prediction_attempts)) == 2
+        assert connection.scalar(select(func.count()).select_from(forecasts)) == 2
+
+
+def test_two_prediction_executions_racing_for_one_job_keep_one_attempt(migrated_engine):
+    command = seed(migrated_engine)
+    with migrated_engine.connect() as connection:
+        release_id = connection.scalar(select(model_releases.c.model_release_id))
+    started, finish = Event(), Event()
+
+    class HeldModel(DeterministicTestModel):
+        def predict(self, features):
+            started.set()
+            assert finish.wait(10)
+            return super().predict(features)
+
+    def process(model):
+        return handle_prediction_command(
+            command.to_message(),
+            store=store(migrated_engine, configured_release_id=release_id),
+            model=model,
+            logger=logging.getLogger(__name__),
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(process, HeldModel())
+        try:
+            assert started.wait(10)
+            assert pool.submit(process, DeterministicTestModel()).result(timeout=10) == "unclaimed"
+        finally:
+            finish.set()
+        assert first.result(timeout=10) == "succeeded"
+    with migrated_engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(prediction_attempts)) == 1
+        assert connection.scalar(select(func.count()).select_from(forecasts)) == 1
 
 
 @pytest.mark.parametrize("trigger_type,expired", [("backfill", False), ("manual", True)])
@@ -410,6 +495,105 @@ def test_published_v1_command_is_consumed_by_a_running_worker(migrated_engine):
         redis_client.close()
     with migrated_engine.connect() as connection:
         assert connection.scalar(select(func.count()).select_from(forecasts)) == 1
+
+
+def test_two_queued_prediction_replicas_execute_independent_jobs_together(
+    migrated_engine, tmp_path
+):
+    first = seed(migrated_engine)
+    with migrated_engine.connect() as connection:
+        release_id = connection.scalar(select(model_releases.c.model_release_id))
+    second = seed(migrated_engine, existing_release_id=release_id, source_minute="1201")
+    settings = Settings(
+        _env_file=None,
+        database_url=os.environ["TEST_DATABASE_URL"],
+        redis_url=os.environ["TEST_REDIS_URL"],
+        phivolcs_catalog_url="https://example.invalid/catalog",
+        model_release_id=release_id,
+    )
+    app = create_prediction_app(settings, command_handler=lambda _: "unused")
+    redis_client = Redis.from_url(settings.redis_url)
+    redis_client.delete("prediction")
+    names = ("prediction-worker@replica-one", "prediction-worker@replica-two")
+    script = """
+import os
+import time
+from pathlib import Path
+from quakestrike.infrastructure.models.deterministic_test import DeterministicTestModel
+from quakestrike.infrastructure.settings import Settings
+from quakestrike.prediction_worker.worker import run_prediction
+
+class RendezvousModel(DeterministicTestModel):
+    def predict(self, features):
+        marker_directory = Path(os.environ["PREDICTION_TEST_MARKER_DIR"])
+        (marker_directory / str(os.getpid())).touch()
+        deadline = time.monotonic() + 10
+        while len(list(marker_directory.iterdir())) < 2:
+            if time.monotonic() >= deadline:
+                raise RuntimeError("A second replica did not start inference")
+            time.sleep(0.05)
+        return super().predict(features)
+
+run_prediction(
+    Settings(_env_file=None), model=RendezvousModel(),
+    hostname=os.environ["PREDICTION_TEST_HOSTNAME"],
+)
+"""
+    environment = os.environ | {
+        "DATABASE_URL": settings.database_url,
+        "REDIS_URL": settings.redis_url,
+        "PHIVOLCS_CATALOG_URL": settings.phivolcs_catalog_url,
+        "MODEL_RELEASE_ID": str(release_id),
+        "PREDICTION_TEST_MARKER_DIR": str(tmp_path),
+    }
+    workers = [
+        subprocess.Popen(
+            [sys.executable, "-c", script],
+            env=environment | {"PREDICTION_TEST_HOSTNAME": name},
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT,
+        )
+        for name in names
+    ]
+    try:
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            queues = app.control.inspect(destination=list(names), timeout=1).active_queues() or {}
+            if all(name in queues for name in names):
+                break
+            assert all(worker.poll() is None for worker in workers)
+            time.sleep(0.2)
+        else:
+            pytest.fail("Both Prediction Worker replicas did not become ready.")
+        publisher = CeleryPredictionPublisher(app)
+        for command in (first, second):
+            publisher.publish(
+                PredictionDispatch(command.dispatch_id, command.job_id, command.correlation_id)
+            )
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            with migrated_engine.connect() as connection:
+                if connection.scalar(select(func.count()).select_from(forecasts)) == 2:
+                    break
+            assert all(worker.poll() is None for worker in workers)
+            time.sleep(0.2)
+        else:
+            pytest.fail("Two replicas did not complete independent queued predictions.")
+    finally:
+        for worker in workers:
+            worker.terminate()
+        for worker in workers:
+            try:
+                worker.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                worker.kill()
+                worker.wait(timeout=5)
+        redis_client.delete("prediction")
+        redis_client.close()
+    assert len(list(tmp_path.iterdir())) == 2
+    with migrated_engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(prediction_attempts)) == 2
+        assert connection.scalar(select(func.count()).select_from(forecasts)) == 2
 
 
 def test_invalid_output_is_durable_and_creates_no_forecast(migrated_engine):

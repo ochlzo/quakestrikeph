@@ -32,6 +32,8 @@ def test_settings_validate_required_values_and_operational_defaults() -> None:
     assert settings.poll_interval_seconds == 300
     assert settings.dispatcher_batch_size == 10
     assert settings.ingestor_concurrency == 1
+    assert settings.prediction_soft_time_limit_seconds == 300
+    assert settings.prediction_hard_time_limit_seconds == 360
     assert settings.retry_delays_seconds == (30, 120, 600)
     assert settings.bootstrap_required_available_through == datetime.fromisoformat(
         "2026-09-01T00:00:00+08:00"
@@ -110,3 +112,12 @@ def test_settings_reject_dispatcher_batches_above_ten() -> None:
 
     with pytest.raises(ValidationError, match="dispatcher_batch_size"):
         Settings(**values)
+
+
+@pytest.mark.parametrize(("soft", "hard"), [(360, 360), (361, 360), (300, 900)])
+def test_prediction_task_limits_must_fit_inside_processing_lease(soft, hard) -> None:
+    values = valid_settings().model_dump()
+    values["prediction_soft_time_limit_seconds"] = soft
+    values["prediction_hard_time_limit_seconds"] = hard
+    with pytest.raises(ValidationError, match="soft < hard < 900-second lease"):
+        Settings(_env_file=None, **values)

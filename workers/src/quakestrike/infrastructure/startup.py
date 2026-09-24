@@ -18,7 +18,7 @@ from quakestrike.application.startup import (
     ModelReleaseVerificationGate,
     StartupGate,
 )
-from quakestrike.domain.features import select_usable_history
+from quakestrike.domain.features import INPUT_SCHEMA_VERSION, select_usable_history
 from quakestrike.infrastructure.bootstrap import (
     BootstrapSnapshotError,
     FileBootstrapEvidenceStore,
@@ -45,6 +45,7 @@ from quakestrike.infrastructure.models.release_manifest import (
     load_verified_release_manifest,
     model_release_record,
 )
+from quakestrike.infrastructure.models.seis import OUTPUT_SCHEMA_VERSION
 from quakestrike.infrastructure.phivolcs.client import PhivolcsCatalogClient
 from quakestrike.infrastructure.phivolcs.session import create_phivolcs_session
 from quakestrike.infrastructure.settings import Settings
@@ -125,6 +126,13 @@ class ModelReleaseStartupGate:
                 )
             if release.version_label != "SEIS 1.0.1":
                 raise ManifestValidationError("The selected release is not SEIS 1.0.1.")
+            if (
+                release.input_schema_version != INPUT_SCHEMA_VERSION
+                or release.output_schema_version != OUTPUT_SCHEMA_VERSION
+            ):
+                raise ManifestValidationError(
+                    "The selected release has an unsupported output contract."
+                )
             engine = create_database_engine(self.settings.database_url)
             try:
                 stored = SqlAlchemyModelReleaseRegistry(create_session_factory(engine)).get(

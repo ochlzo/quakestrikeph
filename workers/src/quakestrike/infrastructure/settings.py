@@ -8,7 +8,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_BOOTSTRAP_RUN_MANIFEST = Path("database/initialization/bootstrap-readiness.json")
@@ -87,6 +87,20 @@ class Settings(BaseSettings):
         ge=1,
         le=1,
         validation_alias=AliasChoices("INGESTOR_CONCURRENCY", "ingestor_concurrency"),
+    )
+    prediction_soft_time_limit_seconds: int = Field(
+        default=300,
+        ge=1,
+        validation_alias=AliasChoices(
+            "PREDICTION_SOFT_TIME_LIMIT_SECONDS", "prediction_soft_time_limit_seconds"
+        ),
+    )
+    prediction_hard_time_limit_seconds: int = Field(
+        default=360,
+        ge=2,
+        validation_alias=AliasChoices(
+            "PREDICTION_HARD_TIME_LIMIT_SECONDS", "prediction_hard_time_limit_seconds"
+        ),
     )
     detail_request_delay_seconds: float = Field(
         default=0.1,
@@ -179,6 +193,14 @@ class Settings(BaseSettings):
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("BOOTSTRAP_REQUIRED_AVAILABLE_THROUGH must include a UTC offset")
         return value
+
+    @model_validator(mode="after")
+    def validate_prediction_limits(self) -> Settings:
+        if not (
+            self.prediction_soft_time_limit_seconds < self.prediction_hard_time_limit_seconds < 900
+        ):
+            raise ValueError("Prediction task limits must satisfy soft < hard < 900-second lease")
+        return self
 
     def safe_summary(self) -> dict[str, object]:
         """Return configuration metadata that excludes credentials and full URLs."""

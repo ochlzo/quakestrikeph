@@ -196,6 +196,24 @@ The model files remain on the read-only artifact mount.
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction up -d --wait prediction-worker
 ```
 
+The default is one healthy Prediction Worker container with one Celery child.
+To run two identical replicas on the same prediction queue, scale the service:
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction up -d --wait --scale prediction-worker=2 prediction-worker
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction ps prediction-worker
+```
+
+Set `--scale prediction-worker=1` to return to one replica. Each container has
+its own health check for PostgreSQL, Redis, migrations, the selected model
+release and artifact hashes, output schema, and local queue consumption. The
+worker uses a 300-second soft limit and 360-second hard limit by default; set
+`PREDICTION_SOFT_TIME_LIMIT_SECONDS` and
+`PREDICTION_HARD_TIME_LIMIT_SECONDS` in `.env` only with soft < hard < the
+900-second prediction processing lease. A hard limit terminates the stuck
+child; durable lease recovery retries the same job and dispatch after expiry.
+Watch memory use on the VPS before keeping additional replicas running.
+
 For an isolated database smoke test with the real ignored bundle, run:
 
 ```powershell
