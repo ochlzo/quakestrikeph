@@ -25,6 +25,7 @@ from quakestrike.infrastructure.database.prediction import (
     SqlAlchemyPredictionStore,
 )
 from quakestrike.infrastructure.database.tables import (
+    alert_jobs,
     audit_logs,
     earthquake_bulletin_event_identities,
     earthquake_event_revisions,
@@ -64,7 +65,7 @@ SNAPSHOT = {
 }
 
 
-def seed(migrated_engine, *, selected_release=None):
+def seed(migrated_engine, *, selected_release=None, trigger_type="manual"):
     run_id, event_id, revision_id, release_id, job_id, dispatch_id, correlation_id = (
         uuid4() for _ in range(7)
     )
@@ -74,11 +75,12 @@ def seed(migrated_engine, *, selected_release=None):
         connection.execute(
             insert(ingestion_runs).values(
                 run_id=run_id,
-                trigger_type="manual",
+                trigger_type=trigger_type,
                 status="succeeded",
                 started_at=NOW,
                 finished_at=NOW,
                 correlation_id=correlation_id,
+                bootstrap_snapshot_sha256="a" * 64 if trigger_type == "backfill" else None,
             )
         )
         connection.execute(
@@ -149,8 +151,15 @@ def seed(migrated_engine, *, selected_release=None):
     )
 
 
-def store(migrated_engine, clock=lambda: NOW):
-    return SqlAlchemyPredictionStore(create_session_factory(migrated_engine), clock=clock)
+def store(migrated_engine, clock=lambda: NOW, *, configured_release_id=None):
+    if configured_release_id is None:
+        with migrated_engine.connect() as connection:
+            configured_release_id = connection.scalar(select(model_releases.c.model_release_id))
+    return SqlAlchemyPredictionStore(
+        create_session_factory(migrated_engine),
+        configured_release_id=configured_release_id,
+        clock=clock,
+    )
 
 
 def test_prediction_command_completes_once_and_stops_dispatch(migrated_engine):
@@ -172,14 +181,132 @@ def test_prediction_command_completes_once_and_stops_dispatch(migrated_engine):
         ).one()
         forecast = connection.execute(select(forecasts)).one()
         attempt = connection.execute(select(prediction_attempts)).one()
-        dispatch = connection.execute(select(job_dispatches)).one()
+        dispatch = connection.execute(
+            select(job_dispatches).where(job_dispatches.c.prediction_job_id == command.job_id)
+        ).one()
+        alert = connection.execute(select(alert_jobs)).one()
+        alert_dispatch = connection.execute(
+            select(job_dispatches).where(job_dispatches.c.alert_job_id == alert.alert_job_id)
+        ).one()
         assert job.status == attempt.status == "succeeded"
         assert forecast.window_start == NOW
         assert forecast.window_end == NOW + timedelta(hours=24)
         assert forecast.probability_m4_plus_24h == pytest.approx(0.24)
         assert forecast.probability_m5_plus_24h == pytest.approx(0.06)
         assert dispatch.status == "stopped"
+        assert alert.forecast_id == forecast.forecast_id
+        assert alert.expires_at == forecast.window_end
+        assert alert.correlation_id == command.correlation_id
+        assert "M4.2" in alert.message_snapshot
+        assert alert.recipient_policy_snapshot["observed_anchor_magnitude"] == 4.2
+        assert alert.recipient_policy_snapshot["version"] == "automatic_sms_v1"
+        assert alert_dispatch.status == "pending"
+        assert connection.scalar(select(func.count()).select_from(alert_jobs)) == 1
+        assert connection.scalar(select(func.count()).select_from(job_dispatches)) == 2
         assert connection.scalar(select(func.count()).select_from(audit_logs)) == 1
+        audit = connection.execute(select(audit_logs)).one()
+        assert audit.metadata == {
+            "forecast_id": str(forecast.forecast_id),
+            "alert_job_id": str(alert.alert_job_id),
+        }
+
+
+@pytest.mark.parametrize("trigger_type,expired", [("backfill", False), ("manual", True)])
+def test_backfill_and_expired_forecasts_create_no_alert(migrated_engine, trigger_type, expired):
+    command = seed(migrated_engine, trigger_type=trigger_type)
+    clock = NOW + timedelta(hours=24) if expired else NOW
+    assert (
+        handle_prediction_command(
+            command.to_message(),
+            store=store(migrated_engine, clock=lambda: clock),
+            model=DeterministicTestModel(),
+            logger=logging.getLogger(__name__),
+        )
+        == "succeeded"
+    )
+    with migrated_engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(forecasts)) == 1
+        assert connection.scalar(select(func.count()).select_from(alert_jobs)) == 0
+        assert connection.scalar(select(func.count()).select_from(job_dispatches)) == 1
+
+
+def test_forecast_from_another_model_release_creates_no_alert(migrated_engine):
+    command = seed(migrated_engine)
+    assert (
+        handle_prediction_command(
+            command.to_message(),
+            store=store(migrated_engine, configured_release_id=uuid4()),
+            model=DeterministicTestModel(),
+            logger=logging.getLogger(__name__),
+        )
+        == "succeeded"
+    )
+    with migrated_engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(forecasts)) == 1
+        assert connection.scalar(select(func.count()).select_from(alert_jobs)) == 0
+
+
+def test_historical_revision_creates_no_alert(migrated_engine):
+    command = seed(migrated_engine)
+    with migrated_engine.begin() as connection:
+        previous = connection.execute(select(earthquake_event_revisions)).one()
+        connection.execute(
+            insert(earthquake_bulletin_event_identities).values(
+                source_bulletin_id="2026_0923_1201_B1", event_id=previous.event_id
+            )
+        )
+        connection.execute(
+            insert(earthquake_event_revisions).values(
+                **(
+                    dict(previous._mapping)
+                    | {
+                        "event_revision_id": uuid4(),
+                        "revision_number": 2,
+                        "source_bulletin_id": "2026_0923_1201_B1",
+                        "source_event_group_id": "2026_0923_1201",
+                    }
+                )
+            )
+        )
+    assert (
+        handle_prediction_command(
+            command.to_message(),
+            store=store(migrated_engine),
+            model=DeterministicTestModel(),
+            logger=logging.getLogger(__name__),
+        )
+        == "succeeded"
+    )
+    with migrated_engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(forecasts)) == 1
+        assert connection.scalar(select(func.count()).select_from(alert_jobs)) == 0
+
+
+def test_alert_dispatch_failure_rolls_back_forecast_completion(migrated_engine):
+    command = seed(migrated_engine)
+    repository = store(migrated_engine)
+    claim = repository.claim(command.dispatch_id, command.job_id, command.correlation_id)
+    assert claim is not None
+
+    def reject_alert_dispatch(connection, cursor, statement, parameters, context, executemany):
+        if statement.startswith("INSERT INTO job_dispatches"):
+            raise RuntimeError("alert dispatch insert failed")
+
+    event.listen(migrated_engine, "before_cursor_execute", reject_alert_dispatch)
+    try:
+        with pytest.raises(RuntimeError, match="alert dispatch insert failed"):
+            repository.complete(
+                claim, compose_forecast(DeterministicTestModel().predict(claim.features), NOW)
+            )
+    finally:
+        event.remove(migrated_engine, "before_cursor_execute", reject_alert_dispatch)
+    with migrated_engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(forecasts)) == 0
+        assert connection.scalar(select(func.count()).select_from(alert_jobs)) == 0
+        assert connection.scalar(select(func.count()).select_from(audit_logs)) == 0
+        assert connection.scalar(select(prediction_jobs.c.status)) == "running"
+        assert connection.scalar(select(prediction_attempts.c.status)) == "running"
+        assert connection.scalar(select(job_dispatches.c.status)) == "enqueued"
 
 
 def test_real_seis_bundle_persists_known_forecast(migrated_engine):
@@ -224,12 +351,14 @@ def test_real_seis_bundle_persists_known_forecast(migrated_engine):
 
 def test_published_v1_command_is_consumed_by_a_running_worker(migrated_engine):
     command = seed(migrated_engine)
+    with migrated_engine.connect() as connection:
+        release_id = connection.scalar(select(model_releases.c.model_release_id))
     settings = Settings(
         _env_file=None,
         database_url=os.environ["TEST_DATABASE_URL"],
         redis_url=os.environ["TEST_REDIS_URL"],
         phivolcs_catalog_url="https://example.invalid/catalog",
-        model_release_id=uuid4(),
+        model_release_id=release_id,
     )
     app = create_prediction_app(settings, command_handler=lambda _: "unused")
     redis_client = Redis.from_url(settings.redis_url)
@@ -333,6 +462,8 @@ def test_expired_attempt_is_abandoned_and_stale_completion_is_audited(migrated_e
 
 def test_prediction_runs_with_the_provisioned_worker_role(migrated_engine):
     command = seed(migrated_engine)
+    with migrated_engine.connect() as connection:
+        release_id = connection.scalar(select(model_releases.c.model_release_id))
     script = (
         Path(__file__).resolve().parents[3] / "infrastructure/postgres/provision-roles.sh"
     ).read_text(encoding="utf-8")
@@ -355,7 +486,7 @@ def test_prediction_runs_with_the_provisioned_worker_role(migrated_engine):
             cursor.execute("SET ROLE quakestrike_worker")
 
     try:
-        repository = store(worker_engine)
+        repository = store(worker_engine, configured_release_id=release_id)
         assert (
             handle_prediction_command(
                 command.to_message(),
@@ -367,6 +498,7 @@ def test_prediction_runs_with_the_provisioned_worker_role(migrated_engine):
         )
         with worker_engine.connect() as connection:
             assert connection.scalar(text("SELECT count(*) FROM forecasts")) == 1
+            assert connection.scalar(text("SELECT count(*) FROM alert_jobs")) == 1
             assert (
                 connection.scalar(
                     text("SELECT has_table_privilege(current_user, 'forecasts', 'UPDATE')")

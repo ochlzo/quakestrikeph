@@ -55,7 +55,7 @@ GRANT SELECT, INSERT, UPDATE ON TABLE
 TO quakestrike_worker;
 GRANT SELECT, INSERT ON TABLE
     earthquake_bulletin_event_identities, earthquake_event_revisions,
-    forecasts, audit_logs
+    forecasts, alert_jobs, audit_logs
 TO quakestrike_worker;
 SQL
     then

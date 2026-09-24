@@ -65,7 +65,9 @@ def process_prediction_delivery(settings: Settings, payload: object, model: Pred
     try:
         return handle_prediction_command(
             payload,
-            store=SqlAlchemyPredictionStore(create_session_factory(engine)),
+            store=SqlAlchemyPredictionStore(
+                create_session_factory(engine), configured_release_id=settings.model_release_id
+            ),
             model=model,
             logger=logging.getLogger("prediction-worker"),
         )
