@@ -1,6 +1,6 @@
 # QuakeStrike PH database design
 
-Status: authoritative intended PostgreSQL contract, not evidence that migrations have run. This specification consolidates the schema rules, table purposes, accepted decisions, and relationships into one implementation contract. It contains 19 tables. The [ERD](ERD.png) shows the former review-oriented design and is temporarily stale; this file controls fields, constraints, transactions, and ownership until the diagram follow-up lands. [ADR 0003](../../adr/0003-schema-specification-controls-database-contracts.md) establishes that precedence. The [architecture specification](../ARCHITECTURE/ARCHITECTURE.md) describes the modules that use them.
+Status: authoritative intended PostgreSQL contract, not evidence that migrations have run. This specification consolidates the schema rules, table purposes, accepted decisions, and relationships into one implementation contract. It contains 19 tables. The [ERD](ERD.png) shows the former review-oriented design and is temporarily stale, including its former operator-role relationship; this file controls fields, constraints, transactions, and ownership until the diagram follow-up lands. [ADR 0003](../../adr/0003-schema-specification-controls-database-contracts.md) establishes that precedence. The [architecture specification](../ARCHITECTURE/ARCHITECTURE.md) and [ADRs 0035](../../adr/0035-cloudflare-access-operations-console.md) and [0036](../../adr/0036-google-accounts-and-independent-phone-verification.md) describe the applications that use them.
 
 ## Conventions and data stores
 
@@ -26,9 +26,9 @@ Create enum types before their tables in the migration that first uses them. Add
 | --- | --- | --- |
 | D1 Earthquake data | `ingestion_runs`, `source_catalog_evidence`, `ingestion_run_inputs`, `earthquake_events`, `earthquake_bulletin_event_identities`, `earthquake_event_revisions` | Source runs, validated catalog coverage, durable input outcomes, stable events, bulletin identity mappings, and immutable observed revisions. |
 | D2 Forecast and model records | `model_releases`, `prediction_jobs`, `prediction_attempts`, `forecasts`, `job_dispatches` | Model provenance, work, results, and durable queue submission. |
-| D3 Accounts and access | `users`, `user_role_assignments` | Identity mapping, alert settings, and roles. |
+| D3 Accounts and access | `users` | Google account mapping, verified alert phone, and alert settings. |
 | D4 Alerts | `alert_jobs`, `alert_recipients`, `alert_delivery_attempts` | Automatic SMS authorization and delivery evidence. |
-| D5 Operational records | `audit_logs`, `technical_logs`, `maintenance_runs` | Business evidence, selected diagnostics, and maintenance history. |
+| D5 Operational records | `audit_logs`, `operator_access_events`, `technical_logs`, `maintenance_runs` | Business evidence, Console access evidence, selected diagnostics, and maintenance history. |
 
 `job_dispatches` is placed with D2 for the DFD, but it targets ingestion, prediction, or alert work. PostgreSQL is live truth; Redis carries commands and does not replace these records. CSV and bootstrap snapshots are finite import inputs, not live stores. See the [Level 1 DFD](../CFD-DFD/DFD-Level1.png) and [domain glossary](../../../CONTEXT.md).
 
@@ -36,7 +36,7 @@ Create enum types before their tables in the migration that first uses them. Add
 
 ### `users`
 
-One application account maps uniquely to a stable Clerk user ID. Clerk owns sign-in; this table owns profile, current mobile verification, and account status. Email is not a login key.
+One Bulletin account maps uniquely to a stable Clerk user ID from Google sign-in. This table owns the profile, current verified alert phone, alert consent and settings, and account status. Email comes from Google and is contact/profile data, not a separate sign-in key. Operators authenticate through Cloudflare Access and do not have `users` rows by virtue of Console access.
 
 ```text
 user_id uuid PK
@@ -45,8 +45,8 @@ first_name text?
 middle_name text?
 last_name text?
 display_name text
-email text?
-mobile_number text?
+email text
+mobile_number text? UQ
 mobile_verified_at timestamptz?
 sms_enabled boolean = false
 alert_trigger_magnitude numeric(3,1) = 4.5
@@ -59,25 +59,7 @@ created_at timestamptz = now()
 updated_at timestamptz = now()
 ```
 
-`account_status` is `active`, `suspended`, or `closed`. Mobile numbers are normalized E.164; verification needs a current number and changing the number clears verification in the same transaction. `sms_enabled` defaults to false and changes to true only through an explicit user opt-in; phone verification alone does not enable alerts. Delivery still requires a verified current number. `alert_trigger_magnitude` is finite and at least `1.0`. `nearby_alerts_only` defaults to false. The alert location is one user-selected fixed point, not continuous device tracking. Latitude and longitude are either both null or both present, finite, and within `[-90, 90]` and `[-180, 180]`; distance is finite and greater than zero kilometres when present. Enabling nearby-only alerts requires both coordinates and a distance. Disabling it may retain those values for later use, but they do not affect eligibility while it is off. Closing an account stops SMS and protected actions. Names may be absent. There is no local password or privileged-role default. The Backend writes accounts; workers read only what delivery needs.
-
-### `user_role_assignments`
-
-Historical privileged grants and revocations. A user can hold multiple independent roles; revocation retains evidence and a later re-grant creates a new row.
-
-```text
-assignment_id uuid PK
-user_id uuid
-role_code text
-granted_by_user_id uuid?
-grant_source text
-granted_at timestamptz = now()
-revoked_by_user_id uuid?
-revoked_at timestamptz?
-reason text?
-```
-
-`role_code` is `operations_viewer` or `access_administrator`; `grant_source` is `administrator` or `bootstrap`. Administrator grants need a grantor; bootstrap grants need a system audit. Revocation actor and time are both null or both set, and revocation cannot predate grant. Partial `UNIQUE (user_id, role_code) WHERE revoked_at IS NULL`. No role inherits another. Backend role administration writes grants and required audits atomically; protected requests read active assignments afresh.
+`account_status` is `active`, `suspended`, or `closed`. Mobile numbers are normalized E.164. `UNIQUE (mobile_number)` permits multiple nulls but prevents one current number from belonging to two accounts. Enforce `CHECK ((mobile_number IS NULL) = (mobile_verified_at IS NULL))`; a closed account has no current phone and cannot be SMS-enabled. A short-lived Redis verification attempt, tied to the signed-in Clerk user and proposed phone, does not change this row until the SMS verification provider confirms the entered code. Expired or lost attempts cannot verify a phone. A second account cannot claim a bound phone, and phone possession does not merge accounts. Phone replacement requires a recent Google login; its transaction replaces the verified number and timestamp and sets `sms_enabled = false`. Closing an account also clears the active phone and verification time and disables SMS, releasing the uniqueness claim while preserving separate historical evidence. `sms_enabled` defaults to false and changes to true only through an explicit user opt-in; phone verification alone does not enable alerts. Delivery still requires a verified current number. `alert_trigger_magnitude` is finite and at least `1.0`. `nearby_alerts_only` defaults to false. The alert location is one user-selected fixed point, not continuous device tracking. Latitude and longitude are either both null or both present, finite, and within `[-90, 90]` and `[-180, 180]`; distance is finite and greater than zero kilometres when present. Enabling nearby-only alerts requires both coordinates and a distance. Disabling it may retain those values for later use, but they do not affect eligibility while it is off. Closed accounts cannot use protected account actions. Names may be absent. There is no local password or operator-role table. The Backend writes accounts; workers read only what delivery needs. See [ADR 0036](../../adr/0036-google-accounts-and-independent-phone-verification.md).
 
 ## Ingestion and earthquake history
 
@@ -394,13 +376,52 @@ correlation_id uuid
 metadata jsonb?
 ```
 
-Actor type is `user`, `system`, or `anonymous`; the matching user/service field is required only for its type. Outcome is `succeeded`, `denied`, or `failed`. Target type/id are paired when a target exists; do not fabricate a target for an early denial. Target fields are historical descriptions, not polymorphic FKs. Privileged mutation and success audit commit together. Rollback failures and denials use a bounded separate path and never report committed success. Normal application roles cannot update or delete audit rows. Metadata contains no secrets.
+Actor type is `user`, `system`, or `anonymous`; the matching user/service field is required only for its type. A `user` is a Clerk-backed Bulletin account, not a Cloudflare Access operator. Outcome is `succeeded`, `denied`, or `failed`. Target type/id are paired when a target exists; do not fabricate a target for an early denial. Target fields are historical descriptions, not polymorphic FKs. Account mutation and success audit commit together. Rollback failures and denials use a bounded separate path and never report committed success. Normal application roles cannot update or delete audit rows. Metadata contains no secrets. Console page visits and sensitive-field reveals belong in `operator_access_events`.
 
 Until the accounts migration creates `users`, this phase rejects `actor_type = 'user'` so `actor_user_id` cannot become an orphan. That migration removes the temporary check and adds the required `users` foreign key. System audits needed by prediction completion remain available now.
 
+### `operator_access_events`
+
+Append-only evidence of which verified Cloudflare Access operator opened a
+Console page or detail and which sensitive user fields they revealed. This
+table is separate from Clerk-backed business `audit_logs`; it has no FK to
+`users`.
+
+```text
+access_event_id uuid PK
+occurred_at timestamptz = now()
+operator_sub text
+operator_email text
+event_type text
+route_template text
+target_type text?
+target_id text?
+field_category text?
+reason text?
+request_id uuid?
+```
+
+`event_type` is `page_open`, `detail_open`, or `sensitive_reveal`. A reveal's
+`field_category` is `name`, `email`, `mobile`, or `alert_location`, and its
+reason is bounded to 500 characters. The target
+type and ID are both absent for a general page open and both present for a
+detail open or reveal. Only a reveal has a field category and nonblank
+operator-entered reason; other events leave those fields null. The actor
+values come only from a verified Access application JWT. Store route
+templates, not raw paths, query strings, search terms, or revealed values.
+Record page opens and detail opens before their protected data response;
+record each reveal after reading only the requested fields but before returning
+them. Deny that response
+if the insert fails. Background refreshes and filter changes do not create
+events. `SELECT, INSERT` on this table are the Console role's only grants
+beyond its approved business-table `SELECT` grants. It has no `UPDATE` or
+`DELETE`; a dedicated host cleanup role removes rows older than 180 days in
+bounded batches. Cloudflare Access keeps separate login-attempt evidence.
+See [ADR 0035](../../adr/0035-cloudflare-access-operations-console.md).
+
 ### `technical_logs`
 
-Selected, sanitized warnings, errors, slow requests, and maintenance messages for protected Operations queries. Container stdout/stderr carries ordinary and outage diagnostics.
+Selected, sanitized warnings, errors, slow requests, and maintenance messages for protected Console queries. Container stdout/stderr carries ordinary and outage diagnostics.
 
 ```text
 log_id bigint GENERATED ALWAYS AS IDENTITY PK
@@ -442,7 +463,7 @@ error_message text?
 correlation_id uuid
 ```
 
-Operations are `backup`, `restore_test`, `retention_cleanup`; states are `running`, `succeeded`, `failed`, `abandoned`. Terminal finish is no earlier than start; running has no finish. Affected count is nonnegative. Successful backup needs artifact reference and SHA-256 checksum. Restore test needs a related backup and, on success, verification summary. Application logic checks that the referenced row is a backup; no self-reference. A failed backup may have no artifact. The next maintenance reconciliation marks interrupted runs abandoned. Restricted scripts write results; Operations Console reads them through Backend.
+Operations are `backup`, `restore_test`, `retention_cleanup`; states are `running`, `succeeded`, `failed`, `abandoned`. Terminal finish is no earlier than start; running has no finish. Affected count is nonnegative. Successful backup needs artifact reference and SHA-256 checksum. Restore test needs a related backup and, on success, verification summary. Application logic checks that the referenced row is a backup; no self-reference. A failed backup may have no artifact. The next maintenance reconciliation marks interrupted runs abandoned. Restricted scripts write results; the Console server reads them directly with its restricted database role.
 
 ### `job_dispatches`
 
@@ -473,7 +494,6 @@ Every FK uses `ON UPDATE RESTRICT`. Required child references have one parent; o
 | Child reference | Parent | Delete |
 | --- | --- | --- |
 | `job_dispatches.ingestion_run_id`, `.prediction_job_id`, `.alert_job_id` | `ingestion_runs`, `prediction_jobs`, `alert_jobs` | RESTRICT |
-| `user_role_assignments.user_id`, `.granted_by_user_id`, `.revoked_by_user_id` | `users` | RESTRICT |
 | `earthquake_events.first_seen_run_id`, `.last_seen_run_id` | `ingestion_runs` | RESTRICT |
 | `earthquake_events.superseded_by_event_id` | `earthquake_events` | RESTRICT |
 | `earthquake_event_revisions.event_id`, `.ingestion_run_id` | `earthquake_events`, `ingestion_runs` | RESTRICT |
@@ -489,35 +509,36 @@ Every FK uses `ON UPDATE RESTRICT`. Required child references have one parent; o
 | `audit_logs.actor_user_id` | `users` | RESTRICT after the accounts migration; user actors are rejected before it |
 | `maintenance_runs.related_backup_run_id` | `maintenance_runs` | RESTRICT |
 
-An alert job requires one forecast and `UNIQUE (forecast_id)` allows no second job for the same forecast. A job can have zero or one dispatch by FK/UQ, but creation transactions require one for new background work. `technical_logs` has no business FK. Close or anonymize retained users rather than deleting their audit evidence. Physical deletion succeeds only when RESTRICT references are absent. Business retention requires a separately reviewed procedure; technical-log cleanup cannot cascade through history.
+An alert job requires one forecast and `UNIQUE (forecast_id)` allows no second job for the same forecast. A job can have zero or one dispatch by FK/UQ, but creation transactions require one for new background work. `technical_logs` and `operator_access_events` have no business FK. Closing an account clears its current phone binding; anonymize retained users rather than deleting their audit evidence. Physical deletion succeeds only when RESTRICT references are absent. Business retention requires a separately reviewed procedure; technical-log and Console-event cleanup cannot cascade through history.
 
 ## Index plan
 
 PK and UQ constraints create indexes; do not duplicate an index already covered by a useful left prefix. Index every remaining FK lookup column. Add indexes for these query paths:
 
-- Active role assignment partial uniqueness; revision group ID and non-unique bulletin-ID lookup. `UNIQUE (event_id, revision_number)` supports latest revision by reverse scan.
+- Unique normalized current mobile number; revision group ID and non-unique bulletin-ID lookup. `UNIQUE (event_id, revision_number)` supports latest revision by reverse scan.
 - `prediction_jobs(event_revision_id, model_release_id, requested_at DESC)`.
 - Dispatch `next_dispatch_at, dispatch_id` for pending/retry-wait and `lease_expires_at` for dispatching; target UQs support job lookup.
 - Prediction running-attempt lease and partial running-job uniqueness; active ingestion/alert processing leases.
 - Alert status/expiry and request time; recipient job/status, retry time, sending lease, and user ID.
 - Delivery provider/reference when present; recipient/attempt sequence uniqueness.
-- Audit occurrence time, actor/time, target/time, and correlation; technical-log occurrence, module/severity/time, category/status/time, request, and correlation; maintenance operation/start time.
+- Audit occurrence time, actor/time, target/time, and correlation; Console access-event occurrence, operator/time, and target/time; technical-log occurrence, module/severity/time, category/status/time, request, and correlation; maintenance operation/start time.
 
-Queue and Console searches must be indexed, paginated, and date-bounded. Do not add JSON-wide indexes, partitions, or host-metric tables without measured need. Technical-log deletion uses manageable batches.
+Queue searches must be indexed. Console historical views are paginated and date-bounded; the user list is paginated. Console pages query only `ingestion_runs`, `ingestion_run_inputs`, `source_catalog_evidence`, `job_dispatches`, `prediction_jobs`, `prediction_attempts`, `forecasts`, `model_releases`, `alert_jobs`, `alert_recipients`, `alert_delivery_attempts`, `audit_logs`, `operator_access_events`, `technical_logs`, `maintenance_runs`, and `users`, with linked `earthquake_events` and `earthquake_event_revisions` for context. This is a named operational read surface, not an all-table SQL browser. The Console supports targeted user ID or partial phone lookup. The phone may be used in a server-side search predicate, but names, email, phone, and saved alert-location coordinates are not selected for list responses and are returned only after an audited field reveal. Add a search index only when its query plan requires one; the lookup implementation is a Console application decision. Do not add JSON-wide indexes, partitions, or host-metric tables without measured need. Technical-log and Console-event deletion use manageable batches.
 
 ## Transactions and cross-table rules
 
-1. Account and role changes check ownership and authorization. Grants and alert-setting changes commit with required success audits.
+1. Account changes check Clerk ownership. A provider-confirmed phone claim or replacement checks the pending user/number pair, current number uniqueness, and account state; it updates the current verified phone and disables SMS when replacing or closing an account. The user enables SMS through a later explicit action. Account and alert-setting changes commit with required success audits. A verified Google email does not prove phone possession.
 2. Beat commits the pending ingestion run with its dispatch. Dispatcher claims and publishes after commit. Worker processing preserves run/job identity across retries and uses a separate processing lease. Redis is at-least-once; database claims and uniqueness make repetition safe.
 3. For each accepted event, Ingestor locks or creates stable identity, appends a changed revision, builds the ten-feature snapshot from prior PostgreSQL history, hashes canonical JSON, and creates any eligible prediction job plus dispatch in one transaction. Run counters checkpoint separately. Redis publication occurs after commit. No future data, uncertain same-minute ordering, retrospective family metadata, missing URL, missing both IDs, or incomplete snapshot can pass the prediction gate. See [atomic processing](../../adr/0016-atomic-event-processing-and-release-registration.md) and [revision idempotency](../../adr/0022-idempotent-revisions-and-bootstrap-gates.md).
 4. Prediction completion validates the current execution token. Forecast, job/attempt success, its automatic alert job and dispatch, and system audit commit together. Every current, unexpired live M1+ forecast creates exactly one alert job; backfill, historical, and expired work do not. The Alert Worker later applies each user's trigger magnitude and optional nearby-only radius to the observed anchor, not predicted outputs.
 5. Alert resolution inserts unique eligible recipients and checkpoints completion only after candidate processing. Before a provider call, the worker claims and rechecks one recipient, then persists an attempt. The external SMS call cannot join a SQL transaction. Unknown results require provider reconciliation. An expiry sweep stops new sends and marks unsent recipients expired, without rewriting accepted/unknown/delivered evidence. Late callbacks may close earlier attempts.
+6. Console page loads and detail opens insert `operator_access_events` before returning protected data. A sensitive-field reveal reads only the requested values, then inserts its target, category, and reason before returning them. If the insert fails, the response fails closed. These inserts do not authorize business-table mutations.
 
 ## Initialization, retention, and policy choices
 
 Apply hand-reviewed Alembic migrations, verify and explicitly register the selected `SEIS 1.0.1` manifest and artifact hashes, run the resumable bootstrap, check source snapshot integrity, identifiers, URLs, row counts, and seven-day history, then start Dispatcher/Ingestor and enable Beat. Bootstrap records a `backfill` run and uses the same normalization and reconciliation as live ingestion. Service startup never runs migrations, imports data, or silently changes releases. Historical snapshots remain source evidence outside Git; PostgreSQL is the only live event store. See [startup](../../adr/0019-explicit-startup-and-runtime-configuration.md) and [readiness](../../adr/0022-idempotent-revisions-and-bootstrap-gates.md).
 
-Choose and version the recipient policy before enabling delivery; `recipient_policy_snapshot` records the batch policy and `eligibility_snapshot` records the user's SMS setting, trigger magnitude, observed anchor magnitude, nearby-only setting, saved alert location and radius when used, calculated distance, account state, and phone-verification state. Treat saved coordinates and snapshots as private account data; do not expose them in public responses or technical logs. Also decide technical and business retention periods separately and the SMS provider/callback and phone-verification policy. Existing snapshots and states support these choices without a new table. Host maintenance scripts, not a database scheduling extension, own cleanup, backup, and restore-test schedules. The [architecture specification](../ARCHITECTURE/ARCHITECTURE.md#logging-diagnostics-and-maintenance) defines diagnostic fallback and off-VPS backup requirements.
+Choose and version the recipient policy before enabling delivery; `recipient_policy_snapshot` records the batch policy and `eligibility_snapshot` records the user's SMS setting, trigger magnitude, observed anchor magnitude, nearby-only setting, saved alert location and radius when used, calculated distance, account state, and phone-verification state. Treat saved coordinates and snapshots as private account data; do not expose them in public responses or technical logs. Successful scheduled ingestion checkpoints are removed when summaries commit; other terminal-run checkpoints expire after 30 days under [ADR 0034](../../adr/0034-bound-successful-ingestion-checkpoints.md). Console access events expire after 180 days. The technical-log period and business-audit, run-summary, and delivery-evidence retention periods remain separate decisions before production; do not apply Console or technical-log cleanup to them. IPROG SMS is a leading candidate, not a selected production provider. Validate provider-managed OTP, country/network coverage, callback or polling reconciliation, sender identity, and cost before production. Short-lived pending OTP state is not a durable business table; codes and provider responses must not enter audit or technical logs. Host maintenance scripts, not a database scheduling extension, own cleanup, backup, and restore-test schedules. The [architecture specification](../ARCHITECTURE/ARCHITECTURE.md#logging-diagnostics-and-maintenance) defines diagnostic fallback and off-VPS backup requirements.
 
 ## References
 

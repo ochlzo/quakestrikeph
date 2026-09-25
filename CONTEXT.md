@@ -153,7 +153,30 @@ The state in which a user has a verified current mobile number and has explicitl
 enabled SMS alerts.
 _Avoid_: PHIVOLCS consent, review approval
 
+**Bulletin account**:
+A Clerk account signed in through Google for personal alert settings. Public
+earthquake information remains available without an account. Its Google email
+is not a separate QuakeStrike sign-in method.
+
+**Verified alert phone**:
+The one current mobile number linked to a Bulletin account after an SMS
+provider confirms a code entered for that account's pending verification.
+Verification alone does not enable alerts; changing the number pauses SMS until
+the user opts in again.
+
 **Nearby-only alert**:
 An optional per-user SMS filter that compares an observed earthquake epicenter
 with one saved alert location and the user's maximum distance in kilometres.
 It does not use the forecast activity radius or track the user's device.
+
+## Operations
+
+**Console operator**:
+A person admitted by the Operations Console's Cloudflare Access policy through
+a named Google identity and MFA. This identity is separate from a Bulletin
+account and is not a role on the `users` table.
+
+**Console access event**:
+An append-only record of a verified operator opening a Console page or detail,
+or revealing a sensitive user field with a stated reason. It does not contain
+the revealed value or a raw search term.

@@ -26,6 +26,9 @@ production database remains the live source of truth. Browsing does not create
 a copy, and newly committed records appear after refresh or a new query.
 
 This decision adds an optional private operator path to the architecture's
-network rules. The existing public edge still routes only the two application
-hostnames. The [operator steps](../operations/database-maintenance.md#browse-production-postgresql-over-tailscale)
+network rules. The public edge still routes only the two application
+hostnames, with the Console hostname protected by Cloudflare Access under
+[ADR 0035](0035-cloudflare-access-operations-console.md). Tailscale pgAdmin
+remains a separate read-only investigation path if the Console or Access is
+unavailable. The [operator steps](../operations/database-maintenance.md#browse-production-postgresql-over-tailscale)
 define how to enable and stop the browser.

@@ -28,6 +28,12 @@ records. The [architecture specification](docs/system-design/ARCHITECTURE/ARCHIT
 describes the intended full system; its diagram includes components that are
 not implemented yet.
 
+The planned Bulletin uses Google sign-in through Clerk for personal SMS alert
+settings. The separate Operations Console is protected by Cloudflare Access
+and reads selected PostgreSQL records on its server. See the
+[Console ADR](docs/adr/0035-cloudflare-access-operations-console.md) and
+[account and phone ADR](docs/adr/0036-google-accounts-and-independent-phone-verification.md).
+
 ![System and layered architecture](docs/system-design/ARCHITECTURE/system-architecture-layers.png)
 
 ## Find your way around

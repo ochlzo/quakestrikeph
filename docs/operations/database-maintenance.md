@@ -35,6 +35,11 @@ separate password change in pgAdmin.
 
 ## Browse production PostgreSQL over Tailscale
 
+This private pgAdmin path remains separate from the Cloudflare Access-protected
+Operations Console in [ADR 0035](../adr/0035-cloudflare-access-operations-console.md).
+It is the read-only investigation fallback when the Console or Access is
+unavailable; it does not bypass the Console login.
+
 Run this section in an SSH shell on the VPS. Running it from Windows starts or
 uses a separate local Compose database and will show local data, not production.
 
