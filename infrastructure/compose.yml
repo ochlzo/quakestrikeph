@@ -9,7 +9,7 @@ services:
       WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD:?Set WORKER_DB_PASSWORD in .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./postgres/provision-roles.sh:/opt/quakestrike/provision-roles.sh:ro
+      - ./postgres:/opt/quakestrike:ro
     networks:
       - private-data
     restart: unless-stopped

@@ -3,8 +3,11 @@
 **Status**: accepted
 
 Each unique bulletin URL visible in a catalog response is checked through a
-reused HTTP session. Initial enrichment is sequential with a configurable
-inter-request delay of `0.1` seconds. The parser reuses the latest scraper's
+reused HTTP session. Live enrichment uses at most four concurrent detail
+requests, with a separate reused session per worker and a global minimum
+`0.1`-second gap between request starts. The concurrency limit is configurable
+from one through four. Catalog fetching and event reconciliation still belong
+to one durable ingestion run. The parser reuses the latest scraper's
 encoding, URL-repair, TLS, retry, and detail-page extraction behavior.
 
 The detail page supplies `Origin` and may supply seconds. The ingestor trusts

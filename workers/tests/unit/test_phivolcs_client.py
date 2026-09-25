@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Barrier
 
 import pytest
 import requests
@@ -78,6 +79,57 @@ class ScriptedSession:
         if isinstance(response, requests.RequestException):
             raise response
         return response
+
+
+def test_bounded_detail_fetch_uses_separate_sessions_and_preserves_row_order() -> None:
+    rows_html = "".join(
+        f'<tr><td><a href="2026_Earthquake_Information/September/'
+        f'2026_0901_0{i:03d}_B1.html">01 September 2026 - 08:0{i} AM</a></td>'
+        "<td>10</td><td>125</td><td>7</td><td>2.0</td><td>Test</td></tr>"
+        for i in range(4)
+    )
+    rows = parse_current_catalog(f"<table>{rows_html}</table>", CATALOG_URL).accepted_rows
+    rendezvous = Barrier(4)
+    sessions = []
+
+    class DetailSession:
+        closed = False
+
+        def get(self, url: str, **kwargs: object) -> ScriptedResponse:
+            rendezvous.wait(timeout=2)
+            return ScriptedResponse((FIXTURES / "bulletin_detail.html").read_bytes())
+
+        def close(self) -> None:
+            self.closed = True
+
+    def make_session() -> DetailSession:
+        session = DetailSession()
+        sessions.append(session)
+        return session
+
+    client = PhivolcsCatalogClient(
+        catalog_url=CATALOG_URL,
+        session=ScriptedSession([]),
+        max_response_bytes=10_000,
+        connect_timeout_seconds=3,
+        read_timeout_seconds=4,
+        detail_delay_seconds=0,
+        detail_concurrency=4,
+        detail_session_factory=make_session,
+    )
+
+    enriched = client.enrich_rows((*rows, rows[0]), heartbeat=lambda: True)
+
+    assert [row.source_bulletin_id for row in enriched] == [
+        *(row.source_bulletin_id for row in rows),
+        rows[0].source_bulletin_id,
+    ]
+    assert len(sessions) == 4
+    assert all(session.closed for session in sessions)
+    sessions.clear()
+    with pytest.raises(CatalogRetrievalLeaseLost):
+        client.enrich_rows(rows, heartbeat=lambda: False)
+    assert sessions == []
 
 
 def test_retrieve_current_catalog_reuses_one_detail_download_and_validates_each_row() -> None:

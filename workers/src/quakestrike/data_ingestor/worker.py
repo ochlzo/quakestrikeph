@@ -132,6 +132,8 @@ def process_ingestion_delivery(
                 connect_timeout_seconds=settings.http_connect_timeout_seconds,
                 read_timeout_seconds=settings.http_read_timeout_seconds,
                 detail_delay_seconds=settings.detail_request_delay_seconds,
+                detail_concurrency=settings.detail_request_concurrency,
+                detail_session_factory=create_phivolcs_session,
             ),
             diagnostic_reporter=reporter,
             model_release_id=settings.model_release_id,

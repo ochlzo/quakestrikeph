@@ -106,6 +106,8 @@ Registration verifies the packaged model before storing its immutable release
 reference. Role provisioning and grants are explicit, repeatable actions. The
 init container uses the migration role; long-running workers use the worker
 role, which can read model releases but cannot change the registry or schema.
+PostgreSQL mounts the role-script directory so a checked-out script update is
+visible before the explicit grant command runs.
 On an existing local database, role provisioning transfers only the known
 worker tables and enum types to the migration role so later migrations can run.
 An exact registration repeat is safe.
