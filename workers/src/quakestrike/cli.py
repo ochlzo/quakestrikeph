@@ -51,6 +51,7 @@ def main() -> int:
             "register-model-release",
             "verify-model-release",
             "reissue-legacy-predictions",
+            "recover-historical-predictions",
             "poll-now",
             "migrate",
             "health-dispatcher",
@@ -62,6 +63,8 @@ def main() -> int:
     parser.add_argument("--source-package", type=Path)
     parser.add_argument("--snapshot", type=Path)
     parser.add_argument("--run-manifest", type=Path)
+    parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--batch-size", type=int, default=50)
     args = parser.parse_args()
     if args.command == "migrate":
         return operator_setup.migrate()
@@ -85,6 +88,10 @@ def main() -> int:
         return operator_setup.verify_model_release()
     if args.command == "reissue-legacy-predictions":
         return operator_setup.reissue_legacy_predictions()
+    if args.command == "recover-historical-predictions":
+        return operator_setup.recover_historical_predictions(
+            apply=args.apply, batch_size=args.batch_size
+        )
     if args.command == "poll-now":
         return operator_runtime.immediate_poll()
     if args.command in {"health-dispatcher", "health-ingestor", "health-prediction", "health-beat"}:

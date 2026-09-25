@@ -53,12 +53,14 @@ class SqlAlchemyFeatureHistoryQuery:
         anchor: FeatureObservation,
         *,
         coverage: HistoryCoverage | None = None,
+        known_at: datetime | None = None,
     ) -> HistorySelection:
         return SqlAlchemyFeatureHistoryQuery.select_history_at_in_session(
             session,
             anchor.event_time,
             coverage=coverage,
             excluded_event_id=anchor.event_id,
+            known_at=known_at,
         )
 
     @staticmethod
@@ -68,15 +70,17 @@ class SqlAlchemyFeatureHistoryQuery:
         *,
         coverage: HistoryCoverage | None = None,
         excluded_event_id: object | None = None,
+        known_at: datetime | None = None,
     ) -> HistorySelection:
         revisions = earthquake_event_revisions
-        latest_revision = (
-            select(
-                revisions.c.event_id,
-                func.max(revisions.c.revision_number).label("revision_number"),
-            )
-            .group_by(revisions.c.event_id)
-            .subquery("latest_event_revision")
+        latest_query = select(
+            revisions.c.event_id,
+            func.max(revisions.c.revision_number).label("revision_number"),
+        )
+        if known_at is not None:
+            latest_query = latest_query.where(revisions.c.ingested_at <= known_at)
+        latest_revision = latest_query.group_by(revisions.c.event_id).subquery(
+            "latest_event_revision"
         )
         lower_bound = anchor_time - HISTORY_WINDOW
         statement = (
