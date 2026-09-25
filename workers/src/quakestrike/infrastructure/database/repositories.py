@@ -38,7 +38,7 @@ from quakestrike.domain.features import (
     build_prediction_decision,
     create_feature_snapshot,
 )
-from quakestrike.domain.source_rows import CatalogEvidence
+from quakestrike.domain.source_rows import CatalogEvidence, NormalizedSourceRow
 from quakestrike.infrastructure.database.engine import SessionFactory
 from quakestrike.infrastructure.database.feature_history import (
     SqlAlchemyFeatureHistoryQuery,
@@ -55,6 +55,7 @@ from quakestrike.infrastructure.database.tables import (
     prediction_jobs,
     source_catalog_evidence,
 )
+from quakestrike.infrastructure.phivolcs.parser import ParsedDetail
 
 _SCHEDULE_LOCK_KEY = 5_173_835_459
 # PostgreSQL keeps two-int advisory locks separate from one-bigint locks. The first
@@ -845,6 +846,47 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                 )
             )
 
+    def reusable_live_details(
+        self, rows: tuple[NormalizedSourceRow, ...]
+    ) -> dict[str, ParsedDetail]:
+        """Reuse accepted detail fields when the published catalog row is unchanged."""
+
+        bulletin_ids = {row.source_bulletin_id for row in rows if row.source_bulletin_id}
+        if not bulletin_ids:
+            return {}
+        revisions = earthquake_event_revisions
+        with self._session_factory() as session:
+            stored_rows = (
+                session.execute(
+                    select(revisions)
+                    .where(revisions.c.source_bulletin_id.in_(bulletin_ids))
+                    .order_by(revisions.c.source_bulletin_id, revisions.c.revision_number.desc())
+                    .distinct(revisions.c.source_bulletin_id)
+                )
+                .mappings()
+                .all()
+            )
+        by_bulletin = {item["source_bulletin_id"]: item for item in stored_rows}
+        reusable: dict[str, ParsedDetail] = {}
+        unavailable: set[str] = set()
+        for row in rows:
+            stored = by_bulletin.get(row.source_bulletin_id)
+            if stored is None or not _catalog_row_matches_revision(row, stored):
+                unavailable.add(row.source_url)
+                continue
+            if stored["source_time_precision"] != "second" or stored["origin"] is None:
+                # Incomplete and failed detail results remain eligible for retry.
+                unavailable.add(row.source_url)
+                continue
+            detail = ParsedDetail(stored["event_time"], stored["origin"], ())
+            if row.source_url in reusable and reusable[row.source_url] != detail:
+                unavailable.add(row.source_url)
+            else:
+                reusable[row.source_url] = detail
+        for url in unavailable:
+            reusable.pop(url, None)
+        return reusable
+
     def find_group_candidates(self, source_event_group_id: str):
         """Return one latest matching-group observation per stable event."""
 
@@ -1372,3 +1414,20 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
             return self._model_release_verifier.is_verified(release_id)
         except Exception:
             return False
+
+
+def _catalog_row_matches_revision(row: NormalizedSourceRow, stored: object) -> bool:
+    """Compare catalog fields; seconds and origin came from the detail page."""
+
+    return (
+        stored["source_bulletin_id"] == row.source_bulletin_id
+        and stored["source_event_group_id"] == row.source_event_group_id
+        and stored["source_url"] == row.source_url
+        and stored["event_time"].astimezone(row.occurred_at.tzinfo).replace(second=0, microsecond=0)
+        == row.occurred_at
+        and stored["latitude"] == row.latitude
+        and stored["longitude"] == row.longitude
+        and stored["depth_km"] == row.depth_km
+        and stored["magnitude"] == row.magnitude
+        and stored["location_description"] == row.location_description
+    )

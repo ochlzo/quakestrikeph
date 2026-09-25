@@ -115,9 +115,10 @@ metadata, row counts, and validation results; the cleaned catalog alone is not
 authoritative bootstrap input.
 
 **Detail-page enrichment**:
-The bounded concurrent request to each unique visible PHIVOLCS bulletin URL to obtain
-origin and optional seconds precision. Detail seconds are used only when the
-date, hour, and minute agree with the catalog row; otherwise the catalog
+A bounded concurrent request to a new or changed visible PHIVOLCS bulletin URL
+to obtain origin and optional seconds precision. Unchanged catalog rows reuse
+accepted details from their stored revisions. Detail seconds are used only when
+the date, hour, and minute agree with the catalog row; otherwise the catalog
 minute timestamp is retained.
 
 **Log retention cycle**:

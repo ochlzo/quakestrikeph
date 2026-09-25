@@ -29,5 +29,5 @@ size, cleanup failures, and disk usage.
 At approximately 1,575 inputs every five minutes, the 24-hour window keeps
 about 454,000 successful scheduled checkpoints, plus any protected run types.
 This policy bounds retained checkpoints; it does not reduce their insertion
-rate. [ADR 0033](0033-cache-stable-live-bulletin-details.md) separately reduces
+rate. [ADR 0033](0033-reuse-stored-live-bulletin-details.md) separately reduces
 the dominant repeated detail-page requests.

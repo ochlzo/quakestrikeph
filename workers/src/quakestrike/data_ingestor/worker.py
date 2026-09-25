@@ -27,7 +27,6 @@ from quakestrike.infrastructure.logging.reconciliation import (
     StructuredReconciliationReporter,
 )
 from quakestrike.infrastructure.phivolcs.client import PhivolcsCatalogClient
-from quakestrike.infrastructure.phivolcs.detail_cache import RedisDetailCache
 from quakestrike.infrastructure.phivolcs.session import create_phivolcs_session
 from quakestrike.infrastructure.queues.celery_app import (
     INGESTION_QUEUE,
@@ -118,7 +117,6 @@ def process_ingestion_delivery(
     task_logger = logger or logging.getLogger("data-ingestor")
     engine = create_database_engine(settings.database_url)
     session = create_phivolcs_session()
-    detail_cache = RedisDetailCache(settings.redis_url)
     try:
         store = SqlAlchemyIngestionTransactions(
             create_session_factory(engine),
@@ -136,7 +134,7 @@ def process_ingestion_delivery(
                 detail_delay_seconds=settings.detail_request_delay_seconds,
                 detail_concurrency=settings.detail_request_concurrency,
                 detail_session_factory=create_phivolcs_session,
-                detail_cache=detail_cache,
+                reusable_details=store.reusable_live_details,
             ),
             diagnostic_reporter=reporter,
             model_release_id=settings.model_release_id,
@@ -150,7 +148,6 @@ def process_ingestion_delivery(
             logger=task_logger,
         )
     finally:
-        detail_cache.close()
         session.close()
         engine.dispose()
 

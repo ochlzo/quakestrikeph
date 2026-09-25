@@ -44,7 +44,7 @@ SAFE_CONTEXT_FIELDS = frozenset(
         "catalog_bytes",
         "catalog_rows",
         "detail_urls",
-        "detail_cache_hits",
+        "detail_reuse_hits",
         "catalog_fetch_ms",
         "catalog_parse_ms",
         "detail_enrichment_ms",
