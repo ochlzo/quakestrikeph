@@ -168,7 +168,9 @@ class RecoverHistoricalPredictions:
         coverages = merge_history_coverages(
             [self._bootstrap_coverage] + [item.coverage for item in evidence.live_coverages]
         )
-        counts: Counter[str] = Counter(total=len(evidence.candidate_ids))
+        counts: Counter[str] = Counter(
+            candidate=len(evidence.candidate_ids), total=len(evidence.candidate_ids)
+        )
         for index, revision_id in enumerate(evidence.candidate_ids, 1):
             with self._store.transaction(revision_id) as transaction:
                 self._process_candidate(
@@ -182,7 +184,15 @@ class RecoverHistoricalPredictions:
             if progress is not None and index % 50 == 0:
                 progress(dict(counts))
         result = dict(counts)
-        for key in ("superseded", "eligible", "created", "reused", "deferred"):
+        for key in (
+            "superseded",
+            "uncovered",
+            "existing",
+            "eligible",
+            "created",
+            "reused",
+            "deferred",
+        ):
             result.setdefault(key, 0)
         return result
 
@@ -222,10 +232,12 @@ class RecoverHistoricalPredictions:
                     f"Existing work has no valid snapshot for {candidate.revision_id}."
                 )
             counts[decision.decision.skip_reason or "ineligible"] += 1
+            counts["uncovered"] += 1
             return
         if candidate.job is not None or candidate.audit is not None:
             self._validate_existing(candidate, decision.snapshot, evidence)
             counts["reused"] += 1
+            counts["existing"] += 1
             return
         counts["eligible"] += 1
         if not apply:
@@ -244,20 +256,27 @@ class RecoverHistoricalPredictions:
             snapshot=decision.snapshot,
             correlation_id=source.correlation_id,
             audit_metadata={
-                "source_run_id": str(SOURCE_RUN_ID),
-                "bootstrap_run_id": str(self._bootstrap_run_id),
-                "bootstrap_snapshot_sha256": self._bootstrap_sha256,
+                **self._audit_identity(decision.snapshot, job_id, dispatch_id),
                 "coverage_run_ids": [str(item.run_id) for item in evidence.live_coverages],
                 "coverage_start": coverage.start.isoformat(),
                 "coverage_end": coverage.end.isoformat(),
-                "model_release_id": str(self._release_id),
-                "input_snapshot_hash": decision.snapshot.sha256,
-                "job_id": str(job_id),
-                "dispatch_id": str(dispatch_id),
-                "historical_no_alert": True,
             },
         )
         counts["created"] += 1
+
+    def _audit_identity(
+        self, snapshot: FeatureSnapshot, job_id: UUID, dispatch_id: UUID
+    ) -> dict[str, object]:
+        return {
+            "source_run_id": str(SOURCE_RUN_ID),
+            "bootstrap_run_id": str(self._bootstrap_run_id),
+            "bootstrap_snapshot_sha256": self._bootstrap_sha256,
+            "model_release_id": str(self._release_id),
+            "input_snapshot_hash": snapshot.sha256,
+            "job_id": str(job_id),
+            "dispatch_id": str(dispatch_id),
+            "historical_no_alert": True,
+        }
 
     def _validate_existing(
         self,
@@ -271,16 +290,7 @@ class RecoverHistoricalPredictions:
             raise UnsafeHistoricalRecovery(f"Existing work conflicts for {candidate.revision_id}.")
         expected_key = f"prediction:{candidate.revision_id}:{self._release_id}:{snapshot.sha256}"
         metadata = audit.metadata
-        expected = {
-            "source_run_id": str(SOURCE_RUN_ID),
-            "bootstrap_run_id": str(self._bootstrap_run_id),
-            "bootstrap_snapshot_sha256": self._bootstrap_sha256,
-            "model_release_id": str(self._release_id),
-            "input_snapshot_hash": snapshot.sha256,
-            "job_id": str(job.job_id),
-            "dispatch_id": str(dispatch.dispatch_id),
-            "historical_no_alert": True,
-        }
+        expected = self._audit_identity(snapshot, job.job_id, dispatch.dispatch_id)
         if (
             job.model_release_id != self._release_id
             or job.input_snapshot_hash != snapshot.sha256

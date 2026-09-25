@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy import func, insert, select, update
 
+from quakestrike.application.dispatch import DurableDispatcher, PredictionDispatch
 from quakestrike.application.historical_recovery import (
     AUDIT_ACTION,
     SOURCE_RUN_ID,
@@ -20,6 +21,7 @@ from quakestrike.domain.features import (
     HistoryCoverage,
     create_feature_snapshot,
 )
+from quakestrike.infrastructure.database.dispatch import SqlAlchemyDispatchStore
 from quakestrike.infrastructure.database.engine import create_session_factory
 from quakestrike.infrastructure.database.historical_recovery import SqlAlchemyHistoricalRecovery
 from quakestrike.infrastructure.database.tables import (
@@ -160,10 +162,13 @@ def test_dry_run_then_apply_and_repeat_preserves_skip_and_audits(migrated_engine
             event_id=history_event,
         )
     preview = recovery.run(apply=False)
+    assert preview["candidate"] == 1
     assert preview["eligible"] == 1
-    assert preview.get("superseded", 0) == 0
+    assert preview["superseded"] == 0
+    assert preview["uncovered"] == 0
+    assert preview["existing"] == 0
     assert recovery.run(apply=True)["created"] == 1
-    assert recovery.run(apply=True)["reused"] == 1
+    assert recovery.run(apply=True)["existing"] == 1
     with migrated_engine.connect() as connection:
         assert connection.scalar(select(func.count()).select_from(prediction_jobs)) == 1
         assert connection.scalar(select(func.count()).select_from(job_dispatches)) == 1
@@ -189,6 +194,7 @@ def test_recovery_rejects_gap_in_seven_day_source_coverage(migrated_engine):
         live_start=datetime(2026, 9, 18, tzinfo=UTC),
     )
     result = recovery.run(apply=True)
+    assert result["uncovered"] == 1
     assert result["history_starts_after_required_window"] == 1
     with migrated_engine.connect() as connection:
         assert connection.scalar(select(func.count()).select_from(prediction_jobs)) == 0
@@ -230,6 +236,70 @@ def test_recovery_batches_new_jobs_without_duplicating_prior_batch(migrated_engi
     assert second["created"] == 1
     with migrated_engine.connect() as connection:
         assert connection.scalar(select(func.count()).select_from(audit_logs)) == 2
+
+
+def test_recovered_job_dispatch_is_leased_and_retried(migrated_engine):
+    recovery, revision_id, _ = _seed(migrated_engine)
+    assert recovery.run(apply=True)["created"] == 1
+    with migrated_engine.connect() as connection:
+        job = connection.execute(select(prediction_jobs)).one()
+        dispatch = connection.execute(select(job_dispatches)).one()
+
+    class RetryOncePublisher:
+        def __init__(self):
+            self.attempts = 0
+
+        def publish(self, command):
+            assert isinstance(command, PredictionDispatch)
+            assert (command.dispatch_id, command.job_id, command.correlation_id) == (
+                dispatch.dispatch_id,
+                job.job_id,
+                job.correlation_id,
+            )
+            with migrated_engine.connect() as connection:
+                leased = connection.execute(
+                    select(job_dispatches).where(
+                        job_dispatches.c.dispatch_id == command.dispatch_id
+                    )
+                ).one()
+            assert leased.status == "dispatching"
+            assert leased.dispatch_token is not None
+            assert leased.lease_expires_at is not None
+            self.attempts += 1
+            if self.attempts == 1:
+                raise ConnectionError("Temporary queue failure")
+
+    publisher = RetryOncePublisher()
+    store = SqlAlchemyDispatchStore(create_session_factory(migrated_engine))
+    first = DurableDispatcher(
+        store,
+        {"ingestion": publisher, "prediction": publisher},
+        batch_size=1,
+        clock=lambda: dispatch.next_dispatch_at,
+    ).dispatch_due()
+    assert (first.claimed, first.retry_wait) == (1, 1)
+    with migrated_engine.connect() as connection:
+        retry = connection.execute(select(job_dispatches)).one()
+    assert retry.status == "retry_wait"
+    assert retry.dispatch_token is None
+    assert retry.lease_expires_at is None
+    assert retry.next_dispatch_at is not None
+
+    second = DurableDispatcher(
+        store,
+        {"ingestion": publisher, "prediction": publisher},
+        batch_size=1,
+        clock=lambda: retry.next_dispatch_at,
+    ).dispatch_due()
+    assert (second.claimed, second.enqueued) == (1, 1)
+    assert publisher.attempts == 2
+    with migrated_engine.connect() as connection:
+        completed = connection.execute(select(job_dispatches)).one()
+    assert completed.prediction_job_id == job.job_id
+    assert completed.status == "enqueued"
+    assert completed.dispatch_token is None
+    assert completed.lease_expires_at is None
+    assert job.event_revision_id == revision_id
 
 
 def test_bootstrap_correlation_must_match_durable_run(migrated_engine):
