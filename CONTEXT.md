@@ -143,6 +143,11 @@ automatic alert.
 _Avoid_: Global alert threshold
 
 **SMS enrollment**:
-The state in which a user has a verified mobile number and has not disabled SMS
-alerts.
+The state in which a user has a verified current mobile number and has explicitly
+enabled SMS alerts.
 _Avoid_: PHIVOLCS consent, review approval
+
+**Nearby-only alert**:
+An optional per-user SMS filter that compares an observed earthquake epicenter
+with one saved alert location and the user's maximum distance in kilometres.
+It does not use the forecast activity radius or track the user's device.
