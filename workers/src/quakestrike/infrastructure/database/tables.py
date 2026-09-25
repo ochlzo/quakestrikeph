@@ -148,7 +148,6 @@ ingestion_runs = Table(
 Index(
     "ix_ingestion_runs_bootstrap_snapshot_sha256",
     ingestion_runs.c.bootstrap_snapshot_sha256,
-    unique=True,
     postgresql_where=ingestion_runs.c.bootstrap_snapshot_sha256.is_not(None),
 )
 Index(

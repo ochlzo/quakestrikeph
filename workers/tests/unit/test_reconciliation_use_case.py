@@ -79,6 +79,7 @@ class _Store:
             worker_execution_id=token,
             correlation_id=CORRELATION_ID,
             attempt_count=1,
+            trigger_type="manual",
         )
 
     def heartbeat_run(self, _run_id, _token, now) -> bool:

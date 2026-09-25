@@ -117,11 +117,12 @@ class RunClaim:
     worker_execution_id: UUID
     correlation_id: UUID
     attempt_count: int
+    trigger_type: str
 
 
 @dataclass(frozen=True, slots=True)
 class RunCounters:
-    """Absolute counters computed from durable per-input checkpoints."""
+    """Absolute counters for one logical run's distinct inputs."""
 
     events_found: int
     events_inserted: int

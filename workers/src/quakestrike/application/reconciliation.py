@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Protocol
 from uuid import UUID, uuid4
@@ -108,8 +108,20 @@ class ReconciliationStore(Protocol):
 
     def counters_for_run(self, run_id: UUID, worker_execution_id: UUID): ...
 
+    def unchanged_live_event_ids(
+        self, run_id: UUID, rows: tuple[NormalizedSourceRow, ...]
+    ) -> dict[str, UUID]: ...
+
+    def mark_unchanged_live_events_seen(
+        self, run_id: UUID, worker_execution_id: UUID, event_ids: tuple[UUID, ...]
+    ) -> None: ...
+
     def complete_run(
-        self, run_id: UUID, worker_execution_id: UUID, now: datetime, counters: object
+        self,
+        run_id: UUID,
+        worker_execution_id: UUID,
+        now: datetime,
+        counters: object,
     ) -> bool: ...
 
     def fail_run(
@@ -180,6 +192,15 @@ class ReconcileSourceRows:
                     HistoryCoverage(evidence.coverage_start, evidence.coverage_end, True)
                 )
             merged_coverages = merge_history_coverages(coverages)
+            skipped = (
+                self._store.unchanged_live_event_ids(claim.run_id, tuple(rows))
+                if claim.trigger_type == "scheduled"
+                else {}
+            )
+            if skipped:
+                self._store.mark_unchanged_live_events_seen(
+                    claim.run_id, claim.worker_execution_id, tuple(set(skipped.values()))
+                )
             for rejected in parsed.rejected_rows:
                 input_key = _rejected_input_key(rejected.row_number, rejected.diagnostic.code)
                 if self._store.input_checkpoint_exists(claim.run_id, input_key):
@@ -194,6 +215,8 @@ class ReconcileSourceRows:
                 if checkpointed:
                     self._report_diagnostic(claim, input_key, rejected.diagnostic)
             for row in rows:
+                if row.source_bulletin_id in skipped:
+                    continue
                 self._process_row(
                     claim, row, coverage_for_anchor(row.occurred_at, merged_coverages)
                 )
@@ -201,10 +224,39 @@ class ReconcileSourceRows:
                     claim.run_id, claim.worker_execution_id, self._now()
                 ):
                     return ReconciliationRunResult(status="lease_lost", claimed=True)
+            if skipped and not self._store.heartbeat_run(
+                claim.run_id, claim.worker_execution_id, self._now()
+            ):
+                return ReconciliationRunResult(status="lease_lost", claimed=True)
             counters = self._store.counters_for_run(claim.run_id, claim.worker_execution_id)
-            completed = self._store.complete_run(
-                claim.run_id, claim.worker_execution_id, self._now(), counters
-            )
+            if claim.trigger_type == "scheduled":
+                found = len(
+                    {normalized_input_key(row) for row in rows}
+                    | {
+                        _rejected_input_key(row.row_number, row.diagnostic.code)
+                        for row in parsed.rejected_rows
+                    }
+                )
+                counters = replace(
+                    counters,
+                    events_found=found,
+                    events_unchanged=(
+                        found
+                        - counters.events_inserted
+                        - counters.events_revised
+                        - counters.events_rejected
+                    ),
+                )
+                completed = self._store.complete_run(
+                    claim.run_id,
+                    claim.worker_execution_id,
+                    self._now(),
+                    counters,
+                )
+            else:
+                completed = self._store.complete_run(
+                    claim.run_id, claim.worker_execution_id, self._now(), counters
+                )
             return ReconciliationRunResult(
                 status="succeeded" if completed else "lease_lost", claimed=True
             )
@@ -482,10 +534,16 @@ def persisted_row_values(row: NormalizedSourceRow) -> dict[str, object]:
 
 
 def normalized_input_key(row: NormalizedSourceRow) -> str:
-    """Generate a stable key without storing untrusted input payloads in progress rows."""
+    """Key catalog fields, independent of detail-page results across retries."""
 
+    values = persisted_row_values(row)
+    values["occurred_at"] = (
+        row.occurred_at.replace(second=0, microsecond=0).astimezone(UTC).isoformat()
+    )
+    values["time_precision"] = "minute"
+    values.pop("origin")
     encoded = json.dumps(
-        persisted_row_values(row),
+        values,
         default=str,
         sort_keys=True,
         separators=(",", ":"),

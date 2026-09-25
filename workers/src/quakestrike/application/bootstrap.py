@@ -224,6 +224,8 @@ class HistoricalBootstrapOperation:
             preparation.source_snapshot.sha256,
             preparation.enriched_snapshot_sha256,
         )
+        preparation.manifest["run_id"] = str(state.run_id)
+        preparation.manifest["correlation_id"] = str(state.correlation_id)
         preparation.manifest["status"] = state.status
         preparation.manifest["reconciliation_status"] = "requeued"
         preparation.manifest["attempt_count"] = state.attempt_count

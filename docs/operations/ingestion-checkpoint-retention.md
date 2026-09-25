@@ -1,9 +1,10 @@
 # Ingestion checkpoint retention
 
-The hourly host job removes `ingestion_run_inputs` rows only for successful
-scheduled ingestion runs finished more than 24 hours ago. It leaves failed,
-active, manual, and backfill runs untouched. `ingestion_runs` summary counters
-and earthquake, forecast, source coverage, and audit records remain. See
+Successful scheduled runs delete their own checkpoints when their summary
+commits. The hourly host job drains older successful scheduled checkpoints
+and deletes checkpoints of any other terminal run 30 days after `finished_at`.
+Active runs keep their checkpoints. `ingestion_runs` summary counters and
+earthquake, forecast, source coverage, and audit records remain. See
 [ADR 0034](../adr/0034-bound-successful-ingestion-checkpoints.md).
 
 Install it on the VPS after the updated repository is deployed, migrations are
@@ -34,3 +35,9 @@ docker compose --env-file .env -f infrastructure/compose.yml exec -T postgres ps
 Normal PostgreSQL autovacuum makes deleted space reusable. The table file does
 not have to become smaller after the first cleanup. Do not run `VACUUM FULL`
 against the live table as routine maintenance.
+
+Failed backfills may be requeued with the same run and checkpoints for 30 days
+after finishing. After that boundary, recovery starts a new logical run from
+the preserved source snapshot. Investigate old pending, running, or retry-wait
+runs through normal lease and retry operations; their checkpoints are not
+age-deleted.

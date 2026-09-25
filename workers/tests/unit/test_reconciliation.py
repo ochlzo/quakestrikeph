@@ -100,6 +100,12 @@ def test_identical_duplicate_bulletins_coalesce_without_diagnostic_noise() -> No
 
     assert result == (row,)
     assert normalized_input_key(row).startswith("row:")
+    enriched = row.with_detail_enrichment(
+        detail_occurred_at=row.occurred_at.replace(second=37),
+        origin="TECTONIC",
+        diagnostics=(),
+    )
+    assert normalized_input_key(row) == normalized_input_key(enriched)
 
 
 def test_conflicting_duplicate_bulletins_fail_the_logical_run() -> None:

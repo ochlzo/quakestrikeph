@@ -115,7 +115,7 @@ def test_json_formatter_does_not_emit_exception_traces() -> None:
 def test_reconciliation_commit_log_exposes_ids_without_source_content() -> None:
     output = io.StringIO()
     reporter = StructuredReconciliationReporter(configure_logging("data-ingestor", stream=output))
-    claim = RunClaim(uuid4(), uuid4(), uuid4(), 1)
+    claim = RunClaim(uuid4(), uuid4(), uuid4(), 1, "manual")
     result = EventTransactionResult(
         event_id=uuid4(),
         event_revision_id=uuid4(),

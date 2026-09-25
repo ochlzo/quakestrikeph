@@ -128,8 +128,10 @@ Restic keeps seven daily, four weekly, and three monthly snapshots, then prunes
 unreferenced data. Retention groups by host and tag because the temporary dump
 path changes on each run. Check B2 usage as the database grows.
 
-The separate hourly checkpoint cleanup keeps only 24 hours of successful
-scheduled-run inputs. It needs the `create-maintenance` grants above. See the
+Successful scheduled runs delete their checkpoints when their summaries commit.
+The separate hourly cleanup drains older successful scheduled checkpoints and
+deletes other terminal-run checkpoints after 30 days. It needs the
+`create-maintenance` grants above. See the
 [ingestion checkpoint retention guide](ingestion-checkpoint-retention.md) for
 its scope, checks, and manual run command.
 

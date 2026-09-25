@@ -82,7 +82,29 @@ def test_reuse_requires_matching_catalog_fields_and_accepted_detail(migrated_eng
     store = SqlAlchemyIngestionTransactions(
         create_session_factory(migrated_engine), model_release_verifier=VerifiedReleaseGate()
     )
+    enriched = row.with_detail_enrichment(
+        detail_occurred_at=detail.occurred_at,
+        origin=detail.origin,
+        diagnostics=(),
+    )
     assert store.reusable_live_details((row,))[row.source_url] == detail
+    assert store.unchanged_live_event_ids(uuid4(), (enriched,)) == {
+        row.source_bulletin_id: event_id
+    }
+    assert store.unchanged_live_event_ids(run_id, (enriched,)) == {}
+    assert (
+        store.unchanged_live_event_ids(
+            uuid4(),
+            (
+                enriched,
+                replace(enriched, source_bulletin_id="2026_0901_0100_B1"),
+            ),
+        )
+        == {}
+    )
+    assert (
+        store.unchanged_live_event_ids(uuid4(), (replace(enriched, source_bulletin_id=None),)) == {}
+    )
     assert store.reusable_live_details((replace(row, magnitude=Decimal("5.00")),)) == {}
     assert store.reusable_live_details((replace(row, source_url=row.source_url + "?new"),)) == {}
 
@@ -93,6 +115,7 @@ def test_reuse_requires_matching_catalog_fields_and_accepted_detail(migrated_eng
             .values(source_time_precision="minute", event_time=row.occurred_at, origin=None)
         )
     assert store.reusable_live_details((row,)) == {}
+    assert store.unchanged_live_event_ids(uuid4(), (enriched,)) == {}
     assert store.reusable_live_details(()) == {}
     with migrated_engine.connect() as connection:
         assert connection.scalar(select(earthquake_events.c.event_id)) == event_id

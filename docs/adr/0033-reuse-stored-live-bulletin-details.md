@@ -12,9 +12,10 @@ cache is stored in Redis or PostgreSQL.
 
 When the stored revision lacks either seconds precision or origin, the ingestor
 fetches the detail page again. This keeps failed or incomplete detail results
-eligible for retry, even if the catalog row is unchanged. An unchanged row with
-accepted detail fields is still reconciled and counted each run. The existing
-run-level checkpoint and last-seen behavior therefore stays intact.
+eligible for retry, even if the catalog row is unchanged. For scheduled runs,
+a complete unchanged row is counted without a per-event transaction or input
+checkpoint. Its event's `last_seen_run_id` is updated in one fenced batch.
+Manual and backfill rows continue through normal reconciliation.
 
 This changes [ADR 0020](0020-detail-page-enrichment.md)'s rule to check every
 visible detail URL on every run. Its rules for accepting detail seconds,
@@ -22,10 +23,12 @@ normalizing origin, reporting failures, and preserving source revisions still
 apply. A correction made only on an old detail page while its catalog row stays
 unchanged is not discovered. This is an accepted freshness tradeoff.
 
-Run identity, catalog coverage evidence, per-input checkpoints, event matching,
-revision creation, and prediction gating are unchanged. This reduces repeated
-external requests and run time. [ADR 0034](0034-bound-successful-ingestion-checkpoints.md)
-separately bounds accumulated successful-run checkpoints.
+Run identity, full-catalog validation, catalog coverage evidence, event matching,
+revision creation, and prediction gating remain. Rows with missing bulletin IDs,
+incomplete details, or ambiguous shared URLs use normal processing. A retry
+compares against revisions from before its logical run, and existing checkpoints
+still govern rows already processed by that run. [ADR 0034](0034-bound-successful-ingestion-checkpoints.md)
+defines checkpoint retention.
 
 The production timing sample before this change showed approximately 1,556
 detail URLs and 157–159 seconds of detail enrichment per scheduled run, while

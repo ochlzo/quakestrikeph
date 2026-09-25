@@ -25,7 +25,7 @@ cleanup() {
   exit "$result"
 }
 trap cleanup EXIT
-maintenance_begin retention_cleanup 'ingestion_run_inputs:scheduled:24h'
+maintenance_begin retention_cleanup 'ingestion_run_inputs:terminal:30d'
 
 for (( batch=0; batch<20; batch++ )); do
   deleted=$(maintenance_psql -f - < "$sql_file")
@@ -37,7 +37,7 @@ for (( batch=0; batch<20; batch++ )); do
 done
 
 maintenance_end succeeded '' '' '' '' '' "$affected"
-echo "Removed $affected old successful-run input checkpoints"
+echo "Removed $affected terminal-run input checkpoints"
 if (( ${maintenance_logging_failed:-0} )); then
   exit 1
 fi
