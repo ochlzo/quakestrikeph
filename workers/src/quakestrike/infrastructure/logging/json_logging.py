@@ -41,6 +41,12 @@ SAFE_CONTEXT_FIELDS = frozenset(
         "prediction_enqueued",
         "prediction_retry_wait",
         "prediction_stopped",
+        "catalog_bytes",
+        "catalog_rows",
+        "detail_urls",
+        "catalog_fetch_ms",
+        "catalog_parse_ms",
+        "detail_enrichment_ms",
     }
 )
 IDENTIFIER_FIELDS = frozenset(

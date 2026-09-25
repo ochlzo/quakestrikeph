@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -7,10 +8,41 @@ import requests
 
 from quakestrike.application.phivolcs import CatalogRetrievalError, CatalogRetrievalLeaseLost
 from quakestrike.domain.source_rows import DiagnosticCode, SourceTimePrecision
-from quakestrike.infrastructure.phivolcs.client import PhivolcsCatalogClient
+from quakestrike.infrastructure.phivolcs.client import (
+    PhivolcsCatalogClient,
+    validated_catalog_evidence,
+)
+from quakestrike.infrastructure.phivolcs.parser import parse_current_catalog
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "phivolcs"
 CATALOG_URL = "https://earthquake.phivolcs.dost.gov.ph/"
+
+
+def test_current_month_catalog_proves_coverage_only_when_all_event_rows_parse() -> None:
+    body = b"""<html><strong>SEPTEMBER 2026</strong><table>
+      <tr><th>Date</th><th>Latitude</th><th>Longitude</th><th>Depth</th><th>Mag</th><th>Location</th></tr>
+      <tr><td><a href="2026_Earthquake_Information/September/2026_0901_0009_B1.html">
+        01 September 2026 - 08:09 AM</a></td>
+        <td>10</td><td>125</td><td>7</td><td>2.0</td><td>Test</td></tr>
+      <tr><td><a href="2026_Earthquake_Information/September/2026_0902_0100_B1.html">
+        02 September 2026 - 09:00 AM</a></td>
+        <td>10</td><td>125</td><td>7</td><td>2.0</td><td>Test</td></tr>
+    </table></html>"""
+    fetched_at = datetime(2026, 9, 2, 2, tzinfo=UTC)
+    parsed = parse_current_catalog(body, CATALOG_URL)
+
+    evidence = validated_catalog_evidence(parsed, CATALOG_URL, body, fetched_at)
+
+    assert evidence is not None
+    assert evidence.coverage_start.isoformat() == "2026-09-01T00:00:00+08:00"
+    assert evidence.coverage_end == fetched_at
+    malformed = body.replace(b"<td>2.0</td>", b"<td>NaN</td>", 1)
+    assert (
+        validated_catalog_evidence(
+            parse_current_catalog(malformed, CATALOG_URL), CATALOG_URL, malformed, fetched_at
+        )
+        is None
+    )
 
 
 class ScriptedResponse:

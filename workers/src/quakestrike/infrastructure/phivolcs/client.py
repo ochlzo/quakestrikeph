@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterable
 from dataclasses import replace
+from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import PurePosixPath
+from time import perf_counter
 from time import sleep as default_sleep
 from typing import Protocol
 
@@ -12,12 +16,15 @@ import requests
 
 from quakestrike.application.phivolcs import CatalogRetrievalError, CatalogRetrievalLeaseLost
 from quakestrike.domain.source_rows import (
+    CatalogEvidence,
     CatalogParseResult,
     DiagnosticCode,
     NormalizedSourceRow,
     SourceDiagnostic,
 )
+from quakestrike.infrastructure.logging.json_logging import log_event
 from quakestrike.infrastructure.phivolcs.parser import (
+    MANILA,
     CatalogStructuralError,
     ParsedDetail,
     parse_current_catalog,
@@ -77,15 +84,38 @@ class PhivolcsCatalogClient:
         """Fetch the complete current catalog and enrich its valid rows in order."""
 
         self._heartbeat(heartbeat)
+        started = perf_counter()
         try:
             catalog_body = self._fetch_html(self._catalog_url, heartbeat=heartbeat)
+            fetched = perf_counter()
+            retrieved_at = datetime.now(UTC)
             parsed = parse_current_catalog(catalog_body, self._catalog_url)
+            parsed_at = perf_counter()
         except PhivolcsTransportError as error:
             raise CatalogRetrievalError(error.category) from error
         except CatalogStructuralError as error:
             raise CatalogRetrievalError("catalog_structure") from error
+        enriched = self.enrich_rows(parsed.accepted_rows, heartbeat=heartbeat)
+        log_event(
+            logging.getLogger("data-ingestor"),
+            logging.INFO,
+            "PHIVOLCS catalog retrieval stages completed.",
+            event_code="catalog_retrieval_timing",
+            context={
+                "catalog_bytes": len(catalog_body),
+                "catalog_rows": len(parsed.accepted_rows),
+                "detail_urls": len({row.source_url for row in parsed.accepted_rows}),
+                "catalog_fetch_ms": round((fetched - started) * 1000),
+                "catalog_parse_ms": round((parsed_at - fetched) * 1000),
+                "detail_enrichment_ms": round((perf_counter() - parsed_at) * 1000),
+            },
+        )
         return replace(
-            parsed, accepted_rows=self.enrich_rows(parsed.accepted_rows, heartbeat=heartbeat)
+            parsed,
+            accepted_rows=enriched,
+            evidence=validated_catalog_evidence(
+                parsed, self._catalog_url, catalog_body, retrieved_at
+            ),
         )
 
     def enrich_rows(
@@ -197,3 +227,34 @@ class PhivolcsCatalogClient:
     def _heartbeat(heartbeat: Callable[[], bool] | None) -> None:
         if heartbeat is not None and not heartbeat():
             raise CatalogRetrievalLeaseLost()
+
+
+def validated_catalog_evidence(
+    parsed: CatalogParseResult, source_url: str, body: bytes, retrieved_at: datetime
+) -> CatalogEvidence | None:
+    """Trust a complete current-month page only when every event row normalized."""
+
+    month = parsed.declared_month_start
+    rows = parsed.accepted_rows
+    if (
+        month is None
+        or not rows
+        or parsed.candidate_row_count != len(rows)
+        or (month.year, month.month)
+        != (retrieved_at.astimezone(MANILA).year, retrieved_at.astimezone(MANILA).month)
+        or min(row.occurred_at for row in rows).date() != month.date()
+        or any(
+            (row.occurred_at.year, row.occurred_at.month) != (month.year, month.month)
+            for row in rows
+        )
+        or max(row.occurred_at for row in rows) > retrieved_at
+    ):
+        return None
+    return CatalogEvidence(
+        source_url=source_url,
+        sha256=sha256(body).hexdigest(),
+        retrieved_at=retrieved_at,
+        coverage_start=month,
+        coverage_end=retrieved_at,
+        accepted_rows=len(rows),
+    )

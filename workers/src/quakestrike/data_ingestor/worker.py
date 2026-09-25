@@ -15,6 +15,8 @@ from quakestrike.application.reconciliation import (
     ReconcileCurrentCatalog,
     ReconciliationRunResult,
 )
+from quakestrike.domain.features import HistoryCoverage
+from quakestrike.infrastructure.bootstrap import load_run_manifest, load_snapshot_for_manifest
 from quakestrike.infrastructure.database.engine import (
     create_database_engine,
     create_session_factory,
@@ -133,6 +135,7 @@ def process_ingestion_delivery(
             ),
             diagnostic_reporter=reporter,
             model_release_id=settings.model_release_id,
+            history_coverage=_bootstrap_history_coverage(settings),
             event_reporter=reporter.report_event,
         )
         return handle_ingestion_command(
@@ -144,6 +147,16 @@ def process_ingestion_delivery(
     finally:
         session.close()
         engine.dispose()
+
+
+def _bootstrap_history_coverage(settings: Settings) -> HistoryCoverage:
+    manifest = load_run_manifest(settings.bootstrap_run_manifest)
+    if manifest["status"] != "succeeded":
+        raise ValueError("The bootstrap run has not succeeded.")
+    snapshot = load_snapshot_for_manifest(manifest)
+    if snapshot.sha256 != manifest["snapshot_sha256"] or not snapshot.coverage.complete:
+        raise ValueError("The bootstrap coverage evidence is invalid.")
+    return snapshot.coverage.history_coverage()
 
 
 def create_ingestor_app(

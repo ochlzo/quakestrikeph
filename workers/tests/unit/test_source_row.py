@@ -22,11 +22,11 @@ def test_normalized_source_row_preserves_catalog_minute_precision_and_quantizes_
         depth_km="7.1236",
         magnitude="4.255",
         location_description="76 A\N{DEGREE SIGN} W of Test",
-        source_bulletin_id="2025_0102_0304_b1",
+        source_bulletin_id="2025_0102_0304_b1_nl",
         source_event_group_id="2025_0102_0304",
         source_url=(
             "https://earthquake.phivolcs.dost.gov.ph/2025_Earthquake_Information/"
-            "January/2025_0102_0304_B1.html"
+            "January/2025_0102_0304_B1_NL.html"
         ),
     )
 
@@ -36,7 +36,7 @@ def test_normalized_source_row_preserves_catalog_minute_precision_and_quantizes_
     assert row.longitude == Decimal("125.987655")
     assert row.depth_km == Decimal("7.124")
     assert row.magnitude == Decimal("4.26")
-    assert row.source_bulletin_id == "2025_0102_0304_B1"
+    assert row.source_bulletin_id == "2025_0102_0304_B1_NL"
     assert row.source_event_group_id == "2025_0102_0304"
 
 

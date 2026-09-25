@@ -1223,6 +1223,16 @@ def test_prediction_runs_with_the_provisioned_worker_role(migrated_engine):
     try:
         repository = store(worker_engine, configured_release_id=release_id)
         with worker_engine.begin() as connection:
+            assert connection.scalar(
+                text(
+                    "SELECT has_table_privilege(current_user, 'source_catalog_evidence', 'SELECT')"
+                )
+            )
+            assert connection.scalar(
+                text(
+                    "SELECT has_table_privilege(current_user, 'source_catalog_evidence', 'INSERT')"
+                )
+            )
             assert (
                 connection.execute(
                     select(earthquake_bulletin_event_identities.c.event_id).with_for_update()

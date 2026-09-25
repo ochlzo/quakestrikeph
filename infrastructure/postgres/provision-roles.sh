@@ -23,6 +23,7 @@ WHERE schemaname = 'public'
   AND tableowner <> 'quakestrike_migration'
   AND tablename IN (
     'alembic_version', 'ingestion_runs', 'ingestion_run_inputs',
+    'source_catalog_evidence',
     'earthquake_events', 'earthquake_bulletin_event_identities',
     'earthquake_event_revisions', 'model_releases', 'prediction_jobs',
     'prediction_attempts', 'forecasts', 'alert_jobs', 'audit_logs',
@@ -55,7 +56,8 @@ GRANT SELECT, INSERT, UPDATE ON TABLE
     prediction_attempts, job_dispatches
 TO quakestrike_worker;
 GRANT SELECT, INSERT ON TABLE
-    earthquake_event_revisions, forecasts, alert_jobs, audit_logs
+    earthquake_event_revisions, forecasts, alert_jobs, audit_logs,
+    source_catalog_evidence
 TO quakestrike_worker;
 SQL
     then

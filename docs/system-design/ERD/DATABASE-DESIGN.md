@@ -1,6 +1,6 @@
 # QuakeStrike PH database design
 
-Status: authoritative intended PostgreSQL contract, not evidence that migrations have run. This specification consolidates the schema rules, table purposes, accepted decisions, and relationships into one implementation contract. It contains 18 tables. The [ERD](ERD.png) shows the former review-oriented design and is temporarily stale; this file controls fields, constraints, transactions, and ownership until the diagram follow-up lands. [ADR 0003](../../adr/0003-schema-specification-controls-database-contracts.md) establishes that precedence. The [architecture specification](../ARCHITECTURE/ARCHITECTURE.md) describes the modules that use them.
+Status: authoritative intended PostgreSQL contract, not evidence that migrations have run. This specification consolidates the schema rules, table purposes, accepted decisions, and relationships into one implementation contract. It contains 19 tables. The [ERD](ERD.png) shows the former review-oriented design and is temporarily stale; this file controls fields, constraints, transactions, and ownership until the diagram follow-up lands. [ADR 0003](../../adr/0003-schema-specification-controls-database-contracts.md) establishes that precedence. The [architecture specification](../ARCHITECTURE/ARCHITECTURE.md) describes the modules that use them.
 
 ## Conventions and data stores
 
@@ -24,7 +24,7 @@ Create enum types before their tables in the migration that first uses them. Add
 
 | DFD store | Tables | Purpose |
 | --- | --- | --- |
-| D1 Earthquake data | `ingestion_runs`, `ingestion_run_inputs`, `earthquake_events`, `earthquake_bulletin_event_identities`, `earthquake_event_revisions` | Source runs, durable input outcomes, stable events, bulletin identity mappings, and immutable observed revisions. |
+| D1 Earthquake data | `ingestion_runs`, `source_catalog_evidence`, `ingestion_run_inputs`, `earthquake_events`, `earthquake_bulletin_event_identities`, `earthquake_event_revisions` | Source runs, validated catalog coverage, durable input outcomes, stable events, bulletin identity mappings, and immutable observed revisions. |
 | D2 Forecast and model records | `model_releases`, `prediction_jobs`, `prediction_attempts`, `forecasts`, `job_dispatches` | Model provenance, work, results, and durable queue submission. |
 | D3 Accounts and access | `users`, `user_role_assignments` | Identity mapping, alert settings, and roles. |
 | D4 Alerts | `alert_jobs`, `alert_recipients`, `alert_delivery_attempts` | Automatic SMS authorization and delivery evidence. |
@@ -109,6 +109,28 @@ bootstrap_enriched_snapshot_sha256 text?  -- required when raw input produced an
 `next_attempt_at` is set only while a run is `retry_wait`. The first processing attempt and up to three retry attempts retain the same `run_id`; retry delays are 30 seconds, 2 minutes, and 10 minutes. `ingestion_run_inputs` records each distinct normalized input and its final row outcome once per run. The Ingestor derives aggregate counters from those checkpoints before it completes the run, so redelivery cannot increment a counter twice.
 
 New `backfill` runs bind `bootstrap_snapshot_sha256` to the exact SHA-256 of the preserved source snapshot. When a raw snapshot is enriched before import, `bootstrap_enriched_snapshot_sha256` also binds the run to the exact derived cache. Operator recovery requeues that same run identity after a terminal failure; it cannot create a replacement run for the same evidence.
+
+### `source_catalog_evidence`
+
+One immutable coverage claim for a live ingestion run, bound to the exact
+PHIVOLCS catalog response before row reconciliation. Only a `succeeded` run's
+claim may extend coverage for later runs; the current run may use its own claim
+while processing rows in event-time order. See [ADR 0031](../../adr/0031-live-catalog-coverage-evidence.md).
+
+```text
+run_id uuid PK FK -> ingestion_runs.run_id
+source_url text
+catalog_sha256 text
+retrieved_at timestamptz
+coverage_start timestamptz
+coverage_end timestamptz
+accepted_rows integer
+```
+
+The SHA-256 is lowercase 64-character hex, `accepted_rows > 0`, and
+`coverage_start < coverage_end <= retrieved_at`. The worker may read and insert
+claims but cannot update or delete them. A retry with different catalog bytes
+fails its logical run rather than replacing the original claim.
 
 ### `earthquake_events`
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -40,6 +41,19 @@ def parse_current_catalog(body: bytes | str, page_url: str) -> CatalogParseResul
 
     html = _decode_html(body, failure="catalog")
     soup = BeautifulSoup(html, "html.parser")
+    month_headings = {
+        match.group(0).upper()
+        for tag in soup.find_all("strong")
+        if (match := re.fullmatch(r"[A-Za-z]+ \d{4}", tag.get_text(" ", strip=True)))
+    }
+    declared_month_start = None
+    if len(month_headings) == 1:
+        try:
+            declared_month_start = datetime.strptime(month_headings.pop(), "%B %Y").replace(
+                tzinfo=MANILA
+            )
+        except ValueError:
+            pass
     tables = soup.find_all("table")
     if not tables:
         raise CatalogStructuralError("catalog does not contain a table")
@@ -79,7 +93,9 @@ def parse_current_catalog(body: bytes | str, page_url: str) -> CatalogParseResul
 
     if candidate_rows == 0:
         raise CatalogStructuralError("catalog does not contain event rows")
-    return CatalogParseResult(tuple(accepted), tuple(rejected))
+    return CatalogParseResult(
+        tuple(accepted), tuple(rejected), declared_month_start, candidate_rows
+    )
 
 
 def parse_detail_page(body: bytes | str) -> ParsedDetail:
