@@ -157,10 +157,11 @@ class PhivolcsCatalogClient:
                 self._sleep(self._detail_delay_seconds)
             fetched_count += 1
 
+        self._heartbeat(heartbeat)
         for row in rows:
-            self._heartbeat(heartbeat)
             detail = details.get(row.source_url)
             if detail is None:
+                self._heartbeat(heartbeat)
                 before_fetch()
                 detail = self._fetch_detail(row.source_url, heartbeat=heartbeat)
                 details[row.source_url] = detail

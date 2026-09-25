@@ -902,23 +902,18 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
             )
         by_bulletin = {item["source_bulletin_id"]: item for item in stored_rows}
         reusable: dict[str, ParsedDetail] = {}
-        unavailable: set[str] = set()
+        url_counts = Counter(row.source_url for row in rows)
         for row in rows:
+            if url_counts[row.source_url] > 1:
+                continue
             stored = by_bulletin.get(row.source_bulletin_id)
             if stored is None or not _catalog_row_matches_revision(row, stored):
-                unavailable.add(row.source_url)
                 continue
             if stored["source_time_precision"] != "second" or stored["origin"] is None:
                 # Incomplete and failed detail results remain eligible for retry.
-                unavailable.add(row.source_url)
                 continue
             detail = ParsedDetail(stored["event_time"], stored["origin"], ())
-            if row.source_url in reusable and reusable[row.source_url] != detail:
-                unavailable.add(row.source_url)
-            else:
-                reusable[row.source_url] = detail
-        for url in unavailable:
-            reusable.pop(url, None)
+            reusable[row.source_url] = detail
         return reusable
 
     def unchanged_live_event_ids(

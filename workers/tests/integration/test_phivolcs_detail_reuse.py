@@ -88,6 +88,39 @@ def test_reuse_requires_matching_catalog_fields_and_accepted_detail(migrated_eng
         diagnostics=(),
     )
     assert store.reusable_live_details((row,))[row.source_url] == detail
+    other = replace(row, source_bulletin_id=row.source_bulletin_id.replace("_B1", "_B2"))
+    other_event_id = uuid4()
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            insert(earthquake_events).values(
+                event_id=other_event_id, first_seen_run_id=run_id, last_seen_run_id=run_id
+            )
+        )
+        connection.execute(
+            insert(earthquake_bulletin_event_identities).values(
+                source_bulletin_id=other.source_bulletin_id, event_id=other_event_id
+            )
+        )
+        connection.execute(
+            insert(earthquake_event_revisions).values(
+                event_revision_id=uuid4(),
+                event_id=other_event_id,
+                revision_number=1,
+                ingestion_run_id=run_id,
+                source_bulletin_id=other.source_bulletin_id,
+                source_event_group_id=other.source_event_group_id,
+                source_url=other.source_url,
+                source_time_precision="second",
+                event_time=detail.occurred_at,
+                latitude=other.latitude,
+                longitude=other.longitude,
+                depth_km=other.depth_km,
+                magnitude=other.magnitude,
+                location_description=other.location_description,
+                origin=detail.origin,
+            )
+        )
+    assert store.reusable_live_details((row, other)) == {}
     assert store.unchanged_live_event_ids(uuid4(), (enriched,)) == {
         row.source_bulletin_id: event_id
     }
@@ -118,4 +151,9 @@ def test_reuse_requires_matching_catalog_fields_and_accepted_detail(migrated_eng
     assert store.unchanged_live_event_ids(uuid4(), (enriched,)) == {}
     assert store.reusable_live_details(()) == {}
     with migrated_engine.connect() as connection:
-        assert connection.scalar(select(earthquake_events.c.event_id)) == event_id
+        assert (
+            connection.scalar(
+                select(earthquake_events.c.event_id).where(earthquake_events.c.event_id == event_id)
+            )
+            == event_id
+        )
