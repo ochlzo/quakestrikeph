@@ -55,6 +55,7 @@ GRANT SELECT, INSERT, UPDATE ON TABLE
     earthquake_bulletin_event_identities, prediction_jobs,
     prediction_attempts, job_dispatches
 TO quakestrike_worker;
+GRANT DELETE ON TABLE ingestion_run_inputs TO quakestrike_worker;
 GRANT SELECT, INSERT ON TABLE
     earthquake_event_revisions, forecasts, alert_jobs, audit_logs,
     source_catalog_evidence
@@ -105,6 +106,8 @@ GRANT CONNECT ON DATABASE :"database_name" TO quakestrike_backup, quakestrike_ma
 GRANT pg_read_all_data TO quakestrike_backup;
 GRANT USAGE ON SCHEMA public TO quakestrike_maintenance;
 GRANT SELECT, INSERT, UPDATE ON maintenance_runs TO quakestrike_maintenance;
+GRANT SELECT ON ingestion_runs TO quakestrike_maintenance;
+GRANT SELECT, DELETE ON ingestion_run_inputs TO quakestrike_maintenance;
 SQL
     then
       echo '{"action":"create-maintenance","status":"ready"}'

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Barrier
@@ -13,7 +14,7 @@ from quakestrike.infrastructure.phivolcs.client import (
     PhivolcsCatalogClient,
     validated_catalog_evidence,
 )
-from quakestrike.infrastructure.phivolcs.parser import parse_current_catalog
+from quakestrike.infrastructure.phivolcs.parser import parse_current_catalog, parse_detail_page
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "phivolcs"
 CATALOG_URL = "https://earthquake.phivolcs.dost.gov.ph/"
@@ -164,6 +165,67 @@ def test_retrieve_current_catalog_reuses_one_detail_download_and_validates_each_
     assert session.calls[0][1]["timeout"] == (3, 4)
     assert session.calls[0][1]["stream"] is True
     assert session.calls[0][1]["allow_redirects"] is False
+
+
+def test_stored_detail_skips_unchanged_page_fetch() -> None:
+    row = parse_current_catalog(
+        (FIXTURES / "current_catalog.html").read_bytes(), CATALOG_URL
+    ).accepted_rows[0]
+    other = replace(
+        row,
+        source_url=row.source_url.replace("_B1.html", "_B2.html"),
+        source_bulletin_id=row.source_bulletin_id.replace("_B1", "_B2"),
+    )
+    session = ScriptedSession(
+        [
+            ScriptedResponse((FIXTURES / "bulletin_detail.html").read_bytes()),
+        ]
+    )
+    stored = parse_detail_page((FIXTURES / "bulletin_detail.html").read_bytes())
+
+    client = PhivolcsCatalogClient(
+        catalog_url=CATALOG_URL,
+        session=session,
+        max_response_bytes=10_000,
+        connect_timeout_seconds=3,
+        read_timeout_seconds=4,
+        detail_delay_seconds=0.1,
+        reusable_details=lambda rows: {row.source_url: stored},
+    )
+
+    enriched = client.enrich_rows((row, other))
+
+    assert enriched[0].time_precision is SourceTimePrecision.SECOND
+    assert enriched[1].time_precision is SourceTimePrecision.SECOND
+    assert [call[0] for call in session.calls] == [other.source_url]
+
+
+def test_reused_details_need_one_heartbeat_without_detail_requests() -> None:
+    row = parse_current_catalog(
+        (FIXTURES / "current_catalog.html").read_bytes(), CATALOG_URL
+    ).accepted_rows[0]
+    stored = parse_detail_page((FIXTURES / "bulletin_detail.html").read_bytes())
+    session = ScriptedSession([])
+    client = PhivolcsCatalogClient(
+        catalog_url=CATALOG_URL,
+        session=session,
+        max_response_bytes=10_000,
+        connect_timeout_seconds=3,
+        read_timeout_seconds=4,
+        detail_delay_seconds=0,
+        reusable_details=lambda rows: {row.source_url: stored},
+    )
+    heartbeats = 0
+
+    def heartbeat() -> bool:
+        nonlocal heartbeats
+        heartbeats += 1
+        return True
+
+    client.enrich_rows((row,) * 3, heartbeat=heartbeat)
+
+    assert heartbeats == 1
+    assert session.calls == []
 
 
 def test_detail_non_html_response_keeps_catalog_row_with_sanitized_diagnostic() -> None:

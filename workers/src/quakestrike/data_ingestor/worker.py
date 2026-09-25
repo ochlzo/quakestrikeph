@@ -134,6 +134,7 @@ def process_ingestion_delivery(
                 detail_delay_seconds=settings.detail_request_delay_seconds,
                 detail_concurrency=settings.detail_request_concurrency,
                 detail_session_factory=create_phivolcs_session,
+                reusable_details=store.reusable_live_details,
             ),
             diagnostic_reporter=reporter,
             model_release_id=settings.model_release_id,

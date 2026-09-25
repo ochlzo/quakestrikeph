@@ -111,12 +111,14 @@ change:
 ```bash
 sudo install -d -m 755 /usr/local/libexec/quakestrike
 sudo install -m 755 infrastructure/backup/*.sh /usr/local/libexec/quakestrike/
+sudo install -m 644 infrastructure/backup/*.sql /usr/local/libexec/quakestrike/
 sudo install -m 644 infrastructure/backup/*.service infrastructure/backup/*.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl start quakestrike-postgres-backup.service
 sudo systemctl start quakestrike-postgres-restore-test.service
-sudo systemctl enable --now quakestrike-postgres-backup.timer quakestrike-postgres-restore-test.timer
-systemctl list-timers 'quakestrike-postgres-*'
+sudo systemctl start quakestrike-ingestion-checkpoint-retention.service
+sudo systemctl enable --now quakestrike-postgres-backup.timer quakestrike-postgres-restore-test.timer quakestrike-ingestion-checkpoint-retention.timer
+systemctl list-timers 'quakestrike-*'
 ```
 
 The backup timer runs at 19:00 UTC each day (03:00 Philippine time the next
@@ -125,6 +127,13 @@ Monday). Both have `Persistent=true`, so systemd catches up after downtime.
 Restic keeps seven daily, four weekly, and three monthly snapshots, then prunes
 unreferenced data. Retention groups by host and tag because the temporary dump
 path changes on each run. Check B2 usage as the database grows.
+
+Successful scheduled runs delete their checkpoints when their summaries commit.
+The separate hourly cleanup drains older successful scheduled checkpoints and
+deletes other terminal-run checkpoints after 30 days. It needs the
+`create-maintenance` grants above. See the
+[ingestion checkpoint retention guide](ingestion-checkpoint-retention.md) for
+its scope, checks, and manual run command.
 
 ## Check a run
 

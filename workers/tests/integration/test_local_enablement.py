@@ -393,7 +393,7 @@ def test_ready_history_beat_ingestion_and_prediction_queue_are_replay_safe(
                     .select_from(ingestion_run_inputs)
                     .where(ingestion_run_inputs.c.run_id == run_id)
                 )
-                == 3
+                == 0
             )
             assert connection.execute(
                 select(job_dispatches.c.dispatch_id, job_dispatches.c.attempt_count).where(

@@ -108,11 +108,11 @@ bootstrap_snapshot_sha256 text?  -- required for backfill runs
 bootstrap_enriched_snapshot_sha256 text?  -- required when raw input produced an enriched cache
 ```
 
-`trigger_type` is `scheduled`, `manual`, or `backfill`; `status` is `pending`, `running`, `retry_wait`, `succeeded`, `failed`, or `cancelled`. Counts are nonnegative and summarize distinct normalized inputs, not deliveries. Running needs start time, lease, and execution token. Terminal states need `finished_at`, no earlier than start; `retry_wait` remains unfinished. One Beat process ticks every five minutes and uses PostgreSQL locking plus active-run state to avoid overlapping logical runs. Run and dispatch are created together. A catalog-level structural failure, empty but structurally valid current page, or conflicting duplicate bulletin ID fails the run. Invalid or ambiguous individual rows increment `events_rejected` while valid rows continue. Counters are checkpointed without double-counting. See [scheduler](../../adr/0007-five-minute-single-scheduler-polling.md) and [failure scope](../../adr/0017-input-normalization-and-source-freshness.md).
+`trigger_type` is `scheduled`, `manual`, or `backfill`; `status` is `pending`, `running`, `retry_wait`, `succeeded`, `failed`, or `cancelled`. Counts are nonnegative and summarize distinct normalized inputs, not deliveries. Running needs start time, lease, and execution token. Terminal states need `finished_at`, no earlier than start; `retry_wait` remains unfinished. One Beat process ticks every five minutes and uses PostgreSQL locking plus active-run state to avoid overlapping logical runs. Run and dispatch are created together. A catalog-level structural failure, empty but structurally valid current page, or conflicting duplicate bulletin ID fails the run. Invalid or ambiguous individual rows increment `events_rejected` while valid rows continue. Durable checkpoints and the full normalized input set make successful-run counters safe across redelivery. See [scheduler](../../adr/0007-five-minute-single-scheduler-polling.md) and [failure scope](../../adr/0017-input-normalization-and-source-freshness.md).
 
-`next_attempt_at` is set only while a run is `retry_wait`. The first processing attempt and up to three retry attempts retain the same `run_id`; retry delays are 30 seconds, 2 minutes, and 10 minutes. `ingestion_run_inputs` records each distinct normalized input and its final row outcome once per run. The Ingestor derives aggregate counters from those checkpoints before it completes the run, so redelivery cannot increment a counter twice.
+`next_attempt_at` is set only while a run is `retry_wait`. The first processing attempt and up to three retry attempts retain the same `run_id`; retry delays are 30 seconds, 2 minutes, and 10 minutes. `ingestion_run_inputs` records retry progress for each row requiring processing. Scheduled polls omit checkpoints for rows proved unchanged against complete revisions from before the logical run. Their successful counters use the distinct normalized input set plus checkpoint outcomes; other runs derive counters from checkpoints. Redelivery cannot increment a counter twice.
 
-New `backfill` runs bind `bootstrap_snapshot_sha256` to the exact SHA-256 of the preserved source snapshot. When a raw snapshot is enriched before import, `bootstrap_enriched_snapshot_sha256` also binds the run to the exact derived cache. Operator recovery requeues that same run identity after a terminal failure; it cannot create a replacement run for the same evidence.
+New `backfill` runs bind `bootstrap_snapshot_sha256` to the exact SHA-256 of the preserved source snapshot. When a raw snapshot is enriched before import, `bootstrap_enriched_snapshot_sha256` also binds the run to the exact derived cache. Operator recovery requeues the same failed run within 30 days of `finished_at`. Once retry checkpoints may have expired, recovery creates a new logical run bound to the same preserved snapshot and retains the prior run's audit record.
 
 ### `source_catalog_evidence`
 
@@ -192,7 +192,7 @@ event_id uuid
 
 ### `ingestion_run_inputs`
 
-One durable input checkpoint for each distinct normalized catalog row or parser-rejected row in an ingestion run.
+Temporary PostgreSQL retry progress for each distinct normalized row requiring processing, including parser-rejected rows. A complete unchanged row in a scheduled run has no checkpoint.
 
 ```text
 run_id uuid PK
@@ -202,9 +202,18 @@ event_id uuid?
 created_at timestamptz = now()
 ```
 
-`outcome` is `inserted`, `revised`, `unchanged`, or `rejected`. Rejected inputs have no event; all other outcomes reference the event that was visible in the page. The checkpoint stores a SHA-256-derived input key or a bounded parser-row key, never raw source HTML, exception text, or an untrusted URL.
+`outcome` is `inserted`, `revised`, `unchanged`, or `rejected`. Rejected inputs have no event; all other outcomes reference the event that was visible in the page. The checkpoint stores a SHA-256-derived catalog-field key or a bounded parser-row key, never raw source HTML, exception text, or an untrusted URL. Detail-page seconds and origin do not change the catalog-field key during a retry.
 
 `prediction_skip_reason` is nullable immutable evidence for a valid revision that did not create prediction work. Allowed values are `magnitude_below_m1`, `history_coverage_unavailable`, `incomplete_feature_history`, `history_starts_after_required_window`, `history_ends_before_anchor`, and `model_release_unavailable`.
+
+Successful scheduled runs remove their input checkpoints in the same transaction
+that saves summary counters. Skipped visible events receive one fenced batch
+update to `last_seen_run_id` during reconciliation.
+The bounded host job drains older successful scheduled checkpoints and removes
+other terminal-run checkpoints after 30 days from `finished_at`. Pending,
+running, and retry-wait runs retain their checkpoints. The `ingestion_runs`
+outcome counters remain.
+See [ADR 0034](../../adr/0034-bound-successful-ingestion-checkpoints.md).
 
 Match exact bulletin ID first. A group fallback may attach a revision only when exactly one existing event has the same group, latitude and longitude differences each at most `0.25` degrees, and magnitude difference at most `1.0`. Timestamp, group alone, and identical observations are not identity keys. Missing both IDs, unmatched or ambiguous fallback, or an unrecognizable URL rejects that row; a conflicting duplicate bulletin ID fails the run. When detail retrieval fails, a valid catalog row keeps its minute timestamp and nullable origin with a diagnostic. Detail seconds are accepted only if date, hour, and minute agree with the catalog. Later changes to origin, precision, or URL append a revision. Serialize insertion per event. See [identity](../../adr/0013-revision-level-source-identifiers.md), [fallback](../../adr/0015-source-less-fallback-reconciliation.md), and [enrichment](../../adr/0020-detail-page-enrichment.md).
 

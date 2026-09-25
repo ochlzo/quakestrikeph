@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import replace
 from datetime import datetime, timedelta
 from uuid import UUID, uuid4
@@ -38,7 +39,7 @@ from quakestrike.domain.features import (
     build_prediction_decision,
     create_feature_snapshot,
 )
-from quakestrike.domain.source_rows import CatalogEvidence
+from quakestrike.domain.source_rows import CatalogEvidence, NormalizedSourceRow
 from quakestrike.infrastructure.database.engine import SessionFactory
 from quakestrike.infrastructure.database.feature_history import (
     SqlAlchemyFeatureHistoryQuery,
@@ -55,6 +56,7 @@ from quakestrike.infrastructure.database.tables import (
     prediction_jobs,
     source_catalog_evidence,
 )
+from quakestrike.infrastructure.phivolcs.parser import ParsedDetail
 
 _SCHEDULE_LOCK_KEY = 5_173_835_459
 # PostgreSQL keeps two-int advisory locks separate from one-bigint locks. The first
@@ -179,7 +181,7 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                     .with_for_update()
                 )
                 .mappings()
-                .one_or_none()
+                .first()
             )
             if bound is not None:
                 raise RunIdentityConflict(
@@ -221,7 +223,7 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
         snapshot_sha256: str,
         enriched_snapshot_sha256: str | None = None,
     ) -> IngestionRunState:
-        """Requeue the same failed backfill identity for operator-led recovery."""
+        """Resume recent failed progress or start a new run after its recovery window."""
 
         with self._session_factory() as session, session.begin():
             session.execute(
@@ -254,6 +256,25 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
             )
             if active is not None:
                 raise ActiveIngestionRun("Another ingestion run is already active.")
+            if row["finished_at"] < session.scalar(select(func.now())) - timedelta(days=30):
+                replacement_id, replacement_correlation = uuid4(), uuid4()
+                session.execute(
+                    insert(ingestion_runs).values(
+                        run_id=replacement_id,
+                        trigger_type="backfill",
+                        correlation_id=replacement_correlation,
+                        bootstrap_snapshot_sha256=snapshot_sha256,
+                        bootstrap_enriched_snapshot_sha256=enriched_snapshot_sha256,
+                    )
+                )
+                replacement = (
+                    session.execute(
+                        select(ingestion_runs).where(ingestion_runs.c.run_id == replacement_id)
+                    )
+                    .mappings()
+                    .one()
+                )
+                return _ingestion_run_state(replacement)
             session.execute(
                 update(ingestion_runs)
                 .where(ingestion_runs.c.run_id == run_id)
@@ -621,6 +642,7 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                 worker_execution_id=worker_execution_id,
                 correlation_id=run.correlation_id,
                 attempt_count=attempts,
+                trigger_type=run.trigger_type,
             )
 
     def ingestion_command_matches(
@@ -754,7 +776,11 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
             return self._counters_from_checkpoints(session, run_id)
 
     def complete_run(
-        self, run_id: UUID, worker_execution_id: UUID, now: datetime, counters: RunCounters
+        self,
+        run_id: UUID,
+        worker_execution_id: UUID,
+        now: datetime,
+        counters: RunCounters,
     ) -> bool:
         """Commit a terminal success only when the caller still owns the lease."""
 
@@ -777,7 +803,16 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                     events_rejected=counters.events_rejected,
                 )
             )
-            return result.rowcount == 1
+            if result.rowcount != 1:
+                return False
+            trigger_type = session.scalar(
+                select(ingestion_runs.c.trigger_type).where(ingestion_runs.c.run_id == run_id)
+            )
+            if trigger_type == "scheduled":
+                session.execute(
+                    ingestion_run_inputs.delete().where(ingestion_run_inputs.c.run_id == run_id)
+                )
+            return True
 
     def fail_run(
         self,
@@ -843,6 +878,94 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                 select(earthquake_bulletin_event_identities.c.event_id).where(
                     earthquake_bulletin_event_identities.c.source_bulletin_id == source_bulletin_id
                 )
+            )
+
+    def reusable_live_details(
+        self, rows: tuple[NormalizedSourceRow, ...]
+    ) -> dict[str, ParsedDetail]:
+        """Reuse accepted detail fields when the published catalog row is unchanged."""
+
+        bulletin_ids = {row.source_bulletin_id for row in rows if row.source_bulletin_id}
+        if not bulletin_ids:
+            return {}
+        revisions = earthquake_event_revisions
+        with self._session_factory() as session:
+            stored_rows = (
+                session.execute(
+                    select(revisions)
+                    .where(revisions.c.source_bulletin_id.in_(bulletin_ids))
+                    .order_by(revisions.c.source_bulletin_id, revisions.c.revision_number.desc())
+                    .distinct(revisions.c.source_bulletin_id)
+                )
+                .mappings()
+                .all()
+            )
+        by_bulletin = {item["source_bulletin_id"]: item for item in stored_rows}
+        reusable: dict[str, ParsedDetail] = {}
+        url_counts = Counter(row.source_url for row in rows)
+        for row in rows:
+            if url_counts[row.source_url] > 1:
+                continue
+            stored = by_bulletin.get(row.source_bulletin_id)
+            if stored is None or not _catalog_row_matches_revision(row, stored):
+                continue
+            if stored["source_time_precision"] != "second" or stored["origin"] is None:
+                # Incomplete and failed detail results remain eligible for retry.
+                continue
+            detail = ParsedDetail(stored["event_time"], stored["origin"], ())
+            reusable[row.source_url] = detail
+        return reusable
+
+    def unchanged_live_event_ids(
+        self, run_id: UUID, rows: tuple[NormalizedSourceRow, ...]
+    ) -> dict[str, UUID]:
+        """Find complete, unchanged bulletin revisions from before this logical run."""
+
+        bulletin_ids = {row.source_bulletin_id for row in rows if row.source_bulletin_id}
+        if not bulletin_ids:
+            return {}
+        revisions = earthquake_event_revisions
+        with self._session_factory() as session:
+            stored_rows = (
+                session.execute(
+                    select(revisions)
+                    .where(revisions.c.source_bulletin_id.in_(bulletin_ids))
+                    .where(revisions.c.ingestion_run_id != run_id)
+                    .order_by(revisions.c.source_bulletin_id, revisions.c.revision_number.desc())
+                    .distinct(revisions.c.source_bulletin_id)
+                )
+                .mappings()
+                .all()
+            )
+        by_bulletin = {item["source_bulletin_id"]: item for item in stored_rows}
+        url_counts = Counter(row.source_url for row in rows)
+        return {
+            row.source_bulletin_id: stored["event_id"]
+            for row in rows
+            if row.source_bulletin_id is not None
+            and url_counts[row.source_url] == 1
+            and not row.diagnostics
+            if (stored := by_bulletin.get(row.source_bulletin_id)) is not None
+            and _catalog_row_matches_revision(row, stored)
+            and stored["source_time_precision"] == "second"
+            and stored["origin"] is not None
+            and row.occurred_at == stored["event_time"]
+            and row.origin == stored["origin"]
+        }
+
+    def mark_unchanged_live_events_seen(
+        self, run_id: UUID, worker_execution_id: UUID, event_ids: tuple[UUID, ...]
+    ) -> None:
+        """Batch-update visible unchanged events under the owned processing lease."""
+
+        if not event_ids:
+            return
+        with self._session_factory() as session, session.begin():
+            self._assert_owned_run(session, run_id, worker_execution_id)
+            session.execute(
+                update(earthquake_events)
+                .where(earthquake_events.c.event_id.in_(event_ids))
+                .values(last_seen_run_id=run_id, updated_at=func.now())
             )
 
     def find_group_candidates(self, source_event_group_id: str):
@@ -1372,3 +1495,20 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
             return self._model_release_verifier.is_verified(release_id)
         except Exception:
             return False
+
+
+def _catalog_row_matches_revision(row: NormalizedSourceRow, stored: object) -> bool:
+    """Compare catalog fields; seconds and origin came from the detail page."""
+
+    return (
+        stored["source_bulletin_id"] == row.source_bulletin_id
+        and stored["source_event_group_id"] == row.source_event_group_id
+        and stored["source_url"] == row.source_url
+        and stored["event_time"].astimezone(row.occurred_at.tzinfo).replace(second=0, microsecond=0)
+        == row.occurred_at.replace(second=0, microsecond=0)
+        and stored["latitude"] == row.latitude
+        and stored["longitude"] == row.longitude
+        and stored["depth_km"] == row.depth_km
+        and stored["magnitude"] == row.magnitude
+        and stored["location_description"] == row.location_description
+    )

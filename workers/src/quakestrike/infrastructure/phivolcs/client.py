@@ -75,6 +75,8 @@ class PhivolcsCatalogClient:
         detail_delay_seconds: float,
         detail_concurrency: int = 1,
         detail_session_factory: Callable[[], SessionLike] | None = None,
+        reusable_details: Callable[[tuple[NormalizedSourceRow, ...]], dict[str, ParsedDetail]]
+        | None = None,
         sleep: Callable[[float], None] = default_sleep,
     ) -> None:
         self._catalog_url = catalog_url
@@ -86,6 +88,8 @@ class PhivolcsCatalogClient:
             raise ValueError("Concurrent detail retrieval requires a session factory.")
         self._detail_concurrency = detail_concurrency
         self._detail_session_factory = detail_session_factory
+        self._reusable_details = reusable_details
+        self._detail_reuse_hits = 0
         self._sleep = sleep
 
     def retrieve_current_catalog(
@@ -115,6 +119,7 @@ class PhivolcsCatalogClient:
                 "catalog_bytes": len(catalog_body),
                 "catalog_rows": len(parsed.accepted_rows),
                 "detail_urls": len({row.source_url for row in parsed.accepted_rows}),
+                "detail_reuse_hits": self._detail_reuse_hits,
                 "catalog_fetch_ms": round((fetched - started) * 1000),
                 "catalog_parse_ms": round((parsed_at - fetched) * 1000),
                 "detail_enrichment_ms": round((perf_counter() - parsed_at) * 1000),
@@ -136,17 +141,28 @@ class PhivolcsCatalogClient:
     ) -> tuple[NormalizedSourceRow, ...]:
         """Apply the same detail-page enrichment to preserved catalog rows."""
 
+        rows = tuple(rows)
+        reusable = self._reusable_details(rows) if self._reusable_details is not None else {}
+        self._detail_reuse_hits = len(reusable)
         if self._detail_concurrency > 1:
-            return self._enrich_rows_concurrently(tuple(rows), heartbeat=heartbeat)
+            return self._enrich_rows_concurrently(rows, reusable, heartbeat=heartbeat)
 
-        details: dict[str, ParsedDetail] = {}
+        details: dict[str, ParsedDetail] = dict(reusable)
         enriched_rows = []
+        fetched_count = 0
+
+        def before_fetch() -> None:
+            nonlocal fetched_count
+            if fetched_count and self._detail_delay_seconds:
+                self._sleep(self._detail_delay_seconds)
+            fetched_count += 1
+
+        self._heartbeat(heartbeat)
         for row in rows:
-            self._heartbeat(heartbeat)
             detail = details.get(row.source_url)
             if detail is None:
-                if details and self._detail_delay_seconds:
-                    self._sleep(self._detail_delay_seconds)
+                self._heartbeat(heartbeat)
+                before_fetch()
                 detail = self._fetch_detail(row.source_url, heartbeat=heartbeat)
                 details[row.source_url] = detail
             enriched_rows.append(
@@ -161,12 +177,15 @@ class PhivolcsCatalogClient:
     def _enrich_rows_concurrently(
         self,
         rows: tuple[NormalizedSourceRow, ...],
+        reusable: dict[str, ParsedDetail],
         *,
         heartbeat: Callable[[], bool] | None,
     ) -> tuple[NormalizedSourceRow, ...]:
         """Fetch distinct details with bounded workers, then apply results in row order."""
 
-        urls = tuple(dict.fromkeys(row.source_url for row in rows))
+        urls = tuple(
+            url for url in dict.fromkeys(row.source_url for row in rows) if url not in reusable
+        )
         sessions: list[SessionLike] = []
         thread_state = local()
         session_lock = Lock()
@@ -182,6 +201,7 @@ class PhivolcsCatalogClient:
                 thread_state.session = session
                 with session_lock:
                     sessions.append(session)
+
             with rate_lock:
                 pause = max(0.0, next_request_at - perf_counter())
                 if pause:
@@ -198,7 +218,7 @@ class PhivolcsCatalogClient:
                     for url in (next(remaining, None) for _ in range(self._detail_concurrency))
                     if url is not None
                 }
-                details: dict[str, ParsedDetail] = {}
+                details: dict[str, ParsedDetail] = dict(reusable)
                 while pending:
                     self._heartbeat(heartbeat)
                     completed, _ = wait(pending, timeout=5, return_when=FIRST_COMPLETED)

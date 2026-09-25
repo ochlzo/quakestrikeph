@@ -99,7 +99,11 @@ using this as a production service. See [PostgreSQL backups](postgres-backups.md
 for the B2 setup and isolated restore test. The workflow never migrates the database,
 reimports history, or changes the model registry. A code push containing a new
 unapplied migration fails the pre-deploy `startup-check`; apply that migration
-through the reviewed operator procedure before retrying deployment.
+through the reviewed operator procedure before retrying deployment. If the
+release changes worker table permissions, repeat `provision-roles.sh grant-worker`
+before starting the new Data Ingestor; automatic deployment does not change
+database grants. The scheduled checkpoint cleanup in ADR 0034 requires the
+worker's `DELETE` grant on `ingestion_run_inputs`.
 
 The deploy script requires PostgreSQL, Redis, Dispatcher, and Data Ingestor to
 already be running. It updates Prediction Worker and Beat only if they were
