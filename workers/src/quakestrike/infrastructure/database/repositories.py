@@ -30,12 +30,15 @@ from quakestrike.application.persistence import (
     RunDispatchResult,
     RunIdentityConflict,
 )
+from quakestrike.application.reconciliation import CatalogEvidenceConflict
 from quakestrike.domain.features import (
     INPUT_SCHEMA_VERSION,
+    HistoryCoverage,
     PredictionSkipReason,
     build_prediction_decision,
     create_feature_snapshot,
 )
+from quakestrike.domain.source_rows import CatalogEvidence
 from quakestrike.infrastructure.database.engine import SessionFactory
 from quakestrike.infrastructure.database.feature_history import (
     SqlAlchemyFeatureHistoryQuery,
@@ -50,6 +53,7 @@ from quakestrike.infrastructure.database.tables import (
     job_dispatches,
     model_releases,
     prediction_jobs,
+    source_catalog_evidence,
 )
 
 _SCHEDULE_LOCK_KEY = 5_173_835_459
@@ -652,6 +656,62 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                 .values(lease_expires_at=now + _RUN_LEASE_DURATION)
             )
             return result.rowcount == 1
+
+    def bind_catalog_evidence(
+        self, run_id: UUID, worker_execution_id: UUID, evidence: CatalogEvidence
+    ) -> CatalogEvidence:
+        """Bind a live run to one exact source response across retries."""
+
+        with self._session_factory() as session, session.begin():
+            self._assert_owned_run(session, run_id, worker_execution_id)
+            existing = session.execute(
+                select(source_catalog_evidence).where(source_catalog_evidence.c.run_id == run_id)
+            ).one_or_none()
+            if existing is not None:
+                if (
+                    existing.catalog_sha256 != evidence.sha256
+                    or existing.source_url != evidence.source_url
+                ):
+                    raise CatalogEvidenceConflict("A retry fetched a different source catalog.")
+                return CatalogEvidence(
+                    source_url=existing.source_url,
+                    sha256=existing.catalog_sha256,
+                    retrieved_at=existing.retrieved_at,
+                    coverage_start=existing.coverage_start,
+                    coverage_end=existing.coverage_end,
+                    accepted_rows=existing.accepted_rows,
+                )
+            session.execute(
+                insert(source_catalog_evidence).values(
+                    run_id=run_id,
+                    source_url=evidence.source_url,
+                    catalog_sha256=evidence.sha256,
+                    retrieved_at=evidence.retrieved_at,
+                    coverage_start=evidence.coverage_start,
+                    coverage_end=evidence.coverage_end,
+                    accepted_rows=evidence.accepted_rows,
+                )
+            )
+            return evidence
+
+    def successful_catalog_coverages(
+        self, needed_start: datetime, needed_end: datetime
+    ) -> tuple[HistoryCoverage, ...]:
+        """Only completed runs can extend coverage for a later run."""
+
+        with self._session_factory() as session:
+            rows = session.execute(
+                select(
+                    source_catalog_evidence.c.coverage_start,
+                    source_catalog_evidence.c.coverage_end,
+                )
+                .join(ingestion_runs, ingestion_runs.c.run_id == source_catalog_evidence.c.run_id)
+                .where(ingestion_runs.c.status == "succeeded")
+                .where(source_catalog_evidence.c.coverage_end >= needed_start)
+                .where(source_catalog_evidence.c.coverage_start <= needed_end)
+                .order_by(source_catalog_evidence.c.coverage_start)
+            ).all()
+        return tuple(HistoryCoverage(row.coverage_start, row.coverage_end, True) for row in rows)
 
     def checkpoint_input(
         self,

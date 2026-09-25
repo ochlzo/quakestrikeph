@@ -22,13 +22,14 @@ from quakestrike.application.phivolcs import (
     CatalogRetrievalLeaseLost,
     CurrentCatalogRetriever,
 )
-from quakestrike.domain.features import HistoryCoverage
+from quakestrike.domain.features import HISTORY_WINDOW, HistoryCoverage
 from quakestrike.domain.reconciliation import (
     EventCandidate,
     ReconciliationAction,
     choose_group_fallback,
 )
 from quakestrike.domain.source_rows import (
+    CatalogEvidence,
     CatalogParseResult,
     NormalizedSourceRow,
     SourceDiagnostic,
@@ -37,6 +38,10 @@ from quakestrike.domain.source_rows import (
 
 class DuplicateBulletinConflict(ValueError):
     """One source page published incompatible values for a canonical bulletin ID."""
+
+
+class CatalogEvidenceConflict(ValueError):
+    """One logical run cannot reconcile two different catalog responses."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +80,14 @@ class ReconciliationStore(Protocol):
     ) -> RunClaim | None: ...
 
     def heartbeat_run(self, run_id: UUID, worker_execution_id: UUID, now: datetime) -> bool: ...
+
+    def bind_catalog_evidence(
+        self, run_id: UUID, worker_execution_id: UUID, evidence: CatalogEvidence
+    ) -> CatalogEvidence: ...
+
+    def successful_catalog_coverages(
+        self, needed_start: datetime, needed_end: datetime
+    ) -> tuple[HistoryCoverage, ...]: ...
 
     def checkpoint_input(
         self,
@@ -148,7 +161,25 @@ class ReconcileSourceRows:
                     claim.run_id, claim.worker_execution_id, self._now()
                 )
             )
-            rows = coalesce_catalog_rows(parsed)
+            rows = sorted(
+                coalesce_catalog_rows(parsed),
+                key=lambda row: (row.occurred_at, row.source_bulletin_id or ""),
+            )
+            coverages = [self._history_coverage] if self._history_coverage is not None else []
+            if parsed.evidence is not None:
+                evidence = self._store.bind_catalog_evidence(
+                    claim.run_id, claim.worker_execution_id, parsed.evidence
+                )
+                coverages.extend(
+                    self._store.successful_catalog_coverages(
+                        evidence.coverage_start - HISTORY_WINDOW,
+                        evidence.coverage_end,
+                    )
+                )
+                coverages.append(
+                    HistoryCoverage(evidence.coverage_start, evidence.coverage_end, True)
+                )
+            merged_coverages = merge_history_coverages(coverages)
             for rejected in parsed.rejected_rows:
                 input_key = _rejected_input_key(rejected.row_number, rejected.diagnostic.code)
                 if self._store.input_checkpoint_exists(claim.run_id, input_key):
@@ -163,7 +194,9 @@ class ReconcileSourceRows:
                 if checkpointed:
                     self._report_diagnostic(claim, input_key, rejected.diagnostic)
             for row in rows:
-                self._process_row(claim, row)
+                self._process_row(
+                    claim, row, coverage_for_anchor(row.occurred_at, merged_coverages)
+                )
                 if not self._store.heartbeat_run(
                     claim.run_id, claim.worker_execution_id, self._now()
                 ):
@@ -182,6 +215,16 @@ class ReconcileSourceRows:
                 self._now(),
                 "CONFLICTING_DUPLICATE_BULLETIN",
                 "The catalog contains conflicting values for one bulletin ID.",
+                retryable=False,
+            )
+            return ReconciliationRunResult(status=status or "lease_lost", claimed=True)
+        except CatalogEvidenceConflict:
+            status = self._store.fail_run(
+                claim.run_id,
+                claim.worker_execution_id,
+                self._now(),
+                "CATALOG_EVIDENCE_CONFLICT",
+                "A retry fetched different catalog content for this run.",
                 retryable=False,
             )
             return ReconciliationRunResult(status=status or "lease_lost", claimed=True)
@@ -233,6 +276,7 @@ class ReconcileSourceRows:
         self,
         claim: RunClaim,
         row: NormalizedSourceRow,
+        history_coverage: HistoryCoverage | None,
     ) -> None:
         input_key = normalized_input_key(row)
         if self._store.input_checkpoint_exists(claim.run_id, input_key):
@@ -282,7 +326,7 @@ class ReconcileSourceRows:
                 input_key=input_key,
                 model_release_id=self._model_release_id,
                 correlation_id=claim.correlation_id,
-                history_coverage=self._history_coverage,
+                history_coverage=history_coverage,
                 revision=EventRevisionRequest(
                     event_revision_id=self._new_uuid(),
                     ingestion_run_id=claim.run_id,
@@ -361,6 +405,45 @@ class ReconcileCurrentCatalog(ReconcileSourceRows):
             new_uuid=new_uuid,
             event_reporter=event_reporter,
         )
+
+
+def merge_history_coverages(
+    coverages: Iterable[HistoryCoverage],
+) -> tuple[HistoryCoverage, ...]:
+    """Keep disjoint source intervals separate so gaps cannot become zero counts."""
+
+    complete = sorted(
+        (
+            coverage
+            for coverage in coverages
+            if coverage.complete and coverage.start and coverage.end
+        ),
+        key=lambda coverage: coverage.start,
+    )
+    merged: list[HistoryCoverage] = []
+    for coverage in complete:
+        previous = merged[-1] if merged else None
+        if previous is not None and coverage.start <= previous.end:
+            merged[-1] = HistoryCoverage(previous.start, max(previous.end, coverage.end), True)
+        else:
+            merged.append(coverage)
+    return tuple(merged)
+
+
+def coverage_for_anchor(
+    anchor_time: datetime, coverages: Iterable[HistoryCoverage]
+) -> HistoryCoverage | None:
+    available = tuple(coverages)
+    return next(
+        (
+            coverage
+            for coverage in available
+            if coverage.start is not None
+            and coverage.end is not None
+            and coverage.start <= anchor_time <= coverage.end
+        ),
+        available[0] if available else None,
+    )
 
 
 def coalesce_catalog_rows(parsed: CatalogParseResult) -> tuple[NormalizedSourceRow, ...]:

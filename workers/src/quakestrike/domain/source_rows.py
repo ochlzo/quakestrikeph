@@ -80,10 +80,25 @@ class CatalogParseResult:
 
     accepted_rows: tuple[NormalizedSourceRow, ...]
     rejected_rows: tuple[RejectedSourceRow, ...]
+    declared_month_start: datetime | None = None
+    candidate_row_count: int = 0
+    evidence: CatalogEvidence | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogEvidence:
+    """Validated coverage claim bound to the exact fetched catalog bytes."""
+
+    source_url: str
+    sha256: str
+    retrieved_at: datetime
+    coverage_start: datetime
+    coverage_end: datetime
+    accepted_rows: int
 
 
 _GROUP_ID_PATTERN = re.compile(r"^\d{4}_\d{3,4}_\d{4,8}$")
-_BULLETIN_ID_PATTERN = re.compile(r"^(?P<group>\d{4}_\d{3,4}_\d{4,8})_B[^_]+$")
+_BULLETIN_ID_PATTERN = re.compile(r"^(?P<group>\d{4}_\d{3,4}_\d{4,8})_B[A-Z0-9]+(?:_[A-Z0-9]+)*$")
 _MAX_DEPTH_KM = Decimal("9999999.999")
 
 

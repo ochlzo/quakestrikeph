@@ -23,6 +23,13 @@ from quakestrike.infrastructure.phivolcs.urls import BulletinUrlRejected, canoni
             "2018_0314_1632_B1",
         ),
         (
+            "https://earthquake.phivolcs.dost.gov.ph/",
+            "2026_Earthquake_Information\\September\\2026_0919_1525_B1_NL.html",
+            2026,
+            "https://earthquake.phivolcs.dost.gov.ph/2026_Earthquake_Information/September/2026_0919_1525_B1_NL.html",
+            "2026_0919_1525_B1_NL",
+        ),
+        (
             "https://earthquake.phivolcs.dost.gov.ph/EQLatest-Monthly/2023/2023_August.html",
             "_Information\\August\\2023_0731_1640_B1.html",
             2023,

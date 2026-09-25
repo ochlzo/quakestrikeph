@@ -22,7 +22,7 @@ from quakestrike.application.persistence import (
 from quakestrike.application.reconciliation import ReconcileCurrentCatalog
 from quakestrike.data_ingestor.worker import create_ingestor_app, handle_ingestion_command
 from quakestrike.domain.features import INPUT_SCHEMA_VERSION, HistoryCoverage
-from quakestrike.domain.source_rows import CatalogParseResult, NormalizedSourceRow
+from quakestrike.domain.source_rows import CatalogEvidence, CatalogParseResult, NormalizedSourceRow
 from quakestrike.infrastructure.database.dispatch import SqlAlchemyDispatchStore
 from quakestrike.infrastructure.database.engine import create_session_factory
 from quakestrike.infrastructure.database.repositories import SqlAlchemyIngestionTransactions
@@ -33,6 +33,7 @@ from quakestrike.infrastructure.database.tables import (
     job_dispatches,
     model_releases,
     prediction_jobs,
+    source_catalog_evidence,
 )
 from quakestrike.infrastructure.queues.celery_app import (
     DURABLE_INGESTION_TICK,
@@ -59,13 +60,14 @@ class _VerifiedRelease:
 
 
 class _Retriever:
-    def __init__(self, row: NormalizedSourceRow) -> None:
+    def __init__(self, row: NormalizedSourceRow, evidence: CatalogEvidence | None = None) -> None:
         self.row = row
+        self.evidence = evidence
 
     def retrieve_current_catalog(self, *, heartbeat=None) -> CatalogParseResult:
         assert heartbeat is not None
         assert heartbeat()
-        return CatalogParseResult((self.row,), ())
+        return CatalogParseResult((self.row,), (), evidence=self.evidence)
 
 
 class _Reporter:
@@ -148,14 +150,19 @@ def test_valid_command_persists_one_completed_run_and_duplicate_is_a_no_op(
     )
     reconciler = ReconcileCurrentCatalog(
         store=store,
-        retriever=_Retriever(row),
+        retriever=_Retriever(
+            row,
+            CatalogEvidence(
+                source_url="https://earthquake.phivolcs.dost.gov.ph/",
+                sha256="a" * 64,
+                retrieved_at=database_now,
+                coverage_start=database_now - timedelta(days=8),
+                coverage_end=database_now,
+                accepted_rows=1,
+            ),
+        ),
         diagnostic_reporter=_Reporter(),
         model_release_id=model_release_id,
-        history_coverage=HistoryCoverage(
-            database_now - timedelta(days=8),
-            database_now,
-            True,
-        ),
         now=lambda: database_now,
     )
     payload = IngestionCommandV1(
@@ -187,6 +194,14 @@ def test_valid_command_persists_one_completed_run_and_duplicate_is_a_no_op(
         assert run.attempt_count == 1
         assert run.events_found == 1
         assert run.events_inserted == 1
+        assert (
+            connection.scalar(
+                select(source_catalog_evidence.c.catalog_sha256).where(
+                    source_catalog_evidence.c.run_id == request.run_id
+                )
+            )
+            == "a" * 64
+        )
         assert connection.scalar(select(func.count()).select_from(earthquake_events)) == 2
         dispatches = connection.execute(
             select(job_dispatches).order_by(job_dispatches.c.dispatch_id)

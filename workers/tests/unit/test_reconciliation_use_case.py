@@ -16,6 +16,8 @@ from quakestrike.application.phivolcs import CatalogRetrievalLeaseLost
 from quakestrike.application.reconciliation import (
     ReconcileCurrentCatalog,
     ReconciliationDiagnostic,
+    coverage_for_anchor,
+    merge_history_coverages,
 )
 from quakestrike.domain.features import HistoryCoverage
 from quakestrike.domain.source_rows import (
@@ -30,6 +32,16 @@ NOW = datetime(2026, 9, 17, tzinfo=UTC)
 CORRELATION_ID = UUID("00000000-0000-0000-0000-000000000002")
 MODEL_RELEASE_ID = UUID("00000000-0000-0000-0000-000000000003")
 HISTORY_COVERAGE = HistoryCoverage(NOW - timedelta(days=8), NOW, True)
+
+
+def test_source_coverage_merge_preserves_outage_gap() -> None:
+    first = HistoryCoverage(NOW - timedelta(days=9), NOW - timedelta(days=5), True)
+    second = HistoryCoverage(NOW - timedelta(days=4), NOW, True)
+
+    intervals = merge_history_coverages((first, second))
+
+    assert len(intervals) == 2
+    assert coverage_for_anchor(NOW - timedelta(days=4), intervals) == second
 
 
 class _Retriever:

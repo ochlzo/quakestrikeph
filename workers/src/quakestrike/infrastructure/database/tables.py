@@ -163,6 +163,31 @@ Index(
     postgresql_where=ingestion_runs.c.status == "running",
 )
 
+source_catalog_evidence = Table(
+    "source_catalog_evidence",
+    metadata,
+    Column(
+        "run_id",
+        UUID(as_uuid=True),
+        ForeignKey("ingestion_runs.run_id", onupdate="RESTRICT", ondelete="RESTRICT"),
+        primary_key=True,
+    ),
+    Column("source_url", Text, nullable=False),
+    Column("catalog_sha256", Text, nullable=False),
+    Column("retrieved_at", DateTime(timezone=True), nullable=False),
+    Column("coverage_start", DateTime(timezone=True), nullable=False),
+    Column("coverage_end", DateTime(timezone=True), nullable=False),
+    Column("accepted_rows", Integer, nullable=False),
+    CheckConstraint(_nonblank("source_url"), name="ck_source_catalog_evidence_url"),
+    CheckConstraint("catalog_sha256 ~ '^[0-9a-f]{64}$'", name="ck_source_catalog_evidence_sha256"),
+    CheckConstraint(
+        "coverage_start < coverage_end AND coverage_end <= retrieved_at",
+        name="ck_source_catalog_evidence_coverage",
+    ),
+    CheckConstraint("accepted_rows > 0", name="ck_source_catalog_evidence_rows"),
+)
+Index("ix_source_catalog_evidence_coverage_end", source_catalog_evidence.c.coverage_end)
+
 earthquake_events = Table(
     "earthquake_events",
     metadata,

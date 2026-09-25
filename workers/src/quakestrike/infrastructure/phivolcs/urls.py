@@ -29,7 +29,7 @@ _DUPLICATE_TIMESTAMP_SEPARATOR = re.compile(r"^(?P<date>\d{4}_\d{3,4})__(?P<rest
 _RECOGNIZED_BULLETIN_PATH = re.compile(
     r"^/\d{4}_Earthquake_(?:Information|Bulletins)/"
     r"(?:January|February|March|April|May|June|July|August|September|October|November|December)/"
-    r"(?P<bulletin>(?P<group>\d{4}_\d{3,4}_\d{4,8})_B[A-Z0-9]+)\.(?:html?|pdf|jpe?g)$",
+    r"(?P<bulletin>(?P<group>\d{4}_\d{3,4}_\d{4,8})_B[A-Z0-9]+(?:_[A-Z0-9]+)*)\.(?:html?|pdf|jpe?g)$",
     re.IGNORECASE,
 )
 _RECOGNIZED_GROUP_ONLY_PATH = re.compile(
