@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -40,6 +41,26 @@ class TrackingEngine:
 
     def dispose(self) -> None:
         self.disposed = True
+
+
+def test_historical_recovery_requires_full_bootstrap_readiness(monkeypatch, capsys):
+    monkeypatch.setattr(operator_setup, "Settings", _Settings)
+
+    def gate(ready):
+        return lambda _: SimpleNamespace(check=lambda: GateResult("gate", ready, "checked", {}))
+
+    monkeypatch.setattr(operator_setup, "AlembicMigrationStateGate", gate(True))
+    monkeypatch.setattr(operator_setup, "ModelReleaseStartupGate", gate(True))
+    monkeypatch.setattr(operator_setup, "BootstrapReadinessStartupGate", gate(False))
+    monkeypatch.setattr(
+        operator_setup,
+        "load_run_manifest",
+        lambda _: pytest.fail("Recovery read the manifest after readiness failed."),
+    )
+    monkeypatch.setattr(sys, "argv", ["quakestrike", "recover-historical-predictions"])
+
+    assert cli.main() == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "rejected"
 
 
 def test_package_command_dispatches_to_the_explicit_packager(monkeypatch, tmp_path: Path) -> None:

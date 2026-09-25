@@ -9,6 +9,10 @@ from alembic import command as alembic_command
 from alembic.config import Config as AlembicConfig
 from sqlalchemy.exc import SQLAlchemyError
 
+from quakestrike.application.historical_recovery import (
+    RecoverHistoricalPredictions,
+    UnsafeHistoricalRecovery,
+)
 from quakestrike.infrastructure.bootstrap import (
     BootstrapSnapshotError,
     load_run_manifest,
@@ -20,7 +24,6 @@ from quakestrike.infrastructure.database.engine import (
 )
 from quakestrike.infrastructure.database.historical_recovery import (
     SqlAlchemyHistoricalRecovery,
-    UnsafeHistoricalRecovery,
 )
 from quakestrike.infrastructure.database.migration_state import AlembicMigrationStateGate
 from quakestrike.infrastructure.database.model_releases import SqlAlchemyModelReleaseRegistry
@@ -35,7 +38,10 @@ from quakestrike.infrastructure.models.release_manifest import (
     model_release_record,
 )
 from quakestrike.infrastructure.settings import Settings
-from quakestrike.infrastructure.startup import ModelReleaseStartupGate
+from quakestrike.infrastructure.startup import (
+    BootstrapReadinessStartupGate,
+    ModelReleaseStartupGate,
+)
 from quakestrike.operator_output import print_json
 
 
@@ -170,6 +176,8 @@ def recover_historical_predictions(*, apply: bool, batch_size: int = 50) -> int:
             raise UnsafeHistoricalRecovery("Migrations are not ready.")
         if not ModelReleaseStartupGate(settings).check().ready:
             raise UnsafeHistoricalRecovery("The selected model release is not ready.")
+        if not BootstrapReadinessStartupGate(settings).check().ready:
+            raise UnsafeHistoricalRecovery("The bootstrap run evidence is not ready.")
         manifest = load_run_manifest(settings.bootstrap_run_manifest)
         snapshot = load_snapshot_for_manifest(manifest)
         if manifest["status"] != "succeeded" or snapshot.sha256 != manifest["snapshot_sha256"]:
@@ -178,11 +186,17 @@ def recover_historical_predictions(*, apply: bool, batch_size: int = 50) -> int:
             )
         engine = create_database_engine(settings.database_url)
         try:
-            counts = SqlAlchemyHistoricalRecovery(
+            store = SqlAlchemyHistoricalRecovery(
                 create_session_factory(engine),
                 target_release_id=settings.model_release_id,
                 bootstrap_run_id=UUID(manifest["run_id"]),
+            )
+            counts = RecoverHistoricalPredictions(
+                store,
+                target_release_id=settings.model_release_id,
+                bootstrap_run_id=UUID(manifest["run_id"]),
                 bootstrap_sha256=snapshot.sha256,
+                bootstrap_correlation_id=UUID(manifest["correlation_id"]),
                 bootstrap_coverage=snapshot.coverage.history_coverage(),
             ).run(
                 apply=apply,
