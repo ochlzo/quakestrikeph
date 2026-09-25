@@ -250,6 +250,8 @@ correlation_id uuid
 
 Every valid event is saved, but only a new or changed M1+ revision with seven complete days of prior history can create prediction work. The v1 snapshot has exactly these fields: `anchor_magnitude`, `anchor_depth_km`, `anchor_latitude`, `anchor_longitude`, `anchor_time_is_minute_precision`, `catalog_m1_plus_count_past_1h`, `catalog_m1_plus_count_past_24h`, `catalog_m1_plus_count_past_7d`, `local_m1_plus_count_past_24h_within_50km`, and `local_m1_plus_count_past_24h_within_100km`. Count only recorded M1+ events using lower-inclusive, anchor-exclusive windows; exclude the anchor, future observations, and uncertain same-minute ordering. Local counts use inclusive Haversine radii of 50 and 100 km with Earth radius `6371.0088 km`. No placeholder snapshot or shortened window is permitted. Insufficient history retains the event and records why work was skipped. See [feature ADR](../../adr/0021-live-feature-contract.md).
 
+The scoped [historical recovery](../../adr/0032-audited-historical-live-prediction-recovery.md) is an exception to ordinary ingestion-time work creation. The operator command creates the same immutable job and dispatch with a required audit after verified coverage becomes available. The revision's original skip reason stays immutable; prediction completion uses it to suppress automatic alerts for recovered historical work.
+
 ### `prediction_attempts`
 
 Processing history and the active lease for each prediction job.

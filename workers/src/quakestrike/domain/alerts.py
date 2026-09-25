@@ -23,6 +23,7 @@ class AutomaticAlertCandidate:
     event_time: datetime
     window_end: datetime
     now: datetime
+    historical_recovery: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +39,7 @@ def create_automatic_alert_snapshots(
 
     if (
         candidate.job_release_id != candidate.configured_release_id
+        or candidate.historical_recovery
         or candidate.event_superseded
         or candidate.latest_revision_id != candidate.revision_id
         or candidate.latest_successful_job_id != candidate.job_id

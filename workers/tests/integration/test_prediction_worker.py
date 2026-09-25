@@ -323,6 +323,28 @@ def test_backfill_and_expired_forecasts_create_no_alert(migrated_engine, trigger
         assert connection.scalar(select(func.count()).select_from(job_dispatches)) == 1
 
 
+def test_recovered_historical_revision_creates_forecast_without_alert(migrated_engine):
+    command = seed(migrated_engine)
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            update(earthquake_event_revisions).values(
+                prediction_skip_reason="history_coverage_unavailable"
+            )
+        )
+    assert (
+        handle_prediction_command(
+            command.to_message(),
+            store=store(migrated_engine),
+            model=DeterministicTestModel(),
+            logger=logging.getLogger(__name__),
+        )
+        == "succeeded"
+    )
+    with migrated_engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(forecasts)) == 1
+        assert connection.scalar(select(func.count()).select_from(alert_jobs)) == 0
+
+
 def test_job_for_another_model_release_cannot_create_forecast(migrated_engine):
     command = seed(migrated_engine)
     configured_release_id = uuid4()

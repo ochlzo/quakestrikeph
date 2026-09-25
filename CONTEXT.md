@@ -82,6 +82,11 @@ The canonical JSON representation of the features sent to a model release. The
 snapshot is stored with its SHA-256 hash so the Prediction Worker can reproduce
 exactly what the ingestor requested.
 
+**Historical prediction recovery**:
+An explicit operator action that creates audited prediction work for a current
+live revision previously skipped for missing source-coverage evidence. It keeps
+the original revision and skip decision and never creates an automatic alert.
+
 **Prediction provenance gate**:
 The minimum evidence required before an ingested revision can create
 prediction work: a valid source URL, at least one PHIVOLCS source identifier,

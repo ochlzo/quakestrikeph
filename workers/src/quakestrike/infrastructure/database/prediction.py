@@ -288,6 +288,7 @@ class SqlAlchemyPredictionStore:
                         event_time=revision.event_time,
                         window_end=output.window_end,
                         now=alert_now,
+                        historical_recovery=revision.prediction_skip_reason is not None,
                     )
                 )
                 alert_job_id = None

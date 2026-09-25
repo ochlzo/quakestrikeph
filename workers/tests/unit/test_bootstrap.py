@@ -339,6 +339,10 @@ def test_readiness_requires_successful_run_and_matching_sidecar_counts(tmp_path:
     )
     assert ready.ready is True
 
+    manifest["correlation_id"] = str(UUID(int=12))
+    assert evaluate_bootstrap_readiness(snapshot, manifest, _state()).ready is False
+    manifest["correlation_id"] = str(CORRELATION_ID)
+
     incomplete = replace(_state(), status="retry_wait")
     assert evaluate_bootstrap_readiness(snapshot, manifest, incomplete).ready is False
     manifest["counts"]["events_inserted"] = 99

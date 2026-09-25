@@ -1,0 +1,11 @@
+# Recover skipped live predictions from verified source coverage
+
+**Status**: accepted
+
+The September 24 live run `adc80d19-d105-4ef7-b427-6bc52f133b4d` recorded 450 M1+ revisions with `history_coverage_unavailable` before live catalog coverage was available. Recovery is an explicit operator command for this run only. It leaves every revision, ingestion run, and original skip decision unchanged. The 446 revisions that remain the latest revision of an unsuperseded event are eligible. Four superseded revisions are excluded because their observations have since changed.
+
+The command validates the approved model release, the preserved bootstrap snapshot against its run manifest and succeeded database run, and coverage claims from succeeded live runs. It merges only touching intervals and checks the complete seven-day window for each anchor. It reads the latest revision of each prior event known by the anchor revision's `ingested_at` time, excluding later corrections, then uses the existing feature decision and canonical snapshot builder. A dry run is the default and reports candidate, superseded, uncovered, existing, and eligible counts.
+
+Applying recovery creates a prediction job, pending dispatch, and `historical_prediction_recovered` system audit in one transaction per revision. The audit links the original run and revision to the new job, dispatch, release, snapshot hash, and coverage evidence. Each invocation creates at most 50 jobs by default, leaving further eligible revisions for the next batch so the live queue can drain. The existing revision/release/snapshot uniqueness rule and an event-row lock make concurrent or repeated invocation safe. A rerun validates and reports already created work. Conflicting work fails closed; earlier completed transactions remain durable, and a subsequent rerun can continue.
+
+A revision with a recorded prediction skip reason identifies its new work as historical recovery. Prediction completion never creates an automatic alert for such a revision, even if its forecast window has not expired. This guard is checked alongside the normal current-revision, live-trigger, and expiry rules. The command inserts no Redis payload; the existing Dispatcher publishes identifier-only commands from committed rows. No schema migration is needed.
