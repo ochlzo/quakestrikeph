@@ -113,6 +113,12 @@ class Settings(BaseSettings):
             "detail_request_delay_seconds",
         ),
     )
+    detail_request_concurrency: int = Field(
+        default=4,
+        ge=1,
+        le=4,
+        validation_alias=AliasChoices("DETAIL_REQUEST_CONCURRENCY", "detail_request_concurrency"),
+    )
     retry_delays_seconds: tuple[int, int, int] = Field(
         default=(30, 120, 600),
         validation_alias=AliasChoices("RETRY_DELAYS_SECONDS", "retry_delays_seconds"),

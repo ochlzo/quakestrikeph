@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Iterable
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import PurePosixPath
+from threading import Lock, local
 from time import perf_counter
 from time import sleep as default_sleep
 from typing import Protocol
@@ -48,6 +50,8 @@ class SessionLike(Protocol):
 
     def get(self, url: str, **kwargs: object) -> ResponseLike: ...
 
+    def close(self) -> None: ...
+
 
 class PhivolcsTransportError(RuntimeError):
     """A catalog-level transport failure that stops this retrieval attempt."""
@@ -69,6 +73,8 @@ class PhivolcsCatalogClient:
         connect_timeout_seconds: float,
         read_timeout_seconds: float,
         detail_delay_seconds: float,
+        detail_concurrency: int = 1,
+        detail_session_factory: Callable[[], SessionLike] | None = None,
         sleep: Callable[[float], None] = default_sleep,
     ) -> None:
         self._catalog_url = catalog_url
@@ -76,6 +82,10 @@ class PhivolcsCatalogClient:
         self._max_response_bytes = max_response_bytes
         self._timeout = (connect_timeout_seconds, read_timeout_seconds)
         self._detail_delay_seconds = detail_delay_seconds
+        if detail_concurrency < 1 or (detail_concurrency > 1 and detail_session_factory is None):
+            raise ValueError("Concurrent detail retrieval requires a session factory.")
+        self._detail_concurrency = detail_concurrency
+        self._detail_session_factory = detail_session_factory
         self._sleep = sleep
 
     def retrieve_current_catalog(
@@ -126,6 +136,9 @@ class PhivolcsCatalogClient:
     ) -> tuple[NormalizedSourceRow, ...]:
         """Apply the same detail-page enrichment to preserved catalog rows."""
 
+        if self._detail_concurrency > 1:
+            return self._enrich_rows_concurrently(tuple(rows), heartbeat=heartbeat)
+
         details: dict[str, ParsedDetail] = {}
         enriched_rows = []
         for row in rows:
@@ -145,8 +158,73 @@ class PhivolcsCatalogClient:
             )
         return tuple(enriched_rows)
 
+    def _enrich_rows_concurrently(
+        self,
+        rows: tuple[NormalizedSourceRow, ...],
+        *,
+        heartbeat: Callable[[], bool] | None,
+    ) -> tuple[NormalizedSourceRow, ...]:
+        """Fetch distinct details with bounded workers, then apply results in row order."""
+
+        urls = tuple(dict.fromkeys(row.source_url for row in rows))
+        sessions: list[SessionLike] = []
+        thread_state = local()
+        session_lock = Lock()
+        rate_lock = Lock()
+        next_request_at = perf_counter()
+
+        def fetch(url: str) -> ParsedDetail:
+            nonlocal next_request_at
+            session = getattr(thread_state, "session", None)
+            if session is None:
+                assert self._detail_session_factory is not None
+                session = self._detail_session_factory()
+                thread_state.session = session
+                with session_lock:
+                    sessions.append(session)
+            with rate_lock:
+                pause = max(0.0, next_request_at - perf_counter())
+                if pause:
+                    self._sleep(pause)
+                next_request_at = perf_counter() + self._detail_delay_seconds
+            return self._fetch_detail(url, session=session)
+
+        self._heartbeat(heartbeat)
+        try:
+            with ThreadPoolExecutor(max_workers=self._detail_concurrency) as executor:
+                remaining = iter(urls)
+                pending = {
+                    executor.submit(fetch, url): url
+                    for url in (next(remaining, None) for _ in range(self._detail_concurrency))
+                    if url is not None
+                }
+                details: dict[str, ParsedDetail] = {}
+                while pending:
+                    self._heartbeat(heartbeat)
+                    completed, _ = wait(pending, timeout=5, return_when=FIRST_COMPLETED)
+                    for future in completed:
+                        details[pending.pop(future)] = future.result()
+                        next_url = next(remaining, None)
+                        if next_url is not None:
+                            pending[executor.submit(fetch, next_url)] = next_url
+            return tuple(
+                row.with_detail_enrichment(
+                    detail_occurred_at=details[row.source_url].occurred_at,
+                    origin=details[row.source_url].origin,
+                    diagnostics=details[row.source_url].diagnostics,
+                )
+                for row in rows
+            )
+        finally:
+            for session in sessions:
+                session.close()
+
     def _fetch_detail(
-        self, url: str, *, heartbeat: Callable[[], bool] | None = None
+        self,
+        url: str,
+        *,
+        heartbeat: Callable[[], bool] | None = None,
+        session: SessionLike | None = None,
     ) -> ParsedDetail:
         suffix = PurePosixPath(url).suffix.casefold()
         if suffix in {".pdf", ".jpg", ".jpeg"}:
@@ -160,7 +238,7 @@ class PhivolcsCatalogClient:
                 ),
             )
         try:
-            return parse_detail_page(self._fetch_html(url, heartbeat=heartbeat))
+            return parse_detail_page(self._fetch_html(url, heartbeat=heartbeat, session=session))
         except CatalogRetrievalLeaseLost:
             raise
         except PhivolcsTransportError as error:
@@ -175,10 +253,16 @@ class PhivolcsCatalogClient:
                 (SourceDiagnostic(code),),
             )
 
-    def _fetch_html(self, url: str, *, heartbeat: Callable[[], bool] | None = None) -> bytes:
+    def _fetch_html(
+        self,
+        url: str,
+        *,
+        heartbeat: Callable[[], bool] | None = None,
+        session: SessionLike | None = None,
+    ) -> bytes:
         response: ResponseLike | None = None
         try:
-            response = self._session.get(
+            response = (session or self._session).get(
                 url,
                 stream=True,
                 timeout=self._timeout,
