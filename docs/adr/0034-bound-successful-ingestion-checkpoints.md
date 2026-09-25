@@ -8,8 +8,9 @@ outcome when applicable. Scheduled runs count every distinct normalized input,
 including rows proved unchanged without a checkpoint. On scheduled success,
 the summary and deletion of that run's checkpoints commit together. A failure
 leaves the checkpoints for retry. Skipped visible events receive one fenced
-batch update to `last_seen_run_id`. Manual and backfill successes retain their
-checkpoints initially.
+batch update to `last_seen_run_id`. The worker role has `DELETE` only on
+`ingestion_run_inputs` for this success path. Manual and backfill successes
+retain their checkpoints initially.
 
 The bounded host job drains successful scheduled checkpoints left by the prior
 policy, regardless of age. It also removes checkpoints from any terminal run

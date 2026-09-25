@@ -1,5 +1,6 @@
 """Scheduled polls reuse complete rows without event transactions or checkpoints."""
 
+import os
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -7,7 +8,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import event, func, select, update
+from sqlalchemy import create_engine, event, func, select, update
 
 from quakestrike.application.persistence import RunCounters, RunDispatchRequest
 from quakestrike.application.reconciliation import ReconcileSourceRows
@@ -187,3 +188,46 @@ def test_failed_success_transaction_keeps_summary_and_checkpoints(migrated_engin
         assert run.status == "running"
         assert run.events_found == 0
         assert connection.scalar(select(func.count()).select_from(ingestion_run_inputs)) == 1
+
+
+def test_worker_role_can_delete_successful_scheduled_checkpoints(migrated_engine) -> None:
+    script = (
+        Path(__file__).resolve().parents[3] / "infrastructure/postgres/provision-roles.sh"
+    ).read_text(encoding="utf-8")
+    grants = script.split("  grant-worker)", 1)[1].split("<<'SQL'\n", 1)[1].split("\nSQL", 1)[0]
+    with migrated_engine.begin() as connection:
+        connection.exec_driver_sql(
+            "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = "
+            "'quakestrike_worker') THEN CREATE ROLE quakestrike_worker; END IF; END $$"
+        )
+        connection.exec_driver_sql("GRANT USAGE ON SCHEMA public TO quakestrike_worker")
+        connection.exec_driver_sql("REVOKE DELETE ON ingestion_run_inputs FROM quakestrike_worker")
+        for statement in grants.split(";"):
+            if statement.strip():
+                connection.exec_driver_sql(statement)
+
+    store = SqlAlchemyIngestionTransactions(
+        create_session_factory(migrated_engine), model_release_verifier=_VerifiedRelease()
+    )
+    run_id, _reconciler = _run(store, ())
+    now, token = datetime.now(UTC), uuid4()
+    assert store.claim_run(run_id, token, now) is not None
+    assert store.checkpoint_input(run_id, token, "rejected:1:INVALID_CATALOG_ROW", "rejected", None)
+
+    worker_engine = create_engine(os.environ["TEST_DATABASE_URL"])
+
+    @event.listens_for(worker_engine, "connect")
+    def use_worker_role(dbapi_connection, _connection_record):
+        with dbapi_connection.cursor() as cursor:
+            cursor.execute("SET ROLE quakestrike_worker")
+
+    try:
+        worker_store = SqlAlchemyIngestionTransactions(
+            create_session_factory(worker_engine), model_release_verifier=_VerifiedRelease()
+        )
+        assert worker_store.complete_run(run_id, token, now, RunCounters(1, 0, 0, 0, 1))
+    finally:
+        worker_engine.dispose()
+
+    with migrated_engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(ingestion_run_inputs)) == 0

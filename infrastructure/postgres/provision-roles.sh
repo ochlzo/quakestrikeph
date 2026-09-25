@@ -55,6 +55,7 @@ GRANT SELECT, INSERT, UPDATE ON TABLE
     earthquake_bulletin_event_identities, prediction_jobs,
     prediction_attempts, job_dispatches
 TO quakestrike_worker;
+GRANT DELETE ON TABLE ingestion_run_inputs TO quakestrike_worker;
 GRANT SELECT, INSERT ON TABLE
     earthquake_event_revisions, forecasts, alert_jobs, audit_logs,
     source_catalog_evidence
