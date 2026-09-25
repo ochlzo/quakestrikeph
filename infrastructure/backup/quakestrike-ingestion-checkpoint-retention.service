@@ -1,0 +1,8 @@
+[Unit]
+Description=Remove old successful QuakeStrike ingestion checkpoints
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/quakestrike/ingestion-checkpoint-retention.sh

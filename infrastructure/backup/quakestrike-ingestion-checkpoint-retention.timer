@@ -1,0 +1,9 @@
+[Unit]
+Description=Hourly QuakeStrike ingestion checkpoint retention
+
+[Timer]
+OnCalendar=*-*-* *:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

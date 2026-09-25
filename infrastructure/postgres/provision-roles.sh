@@ -105,6 +105,8 @@ GRANT CONNECT ON DATABASE :"database_name" TO quakestrike_backup, quakestrike_ma
 GRANT pg_read_all_data TO quakestrike_backup;
 GRANT USAGE ON SCHEMA public TO quakestrike_maintenance;
 GRANT SELECT, INSERT, UPDATE ON maintenance_runs TO quakestrike_maintenance;
+GRANT SELECT ON ingestion_runs TO quakestrike_maintenance;
+GRANT SELECT, DELETE ON ingestion_run_inputs TO quakestrike_maintenance;
 SQL
     then
       echo '{"action":"create-maintenance","status":"ready"}'

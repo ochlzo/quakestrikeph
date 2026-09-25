@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from threading import Barrier
 
@@ -164,6 +166,139 @@ def test_retrieve_current_catalog_reuses_one_detail_download_and_validates_each_
     assert session.calls[0][1]["timeout"] == (3, 4)
     assert session.calls[0][1]["stream"] is True
     assert session.calls[0][1]["allow_redirects"] is False
+
+
+def test_detail_cache_skips_repeated_page_but_refetches_changed_catalog_row() -> None:
+    row = parse_current_catalog(
+        (FIXTURES / "current_catalog.html").read_bytes(), CATALOG_URL
+    ).accepted_rows[0]
+    other = replace(
+        row,
+        source_url=row.source_url.replace("_B1.html", "_B2.html"),
+        source_bulletin_id=row.source_bulletin_id.replace("_B1", "_B2"),
+    )
+    session = ScriptedSession(
+        [
+            ScriptedResponse((FIXTURES / "bulletin_detail.html").read_bytes()),
+            ScriptedResponse((FIXTURES / "bulletin_detail.html").read_bytes()),
+            ScriptedResponse((FIXTURES / "bulletin_detail.html").read_bytes()),
+            ScriptedResponse((FIXTURES / "bulletin_detail.html").read_bytes()),
+        ]
+    )
+    pauses: list[float] = []
+
+    class DetailCache:
+        def __init__(self) -> None:
+            self.values = {}
+
+        def get(self, key, signature):
+            value = self.values.get(key)
+            return value[1] if value is not None and value[0] == signature else None
+
+        def put(self, key, signature, detail):
+            self.values[key] = (signature, detail)
+
+    client = PhivolcsCatalogClient(
+        catalog_url=CATALOG_URL,
+        session=session,
+        max_response_bytes=10_000,
+        connect_timeout_seconds=3,
+        read_timeout_seconds=4,
+        detail_delay_seconds=0.1,
+        detail_cache=DetailCache(),
+        sleep=pauses.append,
+    )
+
+    first = client.enrich_rows((row, other))
+    assert pauses == [0.1]
+    second = client.enrich_rows((row, other))
+    changed = client.enrich_rows((replace(row, magnitude=Decimal("5.0")),))
+    reverted = client.enrich_rows((row,))
+
+    assert first[0].time_precision is SourceTimePrecision.SECOND
+    assert second == first
+    assert changed[0].magnitude == Decimal("5.0")
+    assert reverted[0] == row.with_detail_enrichment(
+        detail_occurred_at=first[0].occurred_at, origin=first[0].origin, diagnostics=()
+    )
+    assert len(session.calls) == 4
+    assert pauses == [0.1]
+
+
+def test_detail_cache_does_not_keep_failed_detail_fetch() -> None:
+    row = parse_current_catalog(
+        (FIXTURES / "current_catalog.html").read_bytes(), CATALOG_URL
+    ).accepted_rows[0]
+    session = ScriptedSession(
+        [
+            ScriptedResponse(b"not html", content_type="application/pdf"),
+            ScriptedResponse((FIXTURES / "bulletin_detail.html").read_bytes()),
+        ]
+    )
+
+    class DetailCache:
+        def __init__(self) -> None:
+            self.puts = []
+
+        def get(self, _key, _signature):
+            return None
+
+        def put(self, key, signature, detail):
+            self.puts.append((key, signature, detail))
+
+    cache = DetailCache()
+    client = PhivolcsCatalogClient(
+        catalog_url=CATALOG_URL,
+        session=session,
+        max_response_bytes=10_000,
+        connect_timeout_seconds=3,
+        read_timeout_seconds=4,
+        detail_delay_seconds=0,
+        detail_cache=cache,
+    )
+
+    first = client.enrich_rows((row,))
+    assert cache.puts == []
+    second = client.enrich_rows((row,))
+
+    assert first[0].time_precision is SourceTimePrecision.MINUTE
+    assert second[0].time_precision is SourceTimePrecision.SECOND
+    assert len(session.calls) == 2
+    assert len(cache.puts) == 1
+
+
+def test_detail_cache_rechecks_timestamp_mismatch_on_next_poll() -> None:
+    rows = parse_current_catalog(
+        (FIXTURES / "current_catalog_duplicate_detail.html").read_bytes(), CATALOG_URL
+    ).accepted_rows
+    session = ScriptedSession(
+        [
+            ScriptedResponse((FIXTURES / "bulletin_detail.html").read_bytes()),
+            ScriptedResponse((FIXTURES / "bulletin_detail.html").read_bytes()),
+        ]
+    )
+
+    class DetailCache:
+        def get(self, _key, _signature):
+            return None
+
+        def put(self, _key, _signature, _detail):
+            raise AssertionError("A timestamp mismatch must not be cached")
+
+    client = PhivolcsCatalogClient(
+        catalog_url=CATALOG_URL,
+        session=session,
+        max_response_bytes=10_000,
+        connect_timeout_seconds=3,
+        read_timeout_seconds=4,
+        detail_delay_seconds=0,
+        detail_cache=DetailCache(),
+    )
+
+    client.enrich_rows(rows)
+    client.enrich_rows(rows)
+
+    assert len(session.calls) == 2
 
 
 def test_detail_non_html_response_keeps_catalog_row_with_sanitized_diagnostic() -> None:

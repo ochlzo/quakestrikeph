@@ -242,6 +242,10 @@ Docker retains bounded diagnostics using the `local` logging driver, about 20 Mi
 
 A host scheduler, independent of Beat, runs technical-log retention cleanup, encrypted off-VPS PostgreSQL backup, and isolated restore tests. Scripts record attempts and results in `maintenance_runs`. Cleanup uses a dedicated role, bounded batches, and a configurable short technical-log period; it must not delete audit or business history by applying that period indiscriminately. Backups include logical data and cluster-role exports, checksums, encryption before transfer, retention, and verification. Never copy a live PostgreSQL volume as the backup method. The 70% total-disk-use warning threshold needs a host check, not a fabricated Console metric. Recovery into the live database is controlled, not a routine scheduled restore.
 
+The host also removes per-input checkpoints from successful scheduled ingestion
+runs after 24 hours in bounded batches. Run summaries and source, event,
+forecast, and audit evidence remain. See [ADR 0034](../../adr/0034-bound-successful-ingestion-checkpoints.md).
+
 ## Deployment and failure behavior
 
 Pin exact tested official image tags; never deploy `latest`. Tag team-built images with the Git commit SHA and keep the previous tested image for rollback. Give long-running containers health checks, `restart: unless-stopped`, memory limits, and bounded logs. Services reconnect after database or broker restarts. Apply migrations once as an explicit job, register and hash-verify the model release, run and validate the finite bootstrap, start Dispatcher and Ingestor, then enable Beat only after readiness. Startup never silently migrates, imports, or changes the release registry. See [startup ADR](../../adr/0019-explicit-startup-and-runtime-configuration.md).
