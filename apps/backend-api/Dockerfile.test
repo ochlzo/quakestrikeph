@@ -1,0 +1,8 @@
+FROM node:24.21.0-bookworm-slim
+WORKDIR /app
+COPY apps/backend-api/package.json apps/backend-api/package-lock.json ./
+RUN npm ci
+COPY apps/backend-api/tsconfig.json ./
+COPY apps/backend-api/src ./src
+COPY apps/backend-api/tests ./tests
+CMD ["npm", "run", "test:integration"]

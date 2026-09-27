@@ -10,11 +10,13 @@ rules to follow before pushing any change, including documentation, use
 
 ## What is implemented
 
-The current code is the Python worker and data pipeline. It includes the
+The current code includes the Python worker and data pipeline. It includes the
 scheduler, bulletin ingestion, event revision history, prediction jobs, a
 Prediction Worker, PostgreSQL migrations, Redis queues, and local Compose
-configuration. The public Bulletin app, Operations Console, Backend API,
-automatic SMS delivery, and production monitoring are still planned.
+configuration. A read-only Backend API now has event search and detail routes
+with current forecast reads; its [VPS setup](docs/operations/backend-api.md)
+is explicit. The public Bulletin app, Operations Console, automatic SMS
+delivery, and production monitoring are still planned.
 
 The main flow is:
 
@@ -47,12 +49,13 @@ server. See the
 | `workers/tests/` | Unit and integration tests. |
 | `workers/migrations/` | PostgreSQL schema migrations. |
 | `packages/contracts/queue/` | Versioned ingestion and prediction command schemas. |
+| `packages/contracts/openapi.yaml` | Public Backend HTTP contract. |
+| `apps/backend-api/` | Read-only Node/Express/TypeScript earthquake and forecast API. |
 | `infrastructure/` | Compose files and operator scripts. |
 | `docs/adr/` | Accepted decisions that govern implementation. |
 | `docs/system-design/` | Intended architecture, database design, and data flows. |
 
-The planned web applications and Backend API do not have code under `apps/`
-yet.
+The planned web applications do not have code under `apps/` yet.
 
 ## Your first development session
 

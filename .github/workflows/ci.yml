@@ -1,4 +1,4 @@
-name: Worker checks
+name: Worker and Backend checks
 
 on:
   pull_request:
@@ -41,13 +41,35 @@ jobs:
       - name: Run integration tests
         run: docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --build --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration
 
+      - name: Provision restricted Backend test login
+        run: docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml exec -T postgres-test sh /opt/quakestrike/provision-roles.sh create-backend
+
+      - name: Run Backend integration tests
+        run: docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --build --rm backend-test-runner
+
       - name: Remove isolated test services
         if: always()
         run: docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v
 
+  backend-unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.21.0
+          cache: npm
+          cache-dependency-path: apps/backend-api/package-lock.json
+      - run: npm ci
+        working-directory: apps/backend-api
+      - run: npm test
+        working-directory: apps/backend-api
+
   deploy:
     if: github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true'
-    needs: workers
+    needs: [workers, backend-unit]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     concurrency:

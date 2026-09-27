@@ -1,0 +1,24 @@
+{
+  "name": "@quakestrikeph/backend-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/server.js",
+    "test": "npm run build && node --test dist/tests/unit/app.test.js dist/tests/unit/searchRequest.test.js",
+    "test:integration": "npm run build && node --test dist/tests/integration/earthquakes.test.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "express": "5.2.1",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/node": "24.10.4",
+    "@types/pg": "8.23.1",
+    "typescript": "6.0.2"
+  }
+}

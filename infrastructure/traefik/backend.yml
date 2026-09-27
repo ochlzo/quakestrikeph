@@ -1,0 +1,20 @@
+http:
+  routers:
+    backend-api:
+      entryPoints: [web]
+      rule: Host(`quakestrikeph.qzz.io`) && PathPrefix(`/api/v1/`)
+      middlewares: [public-api-limit]
+      service: backend-api
+  middlewares:
+    public-api-limit:
+      rateLimit:
+        average: 60
+        period: 1m
+        burst: 20
+        sourceCriterion:
+          requestHeaderName: CF-Connecting-IP
+  services:
+    backend-api:
+      loadBalancer:
+        servers:
+          - url: http://backend-api:3000
