@@ -6,9 +6,9 @@ successful `main` run, its deploy job can connect to the VPS over Tailscale and
 run `infrastructure/scripts/deploy-workers.sh`. The deploy job is disabled until
 the repository variable `DEPLOY_ENABLED` is set to `true`.
 
-This deploys the current Python workers only. The Bulletin, Operations Console,
-and Backend API have no implementation or container images in this repository
-yet.
+This deploys the current Python workers only. The read-only Backend API has a
+separate [manual VPS setup and rollout](backend-api.md). The Bulletin and
+Operations Console do not have implementation or container images yet.
 
 ## Initialize the VPS once
 

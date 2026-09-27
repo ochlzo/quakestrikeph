@@ -1,0 +1,74 @@
+services:
+  backend-api:
+    image: quakestrike-backend:${BACKEND_IMAGE_TAG:?Set BACKEND_IMAGE_TAG to the tested Git commit SHA}
+    build:
+      context: ..
+      dockerfile: apps/backend-api/Dockerfile
+    environment:
+      DATABASE_URL: ${BACKEND_DATABASE_URL:?Set BACKEND_DATABASE_URL in .env}
+      MODEL_RELEASE_ID: ${MODEL_RELEASE_ID:?Set MODEL_RELEASE_ID in .env}
+      PORT: "3000"
+      DB_POOL_SIZE: "5"
+      DB_QUERY_TIMEOUT_MS: "3000"
+    networks: [private-data, backend-edge]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    mem_limit: 256m
+    logging:
+      driver: local
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  traefik:
+    image: traefik:v3.7.13
+    command:
+      - --providers.file.filename=/etc/traefik/backend.yml
+      - --entrypoints.web.address=:80
+      - --ping=true
+    volumes:
+      - ./traefik/backend.yml:/etc/traefik/backend.yml:ro
+    networks: [backend-edge]
+    depends_on:
+      backend-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    mem_limit: 128m
+    logging:
+      driver: local
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.9.3
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in .env}
+    networks: [backend-edge]
+    depends_on:
+      traefik:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 128m
+    logging:
+      driver: local
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+networks:
+  backend-edge:

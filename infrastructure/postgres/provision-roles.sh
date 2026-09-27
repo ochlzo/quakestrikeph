@@ -93,6 +93,36 @@ SQL
       exit 2
     fi
     ;;
+  create-backend)
+    if [ -z "${BACKEND_DB_PASSWORD:-}" ]; then
+      echo '{"action":"create-backend","status":"failed","reason":"missing_backend_password"}'
+      exit 2
+    fi
+    if psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set ON_ERROR_STOP=1 >/dev/null 2>&1 <<'SQL'
+\getenv backend_password BACKEND_DB_PASSWORD
+\getenv database_name POSTGRES_DB
+SELECT format('CREATE ROLE quakestrike_backend LOGIN NOINHERIT PASSWORD %L', :'backend_password')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'quakestrike_backend') \gexec
+ALTER ROLE quakestrike_backend NOSUPERUSER NOCREATEROLE NOCREATEDB NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD :'backend_password';
+ALTER ROLE quakestrike_backend SET default_transaction_read_only = on;
+GRANT CONNECT ON DATABASE :"database_name" TO quakestrike_backend;
+GRANT USAGE ON SCHEMA public TO quakestrike_backend;
+GRANT SELECT (event_id, superseded_by_event_id) ON earthquake_events TO quakestrike_backend;
+GRANT SELECT (event_id, event_revision_id, revision_number, event_time, magnitude,
+  latitude, longitude, depth_km, location_description, origin, source_url)
+  ON earthquake_event_revisions TO quakestrike_backend;
+GRANT SELECT (job_id, event_revision_id, model_release_id, status, requested_at)
+  ON prediction_jobs TO quakestrike_backend;
+GRANT SELECT ON forecasts TO quakestrike_backend;
+GRANT SELECT (model_release_id) ON model_releases TO quakestrike_backend;
+SQL
+    then
+      echo '{"action":"create-backend","status":"ready"}'
+    else
+      echo '{"action":"create-backend","status":"failed","reason":"role_provisioning_failed"}'
+      exit 2
+    fi
+    ;;
   create-maintenance)
     if psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set ON_ERROR_STOP=1 >/dev/null 2>&1 <<'SQL'
 \getenv database_name POSTGRES_DB
@@ -117,7 +147,7 @@ SQL
     fi
     ;;
   *)
-    echo 'Usage: provision-roles.sh create|grant-worker|create-observer|create-maintenance' >&2
+    echo 'Usage: provision-roles.sh create|grant-worker|create-observer|create-backend|create-maintenance' >&2
     exit 2
     ;;
 esac

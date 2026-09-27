@@ -1,0 +1,258 @@
+openapi: 3.1.0
+info:
+  title: QuakeStrike PH public information API
+  version: 1.0.0
+  description: Read-only earthquake and forecast information from the configured model release.
+servers:
+  - url: https://quakestrikeph.qzz.io/api/v1
+paths:
+  /earthquakes/search:
+    post:
+      operationId: searchEarthquakes
+      summary: Search the latest revision of each non-superseded earthquake
+      description: POST carries filters only; this operation does not write data.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+      responses:
+        '200':
+          description: Matching earthquakes, newest earthquake time first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /earthquakes/{eventId}:
+    get:
+      operationId: getEarthquake
+      summary: Get the latest revision of one non-superseded earthquake
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Earthquake and current forecast, if available
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+components:
+  responses:
+    InvalidRequest:
+      description: Invalid filter or event identifier
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    PayloadTooLarge:
+      description: Search body exceeds 8 KiB
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimited:
+      description: Request limit exceeded at the edge
+    NotFound:
+      description: No public earthquake with this ID
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unavailable:
+      description: Database unavailable or query timed out
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    MagnitudeRange:
+      type: object
+      description: Lower bound is inclusive; upper bound is exclusive. At least one bound is required.
+      additionalProperties: false
+      anyOf:
+        - required: [from]
+        - required: [below]
+      properties:
+        from:
+          type: number
+        below:
+          type: number
+    SearchRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        magnitudeRanges:
+          type: array
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/MagnitudeRange'
+        dateFrom:
+          type: string
+          format: date-time
+          description: Inclusive earthquake time; an explicit UTC offset is required.
+        dateTo:
+          type: string
+          format: date-time
+          description: Exclusive earthquake time; an explicit UTC offset is required.
+        location:
+          type: string
+          minLength: 2
+          maxLength: 100
+          description: Case-insensitive literal substring of the latest location description.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 25
+        cursor:
+          type: string
+          description: Opaque nextCursor from a previous search with the same filters and limit.
+    ForecastSummary:
+      type: object
+      required: [forecastId, windowStart, windowEnd, expired, probabilityM4Plus24h, probabilityM5Plus24h]
+      properties:
+        forecastId:
+          type: string
+          format: uuid
+        windowStart:
+          type: string
+          format: date-time
+        windowEnd:
+          type: string
+          format: date-time
+        expired:
+          type: boolean
+        probabilityM4Plus24h:
+          type: number
+        probabilityM5Plus24h:
+          type: number
+    Forecast:
+      allOf:
+        - $ref: '#/components/schemas/ForecastSummary'
+        - type: object
+          required: [modelReleaseId, probabilityM1Plus24h, expectedM1PlusCount24h,
+            activityRadiusMedianKm24h, maximumMagnitudeQ05_24h,
+            maximumMagnitudeQ50_24h, maximumMagnitudeQ95_24h]
+          properties:
+            modelReleaseId:
+              type: string
+              format: uuid
+            probabilityM1Plus24h:
+              type: number
+            expectedM1PlusCount24h:
+              type: number
+            activityRadiusMedianKm24h:
+              type: [number, 'null']
+            maximumMagnitudeQ05_24h:
+              type: [number, 'null']
+            maximumMagnitudeQ50_24h:
+              type: [number, 'null']
+            maximumMagnitudeQ95_24h:
+              type: [number, 'null']
+    EarthquakeSummary:
+      type: object
+      required: [eventId, eventTime, magnitude, latitude, longitude, depthKm,
+        locationDescription, forecast]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        eventTime:
+          type: string
+          format: date-time
+        magnitude:
+          type: number
+        latitude:
+          type: number
+        longitude:
+          type: number
+        depthKm:
+          type: number
+        locationDescription:
+          type: string
+        forecast:
+          oneOf:
+            - $ref: '#/components/schemas/ForecastSummary'
+            - type: 'null'
+    EarthquakeDetail:
+      allOf:
+        - $ref: '#/components/schemas/EarthquakeSummary'
+        - type: object
+          required: [eventRevisionId, origin, source, forecast]
+          properties:
+            eventRevisionId:
+              type: string
+              format: uuid
+            origin:
+              type: [string, 'null']
+            source:
+              type: object
+              required: [provider, url]
+              properties:
+                provider:
+                  const: PHIVOLCS
+                url:
+                  type: string
+                  format: uri
+            forecast:
+              oneOf:
+                - $ref: '#/components/schemas/Forecast'
+                - type: 'null'
+    SearchResponse:
+      type: object
+      required: [items, hasMore, nextCursor, fetchedAt]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EarthquakeSummary'
+        hasMore:
+          type: boolean
+        nextCursor:
+          type: [string, 'null']
+        fetchedAt:
+          type: string
+          format: date-time
+    DetailResponse:
+      type: object
+      required: [item, fetchedAt]
+      properties:
+        item:
+          $ref: '#/components/schemas/EarthquakeDetail'
+        fetchedAt:
+          type: string
+          format: date-time
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string

@@ -13,6 +13,8 @@ __pycache__/
 .pyright/
 .venv/
 workers/.venv/
+node_modules/
+dist/
 
 # Local model and bootstrap evidence
 model-artifacts/
