@@ -46,7 +46,7 @@ export function createApp(reader: EarthquakeReader, now: () => Date = () => new 
       return;
     }
     const unavailable = isDatabaseError(error);
-    console.error(JSON.stringify({ service: 'backend-api', event: 'request_failed',
+    console.error(JSON.stringify({ service: 'backend-api', requestId: res.getHeader('X-Request-ID'), event: 'request_failed',
       code: unavailable ? 'DATABASE_UNAVAILABLE' : 'INTERNAL_ERROR' }));
     res.status(unavailable ? 503 : 500).json({ error: {
       code: unavailable ? 'DATABASE_UNAVAILABLE' : 'INTERNAL_ERROR',
