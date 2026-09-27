@@ -23,6 +23,7 @@ README.md
 **/*.py[cod]
 **/node_modules
 **/dist
+**/.astro
 **/*.log
 **/*.pid
 **/*.sqlite

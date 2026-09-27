@@ -15,8 +15,9 @@ scheduler, bulletin ingestion, event revision history, prediction jobs, a
 Prediction Worker, PostgreSQL migrations, Redis queues, and local Compose
 configuration. A read-only Backend API now has event search and detail routes
 with current forecast reads; its [VPS setup](docs/operations/backend-api.md)
-is explicit. The public Bulletin app, Operations Console, automatic SMS
-delivery, and production monitoring are still planned.
+is explicit. The public Bulletin has an Astro/React scaffold but no data or
+account screens yet. The Operations Console, automatic SMS delivery, and
+production monitoring are still planned.
 
 The main flow is:
 
@@ -51,11 +52,23 @@ server. See the
 | `packages/contracts/queue/` | Versioned ingestion and prediction command schemas. |
 | `packages/contracts/openapi.yaml` | Public Backend HTTP contract. |
 | `apps/backend-api/` | Read-only Node/Express/TypeScript earthquake and forecast API. |
+| `apps/quakestrikeph-bulletin/` | Astro/React/TypeScript Bulletin scaffold with a plain root page. |
 | `infrastructure/` | Compose files and operator scripts. |
 | `docs/adr/` | Accepted decisions that govern implementation. |
 | `docs/system-design/` | Intended architecture, database design, and data flows. |
 
-The planned web applications do not have code under `apps/` yet.
+The Operations Console does not have code under `apps/` yet.
+
+To run the Bulletin scaffold locally, use Node.js 22.19 or newer and pnpm 11.11.0:
+
+```powershell
+cd apps/quakestrikeph-bulletin
+pnpm install --frozen-lockfile
+pnpm dev
+```
+
+Its Dockerfile builds from the repository root with
+`docker build -t quakestrikeph-bulletin -f apps/quakestrikeph-bulletin/Dockerfile .`.
 
 ## Your first development session
 
