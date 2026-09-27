@@ -2,7 +2,7 @@
 
 Status: intended platform design. The trees below specify ownership and dependency direction; they do not claim that the directories already exist or require every private filename to match an example.
 
-QuakeStrike PH is a client-server system on one OVHcloud VPS-2 with 4 vCores, 8 GB RAM, and 75 GB NVMe storage. The public Bulletin uses the shared Backend HTTP interface. The separate Operations Console makes server-side reads of approved PostgreSQL records behind Cloudflare Access. The Backend and workers organize code into Interface, Application, Domain, and Infrastructure layers. Separate Docker containers provide process isolation, not independent data ownership, high availability, or microservices. PostgreSQL is the durable source of truth; Redis is a broker. The system-view, data-flow, and ERD PNGs predate the Console access and account decisions; they are temporarily stale until the separate diagram update. This written specification, the [database contract](../ERD/DATABASE-DESIGN.md), and [ADRs 0035](../../adr/0035-cloudflare-access-operations-console.md) and [0036](../../adr/0036-google-accounts-and-independent-phone-verification.md) control meanwhile.
+QuakeStrike PH is a client-server system on one OVHcloud VPS-2 with 4 vCores, 8 GB RAM, and 75 GB NVMe storage. The public Bulletin uses the shared Backend HTTP interface. The separate Operations Console makes server-side reads of approved PostgreSQL records behind Cloudflare Access. The Backend and workers organize code into Interface, Application, Domain, and Infrastructure layers. Separate Docker containers provide process isolation, not independent data ownership, high availability, or microservices. PostgreSQL is the durable source of truth; Redis is a broker. The system-view, data-flow, and ERD PNGs predate the Console access and email-alert decisions; they are temporarily stale until the separate diagram update. This written specification, the [database contract](../ERD/DATABASE-DESIGN.md), and [ADRs 0035](../../adr/0035-cloudflare-access-operations-console.md), [0036](../../adr/0036-google-accounts-and-independent-phone-verification.md), [0037](../../adr/0037-clerk-free-bulletin-authentication.md), and [0038](../../adr/0038-email-and-sms-alert-preferences.md) control meanwhile, subject to the later ADR amendments.
 
 ## Intended monorepo
 
@@ -58,11 +58,12 @@ quakestrikeph/
 | Workers | Python 3.12, Celery, Celery Beat, `uv` | Scheduling, durable dispatch, ingestion, prediction, and alert delivery. |
 | Persistence | PostgreSQL 16, SQLAlchemy 2, Alembic | Durable application, audit, run, dispatch, delivery, and selected technical records. |
 | Queue | Redis 7 | Separate Celery queues and short-lived coordination; never authoritative job state. |
-| Public account identity | Clerk with Google OAuth | Bulletin sign-in and sessions; no phone or password sign-in. |
+| Public account identity | Clerk free email/password and Google OAuth | Bulletin sign-in, email verification, and sessions; no phone sign-in. |
 | Operator access | Cloudflare Access with Google identity and independent MFA | Named-operator admission and signed Console identity. |
 | HTTPS edge | Cloudflare Tunnel, `cloudflared`, Traefik | Outbound tunnel and explicit routes; Access protects only the Console hostname. |
 | Prediction | Python model runtime and read-only `SEIS 1.0.1` artifacts | Verified training-compatible inference. |
-| SMS | Provider to be selected; IPROG SMS leads evaluation | Separate phone verification and automatic alert delivery. |
+| SMS | IPROG SMS with existing shared sender | Separate phone OTP and automatic SMS alerts; unsupported networks cannot opt in. |
+| Alert email | Brevo Transactional Email API | Automatic email alerts, separate from Clerk's authentication emails. |
 | Operations | Docker Compose, host scheduler, PostgreSQL records, bounded container logs | Deployment, maintenance, operational history, and local diagnostics. |
 | Private database browser | pgAdmin 4, Tailscale Serve | Optional operator access to live PostgreSQL through a read-only role. |
 
@@ -108,6 +109,7 @@ flowchart LR
   Ingest --> PH[PHIVOLCS source]
   Alert --> SMS[SMS provider]
   API --> SMS
+  Alert --> Mail[Brevo transactional email]
 ```
 
 Cloudflare sends only the two application hostnames through the tunnel. Cloudflare Access protects the Console hostname with an exact operator allowlist and MFA; the public Bulletin hostname has its explicit `/api` path to the Backend. Console browser requests reach only Console server handlers, which query PostgreSQL directly with approved reads and write their own access events. Only `cloudflared` connects to Cloudflare, and only Traefik accepts tunnel traffic. Traefik has no public dashboard. PostgreSQL, Redis, and worker endpoints have neither tunnel routes nor host port mappings. Containers use Compose service names, not cached IP addresses. Browser code receives no database, Redis, or provider secrets.
@@ -142,7 +144,7 @@ apps/quakestrikeph-bulletin/
 │   ├── components/        # shared-in-app Astro and React UI
 │   ├── features/          # app-owned screens and interaction logic
 │   ├── lib/api/           # generated HTTP client wrapper, errors, auth handoff
-│   ├── lib/auth/          # Google sign-in through Clerk
+│   ├── lib/auth/          # Clerk email/password and Google sign-in
 │   └── styles/
 └── tests/
 
@@ -159,7 +161,7 @@ apps/operations-console/
 └── tests/
 ```
 
-The Bulletin owns public event, forecast, and playback views, plus authenticated profile and SMS alert-setting screens. Public information needs no account; Google sign-in is for personal alert settings. Valid persisted forecasts need no review or approval before the public information path can return them. The Operations Console owns read-only ingestion, prediction, alert-delivery, audit, technical-log, maintenance, and user views, plus direct forecast-versus-observation comparisons and linked event context. Its server has a dedicated restricted database connection; its browser does not. It has no Docker socket, host-log reader, user-management authority, export, retry action, or container-control feature. PgAdmin remains the separate all-table browser over Tailscale.
+The Bulletin owns public event, forecast, and playback views, plus authenticated profile and email/SMS alert-setting screens. Public information needs no account; Clerk email/password or Google sign-in is for personal alert settings. Valid persisted forecasts need no review or approval before the public information path can return them. The Operations Console owns read-only ingestion, prediction, alert-delivery, audit, technical-log, maintenance, and user views, plus direct forecast-versus-observation comparisons and linked event context. Its server has a dedicated restricted database connection; its browser does not. It has no Docker socket, host-log reader, user-management authority, export, retry action, or container-control feature. PgAdmin remains the separate all-table browser over Tailscale.
 
 Put app-specific routes under each app's `pages/` and `features/`. Put only genuinely reused browser code in a TypeScript package. The Bulletin's generated Backend client follows `packages/contracts/openapi.yaml`; the Console does not call Backend operations routes. Console queries use selected columns, date bounds, pagination, and parameters, never an arbitrary SQL endpoint. Active run and log views poll about every 30 seconds while open; other views refresh manually and display the last successful refresh time. The Console shows missing or stale records as unavailable or stale, never as a healthy zero. It does not claim live CPU, memory, disk, container restart, Redis depth, or request-rate metrics without an explicit collector. A comparison is per forecast and calls screened observations possibly related earthquakes, not confirmed aftershocks or a model-accuracy study.
 
@@ -173,11 +175,11 @@ apps/backend-api/
 ├── package.json
 ├── src/
 │   ├── interface/http/
-│   │   ├── routes/         # public information, account, SMS provider callbacks
+│   │   ├── routes/         # public information, account, provider callbacks
 │   │   ├── middleware/     # request IDs, Clerk verification, validation
 │   │   └── responses/      # contract mapping and error handling
 │   ├── application/
-│   │   ├── accounts/       # profile and SMS settings
+│   │   ├── accounts/       # profile and email/SMS settings
 │   │   ├── information/    # public events and forecasts
 │   │   └── verification/   # alert-phone proof tied to a Clerk user
 │   ├── domain/             # account, revision, and alert-setting rules
@@ -194,7 +196,7 @@ apps/backend-api/
 
 HTTP routes verify identity, validate requests, and format responses. Application use cases coordinate transactions and call declared interfaces. Domain rules decide access, public visibility, alert settings, and idempotency without importing Express, PostgreSQL, Redis, or Clerk. Infrastructure adapters implement the interfaces. Dependencies point inward; routes and adapters do not become the place where business policy is defined. The Backend never calls its own public HTTP routes to do internal work.
 
-Clerk's stable user ID maps uniquely to a Bulletin user. Google is the only public account sign-in method; phone verification is separate from sign-in and never opts a user into alerts by itself. The Backend owns audited profile changes, provider-confirmed phone verification, and SMS alert settings. The Console uses its own approved SQL reads and appends `operator_access_events` with the verified Access identity. It cannot use that narrow write grant to alter business records. Access policy, not `users` or Backend code, decides who may operate the Console.
+Clerk's stable user ID maps uniquely to a Bulletin user. Clerk verifies email/password sign-up before alert setup and handles Google OAuth; Google-first users do not need a password. A phone is optional until SMS is chosen and is never a sign-in identifier. IPROG verification proves an SMS destination but never opts the user in. The Backend owns audited profile changes, verified destination state, and both channel settings. The Console uses its own approved SQL reads and appends `operator_access_events` with the verified Access identity. It cannot use that narrow write grant to alter business records. Access policy, not `users` or Backend code, decides who may operate the Console.
 
 ## Background workers and queues
 
@@ -210,6 +212,7 @@ workers/src/quakestrike/
 │   ├── queues/             # Celery tasks and versioned commands
 │   ├── models/             # manifest and read-only artifact loader
 │   ├── sms/                # provider and callback adapters
+│   ├── email/              # alert provider and callback adapters
 │   └── logging/            # JSON stdout/stderr and selected SQL records
 ├── scheduler/              # Beat tick; durable Dispatcher loop
 ├── data_ingestor/          # queue handler, reconcile and feature orchestration
@@ -222,7 +225,7 @@ Beat alone owns the five-minute schedule. It creates one pending `ingestion_runs
 
 A new or changed M1+ revision can create prediction work only with a valid URL, source identity, a configured verified release, seven days of prior history, and a complete versioned feature snapshot. The v1 snapshot contains exactly `anchor_magnitude`, `anchor_depth_km`, `anchor_latitude`, `anchor_longitude`, `anchor_time_is_minute_precision`, `catalog_m1_plus_count_past_1h`, `catalog_m1_plus_count_past_24h`, `catalog_m1_plus_count_past_7d`, `local_m1_plus_count_past_24h_within_50km`, and `local_m1_plus_count_past_24h_within_100km`. It excludes future outcomes and uncertain same-minute ordering. Snapshot JSON and SHA-256 remain immutable. The Prediction Worker loads the referenced job and verified `SEIS 1.0.1` release, runs the selected model routes, and atomically records an attempt, immutable forecast, and one alert job with dispatch and audit for every current, unexpired live M1+ forecast. Historical and backfill work create no alert job. See [feature contract](../../adr/0021-live-feature-contract.md), [automatic-alert scope](../../adr/0027-automatic-alerts-without-forecast-review.md), and [database transaction rules](../ERD/DATABASE-DESIGN.md#transactions-and-cross-table-rules).
 
-The Alert Worker accepts only durable automatic alert work. It resolves unique recipients from active accounts whose verified mobile number remains current, SMS remains enabled, and alert trigger magnitude is no greater than the observed anchor magnitude. When a user enables nearby-only alerts, the observed epicenter must also be within the user's saved alert-location radius. It snapshots eligibility, rechecks current settings and expiry before each new SMS call, and persists an attempt before calling the provider. Provider submission is outside the SQL transaction. Unknown outcomes require reconciliation, not blind resend; callbacks cannot regress a delivered result. A job stops new sends at its forecast window end, while late outcomes may still update evidence. See the [alert tables](../ERD/DATABASE-DESIGN.md#alerts) and [nearby-alert decision](../../adr/0030-optional-nearby-sms-alerts.md).
+The Alert Worker accepts only durable automatic alert work. It resolves at most one recipient per enabled channel for each active account whose observed-magnitude and optional nearby-only rule qualifies. Email needs the current verified Clerk email and email opt-in. SMS needs the current verified phone, SMS opt-in, and ordinary shared-sender network support. It snapshots eligibility, rechecks current settings and expiry before each provider call, and persists a channel-specific attempt before calling the provider. Provider submission is outside the SQL transaction. Brevo's transactional API handles alert email and its message ID identifies an accepted provider request, not inbox delivery. Authenticated, idempotent transactional webhooks reconcile email outcomes. Unknown outcomes require reconciliation, not blind resend; callbacks cannot regress a delivered result. A job stops new sends at its forecast window end, while late outcomes may still update evidence. See the [alert tables](../ERD/DATABASE-DESIGN.md#alerts) and [two-channel decision](../../adr/0038-email-and-sms-alert-preferences.md).
 
 Redis has separate ingestion, prediction, and alert queues. Commands carry a version and stable database identifiers, never scraped HTML, full events, or CSV paths. PostgreSQL owns status, retries, leases, dispatch, and idempotency. Celery uses late acknowledgement and worker-loss rejection; duplicate delivery is expected. The [queue ADR](../../adr/0012-queue-topology-and-operational-safeguards.md) sets the initial dispatcher batch, lease, concurrency, and retry safeguards. Manual recovery requeues existing run/dispatch identities. A failed backfill recovered after its 30-day checkpoint window starts a new run from the preserved snapshot, as defined by [ADR 0034](../../adr/0034-bound-successful-ingestion-checkpoints.md).
 
@@ -237,7 +240,7 @@ Redis has separate ingestion, prediction, and alert queues. Commands carry a ver
 | Dispatch submission | Dispatcher, after a creator inserts the row | Workers, Console reads |
 | Prediction jobs and snapshots | Data Ingestor | Prediction Worker, Console reads |
 | Prediction attempts and forecasts | Prediction Worker | Backend, Alert Worker, Console reads |
-| Profiles, verified phone, and SMS settings | Backend | Alert Worker and Console reads with sensitive-field reveal |
+| Profiles, verified email/phone, and alert settings | Backend, with Clerk email evidence and IPROG phone proof | Alert Worker and Console reads with sensitive-field reveal |
 | Automatic alert jobs | Prediction Worker | Alert Worker, Console reads |
 | Recipients and delivery attempts | Alert Worker | Backend and Console reads |
 | Business audits and selected technical logs | Acting/emitting server module | Console reads |
@@ -248,7 +251,7 @@ PostgreSQL runs in its own container on `postgres_data`; Redis uses a named volu
 
 ## Security and access
 
-Clerk authenticates Bulletin users through Google OAuth; the Backend authorizes account changes for the matching Clerk user. It does not keep local passwords or operator roles. The Backend permits provider-confirmed alert-phone verification only for the signed-in account and a short-lived pending attempt; it requires a recent Google login before replacing a phone. Each account has at most one current phone, and each normalized current phone belongs to only one account. Verification and explicit SMS opt-in are separate actions. Changing or releasing a phone disables SMS until a new opt-in. Public endpoints never return recipient snapshots, raw security details, or technical logs. Account mutations and their required success audits commit together. Failed or denied attempts use a bounded separate audit path and never claim a committed success.
+Clerk authenticates Bulletin users through email/password or Google OAuth; the Backend authorizes account changes for the matching Clerk user. It does not keep local passwords or operator roles. Email/password sign-up finishes Clerk email verification before alert setup. Google sign-in uses an explicit Continue with Google action; password failures do not reveal or redirect based on account type. The Backend mirrors the current Clerk-verified email and pauses email alerts during an email change. It permits IPROG-confirmed alert-phone verification only for the signed-in account and a short-lived pending attempt; it requires recent interactive Clerk reverification before replacing a phone. Each account has at most one current phone, and each normalized current phone belongs to only one account. Verification and explicit channel opt-in are separate actions. Starting a phone change disables SMS until replacement verification and a new opt-in. A shared-sender network check precedes OTP and each SMS alert send; unsupported or unknown networks cannot receive ordinary SMS alerts. Public endpoints never return recipient snapshots, raw security details, or technical logs. Account mutations and their required success audits commit together. Failed or denied attempts use a bounded separate audit path and never claim a committed success.
 
 Cloudflare Access is the sole operator admission policy. Configure named Google identities, independent MFA on every new login, and an eight-hour application session for the Console only. Do not enable email one-time PIN or a bypass policy for this application. Every Console page and same-origin data handler validates the signed Access application JWT, including signature, issuer, audience, and expiry, before it queries data or records the operator. The verified `sub` and email identify the actor. A missing, invalid, or uncheckable token denies the request; a bare forwarded email is insufficient. The Console does not use Clerk or a second application whitelist. All admitted operators may reveal sensitive user fields, but each field category requires an explicit reason and a committed access event before retrieval. Page loads and detail opens likewise commit their access event before protected data is returned. The browser receives only requested revealed fields, never hidden profile values in rendered markup. Console access events retain 180 days. Cloudflare Access logs login attempts separately. If Access or the Console is unavailable, the optional Tailscale pgAdmin path in ADR 0029 provides private read-only investigation, not a Console bypass.
 
@@ -276,10 +279,10 @@ Release one changed image at a time when contracts permit. Back up before a dest
 
 ## Decisions before deployment
 
-IPROG SMS leads evaluation for provider-managed phone OTP verification and alert delivery; do not enable production SMS until its Smart/TNT and other Philippine network coverage, OTP expiry/one-time behavior and rate limits, sender approval and fallback, status reconciliation, API security, and cost are verified. Select another provider if it fails. Record the final provider, sender identity, callback verification, and cost limits. Set separate retention periods and budgets for technical, business audit, run, and delivery records; only Console access events have a newly decided 180-day period. Select the off-VPS backup destination, encryption tool, cadence, restore-test cadence, and secret store. Configure host disk checks and external uptime monitoring. Choose exact tested Node.js and container versions, and whether Traefik uses file routes or restricted Docker discovery. These are configuration and policy decisions, not permission to invent database columns or extra services.
+IPROG SMS is selected for provider-managed phone OTP and SMS alert delivery with the existing shared sender. Its ordinary shared sender does not currently cover Smart/TNT, so block those and unknown networks from SMS opt-in while allowing email. Before production SMS, test OTP expiry/one-time behavior and rate limits, network detection and number portability, sender and fallback behavior, delivery-status reconciliation, API security, and cost. Brevo is selected for alert email, separate from Clerk authentication email. Before production email delivery, authenticate the sending domain, approve the sender, and test API submission, webhook authentication and reconciliation, bounce handling, and cost limits. Record sender identity, callback verification, and budgets. Set separate retention periods and budgets for technical, business audit, run, and delivery records; only Console access events have a newly decided 180-day period. Select the off-VPS backup destination, encryption tool, cadence, restore-test cadence, and secret store. Configure host disk checks and external uptime monitoring. Choose exact tested Node.js and container versions, and whether Traefik uses file routes or restricted Docker discovery. These are configuration and policy decisions, not permission to invent database columns or extra services.
 
 ## References
 
 - [Architecture diagram](system-architecture-layers.png), [context diagram](../CFD-DFD/CFD.png), and [ERD](../ERD/ERD.png).
-- [Domain context](../../../CONTEXT.md), [database design](../ERD/DATABASE-DESIGN.md), [Console decision](../../adr/0035-cloudflare-access-operations-console.md), and [account/phone decision](../../adr/0036-google-accounts-and-independent-phone-verification.md).
+- [Domain context](../../../CONTEXT.md), [database design](../ERD/DATABASE-DESIGN.md), [Console decision](../../adr/0035-cloudflare-access-operations-console.md), [independent phone-verification decision](../../adr/0036-google-accounts-and-independent-phone-verification.md), [auth decision](../../adr/0037-clerk-free-bulletin-authentication.md), and [alert-channel decision](../../adr/0038-email-and-sms-alert-preferences.md).
 - Source design: `C:\Projects\SAM_Capstone\capstone\docs\03-proposed-architecture.md`. The source remains unchanged.

@@ -28,11 +28,14 @@ records. The [architecture specification](docs/system-design/ARCHITECTURE/ARCHIT
 describes the intended full system; its diagram includes components that are
 not implemented yet.
 
-The planned Bulletin uses Google sign-in through Clerk for personal SMS alert
-settings. The separate Operations Console is protected by Cloudflare Access
-and reads selected PostgreSQL records on its server. See the
-[Console ADR](docs/adr/0035-cloudflare-access-operations-console.md) and
-[account and phone ADR](docs/adr/0036-google-accounts-and-independent-phone-verification.md).
+The planned Bulletin uses Clerk email/password or Google sign-in for personal
+email and SMS alert settings. IPROG SMS handles separate phone verification
+and SMS delivery; Brevo sends alert email. The separate Operations Console is
+protected by Cloudflare Access and reads selected PostgreSQL records on its
+server. See the
+[Console ADR](docs/adr/0035-cloudflare-access-operations-console.md),
+[Bulletin auth ADR](docs/adr/0037-clerk-free-bulletin-authentication.md), and
+[alert channel ADR](docs/adr/0038-email-and-sms-alert-preferences.md).
 
 ![System and layered architecture](docs/system-design/ARCHITECTURE/system-architecture-layers.png)
 

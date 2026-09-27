@@ -1,6 +1,6 @@
 # QuakeStrike PH database design
 
-Status: authoritative intended PostgreSQL contract, not evidence that migrations have run. This specification consolidates the schema rules, table purposes, accepted decisions, and relationships into one implementation contract. It contains 19 tables. The [ERD](ERD.png) shows the former review-oriented design and is temporarily stale, including its former operator-role relationship; this file controls fields, constraints, transactions, and ownership until the diagram follow-up lands. [ADR 0003](../../adr/0003-schema-specification-controls-database-contracts.md) establishes that precedence. The [architecture specification](../ARCHITECTURE/ARCHITECTURE.md) and [ADRs 0035](../../adr/0035-cloudflare-access-operations-console.md) and [0036](../../adr/0036-google-accounts-and-independent-phone-verification.md) describe the applications that use them.
+Status: authoritative intended PostgreSQL contract, not evidence that migrations have run. This specification consolidates the schema rules, table purposes, accepted decisions, and relationships into one implementation contract. It contains 19 tables. The [ERD](ERD.png) shows the former review-oriented design and is temporarily stale, including its former operator-role and SMS-only relationships; this file controls fields, constraints, transactions, and ownership until the diagram follow-up lands. [ADR 0003](../../adr/0003-schema-specification-controls-database-contracts.md) establishes that precedence. The [architecture specification](../ARCHITECTURE/ARCHITECTURE.md) and [ADRs 0035](../../adr/0035-cloudflare-access-operations-console.md), [0036](../../adr/0036-google-accounts-and-independent-phone-verification.md), [0037](../../adr/0037-clerk-free-bulletin-authentication.md), and [0038](../../adr/0038-email-and-sms-alert-preferences.md) describe the applications that use them, subject to the later ADR amendments.
 
 ## Conventions and data stores
 
@@ -26,8 +26,8 @@ Create enum types before their tables in the migration that first uses them. Add
 | --- | --- | --- |
 | D1 Earthquake data | `ingestion_runs`, `source_catalog_evidence`, `ingestion_run_inputs`, `earthquake_events`, `earthquake_bulletin_event_identities`, `earthquake_event_revisions` | Source runs, validated catalog coverage, durable input outcomes, stable events, bulletin identity mappings, and immutable observed revisions. |
 | D2 Forecast and model records | `model_releases`, `prediction_jobs`, `prediction_attempts`, `forecasts`, `job_dispatches` | Model provenance, work, results, and durable queue submission. |
-| D3 Accounts and access | `users` | Google account mapping, verified alert phone, and alert settings. |
-| D4 Alerts | `alert_jobs`, `alert_recipients`, `alert_delivery_attempts` | Automatic SMS authorization and delivery evidence. |
+| D3 Accounts and access | `users` | Clerk account mapping, verified alert destinations, and channel settings. |
+| D4 Alerts | `alert_jobs`, `alert_recipients`, `alert_delivery_attempts` | Automatic email/SMS authorization and delivery evidence. |
 | D5 Operational records | `audit_logs`, `operator_access_events`, `technical_logs`, `maintenance_runs` | Business evidence, Console access evidence, selected diagnostics, and maintenance history. |
 
 `job_dispatches` is placed with D2 for the DFD, but it targets ingestion, prediction, or alert work. PostgreSQL is live truth; Redis carries commands and does not replace these records. CSV and bootstrap snapshots are finite import inputs, not live stores. See the [Level 1 DFD](../CFD-DFD/DFD-Level1.png) and [domain glossary](../../../CONTEXT.md).
@@ -36,7 +36,7 @@ Create enum types before their tables in the migration that first uses them. Add
 
 ### `users`
 
-One Bulletin account maps uniquely to a stable Clerk user ID from Google sign-in. This table owns the profile, current verified alert phone, alert consent and settings, and account status. Email comes from Google and is contact/profile data, not a separate sign-in key. Operators authenticate through Cloudflare Access and do not have `users` rows by virtue of Console access.
+One Bulletin account maps uniquely to a stable Clerk user ID from email/password or Google sign-in. This table owns the profile, the Backend mirror of the current Clerk-verified email, the current verified alert phone, channel opt-ins, shared alert rules, onboarding completion, and account status. Clerk owns passwords, email identity, verification, and sessions. Operators authenticate through Cloudflare Access and do not have `users` rows by virtue of Console access.
 
 ```text
 user_id uuid PK
@@ -46,6 +46,8 @@ middle_name text?
 last_name text?
 display_name text
 email text
+email_verified_at timestamptz?
+email_enabled boolean = false
 mobile_number text? UQ
 mobile_verified_at timestamptz?
 sms_enabled boolean = false
@@ -55,11 +57,16 @@ alert_location_latitude numeric(9,6)?
 alert_location_longitude numeric(10,6)?
 alert_trigger_distance_km numeric(10,3)?
 account_status account_status = 'active'
+onboarding_completed_at timestamptz?
 created_at timestamptz = now()
 updated_at timestamptz = now()
 ```
 
-`account_status` is `active`, `suspended`, or `closed`. Mobile numbers are normalized E.164. `UNIQUE (mobile_number)` permits multiple nulls but prevents one current number from belonging to two accounts. Enforce `CHECK ((mobile_number IS NULL) = (mobile_verified_at IS NULL))`; a closed account has no current phone and cannot be SMS-enabled. A short-lived Redis verification attempt, tied to the signed-in Clerk user and proposed phone, does not change this row until the SMS verification provider confirms the entered code. Expired or lost attempts cannot verify a phone. A second account cannot claim a bound phone, and phone possession does not merge accounts. Phone replacement requires a recent Google login; its transaction replaces the verified number and timestamp and sets `sms_enabled = false`. Closing an account also clears the active phone and verification time and disables SMS, releasing the uniqueness claim while preserving separate historical evidence. `sms_enabled` defaults to false and changes to true only through an explicit user opt-in; phone verification alone does not enable alerts. Delivery still requires a verified current number. `alert_trigger_magnitude` is finite and at least `1.0`. `nearby_alerts_only` defaults to false. The alert location is one user-selected fixed point, not continuous device tracking. Latitude and longitude are either both null or both present, finite, and within `[-90, 90]` and `[-180, 180]`; distance is finite and greater than zero kilometres when present. Enabling nearby-only alerts requires both coordinates and a distance. Disabling it may retain those values for later use, but they do not affect eligibility while it is off. Closed accounts cannot use protected account actions. Names may be absent. There is no local password or operator-role table. The Backend writes accounts; workers read only what delivery needs. See [ADR 0036](../../adr/0036-google-accounts-and-independent-phone-verification.md).
+`account_status` is `active`, `suspended`, or `closed`. `display_name` is required when the Backend creates the profile; other name parts may be absent. The Backend creates a row only after Clerk completes email verification or Google authentication. A missing row means the profile step is unfinished; a null `onboarding_completed_at` means the alert-preferences step is unfinished. The final preference save sets that timestamp, even when both channels are off. Both receive switches default to false and become true only by explicit audited opt-in. Enforce `CHECK (onboarding_completed_at IS NOT NULL OR (NOT email_enabled AND NOT sms_enabled))` and `CHECK (account_status <> 'closed' OR (NOT email_enabled AND NOT sms_enabled AND mobile_number IS NULL AND mobile_verified_at IS NULL))`. An active account still needs completed onboarding and a current verified destination before delivery.
+
+`email` mirrors the current Clerk email; it is not the local identity key and has no independent uniqueness claim. `email_verified_at` is set only after trusted Clerk evidence for that exact current address. A requested email change sets it null to pause email delivery while Clerk holds the pending replacement; after verification, the Backend updates `email` and `email_verified_at` together and the existing `email_enabled` choice can resume. Restrict direct Clerk email changes outside this controlled flow or synchronize them with verified, idempotent Clerk events before any email send. If the mirror is missing or inconsistent, fail closed. A closed account cannot have an enabled channel.
+
+Mobile numbers are normalized E.164. `UNIQUE (mobile_number)` permits multiple nulls but prevents one current number from belonging to two accounts. Enforce `CHECK ((mobile_number IS NULL) = (mobile_verified_at IS NULL))`. A short-lived Redis verification attempt, tied to the signed-in Clerk user and proposed phone, does not change this row until IPROG confirms the entered code. Expired or lost attempts cannot verify a phone. An unsupported or unknown ordinary shared-sender network stops before OTP and cannot enable SMS. A second account cannot claim a bound phone, and phone possession does not merge accounts. Phone replacement requires recent interactive Clerk reverification. Starting it sets `sms_enabled = false` with an audit while retaining the old binding; verified replacement atomically updates the number and timestamp and still requires a new opt-in. Closing an account clears the current phone and verification time and disables both channels, releasing the phone uniqueness claim while preserving historical evidence. SMS delivery requires a verified current number and current sender support. `alert_trigger_magnitude` is finite and at least `1.0`. `nearby_alerts_only` defaults to false. The alert location is one user-selected fixed point, not continuous device tracking. Latitude and longitude are either both null or both present, finite, and within `[-90, 90]` and `[-180, 180]`; distance is finite and greater than zero kilometres when present. Enabling nearby-only alerts requires both coordinates and a distance. Disabling it may retain those values for later use, but they do not affect eligibility while it is off. There is no local password or operator-role table. The Backend writes accounts; workers read only what delivery needs. See [ADRs 0037](../../adr/0037-clerk-free-bulletin-authentication.md) and [0038](../../adr/0038-email-and-sms-alert-preferences.md).
 
 ## Ingestion and earthquake history
 
@@ -289,13 +296,15 @@ The window starts at the linked revision's event time and spans exactly 24 elaps
 
 ### `alert_jobs`
 
-One automatic SMS batch with an immutable message and recipient-policy snapshot. The Prediction Worker creates it with a successful current live forecast.
+One automatic two-channel batch with immutable SMS/email content and a recipient-policy snapshot. The Prediction Worker creates it with a successful current live forecast. The current migration already has `message_snapshot` for SMS; email fields below are a planned forward schema change.
 
 ```text
 alert_job_id uuid PK
 forecast_id uuid UQ
 requested_at timestamptz = now()
-message_snapshot text
+message_snapshot text  -- SMS body
+email_subject_snapshot text?
+email_body_snapshot text?
 recipient_policy_snapshot jsonb
 status alert_job_status = 'pending'
 recipient_resolution_completed_at timestamptz?
@@ -306,18 +315,19 @@ completed_at timestamptz?
 correlation_id uuid
 ```
 
-`UNIQUE (forecast_id)` enforces one SMS batch per forecast. Every newly committed current forecast for a live M1+ anchor creates that job while its 24-hour window remains open. Backfill, historical, and expired work create no alert. The message and recipient-policy snapshots are fixed in the prediction-completion transaction. Recipient eligibility is evaluated later against each user's alert trigger magnitude and optional nearby-only rule.
+`UNIQUE (forecast_id)` enforces one alert batch per forecast, whether zero, one, or both channels have recipients. Every newly committed current forecast for a live M1+ anchor creates that job while its 24-hour window remains open. Backfill, historical, and expired work create no alert. `message_snapshot` remains the immutable SMS body. The email subject/body are both null only for legacy SMS-only jobs created before the email feature; enforce a paired-null check, trim and nonblank checks when present, and require both on every new job after the email-capable worker is enabled. The channel-content and recipient-policy snapshots are fixed in the prediction-completion transaction. Recipient eligibility is evaluated later against each user's shared alert trigger magnitude and optional nearby-only rule. Email content is separate from Clerk's authentication mail. A reviewed forward migration must add the email fields and extend the existing immutability trigger; the Prediction Worker, Alert Worker, and migrations need a compatible rollout before email delivery is enabled.
 
 States are `pending`, `resolving`, `delivering`, `completed`, `failed`, and `expired`. Active resolving/delivering ownership needs lease/token. Terminal states need `completed_at` and stop dispatch; `completed` means recipients settled, not all delivered. Accepted/unknown recipients stay under reconciliation until expiry. `expires_at` equals forecast `window_end` and must be later than creation; verify equality transactionally. No new send begins at or after expiry. Late outcomes may still update evidence. Cancellation is deferred and has no reserved state or columns.
 
 ### `alert_recipients`
 
-One resolved normalized phone destination per batch, with selection evidence and current delivery summary. Alert Worker writes and rechecks it.
+One resolved destination per user, channel, and batch, with selection evidence and current delivery summary. Alert Worker writes and rechecks it.
 
 ```text
 recipient_id uuid PK
 alert_job_id uuid
 user_id uuid?
+channel text
 destination_snapshot text
 eligibility_snapshot jsonb
 resolved_at timestamptz = now()
@@ -330,11 +340,11 @@ processing_lease_expires_at timestamptz?
 worker_execution_id uuid?
 ```
 
-`UNIQUE (alert_job_id, destination_snapshot)` applies after E.164 normalization. One public-user resolution requires a user; the FK may later be set null for controlled account removal, but a detached row cannot start a send. States are `pending`, `sending`, `retry_wait`, `accepted`, `delivered`, `failed`, `unknown`, `skipped`, and `expired`. Sending needs lease/token; other states clear them. Retry wait alone needs `next_attempt_at`. Delivered alone needs `delivered_at`. Accepted awaits provider outcome; unknown is held for reconciliation, never blind resend. Eligibility requires an active account, a verified current mobile number, `sms_enabled = true`, and observed anchor magnitude greater than or equal to the user's `alert_trigger_magnitude`. When `nearby_alerts_only` is true, the observed earthquake epicenter must also be within the inclusive `alert_trigger_distance_km` radius of the saved alert location. Use Haversine distance in kilometres with Earth radius `6371.0088 km`; the forecast activity radius does not define this filter. The snapshot records the evaluated settings, observed magnitude, calculated distance when applicable, and policy version. Before each provider call, recheck account, number, SMS setting, magnitude, nearby-only setting, current alert location and distance, and expiry. Lost eligibility becomes skipped. Resolution uses idempotent inserts and marks completion only after the full candidate scan. Cancellation is deferred and has no reserved recipient state.
+`channel` has the named check `IN ('email', 'sms')`. `UNIQUE (alert_job_id, channel, destination_snapshot)` applies after email normalization or E.164 phone normalization, plus a partial `UNIQUE (alert_job_id, user_id, channel) WHERE user_id IS NOT NULL` to prevent two destinations on one channel for the same user. One public-user resolution requires a user; the FK may later be set null for controlled account removal, but a detached row cannot start a send. States are `pending`, `sending`, `retry_wait`, `accepted`, `delivered`, `failed`, `unknown`, `skipped`, and `expired`. Sending needs lease/token; other states clear them. Retry wait alone needs `next_attempt_at`. Delivered alone needs `delivered_at`. Accepted awaits provider outcome; unknown is held for reconciliation, never blind resend. Eligibility requires an active account with completed onboarding, observed anchor magnitude greater than or equal to its `alert_trigger_magnitude`, and the channel's enabled setting and verified current destination. Email requires `email_enabled = true` and `email_verified_at` for the current mirrored Clerk email. SMS requires `sms_enabled = true`, `mobile_verified_at` for the current number, and current IPROG shared-sender support. When `nearby_alerts_only` is true, the observed earthquake epicenter must also be within the inclusive `alert_trigger_distance_km` radius of the saved alert location. Use Haversine distance in kilometres with Earth radius `6371.0088 km`; the forecast activity radius does not define this filter. The snapshot records the evaluated shared settings, channel, destination-verification state, observed magnitude, calculated distance when applicable, and policy version. Before each provider call, recheck account, current destination, channel setting, magnitude, nearby-only setting, current alert location and distance, sender support for SMS, and expiry. Lost eligibility becomes skipped. Resolution uses idempotent inserts and marks completion only after the full candidate scan. Cancellation is deferred and has no reserved recipient state.
 
 ### `alert_delivery_attempts`
 
-One persisted provider-call attempt per recipient. Its state cannot claim a crashed call definitely failed or delivered.
+One persisted SMS or email provider-call attempt per recipient. Its state cannot claim a crashed call definitely failed or delivered; the recipient supplies the channel.
 
 ```text
 delivery_attempt_id uuid PK
@@ -351,7 +361,7 @@ error_message text?
 correlation_id uuid
 ```
 
-`UNIQUE (recipient_id, attempt_number)`, number at least 1; partial `UNIQUE (recipient_id) WHERE status = 'sending'`. States are `sending`, `accepted`, `delivered`, `failed`, `unknown`. Persist `sending` before the external call. It has no finish time; later states have one. Crash recovery closes it as unknown at recovery time, with an interrupted-call code. `finished_at` is local closure, not handset delivery. Index provider plus reference, but do not assume provider reference is unique across retry rows. Provider callback updates attempt and recipient atomically and cannot regress delivered to accepted.
+`UNIQUE (recipient_id, attempt_number)`, number at least 1; partial `UNIQUE (recipient_id) WHERE status = 'sending'`. States are `sending`, `accepted`, `delivered`, `failed`, `unknown`. Persist `sending` before the external call. It has no finish time; later states have one. Crash recovery closes it as unknown at recovery time, with an interrupted-call code. `finished_at` is local closure, not handset receipt or email inbox arrival. Set `provider = 'brevo'` for email and store the Brevo transactional API's returned message ID in `provider_message_id`; this records acceptance, not delivery. Index provider plus reference, but do not assume provider reference is unique across retry rows. Authenticated, idempotent Brevo transactional webhooks update the attempt and recipient atomically; verified IPROG callback or polling does likewise. Neither can regress delivered to accepted. Bounce, blocked, error, or provider rejection maps to failed, not delivered.
 
 ## Audit, operations, and dispatch
 
@@ -519,7 +529,7 @@ PK and UQ constraints create indexes; do not duplicate an index already covered 
 - `prediction_jobs(event_revision_id, model_release_id, requested_at DESC)`.
 - Dispatch `next_dispatch_at, dispatch_id` for pending/retry-wait and `lease_expires_at` for dispatching; target UQs support job lookup.
 - Prediction running-attempt lease and partial running-job uniqueness; active ingestion/alert processing leases.
-- Alert status/expiry and request time; recipient job/status, retry time, sending lease, and user ID.
+- Alert status/expiry and request time; recipient job/channel/status, retry time, sending lease, and user ID.
 - Delivery provider/reference when present; recipient/attempt sequence uniqueness.
 - Audit occurrence time, actor/time, target/time, and correlation; Console access-event occurrence, operator/time, and target/time; technical-log occurrence, module/severity/time, category/status/time, request, and correlation; maintenance operation/start time.
 
@@ -527,18 +537,18 @@ Queue searches must be indexed. Console historical views are paginated and date-
 
 ## Transactions and cross-table rules
 
-1. Account changes check Clerk ownership. A provider-confirmed phone claim or replacement checks the pending user/number pair, current number uniqueness, and account state; it updates the current verified phone and disables SMS when replacing or closing an account. The user enables SMS through a later explicit action. Account and alert-setting changes commit with required success audits. A verified Google email does not prove phone possession.
+1. Account changes check Clerk ownership. Email/password signup verifies the Clerk email before profile creation. The Backend mirrors the current verified Clerk email and pauses email alerts during a pending email change; a confirmed replacement updates the mirror and restores the existing email preference. A provider-confirmed phone claim or replacement checks the pending user/number pair, current number uniqueness, sender support, and account state. Starting phone replacement first disables SMS; the confirmed replacement atomically updates the current verified phone but does not opt in. The user enables either channel through a separate explicit action. Final preference save sets onboarding completion and required success audit in one transaction. Other account and alert-setting changes also commit with required success audits. A verified email does not prove phone possession.
 2. Beat commits the pending ingestion run with its dispatch. Dispatcher claims and publishes after commit. Worker processing preserves run/job identity across retries and uses a separate processing lease. Redis is at-least-once; database claims and uniqueness make repetition safe.
 3. For each accepted event, Ingestor locks or creates stable identity, appends a changed revision, builds the ten-feature snapshot from prior PostgreSQL history, hashes canonical JSON, and creates any eligible prediction job plus dispatch in one transaction. Run counters checkpoint separately. Redis publication occurs after commit. No future data, uncertain same-minute ordering, retrospective family metadata, missing URL, missing both IDs, or incomplete snapshot can pass the prediction gate. See [atomic processing](../../adr/0016-atomic-event-processing-and-release-registration.md) and [revision idempotency](../../adr/0022-idempotent-revisions-and-bootstrap-gates.md).
-4. Prediction completion validates the current execution token. Forecast, job/attempt success, its automatic alert job and dispatch, and system audit commit together. Every current, unexpired live M1+ forecast creates exactly one alert job; backfill, historical, and expired work do not. The Alert Worker later applies each user's trigger magnitude and optional nearby-only radius to the observed anchor, not predicted outputs.
-5. Alert resolution inserts unique eligible recipients and checkpoints completion only after candidate processing. Before a provider call, the worker claims and rechecks one recipient, then persists an attempt. The external SMS call cannot join a SQL transaction. Unknown results require provider reconciliation. An expiry sweep stops new sends and marks unsent recipients expired, without rewriting accepted/unknown/delivered evidence. Late callbacks may close earlier attempts.
+4. Prediction completion validates the current execution token. Forecast, job/attempt success, its automatic alert job and dispatch, and system audit commit together. Every current, unexpired live M1+ forecast creates exactly one alert job with both channel-content snapshots; backfill, historical, and expired work do not. The Alert Worker later applies each user's shared trigger magnitude and optional nearby-only radius to the observed anchor, not predicted outputs.
+5. Alert resolution inserts unique eligible email and/or SMS recipients and checkpoints completion only after candidate processing. Before a provider call, the worker claims and rechecks one recipient, then persists an attempt. An external email or SMS call cannot join a SQL transaction. Unknown results require provider reconciliation. An expiry sweep stops new sends and marks unsent recipients expired, without rewriting accepted/unknown/delivered evidence. Late callbacks may close earlier attempts.
 6. Console page loads and detail opens insert `operator_access_events` before returning protected data. A sensitive-field reveal reads only the requested values, then inserts its target, category, and reason before returning them. If the insert fails, the response fails closed. These inserts do not authorize business-table mutations.
 
 ## Initialization, retention, and policy choices
 
 Apply hand-reviewed Alembic migrations, verify and explicitly register the selected `SEIS 1.0.1` manifest and artifact hashes, run the resumable bootstrap, check source snapshot integrity, identifiers, URLs, row counts, and seven-day history, then start Dispatcher/Ingestor and enable Beat. Bootstrap records a `backfill` run and uses the same normalization and reconciliation as live ingestion. Service startup never runs migrations, imports data, or silently changes releases. Historical snapshots remain source evidence outside Git; PostgreSQL is the only live event store. See [startup](../../adr/0019-explicit-startup-and-runtime-configuration.md) and [readiness](../../adr/0022-idempotent-revisions-and-bootstrap-gates.md).
 
-Choose and version the recipient policy before enabling delivery; `recipient_policy_snapshot` records the batch policy and `eligibility_snapshot` records the user's SMS setting, trigger magnitude, observed anchor magnitude, nearby-only setting, saved alert location and radius when used, calculated distance, account state, and phone-verification state. Treat saved coordinates and snapshots as private account data; do not expose them in public responses or technical logs. Successful scheduled ingestion checkpoints are removed when summaries commit; other terminal-run checkpoints expire after 30 days under [ADR 0034](../../adr/0034-bound-successful-ingestion-checkpoints.md). Console access events expire after 180 days. The technical-log period and business-audit, run-summary, and delivery-evidence retention periods remain separate decisions before production; do not apply Console or technical-log cleanup to them. IPROG SMS is a leading candidate, not a selected production provider. Validate provider-managed OTP, country/network coverage, callback or polling reconciliation, sender identity, and cost before production. Short-lived pending OTP state is not a durable business table; codes and provider responses must not enter audit or technical logs. Host maintenance scripts, not a database scheduling extension, own cleanup, backup, and restore-test schedules. The [architecture specification](../ARCHITECTURE/ARCHITECTURE.md#logging-diagnostics-and-maintenance) defines diagnostic fallback and off-VPS backup requirements.
+Choose and version the recipient policy before enabling delivery; `recipient_policy_snapshot` records the batch policy and `eligibility_snapshot` records channel, the user's enabled setting, trigger magnitude, observed anchor magnitude, nearby-only setting, saved alert location and radius when used, calculated distance, account state, and current destination-verification state. Treat saved coordinates and snapshots as private account data; do not expose them in public responses or technical logs. Successful scheduled ingestion checkpoints are removed when summaries commit; other terminal-run checkpoints expire after 30 days under [ADR 0034](../../adr/0034-bound-successful-ingestion-checkpoints.md). Console access events expire after 180 days. The technical-log period and business-audit, run-summary, and delivery-evidence retention periods remain separate decisions before production; do not apply Console or technical-log cleanup to them. IPROG SMS is selected with the existing shared sender, subject to tested OTP, network coverage, callback or polling reconciliation, sender/fallback behavior, and cost before production. Unknown or unsupported ordinary sender coverage blocks SMS opt-in and sending. Brevo Transactional Email API is selected for alert email; authenticate the sending domain and test webhook reconciliation, bounces, and cost before production delivery. Short-lived pending OTP state is not a durable business table; codes and complete provider responses must not enter audit or technical logs. Host maintenance scripts, not a database scheduling extension, own cleanup, backup, and restore-test schedules. The [architecture specification](../ARCHITECTURE/ARCHITECTURE.md#logging-diagnostics-and-maintenance) defines diagnostic fallback and off-VPS backup requirements.
 
 ## References
 

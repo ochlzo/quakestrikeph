@@ -34,3 +34,6 @@ database/initialization/source-snapshots/
 .vscode/
 .DS_Store
 Thumbs.db
+
+#docs
+docs/specs/

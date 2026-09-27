@@ -2,6 +2,14 @@
 
 **Status**: accepted
 
+The Google-only authentication and recent-Google-login rules below record the
+original decision. [ADR 0037](0037-clerk-free-bulletin-authentication.md)
+replaces them with Clerk email/password or Google sign-in and recent Clerk
+reverification. [ADR 0038](0038-email-and-sms-alert-preferences.md) selects
+IPROG SMS and extends alert preferences to email while retaining the
+independent phone-verification safeguards below. ADR 0038 also replaces the
+old rule that keeps SMS enabled while a phone replacement is pending.
+
 The Bulletin remains available anonymously for public earthquake information.
 An account is needed only for personal alert settings. Clerk authenticates
 those accounts through Google OAuth only. Phone/password, phone-code, email

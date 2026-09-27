@@ -6,7 +6,10 @@ The phone-verification enrollment sentence and exclusion of geographic rules
 below record the original decision. [ADR 0030](0030-optional-nearby-sms-alerts.md)
 replaces them with explicit SMS opt-in and optional nearby-only alerts.
 [ADR 0036](0036-google-accounts-and-independent-phone-verification.md)
-defines the current Google sign-in and separate alert-phone verification flow.
+records the original Google sign-in and separate alert-phone verification flow.
+[ADR 0037](0037-clerk-free-bulletin-authentication.md) replaces that
+Google-only sign-in rule; [ADR 0038](0038-email-and-sms-alert-preferences.md)
+extends automatic delivery and user preferences to email.
 
 QuakeStrike PH has two web applications: the Bulletin and Operations Console.
 The PHIVOLCS Monitoring application, forecast-review workflow, operator-created

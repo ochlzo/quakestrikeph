@@ -139,8 +139,9 @@ The recurring Beat schedule remains disabled before this state.
 ## Forecasts and alerts
 
 **Automatic alert**:
-A system-created SMS batch linked to one current live forecast. It does not
-require human review or approval.
+A system-created email/SMS batch linked to one current live forecast. It does
+not require human review or approval. Each enabled channel has separate
+recipient and delivery evidence.
 _Avoid_: Operator alert, reviewed alert
 
 **Alert trigger magnitude**:
@@ -150,13 +151,23 @@ _Avoid_: Global alert threshold
 
 **SMS enrollment**:
 The state in which a user has a verified current mobile number and has explicitly
-enabled SMS alerts.
+enabled SMS alerts. Current ordinary sender support is an additional delivery
+eligibility check.
 _Avoid_: PHIVOLCS consent, review approval
 
 **Bulletin account**:
-A Clerk account signed in through Google for personal alert settings. Public
-earthquake information remains available without an account. Its Google email
-is not a separate QuakeStrike sign-in method.
+A Clerk account signed in through email/password or Google for personal alert
+settings. Public earthquake information remains available without an account.
+The account's stable Clerk user ID, not its email or phone, identifies its
+QuakeStrike profile.
+
+**Alert receive options**:
+Independent email and SMS choices saved by the user. A verified destination
+alone never enables a channel; both may be off.
+
+**Verified alert email**:
+The current Clerk-verified email mirrored by the Backend as an eligible email
+alert destination. A pending email change pauses email alerts until verified.
 
 **Verified alert phone**:
 The one current mobile number linked to a Bulletin account after an SMS
@@ -165,9 +176,10 @@ Verification alone does not enable alerts; changing the number pauses SMS until
 the user opts in again.
 
 **Nearby-only alert**:
-An optional per-user SMS filter that compares an observed earthquake epicenter
+An optional per-user alert filter that compares an observed earthquake epicenter
 with one saved alert location and the user's maximum distance in kilometres.
-It does not use the forecast activity radius or track the user's device.
+It applies to both enabled channels. It does not use the forecast activity
+radius or track the user's device.
 
 ## Operations
 
