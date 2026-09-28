@@ -93,9 +93,11 @@ a { color: inherit; }
 @keyframes selection-fade { from { opacity: .65; } to { opacity: 1; } }
 .event-list .selection-enter { animation: selection-expand 330ms cubic-bezier(.16, 1, .3, 1) both; }
 .event-list .selection-exit { animation: selection-collapse 330ms cubic-bezier(.16, 1, .3, 1) both; }
-.row-divider { margin: 0 5px; color: #91a7b8; }
 .more-note { flex: none; color: #48647c; font-size: 11px; }
 .notice { margin: 8px 0; padding: 15px; border-radius: 10px; background: #e8f3f4; color: #234c62; font-size: 13px; }
+.notice p { margin: 0; }
+.retry-button { display: inline-flex; align-items: center; min-height: 38px; margin-top: 12px; padding: 0 15px; border: 0; border-radius: 9px; background: var(--coastal-teal); color: white; font-size: 12px; font-weight: 800; transition: background-color .18s ease, transform .18s ease; }
+.retry-button:hover { background: var(--coastal-teal-deep); transform: translateY(-1px); }
 
 .map-panel { position: relative; min-width: 0; min-height: 0; overflow: hidden; border-radius: 16px; background: #a9cad4; }
 .map-plate, .map-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -126,24 +128,6 @@ a { color: inherit; }
 .quake-marker.mag-5 { width: 25px; height: 25px; }.quake-marker.mag-3 { width: 14px; height: 14px; }
 .quake-marker.is-selected { width: 30px; height: 30px; box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--event-coral), 0 2px 8px rgb(47 32 26 / 35%); }
 
-.info-main { max-width: 1120px; margin: 0 auto; padding: 40px 24px 90px; }
-.back-link { color: #0c7884; font-weight: 800; text-decoration: none; }
-.back-link:hover { text-decoration: underline; }
-.info-intro { max-width: 830px; margin: 32px 0 34px; }
-.info-intro h1 { margin: 0 0 12px; font-size: clamp(34px, 4vw, 55px); line-height: 1.13; letter-spacing: -.035em; }
-.info-intro p { margin: 0; color: #426078; font-size: 20px; line-height: 1.55; }
-.info-card { padding: 28px 32px; margin: 16px 0; border: 1px solid #d4e0e3; border-radius: 15px; background: #fbfdfd; }
-.info-card-label { color: #0b7883; font-size: 13px; letter-spacing: .1em; text-transform: uppercase; font-weight: 800; }
-.info-card h2 { margin: 4px 0 10px; font-size: 26px; letter-spacing: -.02em; }
-.info-card p { max-width: 75ch; margin: 0 0 8px; color: #426078; font-size: 17px; line-height: 1.6; }
-.info-card div { font-size: 16px; color: #426078; }
-.info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }.info-grid .info-card { margin: 0; }
-.info-caution { max-width: 75ch; margin: 30px 0; color: #426078; font-size: 16px; }
-.info-caution a { color: #0b7883; text-underline-offset: 3px; }
-.info-primary-link { display: inline-flex; align-items: center; margin-top: 18px; padding: 12px 18px; border-radius: 8px; background: #117e89; color: white; text-decoration: none; font-weight: 800; }
-.info-primary-link:hover { background: #096975; }
-
-
 @media (max-width: 1100px) {
   .site-header { gap: 18px; }.brand strong { font-size: 18px; }.brand small { font-size: 8px; }.site-nav { gap: 19px; }
   .content-grid { grid-template-columns: minmax(315px, 36%) minmax(0, 1fr); }
@@ -159,7 +143,7 @@ a { color: inherit; }
   .dashboard { padding: 9px; }.filter-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-bottom: 8px; }
   .search-field { grid-column: 1 / -1; }.search-field, .select-field { height: 44px; }.select-field { gap: 6px; padding: 0 8px; }
   .select-field > svg:first-child { width: 15px; height: 15px; }.select-chevron { width: 13px; height: 13px; }
-  .select-field small { font-size: 9px; }.select-field select { font-size: 11px; }
+  .select-field small { font-size: 9px; }.search-field input, .select-field select { font-size: 16px; }
   .content-grid { grid-template-columns: 1fr; grid-template-rows: minmax(0, 43fr) minmax(0, 57fr); gap: 8px; }
   .map-panel { grid-row: 1; }.events-panel { grid-row: 2; padding: 10px; }
   .events-head { flex-wrap: nowrap; padding-bottom: 8px; }.events-head h1 { font-size: 19px; }.events-head p { font-size: 10px; }
@@ -167,21 +151,19 @@ a { color: inherit; }
   .card-top time { font-size: 10px; }.selected-card h2 { font-size: 12px; }
   .selected-facts small { font-size: 9px; }.selected-facts strong, .selected-facts a { font-size: 11px; }.forecast-link { font-size: 11px; }
   .event-row { min-height: 65px; padding: 8px 5px; }
-  .map-legend { bottom: 18px; }.map-panel .maplibregl-ctrl-bottom-left { bottom: 0; }
-  .info-grid { grid-template-columns: 1fr; }
+  .map-legend { bottom: 44px; }.map-panel .maplibregl-ctrl-bottom-left { bottom: 0; }
 }
 @media (max-width: 430px) {
   .brand { gap: 7px; }.brand strong { font-size: 13px; }.brand small { font-size: 6px; letter-spacing: .1em; }
   .alerts-button { gap: 4px; padding: 0 7px; font-size: 10px; }.alerts-button svg { width: 13px; }
-  .search-field { padding: 0 10px; }.search-field input { font-size: 11px; }
+  .search-field { padding: 0 10px; }
   .events-head h1 { font-size: 17px; }.events-head p { font-size: 9px; }
   .terrain-button { top: 8px; left: 8px; padding: 0 8px; font-size: 10px; }
   .map-tools { top: 8px; right: 8px; }.map-tools svg { width: 17px; }
-  .map-legend { right: 8px; bottom: 16px; width: 96px; padding: 7px; gap: 3px; font-size: 9px; }.map-legend strong { font-size: 9px; }.map-legend span { gap: 6px; }
+  .map-legend { right: 8px; bottom: 44px; width: 96px; padding: 7px; gap: 3px; font-size: 9px; }.map-legend strong { font-size: 9px; }.map-legend span { gap: 6px; }
   .dot.large { width: 16px; height: 16px; }.dot.medium { width: 13px; height: 13px; }.dot.small { width: 10px; height: 10px; }
-  .info-main { padding: 24px 14px 70px; }.info-intro { margin: 24px 0; }.info-intro p { font-size: 16px; }.info-card { padding: 20px; }.info-card h2 { font-size: 21px; }.info-card p { font-size: 15px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .alerts-button, .terrain-button, .map-tools button, .forecast-link svg { transition: none; }
+  .alerts-button, .retry-button, .terrain-button, .map-tools button, .forecast-link svg { transition: none; }
   .event-list .selection-enter, .event-list .selection-exit { animation: selection-fade 100ms ease-out both; }
 }

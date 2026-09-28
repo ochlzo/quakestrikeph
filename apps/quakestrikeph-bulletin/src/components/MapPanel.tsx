@@ -30,7 +30,13 @@ export default function MapPanel({ events, selectedId, onSelect }: Props) {
         const compact = window.matchMedia("(max-width: 600px)").matches;
         const instance = new ml.Map({
           container: container.current,
-          attributionControl: false, // Temporary visual test.
+          attributionControl: {
+            compact: true,
+            customAttribution: [
+              '<a href="https://mapterhorn.com/attribution/" target="_blank" rel="noopener noreferrer">© Mapterhorn</a>',
+              'Terrain produced using <a href="https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM" target="_blank" rel="noopener noreferrer">Copernicus WorldDEM-30</a> © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved',
+            ],
+          },
           style: "https://tiles.openfreemap.org/styles/positron",
           center: compact ? [123.1, 11.7] : [123.3, 10.8],
           zoom: compact ? 4.15 : 5.55,
@@ -49,7 +55,7 @@ export default function MapPanel({ events, selectedId, onSelect }: Props) {
             type: "raster-dem",
             tiles: ["https://tiles.mapterhorn.com/{z}/{x}/{y}.webp"],
             tileSize: 512,
-            maxzoom: 19,
+            maxzoom: 12,
             encoding: "terrarium",
           });
           instance.setTerrain({ source: "terrain", exaggeration: 1.3 });

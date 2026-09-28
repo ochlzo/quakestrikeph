@@ -32,8 +32,8 @@ QuakeStrike PH connects source-linked PHIVOLCS observations and their correction
 
 ## Capabilities and Constraints
 
-- Implemented: PHIVOLCS ingestion and event revision history, prediction jobs and forecasts, PostgreSQL and Redis worker flows, and read-only Backend event and forecast routes. The Bulletin currently has only an Astro/React scaffold.
-- Planned: Bulletin data and account screens, Operations Console, automatic email and SMS delivery, and production monitoring. Do not present planned capabilities as live.
+- Implemented: PHIVOLCS ingestion and event revision history, prediction jobs and forecasts, PostgreSQL and Redis worker flows, read-only Backend event and forecast routes, and an Astro/React Bulletin root view backed by the public event API.
+- Planned: Bulletin account screens, complete search and filter behavior, event-specific forecast pages, Operations Console, automatic email and SMS delivery, and production monitoring. Do not present planned capabilities as live.
 - The approved public web stack is Astro, React, and TypeScript. The public Bulletin reads through the Backend API; the Console is a separate application with restricted server-side database reads.
 - Present forecasts as uncertain probabilities, never as exact predictions or with unverified accuracy claims. User-facing forecast language should say **further earthquake activity**, without calling predicted events confirmed aftershocks. Forecast probabilities must not imply a geographic area until the model target area is established and stated.
 - An alert is tied to a current, unexpired live forecast for an observed event. Alert creation, provider acceptance, and delivery are different states. The intended alert message identifies the observed event before its forecast.

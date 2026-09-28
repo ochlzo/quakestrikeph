@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Activity,
   ArrowRight,
@@ -10,89 +10,66 @@ import {
   Search,
 } from "lucide-react";
 import MapPanel from "./MapPanel";
-import {
-  demoEvents,
-  displayTime,
-  magnitude,
-  type Earthquake,
-} from "../lib/events";
+import { displayTime, magnitude, type Earthquake } from "../lib/events";
 import "../styles/bulletin.css";
 
 export default function Bulletin() {
-  const demo =
-    import.meta.env.DEV &&
-    new URLSearchParams(window.location.search).has("demo");
   const [query, setQuery] = useState("");
-  const [dateRange, setDateRange] = useState(demo ? "demo" : "7");
+  const [dateRange, setDateRange] = useState("all");
   const [minMagnitude, setMinMagnitude] = useState("");
-  const [events, setEvents] = useState<Earthquake[]>(demo ? demoEvents : []);
-  const [selectedId, setSelectedId] = useState<string | null>(
-    demo ? demoEvents[0].eventId : null,
-  );
+  const [events, setEvents] = useState<Earthquake[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [previousId, setPreviousId] = useState<string | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<Earthquake | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
-    demo ? "ready" : "loading",
+    "loading",
   );
   const [more, setMore] = useState(false);
+  const [requestAttempt, setRequestAttempt] = useState(0);
 
   useEffect(() => {
-    if (demo) return;
     const controller = new AbortController();
-    const timer = window.setTimeout(
-      async () => {
-        setStatus("loading");
-        try {
-          const body = {
-            location: query.trim().length >= 2 ? query.trim() : undefined,
-            dateFrom:
-              dateRange === "all"
-                ? undefined
-                : new Date(
-                    Date.now() - Number(dateRange) * 86400000,
-                  ).toISOString(),
-            magnitudeRanges: minMagnitude
-              ? [{ from: Number(minMagnitude) }]
-              : undefined,
-            limit: 30,
-          };
-          const response = await fetch("/api/v1/earthquakes/search", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(body),
-            signal: controller.signal,
-          });
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const data = (await response.json()) as {
-            items: Earthquake[];
-            hasMore: boolean;
-          };
-          setEvents(data.items);
-          setMore(data.hasMore);
-          setSelectedId((current) =>
-            data.items.some((item) => item.eventId === current)
-              ? current
-              : (data.items[0]?.eventId ?? null),
-          );
-          setStatus("ready");
-        } catch (error) {
-          if (!controller.signal.aborted) setStatus("error");
-        }
-      },
-      query ? 300 : 0,
-    );
+
+    async function loadEvents() {
+      setStatus("loading");
+      try {
+        const response = await fetch("/api/v1/earthquakes/search", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ limit: 30 }),
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = (await response.json()) as {
+          items: Earthquake[];
+          hasMore: boolean;
+        };
+        setEvents(data.items);
+        setMore(data.hasMore);
+        setSelectedId((current) =>
+          data.items.some((item) => item.eventId === current)
+            ? current
+            : (data.items[0]?.eventId ?? null),
+        );
+        setStatus("ready");
+      } catch {
+        if (!controller.signal.aborted) setStatus("error");
+      }
+    }
+
+    void loadEvents();
     return () => {
       controller.abort();
-      window.clearTimeout(timer);
     };
-  }, [query, dateRange, minMagnitude, demo]);
+  }, [requestAttempt]);
 
   useEffect(() => {
-    if (demo || !selectedId) {
+    if (!selectedId) {
       setSelectedDetail(null);
       return;
     }
     const controller = new AbortController();
+    setSelectedDetail(null);
     fetch(`/api/v1/earthquakes/${encodeURIComponent(selectedId)}`, {
       signal: controller.signal,
     })
@@ -106,30 +83,20 @@ export default function Bulletin() {
         if (!controller.signal.aborted) setSelectedDetail(null);
       });
     return () => controller.abort();
-  }, [selectedId, demo]);
+  }, [selectedId]);
 
-  const visible = useMemo(() => {
-    if (!demo) return events;
-    const latestDemoTime = Date.parse(demoEvents[0].eventTime);
-    return events.filter(
-      (event) =>
-        event.locationDescription.toLowerCase().includes(query.toLowerCase()) &&
-        (!minMagnitude || event.magnitude >= Number(minMagnitude)) &&
-        (dateRange === "all" ||
-          dateRange === "demo" ||
-          Date.parse(event.eventTime) >=
-            latestDemoTime - Number(dateRange) * 86400000),
-    );
-  }, [demo, events, query, minMagnitude, dateRange]);
+  const visible = events;
   const selected =
     visible.find((event) => event.eventId === selectedId) ?? visible[0];
   const sourceUrl =
-    selectedDetail?.eventId === selected?.eventId &&
+    selectedDetail &&
+    selected &&
+    selectedDetail.eventId === selected.eventId &&
     /^https?:\/\//i.test(selectedDetail.source?.url ?? "")
       ? selectedDetail.source?.url
       : undefined;
   const forecastHref = selected
-    ? `/forecasts?event=${encodeURIComponent(selected.eventId)}${demo ? "&demo=1" : ""}`
+    ? `/forecasts?event=${encodeURIComponent(selected.eventId)}`
     : "/forecasts";
   const selectEvent = (id: string) => {
     if (id === selected?.eventId) return;
@@ -234,6 +201,7 @@ export default function Bulletin() {
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
+              maxLength={100}
               placeholder="Search by location (e.g. Legazpi, Albay)"
             />
           </label>
@@ -245,17 +213,10 @@ export default function Bulletin() {
                 value={dateRange}
                 onChange={(event) => setDateRange(event.target.value)}
               >
-                {demo && <option value="demo">Illustrative period</option>}
-                <option value="1">
-                  {demo ? "Sample: last 24 hours" : "Last 24 hours"}
-                </option>
-                <option value="7">
-                  {demo ? "Sample: last 7 days" : "Last 7 days"}
-                </option>
-                <option value="30">
-                  {demo ? "Sample: last 30 days" : "Last 30 days"}
-                </option>
                 <option value="all">All dates</option>
+                <option value="1">Last 24 hours</option>
+                <option value="7">Last 7 days</option>
+                <option value="30">Last 30 days</option>
               </select>
             </span>
             <ChevronDown
@@ -301,14 +262,19 @@ export default function Bulletin() {
             )}
             {status === "error" && (
               <div className="notice" role="alert">
-                Earthquake data is unavailable right now. Please try again
-                later.
+                <p>Earthquake data is unavailable right now.</p>
+                <button
+                  className="retry-button"
+                  type="button"
+                  onClick={() => setRequestAttempt((attempt) => attempt + 1)}
+                >
+                  Try again
+                </button>
               </div>
             )}
             {status === "ready" && !visible.length && (
               <div className="notice" role="status">
-                No earthquakes match these filters. Try a wider date or
-                magnitude range.
+                No earthquake information is available right now.
               </div>
             )}
             {selected && (
@@ -318,8 +284,7 @@ export default function Bulletin() {
             )}
             {more && (
               <p className="more-note">
-                Showing the first 30 results. Narrow your search to find a
-                specific event.
+                Showing the 30 most recent earthquakes.
               </p>
             )}
           </section>

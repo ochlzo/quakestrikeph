@@ -99,7 +99,7 @@ Panels use 16px corners; fields and selected event cards use 10px corners. Event
 ### Do:
 
 - **Do** keep observed event facts distinct from forecast probabilities.
-- **Do** label illustrative event data and use the actual Backend API for live data.
+- **Do** use the Backend API as the Bulletin's event-data source.
 - **Do** show an explicit selected state in both the list and map.
 
 ### Don't:
