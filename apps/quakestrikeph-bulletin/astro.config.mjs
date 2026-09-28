@@ -7,4 +7,14 @@ export default defineConfig({
   devToolbar: { enabled: false },
   adapter: node({ mode: "standalone" }),
   integrations: [react()],
+  vite: {
+    server: {
+      proxy: {
+        "/api/v1": {
+          target: "https://quakestrikeph.qzz.io",
+          changeOrigin: true,
+        },
+      },
+    },
+  },
 });
