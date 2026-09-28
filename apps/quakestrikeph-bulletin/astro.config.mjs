@@ -4,6 +4,7 @@ import react from "@astrojs/react";
 
 export default defineConfig({
   output: "server",
+  devToolbar: { enabled: false },
   adapter: node({ mode: "standalone" }),
   integrations: [react()],
 });

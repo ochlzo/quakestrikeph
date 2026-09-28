@@ -40,3 +40,5 @@ Thumbs.db
 
 #docs
 docs/specs/
+.impeccable/
+apps/quakestrikeph-bulletin/.impeccable/
