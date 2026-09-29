@@ -1,26 +1,81 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Layers3, LocateFixed, Minus, Plus } from "lucide-react";
-import type { Map, Marker } from "maplibre-gl";
+import type { GeoJSONSource, Map, Marker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
-import type { Earthquake } from "../lib/events";
+import type { Earthquake, Forecast } from "../lib/events";
 
 type Props = {
   events: Earthquake[];
   selectedId: string | null;
+  focusRequest: number;
+  forecast: Forecast | null;
+  forecastStatus: "loading" | "ready" | "error";
   onSelect: (id: string) => void;
 };
+
+const emptyRadius = { type: "FeatureCollection" as const, features: [] };
+const earthRadiusKm = 6371.0088;
+
+// A great-circle destination keeps the drawn radius in kilometres at any latitude.
+function pointAtDistance(
+  lng: number,
+  lat: number,
+  distanceKm: number,
+  bearing: number,
+): [number, number] {
+  const latitude = (lat * Math.PI) / 180;
+  const longitude = (lng * Math.PI) / 180;
+  const angle = distanceKm / earthRadiusKm;
+  const nextLatitude = Math.asin(
+    Math.sin(latitude) * Math.cos(angle) +
+      Math.cos(latitude) * Math.sin(angle) * Math.cos(bearing),
+  );
+  const nextLongitude =
+    longitude +
+    Math.atan2(
+      Math.sin(bearing) * Math.sin(angle) * Math.cos(latitude),
+      Math.cos(angle) - Math.sin(latitude) * Math.sin(nextLatitude),
+    );
+  return [
+    ((((nextLongitude * 180) / Math.PI) + 540) % 360) - 180,
+    (nextLatitude * 180) / Math.PI,
+  ];
+}
+
+function radiusCoordinates(event: Earthquake, radiusKm: number) {
+  return Array.from({ length: 97 }, (_, index) =>
+    pointAtDistance(
+      event.longitude,
+      event.latitude,
+      radiusKm,
+      (index * 2 * Math.PI) / 96,
+    ),
+  );
+}
+
+function chance(value: number) {
+  if (value > 0 && value < 0.005) return "<1%";
+  return `${Math.round(value * 100)}%`;
+}
+
+function forecastEnd(value: string) {
+  return `${new Intl.DateTimeFormat("en-PH", {
+    timeZone: "Asia/Manila",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(new Date(value))} PHT`;
+}
 
 const magnitudeBands = [
   { minimum: 6, className: "mag-6", label: "M6.0+" },
   { minimum: 5, className: "mag-5", label: "M5.0–<6.0" },
   { minimum: 4, className: "mag-4", label: "M4.0–<5.0" },
-  {
-    minimum: 3,
-    className: "mag-3",
-    label:
-      "M3.0–<4.0                                                           ",
-  },
+  { minimum: 3, className: "mag-3", label: "M3.0–<4.0" },
   { minimum: -Infinity, className: "mag-under-3", label: "Below M3.0" },
 ] as const;
 
@@ -31,14 +86,33 @@ function magnitudeBand(value: number) {
   );
 }
 
-export default function MapPanel({ events, selectedId, onSelect }: Props) {
+export default function MapPanel({
+  events,
+  selectedId,
+  focusRequest,
+  forecast,
+  forecastStatus,
+  onSelect,
+}: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<Map | null>(null);
   const markers = useRef<Marker[]>([]);
+  const annotationMarker = useRef<Marker | null>(null);
   const onSelectRef = useRef(onSelect);
+  const [annotationHost, setAnnotationHost] = useState<HTMLDivElement | null>(null);
   const [terrain, setTerrain] = useState(true);
   const [mapReady, setMapReady] = useState(false);
   onSelectRef.current = onSelect;
+  const selectedEvent = events.find((event) => event.eventId === selectedId);
+  const reportedRadiusKm =
+    forecastStatus === "ready" &&
+    forecast &&
+    forecast.activityRadiusMedianKm24h !== null &&
+    Number.isFinite(forecast.activityRadiusMedianKm24h) &&
+    forecast.activityRadiusMedianKm24h >= 0
+      ? forecast.activityRadiusMedianKm24h
+      : null;
+  const radiusKm = reportedRadiusKm !== null && reportedRadiusKm > 0 ? reportedRadiusKm : null;
 
   useEffect(() => {
     if (!container.current) return;
@@ -109,6 +183,26 @@ export default function MapPanel({ events, selectedId, onSelect }: Props) {
               "hillshade-accent-color": "#719896",
             },
           });
+          instance.addSource("forecast-radius", {
+            type: "geojson",
+            data: emptyRadius,
+          });
+          instance.addLayer({
+            id: "forecast-radius-fill",
+            type: "fill",
+            source: "forecast-radius",
+            paint: { "fill-color": "#117e89", "fill-opacity": 0.14 },
+          });
+          instance.addLayer({
+            id: "forecast-radius-outline",
+            type: "line",
+            source: "forecast-radius",
+            paint: {
+              "line-color": "#096975",
+              "line-width": 2,
+              "line-dasharray": [2, 2],
+            },
+          });
           instance.addControl(
             new ml.ScaleControl({ maxWidth: 192, unit: "metric" }),
             "bottom-left",
@@ -122,6 +216,8 @@ export default function MapPanel({ events, selectedId, onSelect }: Props) {
       attributionListeners.abort();
       markers.current.forEach((marker) => marker.remove());
       markers.current = [];
+      annotationMarker.current?.remove();
+      annotationMarker.current = null;
       map.current?.remove();
       map.current = null;
     };
@@ -155,6 +251,90 @@ export default function MapPanel({ events, selectedId, onSelect }: Props) {
       cancelled = true;
     };
   }, [events, selectedId, mapReady]);
+
+  useEffect(() => {
+    const instance = map.current;
+    if (!mapReady || !instance) return;
+    const source = instance.getSource("forecast-radius") as GeoJSONSource | undefined;
+    annotationMarker.current?.remove();
+    annotationMarker.current = null;
+    setAnnotationHost(null);
+    if (!selectedEvent) {
+      void source?.setData(emptyRadius);
+      return;
+    }
+
+    const coordinates = radiusKm ? radiusCoordinates(selectedEvent, radiusKm) : null;
+    void source?.setData(
+      coordinates
+        ? {
+            type: "Feature" as const,
+            properties: {},
+            geometry: { type: "Polygon" as const, coordinates: [coordinates] },
+          }
+        : emptyRadius,
+    );
+
+    let cancelled = false;
+    import("maplibre-gl").then((ml) => {
+      if (cancelled || map.current !== instance) return;
+      const width = instance.getContainer().clientWidth;
+      const stacked = width < 280;
+      const annotationPoint = radiusKm
+        ? pointAtDistance(
+            selectedEvent.longitude,
+            selectedEvent.latitude,
+            radiusKm,
+            stacked ? 0 : Math.PI / 2,
+          )
+        : ([selectedEvent.longitude, selectedEvent.latitude] as [number, number]);
+      const host = document.createElement("div");
+      host.className = "forecast-map-host";
+      annotationMarker.current = new ml.Marker({
+        element: host,
+        anchor: stacked ? "bottom" : "left",
+        offset: stacked ? [0, -12] : [12, width < 340 ? -14 : 0],
+      })
+        .setLngLat(annotationPoint)
+        .addTo(instance);
+      setAnnotationHost(host);
+
+      if (forecastStatus === "loading") return;
+      const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 700;
+      const zoom = Math.min(instance.getZoom() + 0.85, stacked ? 6.8 : 7.3);
+      if (!coordinates) {
+        instance.flyTo({
+          center: [selectedEvent.longitude, selectedEvent.latitude],
+          zoom,
+          offset: stacked ? [0, 55] : [-90, 0],
+          duration,
+        });
+        return;
+      }
+      const bounds = coordinates.reduce(
+        (result, point) => result.extend(point),
+        new ml.LngLatBounds(coordinates[0], coordinates[0]),
+      );
+      const height = instance.getContainer().clientHeight;
+      instance.fitBounds(bounds, {
+        padding: stacked
+          ? { top: Math.min(145, height * 0.34), right: 38, bottom: 48, left: 38 }
+          : {
+              top: Math.min(70, height * 0.18),
+              right: width < 340 ? 154 : Math.min(230, Math.max(188, width * 0.42)),
+              bottom: Math.min(70, height * 0.18),
+              left: Math.min(52, width * 0.12),
+            },
+        maxZoom: zoom,
+        duration,
+      });
+    });
+    return () => {
+      cancelled = true;
+      annotationMarker.current?.remove();
+      annotationMarker.current = null;
+    };
+  }, [mapReady, selectedEvent, radiusKm, forecastStatus, focusRequest]);
 
   function zoom(delta: number) {
     map.current?.zoomTo(map.current.getZoom() + delta, { duration: 350 });
@@ -192,6 +372,39 @@ export default function MapPanel({ events, selectedId, onSelect }: Props) {
     >
       <img className="map-plate" src="/assets/plates/relief-map.png" alt="" />
       <div className="map-canvas" ref={container} />
+      {annotationHost && selectedEvent &&
+        createPortal(
+          <div className="forecast-map-annotation" role="status" aria-live="polite">
+            {forecastStatus === "loading" ? (
+              <span>Loading forecast…</span>
+            ) : forecastStatus === "error" ? (
+              <span>Forecast details are unavailable right now.</span>
+            ) : forecast ? (
+              <>
+                <strong className="forecast-map-radius">
+                  {reportedRadiusKm === null
+                    ? "Activity radius unavailable"
+                    : `${Math.round(reportedRadiusKm)} km estimated activity radius`}
+                </strong>
+                <span className="forecast-map-period">
+                  24-hour forecast {forecast.expired ? "ended" : "through"} {forecastEnd(forecast.windowEnd)}
+                </span>
+                <span
+                  className="forecast-map-occurrence"
+                  aria-label={`${chance(forecast.probabilityM1Plus24h)} chance of at least one further earthquake of magnitude 1.0 or higher`}
+                >
+                  <strong>{chance(forecast.probabilityM1Plus24h)} chance</strong> of at least one further M1.0+ earthquake
+                </span>
+                {radiusKm !== null && (
+                  <small>The circle shows distance, not a safety boundary or chance area.</small>
+                )}
+              </>
+            ) : (
+              <span>No forecast is available for this earthquake.</span>
+            )}
+          </div>,
+          annotationHost,
+        )}
       <button
         className="terrain-button"
         type="button"

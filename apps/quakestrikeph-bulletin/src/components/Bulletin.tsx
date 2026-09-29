@@ -19,7 +19,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { displayTime, magnitude, type Earthquake } from "../lib/events";
+import {
+  displayTime,
+  magnitude,
+  type Earthquake,
+  type EarthquakeDetail,
+} from "../lib/events";
 import "../styles/bulletin.css";
 
 const dateOptions = [
@@ -42,8 +47,10 @@ export default function Bulletin() {
   const [minMagnitude, setMinMagnitude] = useState("");
   const [events, setEvents] = useState<Earthquake[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [focusRequest, setFocusRequest] = useState(0);
   const [previousId, setPreviousId] = useState<string | null>(null);
-  const [selectedDetail, setSelectedDetail] = useState<Earthquake | null>(null);
+  const [selectedDetail, setSelectedDetail] = useState<EarthquakeDetail | null>(null);
+  const [detailStatus, setDetailStatus] = useState<"loading" | "ready" | "error">("loading");
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
     "loading",
   );
@@ -93,6 +100,7 @@ export default function Bulletin() {
     }
     const controller = new AbortController();
     setSelectedDetail(null);
+    setDetailStatus("loading");
     fetch(`/api/v1/earthquakes/${encodeURIComponent(selectedId)}`, {
       signal: controller.signal,
     })
@@ -101,9 +109,15 @@ export default function Bulletin() {
           ? response.json()
           : Promise.reject(new Error("detail failed")),
       )
-      .then((data: { item: Earthquake }) => setSelectedDetail(data.item))
+      .then((data: { item: EarthquakeDetail }) => {
+        if (controller.signal.aborted) return;
+        setSelectedDetail(data.item);
+        setDetailStatus("ready");
+      })
       .catch(() => {
-        if (!controller.signal.aborted) setSelectedDetail(null);
+        if (controller.signal.aborted) return;
+        setSelectedDetail(null);
+        setDetailStatus("error");
       });
     return () => controller.abort();
   }, [selectedId]);
@@ -122,7 +136,9 @@ export default function Bulletin() {
     ? `/forecasts?event=${encodeURIComponent(selected.eventId)}`
     : "/forecasts";
   const selectEvent = (id: string) => {
+    setFocusRequest((current) => current + 1);
     if (id === selected?.eventId) return;
+    setDetailStatus("loading");
     setPreviousId(selected?.eventId ?? null);
     setSelectedId(id);
   };
@@ -324,6 +340,19 @@ export default function Bulletin() {
           <MapPanel
             events={visible}
             selectedId={selected?.eventId ?? null}
+            focusRequest={focusRequest}
+            forecast={
+              selected && selectedDetail?.eventId === selected.eventId
+                ? selectedDetail.forecast
+                : null
+            }
+            forecastStatus={
+              selected && selectedDetail?.eventId === selected.eventId
+                ? "ready"
+                : detailStatus === "error"
+                  ? "error"
+                  : "loading"
+            }
             onSelect={selectEvent}
           />
         </div>
