@@ -370,7 +370,7 @@ export default function MapPanel({
       className="map-panel"
       aria-label="Earthquakes on the Philippine map"
     >
-      <img className="map-plate" src="/assets/plates/relief-map.png" alt="" />
+      <img className="map-plate" src="/assets/plates/relief-map.webp" alt="" fetchPriority="high" />
       <div className="map-canvas" ref={container} />
       {annotationHost && selectedEvent &&
         createPortal(

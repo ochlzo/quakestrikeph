@@ -6,6 +6,7 @@ COPY apps/quakestrikeph-bulletin/package.json apps/quakestrikeph-bulletin/pnpm-l
 RUN pnpm install --frozen-lockfile
 COPY apps/quakestrikeph-bulletin/astro.config.mjs apps/quakestrikeph-bulletin/tsconfig.json ./
 COPY apps/quakestrikeph-bulletin/src ./src
+COPY apps/quakestrikeph-bulletin/public ./public
 RUN pnpm run check && pnpm run build && pnpm prune --prod
 
 FROM node:24.21.0-bookworm-slim

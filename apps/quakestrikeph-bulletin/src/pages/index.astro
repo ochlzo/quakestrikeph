@@ -9,8 +9,9 @@ import '../styles/globals.css';
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>QuakeStrike PH Bulletin</title>
     <meta name="description" content="Explore recent earthquakes in the Philippines and understand earthquake forecast information." />
+    <link rel="preload" as="image" href="/assets/plates/relief-map.webp" />
   </head>
   <body>
-    <Bulletin client:only="react" />
+    <Bulletin client:load />
   </body>
 </html>
