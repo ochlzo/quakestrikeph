@@ -3,15 +3,38 @@ import {
   Activity,
   ArrowRight,
   Bell,
-  CalendarDays,
-  ChevronDown,
+  Calendar,
   ChevronRight,
   ExternalLink,
   Search,
+  Stone,
 } from "lucide-react";
 import MapPanel from "./MapPanel";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { displayTime, magnitude, type Earthquake } from "../lib/events";
 import "../styles/bulletin.css";
+
+const dateOptions = [
+  { label: "All dates", value: "all" },
+  { label: "Last 24 hours", value: "1" },
+  { label: "Last 7 days", value: "7" },
+  { label: "Last 30 days", value: "30" },
+];
+
+const magnitudeOptions = [
+  { label: "All magnitudes", value: "all" },
+  { label: "M3.0 and above", value: "3" },
+  { label: "M4.0 and above", value: "4" },
+  { label: "M5.0 and above", value: "5" },
+];
 
 export default function Bulletin() {
   const [query, setQuery] = useState("");
@@ -205,46 +228,56 @@ export default function Bulletin() {
               placeholder="Search by location (e.g. Legazpi, Albay)"
             />
           </label>
-          <label className="select-field">
-            <CalendarDays size={19} aria-hidden="true" />
-            <span className="filter-font">
-              <small>Date</small>
-              <select
-                value={dateRange}
-                onChange={(event) => setDateRange(event.target.value)}
-              >
-                <option value="all">All dates</option>
-                <option value="1">Last 24 hours</option>
-                <option value="7">Last 7 days</option>
-                <option value="30">Last 30 days</option>
-              </select>
-            </span>
-            <ChevronDown
-              className="select-chevron"
-              size={17}
-              aria-hidden="true"
-            />
-          </label>
-          <label className="select-field">
-            <Activity size={19} aria-hidden="true" />
-            <span className="filter-font">
-              <small>Magnitude</small>
-              <select
-                value={minMagnitude}
-                onChange={(event) => setMinMagnitude(event.target.value)}
-              >
-                <option value="">All magnitudes</option>
-                <option value="3">M3.0 and above</option>
-                <option value="4">M4.0 and above</option>
-                <option value="5">M5.0 and above</option>
-              </select>
-            </span>
-            <ChevronDown
-              className="select-chevron"
-              size={17}
-              aria-hidden="true"
-            />
-          </label>
+          <Select
+            aria-label="Date observed"
+            className="w-full"
+            value={dateRange}
+            onChange={(value) => setDateRange(String(value))}
+          >
+            <SelectTrigger className="filter-select-trigger">
+              <Calendar
+                className="filter-select-icon size-5"
+                aria-hidden="true"
+              />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectLabel>Date observed</SelectLabel>
+                {dateOptions.map((option) => (
+                  <SelectItem key={option.value} id={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Select
+            aria-label="Minimum magnitude"
+            className="w-full"
+            value={minMagnitude || "all"}
+            onChange={(value) =>
+              setMinMagnitude(value === "all" ? "" : String(value))
+            }
+          >
+            <SelectTrigger className="filter-select-trigger">
+              <Stone
+                className="filter-select-icon size-5"
+                aria-hidden="true"
+              />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectLabel>Minimum magnitude</SelectLabel>
+                {magnitudeOptions.map((option) => (
+                  <SelectItem key={option.value} id={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="content-grid">

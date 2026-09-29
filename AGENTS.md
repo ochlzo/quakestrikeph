@@ -53,17 +53,6 @@ delivery records and selected technical logs, Redis for background work,
 Clerk for identity, and Cloudflare Tunnel plus Traefik at the public edge.
 Deployable modules run in separate Docker containers on one VPS.
 
-## Working path and storage
-
-The active repository path is:
-
-`C:\Projects\quakestrikeph\redo\quakestrikeph`
-
-`C:\Projects` is a Windows junction to `D:\Projects`. Use the C: path when
-referring to the workspace, but remember that files read or written through
-`C:\Projects\...` are physically stored on the D: drive. The C: and D: paths
-are two views of the same storage, not separate copies.
-
 ## Design references
 
 Before changing architecture, module boundaries, data ownership, database

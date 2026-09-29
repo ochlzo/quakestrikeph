@@ -32,10 +32,8 @@ export default function MapPanel({ events, selectedId, onSelect }: Props) {
           container: container.current,
           attributionControl: {
             compact: true,
-            customAttribution: [
+            customAttribution:
               '<a href="https://mapterhorn.com/attribution/" target="_blank" rel="noopener noreferrer">© Mapterhorn</a>',
-              'Terrain produced using <a href="https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM" target="_blank" rel="noopener noreferrer">Copernicus WorldDEM-30</a> © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved',
-            ],
           },
           style: "https://tiles.openfreemap.org/styles/positron",
           center: compact ? [123.1, 11.7] : [123.3, 10.8],
@@ -85,6 +83,29 @@ export default function MapPanel({ events, selectedId, onSelect }: Props) {
       map.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    const attribution = container.current?.querySelector<HTMLDetailsElement>(
+      ".maplibregl-ctrl-attrib",
+    );
+    if (!attribution) return;
+
+    const closeUnlessInside = (target: EventTarget | null) => {
+      if (target instanceof Node && attribution.contains(target)) return;
+      attribution.classList.remove("maplibregl-compact-show");
+      attribution.open = false;
+    };
+    const onPointerDown = (event: PointerEvent) => closeUnlessInside(event.target);
+    const onFocusOut = (event: FocusEvent) => closeUnlessInside(event.relatedTarget);
+
+    document.addEventListener("pointerdown", onPointerDown, true);
+    attribution.addEventListener("focusout", onFocusOut);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      attribution.removeEventListener("focusout", onFocusOut);
+    };
+  }, [mapReady]);
 
   useEffect(() => {
     if (!mapReady || !map.current) return;

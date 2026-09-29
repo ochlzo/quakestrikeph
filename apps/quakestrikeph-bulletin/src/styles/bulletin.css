@@ -2,8 +2,6 @@
 @import '@fontsource/martel-sans/latin-600.css';
 @import '@fontsource/martel-sans/latin-700.css';
 @import '@fontsource/martel-sans/latin-800.css';
-@import '@fontsource/ibm-plex-sans/latin-400.css';
-@import '@fontsource/ibm-plex-sans/latin-600.css';
 
 :root { --ink: #0b2c47; --coastal-teal: #117e89; --coastal-teal-deep: #096975; --canvas: #f4f7f7; --surface: #fbfdfd; --border: #d4e0e3; --supporting-blue: #426078; --selected-aqua: #e9f7f7; --map-water: #a4c6d3; --event-coral: #f65a3d; color-scheme: light; font-family: 'Martel Sans', Arial, sans-serif; color: var(--ink); background: var(--canvas); }
 * { box-sizing: border-box; }
@@ -15,6 +13,8 @@ button, select { cursor: pointer; }
 a { color: inherit; }
 ::selection { background: #c5e5e7; color: #092940; }
 :focus-visible { outline: 3px solid #e2714c; outline-offset: 3px; }
+[data-slot='select-trigger']:focus-visible,
+[data-slot='select-item']:focus-visible { outline: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 
@@ -34,20 +34,19 @@ a { color: inherit; }
 
 .dashboard { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 12px 16px 16px; }
 .filter-bar { flex: none; display: grid; grid-template-columns: minmax(0, 2.15fr) minmax(210px, 1fr) minmax(210px, 1fr); gap: 10px; margin-bottom: 12px; }
-.search-field, .select-field { min-width: 0; height: 49px; display: flex; align-items: center; background: #fff; border: 1px solid #c6d7dc; border-radius: 12px; color: var(--ink); transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease; }
-.search-field:hover, .select-field:hover { border-color: #7baeb5; background: #fcffff; }
-.search-field:focus-within, .select-field:focus-within { border-color: var(--coastal-teal); box-shadow: 0 0 0 3px #d7eeee; }
+.search-field { min-width: 0; height: 49px; display: flex; align-items: center; background: #fff; border: 1px solid #c6d7dc; border-radius: 12px; color: var(--ink); transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease; }
+.search-field:hover { border-color: #7baeb5; background: #fcffff; }
+.search-field:focus-within { border-color: var(--coastal-teal); box-shadow: 0 0 0 3px #d7eeee; }
 .search-field { gap: 11px; padding: 0 15px; }
-.search-field > svg, .select-field > svg:first-child { flex: none; color: #1b5268; }
+.search-field > svg { flex: none; color: #1b5268; }
 .search-field input { width: 100%; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 13px; }
 .search-field input::placeholder { color: #49667b; opacity: 1; }
-.select-field { gap: 11px; padding: 0 13px; }
-.select-field > span { flex: 1; min-width: 0; }
-.select-field small { display: block; color: #526c7b; font-size: 10px; line-height: 1.1; }
-.select-field select { width: 100%; min-width: 0; padding: 0; border: 0; outline: 0; appearance: none; background: transparent; color: var(--ink); font-size: 13px; font-weight: 700; line-height: 1.4; text-overflow: ellipsis; }
-.filter-font { font-family: 'IBM Plex Sans', Arial, sans-serif; }
-.filter-font select { font-size: 13px; font-weight: 600; }
-.select-chevron { flex: none; pointer-events: none; color: #315d70; }
+.filter-select-trigger { min-width: 0; height: 49px; gap: 11px; padding: 0 15px; border-color: #c6d7dc; border-radius: 12px; background: #fff; color: var(--ink); font-family: 'Martel Sans', Arial, sans-serif; font-size: 13px; transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease; }
+.filter-select-trigger:hover { border-color: #7baeb5; background: #fcffff; }
+.filter-select-trigger:focus-visible, .filter-select-trigger[data-pressed] { border-color: var(--coastal-teal); background: #fff; box-shadow: 0 0 0 3px #d7eeee; }
+.filter-select-trigger .filter-select-icon { flex: none; color: #1b5268; }
+.filter-select-trigger > svg:last-child { transition: transform .18s ease; }
+.filter-select-trigger[aria-expanded='true'] > svg:last-child { transform: rotate(180deg); }
 
 .content-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 31%) minmax(0, 1fr); gap: 12px; }
 .events-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 18px 15px 11px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); }
@@ -71,7 +70,8 @@ a { color: inherit; }
 .forecast-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 0; color: #0b7482; font-size: 13px; font-weight: 800; text-decoration: none; white-space: nowrap; }
 .forecast-link svg { width: 16px; height: 16px; transition: transform .18s ease; }
 .forecast-link:hover svg { transform: translateX(3px); }
-.event-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: #aecbd0 transparent; scrollbar-width: thin; }
+.event-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+.event-list::-webkit-scrollbar { display: none; }
 .event-list > .selected-card { margin: 4px 0; }
 .event-row { width: 100%; min-height: 81px; display: grid; grid-template-columns: 57px minmax(0, 1fr) 16px; align-items: start; gap: 3px; padding: 12px 7px; border: 0; border-top: 1px solid #d6e3e5; border-radius: 0; background: transparent; text-align: left; color: var(--ink); transition: background-color .18s ease; }
 .event-row:hover, .event-row:focus-visible { background: #edf7f7; }
@@ -122,8 +122,6 @@ a { color: inherit; }
 .dot.large { width: 20px; height: 20px; }.dot.medium { width: 16px; height: 16px; }.dot.small { width: 12px; height: 12px; }
 .map-panel .maplibregl-ctrl-scale { border-color: var(--ink); background: rgb(251 253 253 / 80%); color: var(--ink); font: 600 11px 'Martel Sans', Arial, sans-serif; }
 .map-panel .maplibregl-ctrl-bottom-left { bottom: 8px; left: 12px; }
-.map-panel .maplibregl-ctrl-attrib.maplibregl-compact-show:not(:hover):not(:focus-within) { width: 26px; min-height: 26px; }
-.map-panel .maplibregl-ctrl-attrib.maplibregl-compact-show:not(:hover):not(:focus-within) .maplibregl-ctrl-attrib-inner { display: none; }
 .quake-marker { width: 18px; height: 18px; padding: 0; border: 2px solid white; border-radius: 50%; background: var(--event-coral); box-shadow: 0 1px 5px rgb(47 32 26 / 35%); }
 .quake-marker.mag-5 { width: 25px; height: 25px; }.quake-marker.mag-3 { width: 14px; height: 14px; }
 .quake-marker.is-selected { width: 30px; height: 30px; box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--event-coral), 0 2px 8px rgb(47 32 26 / 35%); }
@@ -141,9 +139,9 @@ a { color: inherit; }
   .site-nav { order: 3; width: 100%; height: 40px; justify-content: space-around; gap: 5px; margin: 0; }
   .site-nav a { font-size: 12px; }.site-nav a[aria-current]::after { bottom: 2px; }
   .dashboard { padding: 9px; }.filter-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-bottom: 8px; }
-  .search-field { grid-column: 1 / -1; }.search-field, .select-field { height: 44px; }.select-field { gap: 6px; padding: 0 8px; }
-  .select-field > svg:first-child { width: 15px; height: 15px; }.select-chevron { width: 13px; height: 13px; }
-  .select-field small { font-size: 9px; }.search-field input, .select-field select { font-size: 16px; }
+  .search-field { grid-column: 1 / -1; height: 44px; }
+  .search-field input, .filter-select-trigger { font-size: 16px; }
+  .filter-select-trigger { height: 44px; }
   .content-grid { grid-template-columns: 1fr; grid-template-rows: minmax(0, 43fr) minmax(0, 57fr); gap: 8px; }
   .map-panel { grid-row: 1; }.events-panel { grid-row: 2; padding: 10px; }
   .events-head { flex-wrap: nowrap; padding-bottom: 8px; }.events-head h1 { font-size: 19px; }.events-head p { font-size: 10px; }
@@ -164,6 +162,6 @@ a { color: inherit; }
   .dot.large { width: 16px; height: 16px; }.dot.medium { width: 13px; height: 13px; }.dot.small { width: 10px; height: 10px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .alerts-button, .retry-button, .terrain-button, .map-tools button, .forecast-link svg { transition: none; }
+  .alerts-button, .retry-button, .terrain-button, .map-tools button, .forecast-link svg, .filter-select-trigger > svg:last-child { transition: none; }
   .event-list .selection-enter, .event-list .selection-exit { animation: selection-fade 100ms ease-out both; }
 }
