@@ -11,6 +11,26 @@ type Props = {
   onSelect: (id: string) => void;
 };
 
+const magnitudeBands = [
+  { minimum: 6, className: "mag-6", label: "M6.0+" },
+  { minimum: 5, className: "mag-5", label: "M5.0–<6.0" },
+  { minimum: 4, className: "mag-4", label: "M4.0–<5.0" },
+  {
+    minimum: 3,
+    className: "mag-3",
+    label:
+      "M3.0–<4.0                                                           ",
+  },
+  { minimum: -Infinity, className: "mag-under-3", label: "Below M3.0" },
+] as const;
+
+function magnitudeBand(value: number) {
+  return (
+    magnitudeBands.find((band) => value >= band.minimum) ??
+    magnitudeBands.at(-1)!
+  );
+}
+
 export default function MapPanel({ events, selectedId, onSelect }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<Map | null>(null);
@@ -23,6 +43,7 @@ export default function MapPanel({ events, selectedId, onSelect }: Props) {
   useEffect(() => {
     if (!container.current) return;
     let disposed = false;
+    const attributionListeners = new AbortController();
     import("maplibre-gl")
       .then((ml) => {
         if (disposed || !container.current) return;
@@ -42,6 +63,27 @@ export default function MapPanel({ events, selectedId, onSelect }: Props) {
           bearing: 0,
         });
         map.current = instance;
+        // Attach to this map instance, including maps recreated by Fast Refresh.
+        const attribution = instance
+          .getContainer()
+          .querySelector<HTMLDetailsElement>(".maplibregl-ctrl-attrib");
+        if (attribution) {
+          const closeUnlessInside = (target: EventTarget | null) => {
+            if (target instanceof Node && attribution.contains(target)) return;
+            attribution.classList.remove("maplibregl-compact-show");
+            attribution.open = false;
+          };
+          document.addEventListener(
+            "pointerdown",
+            (event) => closeUnlessInside(event.target),
+            { capture: true, signal: attributionListeners.signal },
+          );
+          attribution.addEventListener(
+            "focusout",
+            (event) => closeUnlessInside(event.relatedTarget),
+            { signal: attributionListeners.signal },
+          );
+        }
         instance.on("load", () => {
           if (disposed) return;
           for (const layer of instance.getStyle().layers) {
@@ -77,6 +119,7 @@ export default function MapPanel({ events, selectedId, onSelect }: Props) {
       .catch(() => setMapReady(false));
     return () => {
       disposed = true;
+      attributionListeners.abort();
       markers.current.forEach((marker) => marker.remove());
       markers.current = [];
       map.current?.remove();
@@ -85,41 +128,19 @@ export default function MapPanel({ events, selectedId, onSelect }: Props) {
   }, []);
 
   useEffect(() => {
-    if (!mapReady) return;
-    const attribution = container.current?.querySelector<HTMLDetailsElement>(
-      ".maplibregl-ctrl-attrib",
-    );
-    if (!attribution) return;
-
-    const closeUnlessInside = (target: EventTarget | null) => {
-      if (target instanceof Node && attribution.contains(target)) return;
-      attribution.classList.remove("maplibregl-compact-show");
-      attribution.open = false;
-    };
-    const onPointerDown = (event: PointerEvent) => closeUnlessInside(event.target);
-    const onFocusOut = (event: FocusEvent) => closeUnlessInside(event.relatedTarget);
-
-    document.addEventListener("pointerdown", onPointerDown, true);
-    attribution.addEventListener("focusout", onFocusOut);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      attribution.removeEventListener("focusout", onFocusOut);
-    };
-  }, [mapReady]);
-
-  useEffect(() => {
     if (!mapReady || !map.current) return;
     let cancelled = false;
     import("maplibre-gl").then((ml) => {
       if (cancelled || !map.current) return;
       markers.current.forEach((marker) => marker.remove());
       markers.current = events.map((event) => {
+        const band = magnitudeBand(event.magnitude);
         const button = document.createElement("button");
         button.type = "button";
-        button.className = `quake-marker ${event.magnitude >= 5 ? "mag-5" : event.magnitude >= 4 ? "mag-4" : "mag-3"} ${event.eventId === selectedId ? "is-selected" : ""}`;
+        button.className = `quake-marker ${band.className} ${event.eventId === selectedId ? "is-selected" : ""}`;
         button.setAttribute(
           "aria-label",
-          `Magnitude ${event.magnitude.toFixed(1)}, ${event.locationDescription}`,
+          `Magnitude ${event.magnitude.toFixed(1)}, ${band.label}, ${event.locationDescription}`,
         );
         button.title = `M${event.magnitude.toFixed(1)} · ${event.locationDescription}`;
         button.addEventListener("click", () =>
@@ -197,17 +218,12 @@ export default function MapPanel({ events, selectedId, onSelect }: Props) {
       </div>
       <div className="map-legend" aria-label="Magnitude legend">
         <strong>Magnitude (M)</strong>
-        <span>
-          <i className="dot large" />≥ 5.0
-        </span>
-        <span>
-          <i className="dot medium" />
-          4.0 – 4.9
-        </span>
-        <span>
-          <i className="dot small" />
-          3.0 – 3.9
-        </span>
+        {magnitudeBands.map((band) => (
+          <span key={band.className}>
+            <i className={`dot ${band.className}`} aria-hidden="true" />
+            {band.label}
+          </span>
+        ))}
       </div>
     </section>
   );

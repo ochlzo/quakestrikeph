@@ -68,7 +68,7 @@ The public Bulletin leads with recent earthquakes and a selected event alongside
 
 ## Colors
 
-Deep navy carries primary text, cool canvas and white surfaces support dense information, and coastal teal marks navigation and actions. Coral is reserved for event markers and the map legend. `map-water` is the water fill in the live map.
+Deep navy carries primary text, cool canvas and white surfaces support dense information, and coastal teal marks navigation and actions. Map markers use a slate-to-red categorical scale for observed magnitude, with coral at M5.0–<6.0. The bands follow [PHIVOLCS magnitude terms](https://www.phivolcs.dost.gov.ph/primer-on-the-27-july-2022-magnitude-mw-7-0-northwestern-luzon-earthquake/): minor M3.0–<4.0, light M4.0–<5.0, moderate M5.0–<6.0, and strong or greater M6.0+. Below M3.0 is shown without a PHIVOLCS class name. Pin color encodes magnitude; all pins are the same size. Color does not represent local shaking or damage. `map-water` is the water fill in the live map.
 
 ## Typography
 
@@ -84,7 +84,7 @@ Borders and tonal surfaces separate panels. A small, soft shadow lifts floating 
 
 ## Shapes
 
-Panels use 16px corners; fields and selected event cards use 10px corners. Event pins are circular, with a larger outlined ring for the selected plot.
+Panels use 16px corners; fields and selected event cards use 10px corners. Event pins are uniform circles, with an inset navy ring for the selected plot.
 
 ## Components
 
