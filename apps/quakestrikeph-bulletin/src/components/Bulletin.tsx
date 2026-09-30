@@ -89,7 +89,7 @@ export default function Bulletin() {
         setSelectedId((current) =>
           data.items.some((item) => item.eventId === current)
             ? current
-            : (data.items[0]?.eventId ?? null),
+            : null,
         );
         setStatus("ready");
       } catch {
@@ -167,8 +167,7 @@ export default function Bulletin() {
   const searching =
     location.length !== 1 &&
     (status === "loading" || settledLocation !== location);
-  const selected =
-    visible.find((event) => event.eventId === selectedId) ?? visible[0];
+  const selected = visible.find((event) => event.eventId === selectedId);
   const sourceUrl =
     selectedDetail &&
     selected &&
@@ -377,7 +376,7 @@ export default function Bulletin() {
                   : "No earthquake information is available right now."}
               </div>
             )}
-            {selected && (
+            {visible.length > 0 && (
               <div
                 id="event-list"
                 className="event-list"
