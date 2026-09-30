@@ -5,12 +5,22 @@ import {
   Bell,
   Calendar,
   ChevronRight,
+  Earth,
   ExternalLink,
   Search,
   Stone,
 } from "lucide-react";
 import MapPanel from "./MapPanel";
 import { bulletinApi } from "../lib/api/client";
+import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -403,19 +413,32 @@ export default function Bulletin() {
               </div>
             )}
             {status === "ready" && settledLocation === location && !visible.length && location && (
-              <div className="search-empty-state">
-                <p role="status">No earthquakes found</p>
-                <button
-                  className="clear-search-button"
-                  type="button"
-                  onClick={() => {
-                    setQuery("");
-                    searchInput.current?.focus();
-                  }}
-                >
-                  Clear search
-                </button>
-              </div>
+              <Empty className="search-empty-state">
+                <EmptyHeader>
+                  <EmptyMedia>
+                    <Earth size={30} strokeWidth={1.8} aria-hidden="true" />
+                  </EmptyMedia>
+                  <EmptyTitle role="status">
+                    No earthquakes found
+                    <span>for “{location}”</span>
+                  </EmptyTitle>
+                  <EmptyDescription>
+                    Try searching for provinces like “Albay”.
+                  </EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                  <Button
+                    variant="outline"
+                    className="clear-search-button"
+                    onPress={() => {
+                      setQuery("");
+                      searchInput.current?.focus();
+                    }}
+                  >
+                    Clear search
+                  </Button>
+                </EmptyContent>
+              </Empty>
             )}
             {visible.length > 0 && (
               <div
