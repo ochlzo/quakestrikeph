@@ -440,6 +440,10 @@ a {
 .event-list > .selected-card {
   margin: 4px 0;
 }
+.event-list-skeleton {
+  display: flex;
+  flex-direction: column;
+}
 .event-row {
   width: 100%;
   min-height: 81px;
@@ -498,6 +502,8 @@ a {
   padding: 12px 8px;
 }
 .event-row-skeleton {
+  flex: 1;
+  align-items: center;
   pointer-events: none;
 }
 .row-v2-measure {
