@@ -354,10 +354,16 @@ export default function Bulletin() {
                 <p>Browse observed events across the Philippines.</p>
               </div>
             </div>
-            {searching && !location && (
+            {searching && (
               <>
-                <span className="sr-only" role="status">Loading recent earthquakes…</span>
-                <div className="event-list event-list-skeleton" aria-label="Recent earthquakes" aria-busy="true">
+                <span className="sr-only" role="status">
+                  {location ? "Searching earthquakes…" : "Loading recent earthquakes…"}
+                </span>
+                <div
+                  className="event-list event-list-skeleton"
+                  aria-label={location ? "Earthquake search results" : "Recent earthquakes"}
+                  aria-busy="true"
+                >
                   {Array.from({ length: 6 }, (_, index) => (
                     <div className="event-row event-row-v2 event-row-skeleton" key={index} aria-hidden="true">
                       <span className="row-v2-measure">
