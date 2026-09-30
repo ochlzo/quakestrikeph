@@ -909,7 +909,10 @@ a {
   border-radius: 5px;
   background: #fbfdfd;
   color: var(--ink);
-  font: 600 11px/1.35 "Martel Sans", Arial, sans-serif;
+  font:
+    600 11px/1.35 "Martel Sans",
+    Arial,
+    sans-serif;
   pointer-events: none;
 }
 .forecast-map-radius {
