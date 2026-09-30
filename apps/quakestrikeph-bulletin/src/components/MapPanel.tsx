@@ -152,7 +152,7 @@ export default function MapPanel({
           attributionControl: {
             compact: true,
             customAttribution:
-              '<a href="https://mapterhorn.com/attribution/" target="_blank" rel="noopener noreferrer">© Mapterhorn</a>',
+              '<a href="https://mapterhorn.com/attribution/" target="_blank" rel="noopener noreferrer">© Mapterhorn</a> · <a href="https://data.humdata.org/dataset/philippines-administrative-levels-0-to-3" target="_blank" rel="noopener noreferrer">Coastlines: OCHA Philippines / NAMRIA via geoBoundaries (CC BY 3.0 IGO)</a>',
           },
           style: "https://tiles.openfreemap.org/styles/positron",
           maxBounds: philippinesBounds,
@@ -194,6 +194,23 @@ export default function MapPanel({
               instance.setPaintProperty(layer.id, "fill-color", "#a4c6d3");
             }
           }
+          // geoBoundaries gbOpen PHL ADM0, simplified OCHA/NAMRIA geometry;
+          // islets under 0.5 km² are omitted to avoid dark dots at regional zoom.
+          // This avoids the internal edges of OpenMapTiles water polygons.
+          instance.addSource("coastline", {
+            type: "geojson",
+            data: "/assets/map/philippines-coastline.geojson",
+          });
+          instance.addLayer(
+            {
+              id: "coastline-outline",
+              type: "line",
+              source: "coastline",
+              layout: { "line-join": "round", "line-cap": "round" },
+              paint: { "line-color": "#163c61", "line-width": 1.5 },
+            },
+            instance.getStyle().layers.find((layer) => layer.type === "symbol")?.id,
+          );
           instance.addSource("terrain", {
             type: "raster-dem",
             tiles: ["https://tiles.mapterhorn.com/{z}/{x}/{y}.webp"],
