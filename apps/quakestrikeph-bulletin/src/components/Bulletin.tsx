@@ -10,9 +10,10 @@ import {
   Earth,
   ExternalLink,
   Search,
-  Stone,
 } from "lucide-react";
 import MapPanel from "./MapPanel";
+import MagnitudeFilter from "./MagnitudeFilter";
+import { magnitudeRangesForBands } from "../lib/magnitude";
 import { bulletinApi } from "../lib/api/client";
 import { Button, LinkButton } from "@/components/ui/button";
 import { RangeCalendar } from "@/components/ui/calendar";
@@ -85,13 +86,6 @@ function phtDayBoundary(date: DateValue, nextDay = false) {
   ).toISOString();
 }
 
-const magnitudeOptions = [
-  { label: "All magnitudes", value: "all" },
-  { label: "M3.0 and above", value: "3" },
-  { label: "M4.0 and above", value: "4" },
-  { label: "M5.0 and above", value: "5" },
-];
-
 export default function Bulletin() {
   const [query, setQuery] = useState("");
   const [dateFilter, setDateFilter] = useState<DateFilter>({ value: "all" });
@@ -103,8 +97,8 @@ export default function Bulletin() {
   });
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [calendarMonths, setCalendarMonths] = useState(1);
-  const [minMagnitude, setMinMagnitude] = useState("");
-  const [settledMinMagnitude, setSettledMinMagnitude] = useState("");
+  const [magnitudeFilter, setMagnitudeFilter] = useState<string[]>([]);
+  const [settledMagnitudeFilter, setSettledMagnitudeFilter] = useState(magnitudeFilter);
   const [events, setEvents] = useState<Earthquake[]>([]);
   const [settledLocation, setSettledLocation] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -160,7 +154,7 @@ export default function Bulletin() {
             location: location || undefined,
             dateFrom: dateFilter.from,
             dateTo: dateFilter.to,
-            magnitudeRanges: minMagnitude ? [{ from: Number(minMagnitude) }] : undefined,
+            magnitudeRanges: magnitudeRangesForBands(magnitudeFilter),
           },
           signal: controller.signal,
         });
@@ -170,7 +164,7 @@ export default function Bulletin() {
         setNextCursor(data.nextCursor);
         setSettledLocation(location);
         setSettledDateFilter(dateFilter);
-        setSettledMinMagnitude(minMagnitude);
+        setSettledMagnitudeFilter(magnitudeFilter);
         setPreviousId(null);
         setSelectedId((current) =>
           data.items.some((item) => item.eventId === current) ? current : null,
@@ -180,7 +174,7 @@ export default function Bulletin() {
         if (!controller.signal.aborted) {
           setSettledLocation(location);
           setSettledDateFilter(dateFilter);
-          setSettledMinMagnitude(minMagnitude);
+          setSettledMagnitudeFilter(magnitudeFilter);
           setStatus("error");
         }
       }
@@ -194,7 +188,7 @@ export default function Bulletin() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [location, dateFilter, minMagnitude, requestAttempt]);
+  }, [location, dateFilter, magnitudeFilter, requestAttempt]);
 
   async function loadMore() {
     if (
@@ -203,7 +197,7 @@ export default function Bulletin() {
       status !== "ready" ||
       settledLocation !== location ||
       settledDateFilter !== dateFilter ||
-      settledMinMagnitude !== minMagnitude
+      settledMagnitudeFilter !== magnitudeFilter
     )
       return;
     const controller = new AbortController();
@@ -217,7 +211,7 @@ export default function Bulletin() {
           location: location || undefined,
           dateFrom: dateFilter.from,
           dateTo: dateFilter.to,
-          magnitudeRanges: minMagnitude ? [{ from: Number(minMagnitude) }] : undefined,
+          magnitudeRanges: magnitudeRangesForBands(magnitudeFilter),
         },
         signal: controller.signal,
       });
@@ -270,17 +264,17 @@ export default function Bulletin() {
     status === "ready" &&
     settledLocation === location &&
     settledDateFilter === dateFilter &&
-    settledMinMagnitude === minMagnitude;
+    settledMagnitudeFilter === magnitudeFilter;
   const visible = resultsCurrent ? events : [];
   const searching =
     location.length !== 1 &&
     (status === "loading" ||
       settledLocation !== location ||
       settledDateFilter !== dateFilter ||
-      settledMinMagnitude !== minMagnitude);
+      settledMagnitudeFilter !== magnitudeFilter);
   const activeFilterCount = Number(Boolean(location)) +
-    Number(dateFilter.value !== "all") + Number(Boolean(minMagnitude));
-  const emptyStateKind = activeFilterCount > 1 || minMagnitude
+    Number(dateFilter.value !== "all") + Number(magnitudeFilter.length > 0);
+  const emptyStateKind = activeFilterCount > 1 || magnitudeFilter.length > 0
     ? "generic"
     : location
       ? "search"
@@ -524,29 +518,14 @@ export default function Bulletin() {
               />
             </Dialog>
           </Popover>
-          <Select
-            aria-label="Minimum magnitude"
-            className="w-full"
-            value={minMagnitude || "all"}
-            onChange={(value) =>
-              setMinMagnitude(value === "all" ? "" : String(value))
-            }
-          >
-            <SelectTrigger className="filter-select-trigger">
-              <Stone className="filter-select-icon size-5" aria-hidden="true" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectLabel>Minimum magnitude</SelectLabel>
-                {magnitudeOptions.map((option) => (
-                  <SelectItem key={option.value} id={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+          <MagnitudeFilter
+            value={magnitudeFilter}
+            onApply={(keys) => setMagnitudeFilter((current) =>
+              current.length === keys.length && current.every((key, index) => key === keys[index])
+                ? current
+                : keys,
+            )}
+          />
         </div>
 
         <div className="content-grid">
@@ -601,7 +580,7 @@ export default function Bulletin() {
             {status === "error" &&
               settledLocation === location &&
               settledDateFilter === dateFilter &&
-              settledMinMagnitude === minMagnitude && (
+              settledMagnitudeFilter === magnitudeFilter && (
                 <div className="notice" role="alert">
                   <p>Earthquake data is unavailable right now.</p>
                   <Button
@@ -648,7 +627,7 @@ export default function Bulletin() {
                     onPress={() => {
                       if (emptyStateKind !== "date") setQuery("");
                       if (emptyStateKind !== "search") setDateFilter({ value: "all" });
-                      if (emptyStateKind === "generic") setMinMagnitude("");
+                      if (emptyStateKind === "generic") setMagnitudeFilter([]);
                       if (emptyStateKind === "search") searchInput.current?.focus();
                     }}
                   >

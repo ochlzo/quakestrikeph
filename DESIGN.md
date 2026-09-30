@@ -89,7 +89,7 @@ Panels use 16px corners; fields and selected event cards use 10px corners. Event
 ## Components
 
 - **Primary action:** solid coastal teal with white text; deepens on hover and retains a visible focus outline.
-- **Filters:** white 10px fields with navy icons and labels; date and magnitude use native select controls.
+- **Filters:** white rounded fields with navy icons and labels. Date uses a select with a custom range calendar. Magnitude uses a searchable shadcn multiselect combobox with the map legend's five bands and colored dots and removable selection chips. All magnitudes is the first and default option; selecting it deselects the other ranges, and selecting a range deselects All magnitudes. Removing the last range returns to All magnitudes. The default field shows All magnitudes as plain text, replaced by Search ranges when focused. The chevron stays on the right and rotates on focus and blur. Magnitude changes apply when focus leaves the field. The filter and map legend labels are Below M3.0, M3.0 - M3.9, M4.0 - M4.9, M5.0 - M5.9, and Above M6.0. The upper band includes M6.0 and greater.
 - **Event list:** one expanded selected card followed by compact selectable rows. The selected card shows observed magnitude, Philippine time, location, depth, source, and a forecast link.
 - **Map:** live relief tiles, clickable event markers, terrain toggle, zoom and recenter controls, a magnitude legend, and a scale that updates with zoom.
 - **Navigation:** Earthquakes, Forecasts, About, and Receive alerts. Only public reading is available without an account; alert setup is labeled as planned.

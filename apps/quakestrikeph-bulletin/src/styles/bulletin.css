@@ -274,6 +274,108 @@ a {
   outline: none;
 }
 
+.magnitude-filter {
+  min-width: 0;
+}
+.magnitude-filter-field {
+  flex-wrap: nowrap;
+  min-height: 49px;
+  gap: 7px;
+  padding: 7px 10px;
+  border-color: #c6d7dc;
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+}
+.magnitude-filter-field:hover {
+  border-color: #7baeb5;
+}
+.magnitude-filter-field:focus-within {
+  border-color: var(--coastal-teal);
+  box-shadow: 0 0 0 3px #d7eeee;
+}
+.magnitude-filter-values {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.magnitude-filter-field [data-slot="combobox-chip"] {
+  height: auto;
+  min-height: 28px;
+  max-width: 100%;
+  gap: 5px;
+  padding-left: 6px;
+  background: var(--selected-aqua);
+  color: var(--ink);
+  font-size: 11px;
+}
+.magnitude-filter-field [data-slot="combobox-chip-remove"] {
+  width: 24px;
+  height: 28px;
+  margin-left: 0;
+  opacity: 1;
+  color: var(--supporting-blue);
+}
+.magnitude-filter-field [data-slot="combobox-chip-input"] {
+  width: 0;
+  min-width: 75px;
+  height: 28px;
+  color: var(--ink);
+  font-size: 13px;
+  caret-color: var(--coastal-teal);
+}
+.magnitude-filter-field [data-slot="combobox-chip-input"]:focus-visible {
+  outline: none;
+}
+.magnitude-filter-field input::placeholder {
+  color: #49667b;
+  opacity: 1;
+}
+.magnitude-filter-field[data-all-magnitudes]:not(:focus-within) input::placeholder {
+  color: var(--ink);
+}
+.magnitude-filter-trigger {
+  flex: none;
+  min-height: 28px;
+  padding: 0 4px;
+  color: var(--supporting-blue);
+}
+.magnitude-filter-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+}
+.magnitude-filter-trigger > svg {
+  transition: transform 0.18s ease;
+}
+.magnitude-filter-field:focus-within .magnitude-filter-trigger > svg {
+  transform: rotate(180deg);
+}
+.magnitude-filter-popover {
+  font-family: "Martel Sans", Arial, sans-serif;
+  color: var(--ink);
+  background: var(--surface);
+}
+.magnitude-filter-popover [data-slot="combobox-item"] {
+  min-height: 38px;
+  gap: 9px;
+  font-size: 12px;
+}
+.magnitude-filter-popover [data-slot="combobox-item"][data-focused] {
+  background: var(--selected-aqua);
+}
+.magnitude-filter .dot,
+.magnitude-filter-popover .dot {
+  width: 10px;
+  height: 10px;
+  border: 0;
+  box-shadow: none;
+}
+
 .content-grid {
   flex: 1;
   min-height: 0;
@@ -958,6 +1060,14 @@ a {
   }
   .filter-select-trigger {
     height: 44px;
+  }
+  .magnitude-filter-field {
+    min-height: 44px;
+    padding: 5px 6px;
+    gap: 4px;
+  }
+  .magnitude-filter-field [data-slot="combobox-chip-input"] {
+    font-size: 16px;
   }
   .date-filter-trigger {
     font-size: 12px;

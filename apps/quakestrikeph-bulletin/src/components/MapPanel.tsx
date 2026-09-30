@@ -6,6 +6,7 @@ import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import type { Earthquake, Forecast } from "../lib/events";
+import { magnitudeBands } from "../lib/magnitude";
 
 type Props = {
   events: Earthquake[];
@@ -77,17 +78,9 @@ function forecastEnd(value: string) {
   }).format(new Date(value))} PHT`;
 }
 
-const magnitudeBands = [
-  { minimum: 6, className: "mag-6", label: "M6.0+" },
-  { minimum: 5, className: "mag-5", label: "M5.0–<6.0" },
-  { minimum: 4, className: "mag-4", label: "M4.0–<5.0" },
-  { minimum: 3, className: "mag-3", label: "M3.0–<4.0" },
-  { minimum: -Infinity, className: "mag-under-3", label: "Below M3.0" },
-] as const;
-
 function magnitudeBand(value: number) {
   return (
-    magnitudeBands.find((band) => value >= band.minimum) ??
+    magnitudeBands.find((band) => value >= (band.range.from ?? -Infinity)) ??
     magnitudeBands.at(-1)!
   );
 }
