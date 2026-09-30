@@ -354,19 +354,22 @@ export default function Bulletin() {
                     {pageStatus === "error" && (
                       <p role="alert">Could not load more earthquakes. Please try again.</p>
                     )}
-                    <button
-                      className="retry-button"
-                      type="button"
+                    <a
+                      className="load-more-link"
+                      href="#event-list"
                       aria-controls="event-list"
-                      disabled={pageStatus === "loading"}
-                      onClick={() => void loadMore()}
+                      aria-disabled={pageStatus === "loading"}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        if (pageStatus !== "loading") void loadMore();
+                      }}
                     >
                       {pageStatus === "loading"
                         ? "Loading more earthquakes…"
                         : pageStatus === "error"
                           ? "Try again"
                           : "Load more earthquakes"}
-                    </button>
+                    </a>
                   </div>
                 )}
               </div>
