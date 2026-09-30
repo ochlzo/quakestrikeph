@@ -17,6 +17,10 @@ type Props = {
 
 const emptyRadius = { type: "FeatureCollection" as const, features: [] };
 const earthRadiusKm = 6371.0088;
+const philippinesBounds: [[number, number], [number, number]] = [
+  [115, 3.5],
+  [129, 22],
+];
 
 // A great-circle destination keeps the drawn radius in kilometres at any latitude.
 function pointAtDistance(
@@ -131,6 +135,8 @@ export default function MapPanel({
               '<a href="https://mapterhorn.com/attribution/" target="_blank" rel="noopener noreferrer">© Mapterhorn</a>',
           },
           style: "https://tiles.openfreemap.org/styles/positron",
+          maxBounds: philippinesBounds,
+          minZoom: 4,
           center: compact ? [123.1, 11.7] : [123.3, 10.8],
           zoom: compact ? 4.15 : 5.55,
           pitch: compact ? 20 : 42,
