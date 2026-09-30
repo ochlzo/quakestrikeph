@@ -10,6 +10,7 @@ import {
   Stone,
 } from "lucide-react";
 import MapPanel from "./MapPanel";
+import { bulletinApi } from "../lib/api/client";
 import {
   Select,
   SelectContent,
@@ -63,17 +64,11 @@ export default function Bulletin() {
     async function loadEvents() {
       setStatus("loading");
       try {
-        const response = await fetch("/api/v1/earthquakes/search", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ limit: 30 }),
+        const { data } = await bulletinApi.POST("/earthquakes/search", {
+          body: { limit: 30 },
           signal: controller.signal,
         });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = (await response.json()) as {
-          items: Earthquake[];
-          hasMore: boolean;
-        };
+        if (!data) throw new Error("Search failed");
         setEvents(data.items);
         setMore(data.hasMore);
         setSelectedId((current) =>
@@ -101,15 +96,12 @@ export default function Bulletin() {
     const controller = new AbortController();
     setSelectedDetail(null);
     setDetailStatus("loading");
-    fetch(`/api/v1/earthquakes/${encodeURIComponent(selectedId)}`, {
+    bulletinApi.GET("/earthquakes/{eventId}", {
+      params: { path: { eventId: selectedId } },
       signal: controller.signal,
     })
-      .then((response) =>
-        response.ok
-          ? response.json()
-          : Promise.reject(new Error("detail failed")),
-      )
-      .then((data: { item: EarthquakeDetail }) => {
+      .then(({ data }) => {
+        if (!data) throw new Error("Detail failed");
         if (controller.signal.aborted) return;
         setSelectedDetail(data.item);
         setDetailStatus("ready");
