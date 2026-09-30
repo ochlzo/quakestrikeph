@@ -90,6 +90,21 @@ function magnitudeBand(value: number) {
   );
 }
 
+function set3DInteractions(instance: MapLibreMap, enabled: boolean) {
+  instance.setMaxPitch(enabled ? 60 : 0);
+  if (enabled) {
+    instance.dragRotate.enable();
+    instance.touchPitch.enable();
+    instance.touchZoomRotate.enableRotation();
+    instance.keyboard.enableRotation();
+  } else {
+    instance.dragRotate.disable();
+    instance.touchPitch.disable();
+    instance.touchZoomRotate.disableRotation();
+    instance.keyboard.disableRotation();
+  }
+}
+
 export default function MapPanel({
   events,
   selectedId,
@@ -106,7 +121,7 @@ export default function MapPanel({
   const onSelectRef = useRef(onSelect);
   const selectedIdRef = useRef(selectedId);
   const [annotationHost, setAnnotationHost] = useState<HTMLDivElement | null>(null);
-  const [terrain, setTerrain] = useState(true);
+  const [terrain, setTerrain] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   onSelectRef.current = onSelect;
   selectedIdRef.current = selectedId;
@@ -142,9 +157,10 @@ export default function MapPanel({
           minZoom: 3.25,
           center: compact ? [123.1, 11.7] : [123.3, 10.8],
           zoom: compact ? 4.15 : 5.55,
-          pitch: compact ? 20 : 42,
+          pitch: 0,
           bearing: 0,
         });
+        set3DInteractions(instance, false);
         map.current = instance;
         // Attach to this map instance, including maps recreated by Fast Refresh.
         const attribution = instance
@@ -181,11 +197,11 @@ export default function MapPanel({
             maxzoom: 12,
             encoding: "terrarium",
           });
-          instance.setTerrain({ source: "terrain", exaggeration: 1.3 });
           instance.addLayer({
             id: "terrain-shade",
             type: "hillshade",
             source: "terrain",
+            layout: { visibility: "none" },
             paint: {
               "hillshade-shadow-color": "#3e6c6d",
               "hillshade-highlight-color": "#ffffff",
@@ -392,17 +408,24 @@ export default function MapPanel({
     });
   }
   function toggleTerrain() {
-    if (!map.current) return;
+    if (!mapReady || !map.current) return;
     const next = !terrain;
     map.current.setTerrain(
       next ? { source: "terrain", exaggeration: 1.3 } : null,
     );
+    map.current.setLayoutProperty(
+      "terrain-shade",
+      "visibility",
+      next ? "visible" : "none",
+    );
+    set3DInteractions(map.current, next);
     map.current.easeTo({
       pitch: next
         ? window.matchMedia("(max-width: 600px)").matches
           ? 20
           : 42
         : 0,
+      bearing: next ? map.current.getBearing() : 0,
       duration: 500,
     });
     setTerrain(next);
@@ -452,6 +475,7 @@ export default function MapPanel({
         className="terrain-button"
         type="button"
         onClick={toggleTerrain}
+        disabled={!mapReady}
         aria-pressed={terrain}
         aria-label="3D terrain"
       >

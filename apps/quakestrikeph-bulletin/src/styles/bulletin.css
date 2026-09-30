@@ -654,10 +654,14 @@ a {
     background-color 0.18s ease,
     transform 0.18s ease;
 }
-.terrain-button:hover,
+.terrain-button:not(:disabled):hover,
 .map-tools button:hover {
   background: #eaf6f6;
   transform: translateY(-1px);
+}
+.terrain-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 .terrain-label {
   white-space: nowrap;
