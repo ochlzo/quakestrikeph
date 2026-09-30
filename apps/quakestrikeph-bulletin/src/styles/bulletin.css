@@ -28,7 +28,6 @@ html {
 body {
   margin: 0;
 }
-button,
 input,
 select {
   font: inherit;
@@ -160,25 +159,11 @@ a {
   color: var(--coastal-teal);
 }
 .alerts-button {
-  height: 44px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 14px;
-  border-radius: 10px;
   background: var(--coastal-teal);
   color: white;
-  font-size: 13px;
-  font-weight: 700;
-  text-decoration: none;
-  white-space: nowrap;
-  transition:
-    background-color 0.18s ease,
-    transform 0.18s ease;
 }
 .alerts-button:hover {
   background: var(--coastal-teal-deep);
-  transform: translateY(-1px);
 }
 
 .dashboard {
@@ -446,19 +431,17 @@ a {
 }
 .event-row {
   width: 100%;
+  height: auto;
   min-height: 81px;
   display: grid;
   grid-template-columns: 57px minmax(0, 1fr) 16px;
   align-items: start;
   gap: 3px;
-  padding: 12px 7px;
-  border: 0;
+  padding-block: 8px;
   border-top: 1px solid #d6e3e5;
-  border-radius: 0;
   background: transparent;
   text-align: left;
   color: var(--ink);
-  transition: background-color 0.18s ease;
 }
 .event-row:hover,
 .event-row:focus-visible {
@@ -499,7 +482,6 @@ a {
 .event-row-v2 {
   grid-template-columns: 72px minmax(0, 1fr) 16px;
   gap: 12px;
-  padding: 12px 8px;
 }
 .event-row-skeleton {
   flex: 1;
@@ -664,42 +646,21 @@ a {
   font-size: 12px;
 }
 .clear-search-button {
-  min-height: 36px;
-  padding: 0 14px;
-  border: 1px solid #8aafb6;
-  border-radius: 9px;
+  border-color: #8aafb6;
   background: #fff;
   color: var(--coastal-teal-deep);
-  font-size: 12px;
-  font-weight: 800;
 }
 .clear-search-button:hover {
   border-color: var(--coastal-teal-deep);
   background: #e8f3f4;
 }
-.clear-search-button:focus-visible {
-  outline: 2px solid var(--coastal-teal-deep);
-  outline-offset: 3px;
-}
 .retry-button {
-  display: inline-flex;
-  align-items: center;
-  min-height: 38px;
   margin-top: 12px;
-  padding: 0 15px;
-  border: 0;
-  border-radius: 9px;
   background: var(--coastal-teal);
   color: white;
-  font-size: 12px;
-  font-weight: 800;
-  transition:
-    background-color 0.18s ease,
-    transform 0.18s ease;
 }
 .retry-button:hover {
   background: var(--coastal-teal-deep);
-  transform: translateY(-1px);
 }
 
 .map-panel {
@@ -736,27 +697,13 @@ a {
   top: 14px;
   left: 14px;
   min-width: 145px;
-  height: 44px;
-  display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 10px;
   background: #fbfdfd;
   color: var(--ink);
-  box-shadow: 0 2px 9px rgb(10 45 60 / 13%);
-  font-size: 12px;
-  font-weight: 800;
-  transition:
-    background-color 0.18s ease,
-    transform 0.18s ease;
 }
 .terrain-button:not(:disabled):hover,
 .map-tools button:hover {
   background: #eaf6f6;
-  transform: translateY(-1px);
 }
 .terrain-button:disabled {
   cursor: wait;
@@ -796,18 +743,8 @@ a {
   gap: 2px;
 }
 .map-tools button {
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 9px;
   background: #fbfdfd;
   color: var(--ink);
-  box-shadow: 0 2px 9px rgb(10 45 60 / 13%);
-  transition:
-    background-color 0.18s ease,
-    transform 0.18s ease;
 }
 .map-tools button:last-child {
   margin-top: 3px;
@@ -985,11 +922,6 @@ a {
     font-size: 7px;
     letter-spacing: 0.16em;
   }
-  .alerts-button {
-    height: 44px;
-    padding: 0 10px;
-    font-size: 11px;
-  }
   .site-nav {
     order: 3;
     width: 100%;
@@ -1084,7 +1016,6 @@ a {
   }
   .event-row {
     min-height: 65px;
-    padding: 8px 5px;
   }
   .map-legend {
     bottom: 44px;
@@ -1117,14 +1048,6 @@ a {
     font-size: 6px;
     letter-spacing: 0.1em;
   }
-  .alerts-button {
-    gap: 4px;
-    padding: 0 7px;
-    font-size: 10px;
-  }
-  .alerts-button svg {
-    width: 13px;
-  }
   .search-field {
     padding: 0 10px;
   }
@@ -1137,9 +1060,6 @@ a {
   .terrain-button {
     top: 8px;
     left: 8px;
-    min-width: 132px;
-    padding: 0 8px;
-    font-size: 10px;
   }
   .map-tools {
     top: 8px;
@@ -1149,9 +1069,6 @@ a {
   }
   .map-tools button:last-child {
     margin-top: 0;
-  }
-  .map-tools svg {
-    width: 17px;
   }
   .map-legend {
     right: 8px;

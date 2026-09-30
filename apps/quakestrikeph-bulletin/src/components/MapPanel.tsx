@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Layers3, LocateFixed, Minus, Plus } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
 import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
@@ -17,6 +18,7 @@ type Props = {
 
 const emptyRadius = { type: "FeatureCollection" as const, features: [] };
 const earthRadiusKm = 6371.0088;
+const markerButtonClass = buttonVariants({ variant: "ghost", size: "icon" });
 const philippinesBounds: [[number, number], [number, number]] = [
   [110, 0],
   [135, 26],
@@ -281,7 +283,7 @@ export default function MapPanel({
         }
         const button = document.createElement("button");
         button.type = "button";
-        button.className = `quake-marker ${band.className} ${event.eventId === selectedIdRef.current ? "is-selected" : ""}`;
+        button.className = `${markerButtonClass} quake-marker ${band.className} ${event.eventId === selectedIdRef.current ? "is-selected" : ""}`;
         button.setAttribute(
           "aria-label",
           `Magnitude ${event.magnitude.toFixed(1)}, ${band.label}, ${event.locationDescription}`,
@@ -473,11 +475,11 @@ export default function MapPanel({
           </div>,
           annotationHost,
         )}
-      <button
+      <Button
+        variant="outline"
         className="terrain-button"
-        type="button"
-        onClick={toggleTerrain}
-        disabled={!mapReady}
+        onPress={toggleTerrain}
+        isDisabled={!mapReady}
         aria-pressed={terrain}
         aria-label="3D terrain"
       >
@@ -486,17 +488,17 @@ export default function MapPanel({
         <span className="terrain-switch" aria-hidden="true">
           <span className="terrain-thumb" />
         </span>
-      </button>
+      </Button>
       <div className="map-tools">
-        <button onClick={() => zoom(1)} aria-label="Zoom in">
-          <Plus size={20} />
-        </button>
-        <button onClick={() => zoom(-1)} aria-label="Zoom out">
-          <Minus size={20} />
-        </button>
-        <button onClick={recenter} aria-label="Show the Philippines">
-          <LocateFixed size={19} />
-        </button>
+        <Button variant="outline" size="icon" onPress={() => zoom(1)} aria-label="Zoom in">
+          <Plus aria-hidden="true" />
+        </Button>
+        <Button variant="outline" size="icon" onPress={() => zoom(-1)} aria-label="Zoom out">
+          <Minus aria-hidden="true" />
+        </Button>
+        <Button variant="outline" size="icon" onPress={recenter} aria-label="Show the Philippines">
+          <LocateFixed aria-hidden="true" />
+        </Button>
       </div>
       <div className="map-legend" aria-label="Magnitude legend">
         <strong>Magnitude (M)</strong>

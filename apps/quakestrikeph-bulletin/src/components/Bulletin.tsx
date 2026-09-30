@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import MapPanel from "./MapPanel";
 import { bulletinApi } from "../lib/api/client";
-import { Button } from "@/components/ui/button";
+import { Button, LinkButton } from "@/components/ui/button";
 import {
   Empty,
   EmptyContent,
@@ -237,10 +237,11 @@ export default function Bulletin() {
           </div>
         </article>
       ) : (
-        <button
+        <Button
           key={event.eventId}
+          variant="ghost"
           className={`event-row event-row-v2${event.eventId === previousId ? " selection-exit" : ""}`}
-          onClick={() => selectEvent(event.eventId)}
+          onPress={() => selectEvent(event.eventId)}
         >
           <span className="row-v2-measure">
             <strong>{magnitude(event.magnitude)}</strong>
@@ -258,7 +259,7 @@ export default function Bulletin() {
             <small>PHIVOLCS</small>
           </span>
           <ChevronRight aria-hidden="true" />
-        </button>
+        </Button>
       ),
     );
 
@@ -281,10 +282,10 @@ export default function Bulletin() {
           <a href="/forecasts">Forecasts</a>
           <a href="/about">About</a>
         </nav>
-        <a className="alerts-button" href="/alerts">
-          <Bell size={17} aria-hidden="true" />
+        <LinkButton className="alerts-button" href="/alerts">
+          <Bell data-icon="inline-start" aria-hidden="true" />
           Receive alerts
-        </a>
+        </LinkButton>
       </header>
 
       <main className="dashboard">
@@ -398,13 +399,12 @@ export default function Bulletin() {
             {status === "error" && settledLocation === location && (
               <div className="notice" role="alert">
                 <p>Earthquake data is unavailable right now.</p>
-                <button
+                <Button
                   className="retry-button"
-                  type="button"
-                  onClick={() => setRequestAttempt((attempt) => attempt + 1)}
+                  onPress={() => setRequestAttempt((attempt) => attempt + 1)}
                 >
                   Try again
-                </button>
+                </Button>
               </div>
             )}
             {status === "ready" && settledLocation === location && !visible.length && !location && (
