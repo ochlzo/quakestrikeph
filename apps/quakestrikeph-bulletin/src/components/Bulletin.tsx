@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import MapPanel from "./MapPanel";
 import { bulletinApi } from "../lib/api/client";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -354,9 +355,24 @@ export default function Bulletin() {
               </div>
             </div>
             {searching && !location && (
-              <div className="notice" role="status">
-                Loading recent earthquakes…
-              </div>
+              <>
+                <span className="sr-only" role="status">Loading recent earthquakes…</span>
+                <div className="event-list event-list-skeleton" aria-label="Recent earthquakes" aria-busy="true">
+                  {Array.from({ length: 6 }, (_, index) => (
+                    <div className="event-row event-row-v2 event-row-skeleton" key={index} aria-hidden="true">
+                      <span className="row-v2-measure">
+                        <Skeleton className="h-6 w-12" />
+                        <Skeleton className="h-3 w-14" />
+                      </span>
+                      <span className="row-v2-detail">
+                        <Skeleton className="h-4 w-4/5" />
+                        <Skeleton className="h-3 w-3/5" />
+                        <Skeleton className="h-3 w-16" />
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
             {location.length === 1 && (
               <div className="notice" role="status">

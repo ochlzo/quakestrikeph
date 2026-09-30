@@ -497,6 +497,9 @@ a {
   gap: 12px;
   padding: 12px 8px;
 }
+.event-row-skeleton {
+  pointer-events: none;
+}
 .row-v2-measure {
   display: flex;
   flex-direction: column;
@@ -1156,6 +1159,9 @@ a {
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .event-list-skeleton [data-slot="skeleton"] {
+    animation: none;
+  }
   .search-spinner,
   .load-more-link[aria-disabled="true"]::after {
     animation: none;
