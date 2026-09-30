@@ -269,6 +269,10 @@ a {
 .filter-select-trigger[aria-expanded="true"] > svg:last-child {
   transform: rotate(180deg);
 }
+.date-range-dialog:focus-visible,
+.date-range-dialog :focus-visible {
+  outline: none;
+}
 
 .content-grid {
   flex: 1;
@@ -850,7 +854,7 @@ a {
     600 11px/1.35 "Martel Sans",
     Arial,
     sans-serif;
-  pointer-events: none;
+  pointer-events: auto;
 }
 .forecast-map-radius {
   color: var(--coastal-teal-deep);
@@ -954,6 +958,16 @@ a {
   }
   .filter-select-trigger {
     height: 44px;
+  }
+  .date-filter-trigger {
+    font-size: 12px;
+  }
+  .date-filter-trigger [data-slot="select-value"] {
+    display: block;
+    overflow: visible;
+    -webkit-line-clamp: unset;
+    white-space: pre-line;
+    line-height: 1.25;
   }
   .content-grid {
     grid-template-columns: 1fr;

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { today } from "@internationalized/date";
+import { Dialog, type DateValue, type RangeValue } from "react-aria-components";
 import {
   Activity,
   ArrowRight,
@@ -13,6 +15,7 @@ import {
 import MapPanel from "./MapPanel";
 import { bulletinApi } from "../lib/api/client";
 import { Button, LinkButton } from "@/components/ui/button";
+import { RangeCalendar } from "@/components/ui/calendar";
 import {
   Empty,
   EmptyContent,
@@ -22,12 +25,14 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Popover } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
   SelectGroup,
   SelectItem,
   SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -46,6 +51,40 @@ const dateOptions = [
   { label: "Last 30 days", value: "30" },
 ];
 
+type DateFilter = { value: string; from?: string; to?: string };
+
+function formatDate(date: Date, year = true) {
+  return new Intl.DateTimeFormat("en-PH", {
+    timeZone: "Asia/Manila",
+    month: "short",
+    day: "numeric",
+    ...(year ? { year: "numeric" } : {}),
+  }).format(date);
+}
+
+function formatCalendarDate(date: DateValue, year = true) {
+  return formatDate(
+    new Date(Date.UTC(date.year, date.month - 1, date.day, 12)),
+    year,
+  );
+}
+
+function formatCalendarRange(range: RangeValue<DateValue>) {
+  const { start, end } = range;
+  if (start.compare(end) === 0) return formatCalendarDate(start);
+  if (start.year !== end.year) {
+    return `${formatCalendarDate(start)} - ${formatCalendarDate(end)}`;
+  }
+  return `${formatCalendarDate(start, false)} - ${formatCalendarDate(end)}`;
+}
+
+function phtDayBoundary(date: DateValue, nextDay = false) {
+  return new Date(
+    Date.UTC(date.year, date.month - 1, date.day + Number(nextDay)) -
+      8 * 60 * 60 * 1000,
+  ).toISOString();
+}
+
 const magnitudeOptions = [
   { label: "All magnitudes", value: "all" },
   { label: "M3.0 and above", value: "3" },
@@ -55,26 +94,53 @@ const magnitudeOptions = [
 
 export default function Bulletin() {
   const [query, setQuery] = useState("");
-  const [dateRange, setDateRange] = useState("all");
+  const [dateFilter, setDateFilter] = useState<DateFilter>({ value: "all" });
+  const [settledDateFilter, setSettledDateFilter] =
+    useState<DateFilter>(dateFilter);
+  const [customRange, setCustomRange] = useState<RangeValue<DateValue>>(() => {
+    const end = today("Asia/Manila");
+    return { start: end.subtract({ days: 30 }), end };
+  });
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarMonths, setCalendarMonths] = useState(1);
   const [minMagnitude, setMinMagnitude] = useState("");
+  const [settledMinMagnitude, setSettledMinMagnitude] = useState("");
   const [events, setEvents] = useState<Earthquake[]>([]);
   const [settledLocation, setSettledLocation] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusRequest, setFocusRequest] = useState(0);
   const [previousId, setPreviousId] = useState<string | null>(null);
-  const [selectedDetail, setSelectedDetail] = useState<EarthquakeDetail | null>(null);
-  const [detailStatus, setDetailStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [selectedDetail, setSelectedDetail] = useState<EarthquakeDetail | null>(
+    null,
+  );
+  const [detailStatus, setDetailStatus] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
     "loading",
   );
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [pageStatus, setPageStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [pageStatus, setPageStatus] = useState<"idle" | "loading" | "error">(
+    "idle",
+  );
   const pageController = useRef<AbortController | null>(null);
   const searchInput = useRef<HTMLInputElement>(null);
+  const dateSelectTrigger = useRef<HTMLButtonElement>(null);
+  const eventList = useRef<HTMLDivElement>(null);
+  const selectedCard = useRef<HTMLElement>(null);
+  const pendingMapSelection = useRef<string | null>(null);
   const [requestAttempt, setRequestAttempt] = useState(0);
   const location = query.trim();
 
   useEffect(() => () => pageController.current?.abort(), []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 640px)");
+    const update = () => setCalendarMonths(media.matches ? 2 : 1);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -89,7 +155,13 @@ export default function Bulletin() {
       setStatus("loading");
       try {
         const { data } = await bulletinApi.POST("/earthquakes/search", {
-          body: { limit: 30, location: location || undefined },
+          body: {
+            limit: 30,
+            location: location || undefined,
+            dateFrom: dateFilter.from,
+            dateTo: dateFilter.to,
+            magnitudeRanges: minMagnitude ? [{ from: Number(minMagnitude) }] : undefined,
+          },
           signal: controller.signal,
         });
         if (controller.signal.aborted) return;
@@ -97,48 +169,66 @@ export default function Bulletin() {
         setEvents(data.items);
         setNextCursor(data.nextCursor);
         setSettledLocation(location);
+        setSettledDateFilter(dateFilter);
+        setSettledMinMagnitude(minMagnitude);
         setPreviousId(null);
         setSelectedId((current) =>
-          data.items.some((item) => item.eventId === current)
-            ? current
-            : null,
+          data.items.some((item) => item.eventId === current) ? current : null,
         );
         setStatus("ready");
       } catch {
         if (!controller.signal.aborted) {
           setSettledLocation(location);
+          setSettledDateFilter(dateFilter);
+          setSettledMinMagnitude(minMagnitude);
           setStatus("error");
         }
       }
     }
 
-    const timer = window.setTimeout(() => void loadEvents(), location ? 300 : 0);
+    const timer = window.setTimeout(
+      () => void loadEvents(),
+      location ? 300 : 0,
+    );
     return () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [location, requestAttempt]);
+  }, [location, dateFilter, minMagnitude, requestAttempt]);
 
   async function loadMore() {
     if (
       !nextCursor ||
       pageController.current ||
       status !== "ready" ||
-      settledLocation !== location
-    ) return;
+      settledLocation !== location ||
+      settledDateFilter !== dateFilter ||
+      settledMinMagnitude !== minMagnitude
+    )
+      return;
     const controller = new AbortController();
     pageController.current = controller;
     setPageStatus("loading");
     try {
       const { data } = await bulletinApi.POST("/earthquakes/search", {
-        body: { limit: 30, cursor: nextCursor, location: location || undefined },
+        body: {
+          limit: 30,
+          cursor: nextCursor,
+          location: location || undefined,
+          dateFrom: dateFilter.from,
+          dateTo: dateFilter.to,
+          magnitudeRanges: minMagnitude ? [{ from: Number(minMagnitude) }] : undefined,
+        },
         signal: controller.signal,
       });
       if (controller.signal.aborted) return;
       if (!data) throw new Error("Search failed");
       setEvents((current) => {
         const seen = new Set(current.map((event) => event.eventId));
-        return [...current, ...data.items.filter((event) => !seen.has(event.eventId))];
+        return [
+          ...current,
+          ...data.items.filter((event) => !seen.has(event.eventId)),
+        ];
       });
       setNextCursor(data.nextCursor);
       setPageStatus("idle");
@@ -157,10 +247,11 @@ export default function Bulletin() {
     const controller = new AbortController();
     setSelectedDetail(null);
     setDetailStatus("loading");
-    bulletinApi.GET("/earthquakes/{eventId}", {
-      params: { path: { eventId: selectedId } },
-      signal: controller.signal,
-    })
+    bulletinApi
+      .GET("/earthquakes/{eventId}", {
+        params: { path: { eventId: selectedId } },
+        signal: controller.signal,
+      })
       .then(({ data }) => {
         if (!data) throw new Error("Detail failed");
         if (controller.signal.aborted) return;
@@ -175,10 +266,30 @@ export default function Bulletin() {
     return () => controller.abort();
   }, [selectedId]);
 
-  const visible = status === "ready" && settledLocation === location ? events : [];
+  const resultsCurrent =
+    status === "ready" &&
+    settledLocation === location &&
+    settledDateFilter === dateFilter &&
+    settledMinMagnitude === minMagnitude;
+  const visible = resultsCurrent ? events : [];
   const searching =
     location.length !== 1 &&
-    (status === "loading" || settledLocation !== location);
+    (status === "loading" ||
+      settledLocation !== location ||
+      settledDateFilter !== dateFilter ||
+      settledMinMagnitude !== minMagnitude);
+  const activeFilterCount = Number(Boolean(location)) +
+    Number(dateFilter.value !== "all") + Number(Boolean(minMagnitude));
+  const emptyStateKind = activeFilterCount > 1 || minMagnitude
+    ? "generic"
+    : location
+      ? "search"
+      : dateFilter.value !== "all"
+        ? "date"
+        : "none";
+  const selectedDateLabel = dateFilter.value === "custom"
+    ? formatCalendarRange(customRange)
+    : dateOptions.find((option) => option.value === dateFilter.value)?.label;
   const selected = visible.find((event) => event.eventId === selectedId);
   const sourceUrl =
     selectedDetail &&
@@ -190,18 +301,67 @@ export default function Bulletin() {
   const forecastHref = selected
     ? `/forecasts?event=${encodeURIComponent(selected.eventId)}`
     : "/forecasts";
-  const selectEvent = (id: string) => {
+  const chooseDateOption = (value: string | number | null) => {
+    if (value === null) return;
+    if (value === "custom") {
+      setCalendarOpen(true);
+      return;
+    }
+    setCalendarOpen(false);
+    setDateFilter(
+      value === "all"
+        ? { value }
+        : {
+            value: String(value),
+            from: new Date(
+              Date.now() - Number(value) * 24 * 60 * 60 * 1000,
+            ).toISOString(),
+          },
+    );
+  };
+  const chooseCustomRange = (range: RangeValue<DateValue>) => {
+    setCustomRange(range);
+    setDateFilter({
+      value: "custom",
+      from: phtDayBoundary(range.start),
+      to: phtDayBoundary(range.end, true),
+    });
+    setCalendarOpen(false);
+  };
+  const selectEvent = (id: string, fromMap = false) => {
+    pendingMapSelection.current = fromMap ? id : null;
     setFocusRequest((current) => current + 1);
     if (id === selected?.eventId) return;
     setDetailStatus("loading");
     setPreviousId(selected?.eventId ?? null);
     setSelectedId(id);
   };
+  useEffect(() => {
+    if (pendingMapSelection.current !== selected?.eventId) return;
+    pendingMapSelection.current = null;
+    const list = eventList.current;
+    const card = selectedCard.current;
+    if (!list || !card) return;
+    const listBounds = list.getBoundingClientRect();
+    const cardBounds = card.getBoundingClientRect();
+    list.scrollTo({
+      top:
+        list.scrollTop +
+        cardBounds.top -
+        listBounds.top +
+        (cardBounds.height - listBounds.height) / 2,
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+    });
+  }, [focusRequest, selected?.eventId]);
+
   const renderRows = () =>
     visible.map((event) =>
       event.eventId === selected?.eventId ? (
         <article
           key={event.eventId}
+          ref={selectedCard}
           className={`selected-card${previousId !== null ? " selection-enter" : ""}`}
           aria-label="Selected earthquake"
         >
@@ -308,15 +468,24 @@ export default function Bulletin() {
           <Select
             aria-label="Date observed"
             className="w-full"
-            value={dateRange}
-            onChange={(value) => setDateRange(String(value))}
+            value={dateFilter.value}
+            onChange={chooseDateOption}
           >
-            <SelectTrigger className="filter-select-trigger">
+            <SelectTrigger
+              ref={dateSelectTrigger}
+              className="filter-select-trigger date-filter-trigger"
+            >
               <Calendar
                 className="filter-select-icon size-5"
                 aria-hidden="true"
               />
-              <SelectValue />
+              <SelectValue>
+                {({ defaultChildren }) =>
+                  dateFilter.value === "custom"
+                    ? formatCalendarRange(customRange)
+                    : defaultChildren
+                }
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
@@ -327,8 +496,34 @@ export default function Bulletin() {
                   </SelectItem>
                 ))}
               </SelectGroup>
+              <SelectSeparator />
+              <SelectGroup>
+                <SelectLabel>Custom date range</SelectLabel>
+                <SelectItem id="custom" onClick={() => setCalendarOpen(true)}>
+                  {formatCalendarRange(customRange)}
+                </SelectItem>
+              </SelectGroup>
             </SelectContent>
           </Select>
+          <Popover
+            triggerRef={dateSelectTrigger}
+            isOpen={calendarOpen}
+            onOpenChange={setCalendarOpen}
+            placement="bottom start"
+            className="w-auto max-w-[calc(100vw-24px)] p-1"
+          >
+            <Dialog
+              aria-label="Choose custom date range"
+              className="date-range-dialog"
+            >
+              <RangeCalendar
+                aria-label="Earthquake date range"
+                value={customRange}
+                onChange={chooseCustomRange}
+                numberOfMonths={calendarMonths}
+              />
+            </Dialog>
+          </Popover>
           <Select
             aria-label="Minimum magnitude"
             className="w-full"
@@ -338,10 +533,7 @@ export default function Bulletin() {
             }
           >
             <SelectTrigger className="filter-select-trigger">
-              <Stone
-                className="filter-select-icon size-5"
-                aria-hidden="true"
-              />
+              <Stone className="filter-select-icon size-5" aria-hidden="true" />
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -368,15 +560,25 @@ export default function Bulletin() {
             {searching && (
               <>
                 <span className="sr-only" role="status">
-                  {location ? "Searching earthquakes…" : "Loading recent earthquakes…"}
+                  {location
+                    ? "Searching earthquakes…"
+                    : "Loading recent earthquakes…"}
                 </span>
                 <div
                   className="event-list event-list-skeleton"
-                  aria-label={location ? "Earthquake search results" : "Recent earthquakes"}
+                  aria-label={
+                    location
+                      ? "Earthquake search results"
+                      : "Recent earthquakes"
+                  }
                   aria-busy="true"
                 >
                   {Array.from({ length: 6 }, (_, index) => (
-                    <div className="event-row event-row-v2 event-row-skeleton" key={index} aria-hidden="true">
+                    <div
+                      className="event-row event-row-v2 event-row-skeleton"
+                      key={index}
+                      aria-hidden="true"
+                    >
                       <span className="row-v2-measure">
                         <Skeleton className="h-6 w-12" />
                         <Skeleton className="h-3 w-14" />
@@ -396,34 +598,47 @@ export default function Bulletin() {
                 Enter at least 2 characters to search locations.
               </div>
             )}
-            {status === "error" && settledLocation === location && (
-              <div className="notice" role="alert">
-                <p>Earthquake data is unavailable right now.</p>
-                <Button
-                  className="retry-button"
-                  onPress={() => setRequestAttempt((attempt) => attempt + 1)}
-                >
-                  Try again
-                </Button>
-              </div>
-            )}
-            {status === "ready" && settledLocation === location && !visible.length && !location && (
+            {status === "error" &&
+              settledLocation === location &&
+              settledDateFilter === dateFilter &&
+              settledMinMagnitude === minMagnitude && (
+                <div className="notice" role="alert">
+                  <p>Earthquake data is unavailable right now.</p>
+                  <Button
+                    className="retry-button"
+                    onPress={() => setRequestAttempt((attempt) => attempt + 1)}
+                  >
+                    Try again
+                  </Button>
+                </div>
+              )}
+            {resultsCurrent && !visible.length && emptyStateKind === "none" && (
               <div className="notice" role="status">
                 No earthquake information is available right now.
               </div>
             )}
-            {status === "ready" && settledLocation === location && !visible.length && location && (
+            {resultsCurrent && !visible.length && emptyStateKind !== "none" && (
               <Empty className="search-empty-state">
                 <EmptyHeader>
                   <EmptyMedia>
                     <Earth size={30} strokeWidth={1.8} aria-hidden="true" />
                   </EmptyMedia>
                   <EmptyTitle role="status">
-                    No earthquakes found
-                    <span>for “{location}”</span>
+                    {emptyStateKind === "generic" ? (
+                      "No earthquake found"
+                    ) : (
+                      <>
+                        No earthquakes found
+                        <span>for “{emptyStateKind === "search" ? location : selectedDateLabel}”</span>
+                      </>
+                    )}
                   </EmptyTitle>
                   <EmptyDescription>
-                    Try searching for provinces like “Albay”.
+                    {emptyStateKind === "generic"
+                      ? "Try a different location, date range, or magnitude."
+                      : emptyStateKind === "date"
+                        ? "Try widening the date range to see more earthquakes."
+                        : "Try searching for provinces like “Albay”."}
                   </EmptyDescription>
                 </EmptyHeader>
                 <EmptyContent>
@@ -431,11 +646,17 @@ export default function Bulletin() {
                     variant="outline"
                     className="clear-search-button"
                     onPress={() => {
-                      setQuery("");
-                      searchInput.current?.focus();
+                      if (emptyStateKind !== "date") setQuery("");
+                      if (emptyStateKind !== "search") setDateFilter({ value: "all" });
+                      if (emptyStateKind === "generic") setMinMagnitude("");
+                      if (emptyStateKind === "search") searchInput.current?.focus();
                     }}
                   >
-                    Clear search
+                    {emptyStateKind === "generic"
+                      ? "Clear filters"
+                      : emptyStateKind === "search"
+                        ? "Clear search"
+                        : "Clear date filter"}
                   </Button>
                 </EmptyContent>
               </Empty>
@@ -443,14 +664,19 @@ export default function Bulletin() {
             {visible.length > 0 && (
               <div
                 id="event-list"
+                ref={eventList}
                 className="event-list"
-                aria-label={location ? "Earthquake search results" : "Recent earthquakes"}
+                aria-label={
+                  location ? "Earthquake search results" : "Recent earthquakes"
+                }
               >
                 {renderRows()}
                 {(nextCursor || pageStatus === "error") && (
                   <div className="load-more">
                     {pageStatus === "error" && (
-                      <p role="alert">Could not load more earthquakes. Please try again.</p>
+                      <p role="alert">
+                        Could not load more earthquakes. Please try again.
+                      </p>
                     )}
                     <a
                       className="load-more-link"
@@ -489,7 +715,7 @@ export default function Bulletin() {
                   ? "error"
                   : "loading"
             }
-            onSelect={selectEvent}
+            onSelect={(id) => selectEvent(id, true)}
           />
         </div>
       </main>

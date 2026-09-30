@@ -45,7 +45,7 @@ function pointAtDistance(
       Math.cos(angle) - Math.sin(latitude) * Math.sin(nextLatitude),
     );
   return [
-    ((((nextLongitude * 180) / Math.PI) + 540) % 360) - 180,
+    (((nextLongitude * 180) / Math.PI + 540) % 360) - 180,
     (nextLatitude * 180) / Math.PI,
   ];
 }
@@ -122,12 +122,23 @@ export default function MapPanel({
   const annotationMarker = useRef<Marker | null>(null);
   const onSelectRef = useRef(onSelect);
   const selectedIdRef = useRef(selectedId);
-  const [annotationHost, setAnnotationHost] = useState<HTMLDivElement | null>(null);
+  const focusRequestRef = useRef(focusRequest);
+  const [annotationHost, setAnnotationHost] = useState<HTMLDivElement | null>(
+    null,
+  );
+  const [dismissedForecast, setDismissedForecast] = useState<{
+    id: string;
+    focusRequest: number;
+  } | null>(null);
   const [terrain, setTerrain] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   onSelectRef.current = onSelect;
   selectedIdRef.current = selectedId;
+  focusRequestRef.current = focusRequest;
   const selectedEvent = events.find((event) => event.eventId === selectedId);
+  const forecastDismissed =
+    dismissedForecast?.id === selectedId &&
+    dismissedForecast.focusRequest === focusRequest;
   const reportedRadiusKm =
     forecastStatus === "ready" &&
     forecast &&
@@ -136,7 +147,8 @@ export default function MapPanel({
     forecast.activityRadiusMedianKm24h >= 0
       ? forecast.activityRadiusMedianKm24h
       : null;
-  const radiusKm = reportedRadiusKm !== null && reportedRadiusKm > 0 ? reportedRadiusKm : null;
+  const radiusKm =
+    reportedRadiusKm !== null && reportedRadiusKm > 0 ? reportedRadiusKm : null;
 
   useEffect(() => {
     if (!container.current) return;
@@ -151,8 +163,7 @@ export default function MapPanel({
           container: container.current,
           attributionControl: {
             compact: true,
-            customAttribution:
-              '<a href="https://mapterhorn.com/attribution/" target="_blank" rel="noopener noreferrer">© Mapterhorn</a> · <a href="https://data.humdata.org/dataset/philippines-administrative-levels-0-to-3" target="_blank" rel="noopener noreferrer">Coastlines: OCHA Philippines / NAMRIA via geoBoundaries (CC BY 3.0 IGO)</a>',
+            // stop adding custom attributions
           },
           style: "https://tiles.openfreemap.org/styles/positron",
           maxBounds: philippinesBounds,
@@ -164,6 +175,21 @@ export default function MapPanel({
         });
         set3DInteractions(instance, false);
         map.current = instance;
+        instance.on("click", (event) => {
+          const target = event.originalEvent.target;
+          if (
+            !selectedIdRef.current ||
+            (target instanceof Element &&
+              target.closest(
+                ".quake-marker, .forecast-map-host, .maplibregl-control-container",
+              ))
+          )
+            return;
+          setDismissedForecast({
+            id: selectedIdRef.current,
+            focusRequest: focusRequestRef.current,
+          });
+        });
         // Attach to this map instance, including maps recreated by Fast Refresh.
         const attribution = instance
           .getContainer()
@@ -209,7 +235,8 @@ export default function MapPanel({
               layout: { "line-join": "round", "line-cap": "round" },
               paint: { "line-color": "#163c61", "line-width": 1.5 },
             },
-            instance.getStyle().layers.find((layer) => layer.type === "symbol")?.id,
+            instance.getStyle().layers.find((layer) => layer.type === "symbol")
+              ?.id,
           );
           instance.addSource("terrain", {
             type: "raster-dem",
@@ -285,11 +312,16 @@ export default function MapPanel({
         const existing = markers.current.get(event.eventId);
         if (existing) {
           const position = existing.getLngLat();
-          if (position.lng !== event.longitude || position.lat !== event.latitude) {
+          if (
+            position.lng !== event.longitude ||
+            position.lat !== event.latitude
+          ) {
             existing.setLngLat([event.longitude, event.latitude]);
           }
           const button = existing.getElement();
-          button.classList.remove(...magnitudeBands.map((item) => item.className));
+          button.classList.remove(
+            ...magnitudeBands.map((item) => item.className),
+          );
           button.classList.add(band.className);
           button.setAttribute(
             "aria-label",
@@ -325,26 +357,36 @@ export default function MapPanel({
   useEffect(() => {
     if (previousSelectedId.current !== selectedId) {
       if (previousSelectedId.current) {
-        markers.current.get(previousSelectedId.current)?.getElement().classList.remove("is-selected");
+        markers.current
+          .get(previousSelectedId.current)
+          ?.getElement()
+          .classList.remove("is-selected");
       }
       previousSelectedId.current = selectedId;
     }
-    if (selectedId) markers.current.get(selectedId)?.getElement().classList.add("is-selected");
+    if (selectedId)
+      markers.current
+        .get(selectedId)
+        ?.getElement()
+        .classList.add("is-selected");
   }, [events, selectedId, mapReady]);
 
   useEffect(() => {
     const instance = map.current;
     if (!mapReady || !instance) return;
-    const source = instance.getSource("forecast-radius") as GeoJSONSource | undefined;
+    const source = instance.getSource("forecast-radius") as
+      GeoJSONSource | undefined;
     annotationMarker.current?.remove();
     annotationMarker.current = null;
     setAnnotationHost(null);
-    if (!selectedEvent) {
+    if (!selectedEvent || forecastDismissed) {
       void source?.setData(emptyRadius);
       return;
     }
 
-    const coordinates = radiusKm ? radiusCoordinates(selectedEvent, radiusKm) : null;
+    const coordinates = radiusKm
+      ? radiusCoordinates(selectedEvent, radiusKm)
+      : null;
     void source?.setData(
       coordinates
         ? {
@@ -367,7 +409,10 @@ export default function MapPanel({
             radiusKm,
             stacked ? 0 : Math.PI / 2,
           )
-        : ([selectedEvent.longitude, selectedEvent.latitude] as [number, number]);
+        : ([selectedEvent.longitude, selectedEvent.latitude] as [
+            number,
+            number,
+          ]);
       const host = document.createElement("div");
       host.className = "forecast-map-host";
       annotationMarker.current = new ml.Marker({
@@ -380,7 +425,10 @@ export default function MapPanel({
       setAnnotationHost(host);
 
       if (forecastStatus === "loading") return;
-      const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 700;
+      const duration = window.matchMedia("(prefers-reduced-motion: reduce)")
+        .matches
+        ? 0
+        : 700;
       const zoom = Math.min(instance.getZoom() + 0.85, stacked ? 6.8 : 7.3);
       if (!coordinates) {
         instance.flyTo({
@@ -398,10 +446,16 @@ export default function MapPanel({
       const height = instance.getContainer().clientHeight;
       instance.fitBounds(bounds, {
         padding: stacked
-          ? { top: Math.min(145, height * 0.34), right: 38, bottom: 48, left: 38 }
+          ? {
+              top: Math.min(145, height * 0.34),
+              right: 38,
+              bottom: 48,
+              left: 38,
+            }
           : {
               top: Math.min(70, height * 0.18),
-              right: width < 340 ? 154 : Math.min(230, Math.max(188, width * 0.42)),
+              right:
+                width < 340 ? 154 : Math.min(230, Math.max(188, width * 0.42)),
               bottom: Math.min(70, height * 0.18),
               left: Math.min(52, width * 0.12),
             },
@@ -414,7 +468,14 @@ export default function MapPanel({
       annotationMarker.current?.remove();
       annotationMarker.current = null;
     };
-  }, [mapReady, selectedEvent, radiusKm, forecastStatus, focusRequest]);
+  }, [
+    mapReady,
+    selectedEvent,
+    radiusKm,
+    forecastStatus,
+    focusRequest,
+    forecastDismissed,
+  ]);
 
   function zoom(delta: number) {
     map.current?.zoomTo(map.current.getZoom() + delta, { duration: 350 });
@@ -457,11 +518,22 @@ export default function MapPanel({
       className="map-panel"
       aria-label="Earthquakes on the Philippine map"
     >
-      <img className="map-plate" src="/assets/plates/relief-map.webp" alt="" fetchPriority="high" />
+      <img
+        className="map-plate"
+        src="/assets/plates/relief-map.webp"
+        alt=""
+        fetchPriority="high"
+      />
       <div className="map-canvas" ref={container} />
-      {annotationHost && selectedEvent &&
+      {annotationHost &&
+        selectedEvent &&
+        !forecastDismissed &&
         createPortal(
-          <div className="forecast-map-annotation" role="status" aria-live="polite">
+          <div
+            className="forecast-map-annotation"
+            role="status"
+            aria-live="polite"
+          >
             {forecastStatus === "loading" ? (
               <span>Loading forecast…</span>
             ) : forecastStatus === "error" ? (
@@ -474,16 +546,23 @@ export default function MapPanel({
                     : `${Math.round(reportedRadiusKm)} km estimated activity radius`}
                 </strong>
                 <span className="forecast-map-period">
-                  24-hour forecast {forecast.expired ? "ended" : "through"} {forecastEnd(forecast.windowEnd)}
+                  24-hour forecast {forecast.expired ? "ended" : "through"}{" "}
+                  {forecastEnd(forecast.windowEnd)}
                 </span>
                 <span
                   className="forecast-map-occurrence"
                   aria-label={`${chance(forecast.probabilityM1Plus24h)} chance of at least one further earthquake of magnitude 1.0 or higher`}
                 >
-                  <strong>{chance(forecast.probabilityM1Plus24h)} chance</strong> of at least one further M1.0+ earthquake
+                  <strong>
+                    {chance(forecast.probabilityM1Plus24h)} chance
+                  </strong>{" "}
+                  of at least one further M1.0+ earthquake
                 </span>
                 {radiusKm !== null && (
-                  <small>The circle shows distance, not a safety boundary or chance area.</small>
+                  <small>
+                    The circle shows distance, not a safety boundary or chance
+                    area.
+                  </small>
                 )}
               </>
             ) : (
@@ -507,13 +586,28 @@ export default function MapPanel({
         </span>
       </Button>
       <div className="map-tools">
-        <Button variant="outline" size="icon" onPress={() => zoom(1)} aria-label="Zoom in">
+        <Button
+          variant="outline"
+          size="icon"
+          onPress={() => zoom(1)}
+          aria-label="Zoom in"
+        >
           <Plus aria-hidden="true" />
         </Button>
-        <Button variant="outline" size="icon" onPress={() => zoom(-1)} aria-label="Zoom out">
+        <Button
+          variant="outline"
+          size="icon"
+          onPress={() => zoom(-1)}
+          aria-label="Zoom out"
+        >
           <Minus aria-hidden="true" />
         </Button>
-        <Button variant="outline" size="icon" onPress={recenter} aria-label="Show the Philippines">
+        <Button
+          variant="outline"
+          size="icon"
+          onPress={recenter}
+          aria-label="Show the Philippines"
+        >
           <LocateFixed aria-hidden="true" />
         </Button>
       </div>
