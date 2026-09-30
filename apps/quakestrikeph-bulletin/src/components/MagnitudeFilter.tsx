@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Stone } from "lucide-react";
 import {
   Combobox,
   ComboboxChip,
@@ -69,6 +70,7 @@ export default function MagnitudeFilter({ value, onApply }: Props) {
           }
         }}
       >
+        <Stone className="magnitude-filter-icon size-5" aria-hidden="true" />
         <div className="magnitude-filter-values">
           {!draft.includes("all") && <ComboboxChipList<(typeof options)[number]>>
             {(band) => (

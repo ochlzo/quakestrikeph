@@ -280,8 +280,8 @@ a {
 .magnitude-filter-field {
   flex-wrap: nowrap;
   min-height: 49px;
-  gap: 7px;
-  padding: 7px 10px;
+  gap: 11px;
+  padding: 7px 15px;
   border-color: #c6d7dc;
   border-radius: 12px;
   background: #fff;
@@ -302,6 +302,10 @@ a {
   gap: 7px;
   min-width: 0;
 }
+.magnitude-filter-icon {
+  flex: none;
+  color: #1b5268;
+}
 .magnitude-filter-field [data-slot="combobox-chip"] {
   height: auto;
   min-height: 28px;
@@ -311,8 +315,10 @@ a {
   background: var(--selected-aqua);
   color: var(--ink);
   font-size: 11px;
+  white-space: normal;
 }
 .magnitude-filter-field [data-slot="combobox-chip-remove"] {
+  flex: none;
   width: 24px;
   height: 28px;
   margin-left: 0;
@@ -365,11 +371,13 @@ a {
   gap: 9px;
   font-size: 12px;
 }
-.magnitude-filter-popover [data-slot="combobox-item"][data-focused] {
+.magnitude-filter-popover [data-slot="combobox-item"][data-focused],
+.date-filter-popover [data-slot="select-item"][data-focused] {
   background: var(--selected-aqua);
 }
 .magnitude-filter .dot,
 .magnitude-filter-popover .dot {
+  flex: none;
   width: 10px;
   height: 10px;
   border: 0;
@@ -1063,8 +1071,7 @@ a {
   }
   .magnitude-filter-field {
     min-height: 44px;
-    padding: 5px 6px;
-    gap: 4px;
+    padding: 5px 15px;
   }
   .magnitude-filter-field [data-slot="combobox-chip-input"] {
     font-size: 16px;

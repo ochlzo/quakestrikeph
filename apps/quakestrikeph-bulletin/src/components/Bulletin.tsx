@@ -481,7 +481,7 @@ export default function Bulletin() {
                 }
               </SelectValue>
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="date-filter-popover">
               <SelectGroup>
                 <SelectLabel>Date observed</SelectLabel>
                 {dateOptions.map((option) => (

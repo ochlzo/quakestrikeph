@@ -49,8 +49,23 @@ const { chromium } = require("playwright");
     assert.equal(await input.getAttribute("placeholder"), "All magnitudes");
     assert.equal(await chevron.evaluate((element) => getComputedStyle(element).transform), "none");
     assert.equal(await page.locator('[aria-label="Clear magnitude selections"]').count(), 0);
+    const stone = page.locator(".magnitude-filter-icon");
+    assert.equal(await stone.getAttribute("aria-hidden"), "true");
+    assert.equal(await stone.evaluate((element) => getComputedStyle(element).color),
+      await page.locator(".date-filter-trigger .filter-select-icon").evaluate(
+        (element) => getComputedStyle(element).color));
+    await page.locator(".date-filter-trigger").click();
+    const dateOption = page.locator('.date-filter-popover [data-slot="select-item"]').first();
+    await dateOption.hover();
+    const dateHoverColor = await dateOption.evaluate((element) => getComputedStyle(element).backgroundColor);
+    assert.equal(dateHoverColor, "rgb(233, 247, 247)");
+    await page.keyboard.press("Escape");
+    await page.locator(".date-filter-popover").waitFor({ state: "hidden" });
 
     await input.click();
+    const magnitudeOption = page.getByRole("option").first();
+    await magnitudeOption.hover();
+    assert.equal(await magnitudeOption.evaluate((element) => getComputedStyle(element).backgroundColor), dateHoverColor);
     assert.equal(await input.getAttribute("placeholder"), "Search ranges");
     await page.waitForTimeout(200);
     assert.equal(await chevron.evaluate((element) => getComputedStyle(element).transform), "matrix(-1, 0, 0, -1, 0, 0)");
@@ -133,7 +148,7 @@ const { chromium } = require("playwright");
     assert.equal(await chips.count(), 5);
     const fieldBounds = await page.locator(".magnitude-filter-field").boundingBox();
     const chevronBounds = await chevron.boundingBox();
-    assert.ok(fieldBounds.x + fieldBounds.width - chevronBounds.x - chevronBounds.width < 20,
+    assert.ok(fieldBounds.x + fieldBounds.width - chevronBounds.x - chevronBounds.width <= 20,
       "Chevron stays at the right edge when chips wrap");
     await page.screenshot({ path: ".astro/magnitude-verification/mobile.png" });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
