@@ -783,19 +783,16 @@ a {
   width: 14px;
   height: 14px;
   padding: 0;
-  border: 2px solid white;
+  border: 1px solid white;
   border-radius: 50%;
   background: var(--marker-color);
   box-shadow: 0 1px 5px rgb(47 32 26 / 35%);
 }
 .quake-marker.is-selected {
   z-index: 1;
-  width: 24px;
-  height: 24px;
-  border-width: 3px;
-  box-shadow:
-    0 0 0 2px var(--ink),
-    0 4px 12px rgb(47 32 26 / 45%);
+  width: 18px;
+  height: 18px;
+  border-width: 2px;
 }
 .quake-marker:focus-visible {
   outline: 3px solid var(--ink);
