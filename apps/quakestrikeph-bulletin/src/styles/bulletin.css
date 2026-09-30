@@ -554,10 +554,22 @@ a {
 .event-list .selection-exit {
   animation: selection-collapse 330ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
-.more-note {
-  flex: none;
-  color: #48647c;
-  font-size: 11px;
+.load-more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 8px 8px;
+  border-top: 1px solid #d6e3e5;
+}
+.load-more p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+  text-align: center;
+}
+.load-more .retry-button {
+  margin-top: 0;
 }
 .notice {
   margin: 8px 0;

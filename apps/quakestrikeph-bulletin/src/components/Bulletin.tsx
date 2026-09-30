@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Activity,
   ArrowRight,
@@ -55,8 +55,12 @@ export default function Bulletin() {
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
     "loading",
   );
-  const [more, setMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [pageStatus, setPageStatus] = useState<"idle" | "loading" | "error">("idle");
+  const pageController = useRef<AbortController | null>(null);
   const [requestAttempt, setRequestAttempt] = useState(0);
+
+  useEffect(() => () => pageController.current?.abort(), []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -70,7 +74,7 @@ export default function Bulletin() {
         });
         if (!data) throw new Error("Search failed");
         setEvents(data.items);
-        setMore(data.hasMore);
+        setNextCursor(data.nextCursor);
         setSelectedId((current) =>
           data.items.some((item) => item.eventId === current)
             ? current
@@ -87,6 +91,30 @@ export default function Bulletin() {
       controller.abort();
     };
   }, [requestAttempt]);
+
+  async function loadMore() {
+    if (!nextCursor || pageController.current) return;
+    const controller = new AbortController();
+    pageController.current = controller;
+    setPageStatus("loading");
+    try {
+      const { data } = await bulletinApi.POST("/earthquakes/search", {
+        body: { limit: 30, cursor: nextCursor },
+        signal: controller.signal,
+      });
+      if (!data) throw new Error("Search failed");
+      setEvents((current) => {
+        const seen = new Set(current.map((event) => event.eventId));
+        return [...current, ...data.items.filter((event) => !seen.has(event.eventId))];
+      });
+      setNextCursor(data.nextCursor);
+      setPageStatus("idle");
+    } catch {
+      if (!controller.signal.aborted) setPageStatus("error");
+    } finally {
+      if (pageController.current === controller) pageController.current = null;
+    }
+  }
 
   useEffect(() => {
     if (!selectedId) {
@@ -319,14 +347,29 @@ export default function Bulletin() {
               </div>
             )}
             {selected && (
-              <div className="event-list" aria-label="Recent earthquakes">
+              <div id="event-list" className="event-list" aria-label="Recent earthquakes">
                 {renderRows()}
+                {(nextCursor || pageStatus === "error") && (
+                  <div className="load-more">
+                    {pageStatus === "error" && (
+                      <p role="alert">Could not load more earthquakes. Please try again.</p>
+                    )}
+                    <button
+                      className="retry-button"
+                      type="button"
+                      aria-controls="event-list"
+                      disabled={pageStatus === "loading"}
+                      onClick={() => void loadMore()}
+                    >
+                      {pageStatus === "loading"
+                        ? "Loading more earthquakes…"
+                        : pageStatus === "error"
+                          ? "Try again"
+                          : "Load more earthquakes"}
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
-            {more && (
-              <p className="more-note">
-                Showing the 30 most recent earthquakes.
-              </p>
             )}
           </section>
           <MapPanel

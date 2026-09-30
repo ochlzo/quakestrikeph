@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Layers3, LocateFixed, Minus, Plus } from "lucide-react";
-import type { GeoJSONSource, Map, Marker } from "maplibre-gl";
+import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import type { Earthquake, Forecast } from "../lib/events";
@@ -99,14 +99,17 @@ export default function MapPanel({
   onSelect,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
-  const map = useRef<Map | null>(null);
-  const markers = useRef<Marker[]>([]);
+  const map = useRef<MapLibreMap | null>(null);
+  const markers = useRef(new Map<string, Marker>());
+  const previousSelectedId = useRef<string | null>(null);
   const annotationMarker = useRef<Marker | null>(null);
   const onSelectRef = useRef(onSelect);
+  const selectedIdRef = useRef(selectedId);
   const [annotationHost, setAnnotationHost] = useState<HTMLDivElement | null>(null);
   const [terrain, setTerrain] = useState(true);
   const [mapReady, setMapReady] = useState(false);
   onSelectRef.current = onSelect;
+  selectedIdRef.current = selectedId;
   const selectedEvent = events.find((event) => event.eventId === selectedId);
   const reportedRadiusKm =
     forecastStatus === "ready" &&
@@ -221,7 +224,7 @@ export default function MapPanel({
       disposed = true;
       attributionListeners.abort();
       markers.current.forEach((marker) => marker.remove());
-      markers.current = [];
+      markers.current.clear();
       annotationMarker.current?.remove();
       annotationMarker.current = null;
       map.current?.remove();
@@ -234,12 +237,33 @@ export default function MapPanel({
     let cancelled = false;
     import("maplibre-gl").then((ml) => {
       if (cancelled || !map.current) return;
-      markers.current.forEach((marker) => marker.remove());
-      markers.current = events.map((event) => {
+      const eventIds = new Set(events.map((event) => event.eventId));
+      for (const [id, marker] of markers.current) {
+        if (eventIds.has(id)) continue;
+        marker.remove();
+        markers.current.delete(id);
+      }
+      for (const event of events) {
         const band = magnitudeBand(event.magnitude);
+        const existing = markers.current.get(event.eventId);
+        if (existing) {
+          const position = existing.getLngLat();
+          if (position.lng !== event.longitude || position.lat !== event.latitude) {
+            existing.setLngLat([event.longitude, event.latitude]);
+          }
+          const button = existing.getElement();
+          button.classList.remove(...magnitudeBands.map((item) => item.className));
+          button.classList.add(band.className);
+          button.setAttribute(
+            "aria-label",
+            `Magnitude ${event.magnitude.toFixed(1)}, ${band.label}, ${event.locationDescription}`,
+          );
+          button.title = `M${event.magnitude.toFixed(1)} · ${event.locationDescription}`;
+          continue;
+        }
         const button = document.createElement("button");
         button.type = "button";
-        button.className = `quake-marker ${band.className} ${event.eventId === selectedId ? "is-selected" : ""}`;
+        button.className = `quake-marker ${band.className} ${event.eventId === selectedIdRef.current ? "is-selected" : ""}`;
         button.setAttribute(
           "aria-label",
           `Magnitude ${event.magnitude.toFixed(1)}, ${band.label}, ${event.locationDescription}`,
@@ -248,14 +272,27 @@ export default function MapPanel({
         button.addEventListener("click", () =>
           onSelectRef.current(event.eventId),
         );
-        return new ml.Marker({ element: button, anchor: "center" })
-          .setLngLat([event.longitude, event.latitude])
-          .addTo(map.current!);
-      });
+        markers.current.set(
+          event.eventId,
+          new ml.Marker({ element: button, anchor: "center" })
+            .setLngLat([event.longitude, event.latitude])
+            .addTo(map.current!),
+        );
+      }
     });
     return () => {
       cancelled = true;
     };
+  }, [events, mapReady]);
+
+  useEffect(() => {
+    if (previousSelectedId.current !== selectedId) {
+      if (previousSelectedId.current) {
+        markers.current.get(previousSelectedId.current)?.getElement().classList.remove("is-selected");
+      }
+      previousSelectedId.current = selectedId;
+    }
+    if (selectedId) markers.current.get(selectedId)?.getElement().classList.add("is-selected");
   }, [events, selectedId, mapReady]);
 
   useEffect(() => {
