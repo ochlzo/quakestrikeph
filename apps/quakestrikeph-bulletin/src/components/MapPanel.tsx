@@ -167,6 +167,8 @@ export default function MapPanel({
           .getContainer()
           .querySelector<HTMLDetailsElement>(".maplibregl-ctrl-attrib");
         if (attribution) {
+          attribution.classList.remove("maplibregl-compact-show");
+          attribution.open = false;
           const closeUnlessInside = (target: EventTarget | null) => {
             if (target instanceof Node && attribution.contains(target)) return;
             attribution.classList.remove("maplibregl-compact-show");
