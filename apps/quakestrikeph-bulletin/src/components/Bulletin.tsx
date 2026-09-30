@@ -59,6 +59,7 @@ export default function Bulletin() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [pageStatus, setPageStatus] = useState<"idle" | "loading" | "error">("idle");
   const pageController = useRef<AbortController | null>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
   const [requestAttempt, setRequestAttempt] = useState(0);
   const location = query.trim();
 
@@ -281,11 +282,16 @@ export default function Bulletin() {
             <Search size={20} aria-hidden="true" />
             <span className="sr-only">Search by location</span>
             <input
+              ref={searchInput}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
+              aria-busy={location.length >= 2 && searching}
               maxLength={100}
               placeholder="Search by location (e.g. Legazpi, Albay)"
             />
+            {location.length >= 2 && searching && (
+              <span className="search-spinner" aria-hidden="true" />
+            )}
           </label>
           <Select
             aria-label="Date observed"
@@ -347,9 +353,9 @@ export default function Bulletin() {
                 <p>Browse observed events across the Philippines.</p>
               </div>
             </div>
-            {searching && (
+            {searching && !location && (
               <div className="notice" role="status">
-                {location ? "Searching earthquakes…" : "Loading recent earthquakes…"}
+                Loading recent earthquakes…
               </div>
             )}
             {location.length === 1 && (
@@ -369,11 +375,24 @@ export default function Bulletin() {
                 </button>
               </div>
             )}
-            {status === "ready" && settledLocation === location && !visible.length && (
+            {status === "ready" && settledLocation === location && !visible.length && !location && (
               <div className="notice" role="status">
-                {location
-                  ? `No earthquakes found for “${location}”.`
-                  : "No earthquake information is available right now."}
+                No earthquake information is available right now.
+              </div>
+            )}
+            {status === "ready" && settledLocation === location && !visible.length && location && (
+              <div className="search-empty-state">
+                <p role="status">No earthquakes found</p>
+                <button
+                  className="clear-search-button"
+                  type="button"
+                  onClick={() => {
+                    setQuery("");
+                    searchInput.current?.focus();
+                  }}
+                >
+                  Clear search
+                </button>
               </div>
             )}
             {visible.length > 0 && (
