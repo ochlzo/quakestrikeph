@@ -773,9 +773,17 @@ a {
   box-shadow: 0 1px 5px rgb(47 32 26 / 35%);
 }
 .quake-marker.is-selected {
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  border-width: 3px;
   box-shadow:
-    inset 0 0 0 2px var(--ink),
-    0 2px 8px rgb(47 32 26 / 35%);
+    0 0 0 2px var(--ink),
+    0 4px 12px rgb(47 32 26 / 45%);
+}
+.quake-marker:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 4px;
 }
 .forecast-map-host {
   pointer-events: none;
