@@ -47,6 +47,7 @@ export default function Bulletin() {
   const [dateRange, setDateRange] = useState("all");
   const [minMagnitude, setMinMagnitude] = useState("");
   const [events, setEvents] = useState<Earthquake[]>([]);
+  const [settledLocation, setSettledLocation] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusRequest, setFocusRequest] = useState(0);
   const [previousId, setPreviousId] = useState<string | null>(null);
@@ -59,22 +60,32 @@ export default function Bulletin() {
   const [pageStatus, setPageStatus] = useState<"idle" | "loading" | "error">("idle");
   const pageController = useRef<AbortController | null>(null);
   const [requestAttempt, setRequestAttempt] = useState(0);
+  const location = query.trim();
 
   useEffect(() => () => pageController.current?.abort(), []);
 
   useEffect(() => {
     const controller = new AbortController();
+    pageController.current?.abort();
+    pageController.current = null;
+    setPageStatus("idle");
+    setNextCursor(null);
+
+    if (location.length === 1) return () => controller.abort();
 
     async function loadEvents() {
       setStatus("loading");
       try {
         const { data } = await bulletinApi.POST("/earthquakes/search", {
-          body: { limit: 30 },
+          body: { limit: 30, location: location || undefined },
           signal: controller.signal,
         });
+        if (controller.signal.aborted) return;
         if (!data) throw new Error("Search failed");
         setEvents(data.items);
         setNextCursor(data.nextCursor);
+        setSettledLocation(location);
+        setPreviousId(null);
         setSelectedId((current) =>
           data.items.some((item) => item.eventId === current)
             ? current
@@ -82,26 +93,36 @@ export default function Bulletin() {
         );
         setStatus("ready");
       } catch {
-        if (!controller.signal.aborted) setStatus("error");
+        if (!controller.signal.aborted) {
+          setSettledLocation(location);
+          setStatus("error");
+        }
       }
     }
 
-    void loadEvents();
+    const timer = window.setTimeout(() => void loadEvents(), location ? 300 : 0);
     return () => {
+      window.clearTimeout(timer);
       controller.abort();
     };
-  }, [requestAttempt]);
+  }, [location, requestAttempt]);
 
   async function loadMore() {
-    if (!nextCursor || pageController.current) return;
+    if (
+      !nextCursor ||
+      pageController.current ||
+      status !== "ready" ||
+      settledLocation !== location
+    ) return;
     const controller = new AbortController();
     pageController.current = controller;
     setPageStatus("loading");
     try {
       const { data } = await bulletinApi.POST("/earthquakes/search", {
-        body: { limit: 30, cursor: nextCursor },
+        body: { limit: 30, cursor: nextCursor, location: location || undefined },
         signal: controller.signal,
       });
+      if (controller.signal.aborted) return;
       if (!data) throw new Error("Search failed");
       setEvents((current) => {
         const seen = new Set(current.map((event) => event.eventId));
@@ -142,7 +163,10 @@ export default function Bulletin() {
     return () => controller.abort();
   }, [selectedId]);
 
-  const visible = events;
+  const visible = status === "ready" && settledLocation === location ? events : [];
+  const searching =
+    location.length !== 1 &&
+    (status === "loading" || settledLocation !== location);
   const selected =
     visible.find((event) => event.eventId === selectedId) ?? visible[0];
   const sourceUrl =
@@ -324,12 +348,17 @@ export default function Bulletin() {
                 <p>Browse observed events across the Philippines.</p>
               </div>
             </div>
-            {status === "loading" && !events.length && (
+            {searching && (
               <div className="notice" role="status">
-                Loading recent earthquakes…
+                {location ? "Searching earthquakes…" : "Loading recent earthquakes…"}
               </div>
             )}
-            {status === "error" && (
+            {location.length === 1 && (
+              <div className="notice" role="status">
+                Enter at least 2 characters to search locations.
+              </div>
+            )}
+            {status === "error" && settledLocation === location && (
               <div className="notice" role="alert">
                 <p>Earthquake data is unavailable right now.</p>
                 <button
@@ -341,13 +370,19 @@ export default function Bulletin() {
                 </button>
               </div>
             )}
-            {status === "ready" && !visible.length && (
+            {status === "ready" && settledLocation === location && !visible.length && (
               <div className="notice" role="status">
-                No earthquake information is available right now.
+                {location
+                  ? `No earthquakes found for “${location}”.`
+                  : "No earthquake information is available right now."}
               </div>
             )}
             {selected && (
-              <div id="event-list" className="event-list" aria-label="Recent earthquakes">
+              <div
+                id="event-list"
+                className="event-list"
+                aria-label={location ? "Earthquake search results" : "Recent earthquakes"}
+              >
                 {renderRows()}
                 {(nextCursor || pageStatus === "error") && (
                   <div className="load-more">
