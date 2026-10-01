@@ -63,6 +63,36 @@ def test_historical_recovery_requires_full_bootstrap_readiness(monkeypatch, caps
     assert json.loads(capsys.readouterr().out)["status"] == "rejected"
 
 
+def test_historical_recovery_forwards_explicit_run_and_reason(monkeypatch):
+    run_id = UUID("00000000-0000-0000-0000-000000000001")
+    captured = {}
+
+    def recover(**kwargs):
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(operator_setup, "recover_historical_predictions", recover)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "quakestrike",
+            "recover-historical-predictions",
+            "--source-run-id",
+            str(run_id),
+            "--skip-reason",
+            "history_ends_before_anchor",
+        ],
+    )
+    assert cli.main() == 0
+    assert captured == {
+        "apply": False,
+        "batch_size": 50,
+        "source_run_id": run_id,
+        "skip_reason": "history_ends_before_anchor",
+    }
+
+
 def test_package_command_dispatches_to_the_explicit_packager(monkeypatch, tmp_path: Path) -> None:
     captured: dict[str, Path] = {}
     monkeypatch.setattr(operator_setup, "Settings", _Settings)

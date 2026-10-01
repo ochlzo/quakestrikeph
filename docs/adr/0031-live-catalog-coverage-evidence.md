@@ -2,6 +2,10 @@
 
 **Status**: accepted
 
+The heading and event-month restrictions, and the use of prior successful
+coverage when the current page cannot claim coverage, are amended by
+[ADR 0039](0039-latest-catalog-month-rollover.md).
+
 The PHIVOLCS current page presents a named current-month earthquake table. A
 live response may claim coverage from the first day of that month through its
 retrieval time only when the entire bounded HTTPS response was read, the page

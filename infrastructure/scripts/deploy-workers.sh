@@ -56,7 +56,10 @@ rollback() {
 }
 trap rollback EXIT
 
+# Keep the Bulletin's independent deployment out of the VPS working tree.
+git sparse-checkout set --no-cone '/*' '!/apps/quakestrikeph-bulletin/'
 git switch --detach "$sha"
+[[ ! -d apps/quakestrikeph-bulletin ]] || { echo 'Bulletin directory must not exist on the VPS' >&2; exit 2; }
 export WORKER_IMAGE_TAG=$sha
 source infrastructure/scripts/enable-beat.sh
 compose --profile init --profile prediction --profile beat config --quiet

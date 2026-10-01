@@ -2,6 +2,8 @@
 
 **Status**: accepted
 
+The single-run restriction is amended by [ADR 0040](0040-scoped-rollover-recovery-and-worker-checkout.md).
+
 The September 24 live run `adc80d19-d105-4ef7-b427-6bc52f133b4d` recorded 450 M1+ revisions with `history_coverage_unavailable` before live catalog coverage was available. Recovery is an explicit operator command for this run only. It leaves every revision, ingestion run, and original skip decision unchanged. The 446 revisions that remain the latest revision of an unsuperseded event are eligible. Four superseded revisions are excluded because their observations have since changed.
 
 The command validates the approved model release, the preserved bootstrap snapshot against its run manifest and succeeded database run, and coverage claims from succeeded live runs. It merges only touching intervals and checks the complete seven-day window for each anchor. It reads the latest revision of each prior event known by the anchor revision's `ingested_at` time, excluding later corrections, then uses the existing feature decision and canonical snapshot builder. A dry run is the default and reports candidate, superseded, uncovered, existing, and eligible counts.

@@ -1,4 +1,4 @@
-"""Policy and orchestration for recovering the one skipped live catalog run."""
+"""Policy and orchestration for recovering explicitly selected skipped live work."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from quakestrike.domain.features import (
 SOURCE_RUN_ID = UUID("adc80d19-d105-4ef7-b427-6bc52f133b4d")
 AUDIT_ACTION = "historical_prediction_recovered"
 SKIP_REASON = "history_coverage_unavailable"
+RECOVERABLE_SKIP_REASONS = (SKIP_REASON, "history_ends_before_anchor")
 OUTPUT_SCHEMA_VERSION = "quakestrike.prediction-output.v2"
 
 
@@ -127,7 +128,13 @@ class RecoverHistoricalPredictions:
         bootstrap_sha256: str,
         bootstrap_correlation_id: UUID,
         bootstrap_coverage: HistoryCoverage,
+        source_run_id: UUID = SOURCE_RUN_ID,
+        skip_reason: str = SKIP_REASON,
     ) -> None:
+        if skip_reason not in RECOVERABLE_SKIP_REASONS:
+            raise UnsafeHistoricalRecovery("The selected skip reason is not recoverable.")
+        self._source_run_id = source_run_id
+        self._skip_reason = skip_reason
         self._store = store
         self._release_id = target_release_id
         self._bootstrap_run_id = bootstrap_run_id
@@ -268,7 +275,7 @@ class RecoverHistoricalPredictions:
         self, snapshot: FeatureSnapshot, job_id: UUID, dispatch_id: UUID
     ) -> dict[str, object]:
         return {
-            "source_run_id": str(SOURCE_RUN_ID),
+            "source_run_id": str(self._source_run_id),
             "bootstrap_run_id": str(self._bootstrap_run_id),
             "bootstrap_snapshot_sha256": self._bootstrap_sha256,
             "model_release_id": str(self._release_id),
@@ -300,7 +307,7 @@ class RecoverHistoricalPredictions:
             or audit.actor_type != "system"
             or audit.actor_service != "operator-cli"
             or audit.outcome != "succeeded"
-            or audit.reason_code != SKIP_REASON
+            or audit.reason_code != self._skip_reason
             or audit.correlation_id != source.correlation_id
             or not isinstance(metadata, Mapping)
             or any(metadata.get(key) != value for key, value in expected.items())

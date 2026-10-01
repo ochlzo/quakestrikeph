@@ -8,6 +8,7 @@ import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import UUID
 
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
@@ -16,6 +17,11 @@ from quakestrike import operator_runtime, operator_setup
 from quakestrike.application.bootstrap import (
     BootstrapCommandResult,
     BootstrapEvidenceConflict,
+)
+from quakestrike.application.historical_recovery import (
+    RECOVERABLE_SKIP_REASONS,
+    SKIP_REASON,
+    SOURCE_RUN_ID,
 )
 from quakestrike.application.persistence import ActiveIngestionRun, RunIdentityConflict
 from quakestrike.application.startup import evaluate_startup_gates
@@ -65,6 +71,8 @@ def main() -> int:
     parser.add_argument("--run-manifest", type=Path)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--batch-size", type=int, default=50)
+    parser.add_argument("--source-run-id", type=UUID, default=SOURCE_RUN_ID)
+    parser.add_argument("--skip-reason", choices=RECOVERABLE_SKIP_REASONS, default=SKIP_REASON)
     args = parser.parse_args()
     if args.command == "migrate":
         return operator_setup.migrate()
@@ -90,7 +98,10 @@ def main() -> int:
         return operator_setup.reissue_legacy_predictions()
     if args.command == "recover-historical-predictions":
         return operator_setup.recover_historical_predictions(
-            apply=args.apply, batch_size=args.batch_size
+            apply=args.apply,
+            batch_size=args.batch_size,
+            source_run_id=args.source_run_id,
+            skip_reason=args.skip_reason,
         )
     if args.command == "poll-now":
         return operator_runtime.immediate_poll()

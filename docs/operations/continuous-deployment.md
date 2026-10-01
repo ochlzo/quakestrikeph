@@ -7,8 +7,12 @@ run `infrastructure/scripts/deploy-workers.sh`. The deploy job is disabled until
 the repository variable `DEPLOY_ENABLED` is set to `true`.
 
 This deploys the current Python workers only. The read-only Backend API has a
-separate [manual VPS setup and rollout](backend-api.md). The Bulletin and
-Operations Console do not have implementation or container images yet.
+separate [manual VPS setup and rollout](backend-api.md). The workflow does not
+install, check, build, or deploy the Bulletin app. Configure its build and hosting
+separately in Vercel using `apps/quakestrikeph-bulletin` as the project root.
+Worker deployment excludes the Bulletin directory from the VPS working tree
+through Git sparse checkout; the app remains tracked in the monorepo. The
+Operations Console deployment remains planned.
 
 ## Initialize the VPS once
 

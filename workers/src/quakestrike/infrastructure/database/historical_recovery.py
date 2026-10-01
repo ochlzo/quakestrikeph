@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from quakestrike.application.historical_recovery import (
     AUDIT_ACTION,
+    RECOVERABLE_SKIP_REASONS,
     SKIP_REASON,
     SOURCE_RUN_ID,
     ExistingAudit,
@@ -22,6 +23,7 @@ from quakestrike.application.historical_recovery import (
     RecoveryEvidence,
     ReleaseEvidence,
     RunEvidence,
+    UnsafeHistoricalRecovery,
 )
 from quakestrike.domain.features import HISTORY_WINDOW, FeatureSnapshot, HistoryCoverage
 from quakestrike.infrastructure.database.engine import SessionFactory
@@ -48,7 +50,13 @@ class SqlAlchemyHistoricalRecovery:
         *,
         target_release_id: UUID,
         bootstrap_run_id: UUID,
+        source_run_id: UUID = SOURCE_RUN_ID,
+        skip_reason: str = SKIP_REASON,
     ) -> None:
+        if skip_reason not in RECOVERABLE_SKIP_REASONS:
+            raise UnsafeHistoricalRecovery("The selected skip reason is not recoverable.")
+        self._source_run_id = source_run_id
+        self._skip_reason = skip_reason
         self._session_factory = session_factory
         self._release_id = target_release_id
         self._bootstrap_run_id = bootstrap_run_id
@@ -56,7 +64,7 @@ class SqlAlchemyHistoricalRecovery:
     def evidence(self) -> RecoveryEvidence:
         with self._session_factory() as session:
             source = session.execute(
-                select(ingestion_runs).where(ingestion_runs.c.run_id == SOURCE_RUN_ID)
+                select(ingestion_runs).where(ingestion_runs.c.run_id == self._source_run_id)
             ).one_or_none()
             bootstrap = session.execute(
                 select(ingestion_runs).where(ingestion_runs.c.run_id == self._bootstrap_run_id)
@@ -69,8 +77,8 @@ class SqlAlchemyHistoricalRecovery:
                 session.scalars(
                     select(revisions.c.event_revision_id)
                     .where(
-                        revisions.c.ingestion_run_id == SOURCE_RUN_ID,
-                        revisions.c.prediction_skip_reason == SKIP_REASON,
+                        revisions.c.ingestion_run_id == self._source_run_id,
+                        revisions.c.prediction_skip_reason == self._skip_reason,
                     )
                     .order_by(revisions.c.event_time, revisions.c.event_revision_id)
                 ).all()
@@ -119,7 +127,9 @@ class SqlAlchemyHistoricalRecovery:
     @contextmanager
     def transaction(self, revision_id: UUID) -> Iterator[SqlAlchemyRecoveryTransaction]:
         with self._session_factory() as session, session.begin():
-            yield SqlAlchemyRecoveryTransaction(session, revision_id)
+            yield SqlAlchemyRecoveryTransaction(
+                session, revision_id, self._source_run_id, self._skip_reason
+            )
 
 
 def _run_evidence(row) -> RunEvidence | None:
@@ -134,16 +144,22 @@ def _run_evidence(row) -> RunEvidence | None:
 
 
 class SqlAlchemyRecoveryTransaction:
-    def __init__(self, session: Session, revision_id: UUID) -> None:
+    def __init__(
+        self, session: Session, revision_id: UUID, source_run_id: UUID, skip_reason: str
+    ) -> None:
         self._session = session
         self._revision_id = revision_id
+        self._source_run_id = source_run_id
+        self._skip_reason = skip_reason
 
     def load(self) -> RecoveryCandidate:
         session = self._session
         revision = (
             session.execute(
                 select(earthquake_event_revisions).where(
-                    earthquake_event_revisions.c.event_revision_id == self._revision_id
+                    earthquake_event_revisions.c.event_revision_id == self._revision_id,
+                    earthquake_event_revisions.c.ingestion_run_id == self._source_run_id,
+                    earthquake_event_revisions.c.prediction_skip_reason == self._skip_reason,
                 )
             )
             .mappings()
@@ -255,7 +271,7 @@ class SqlAlchemyRecoveryTransaction:
                 target_type="event_revision",
                 target_id=str(self._revision_id),
                 outcome="succeeded",
-                reason_code=SKIP_REASON,
+                reason_code=self._skip_reason,
                 correlation_id=correlation_id,
                 metadata=dict(audit_metadata),
             )

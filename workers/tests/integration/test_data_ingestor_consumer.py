@@ -75,8 +75,10 @@ class _Reporter:
         pass
 
 
+@pytest.mark.parametrize("coverage_source", ["current", "prior_succeeded", "prior_failed"])
 def test_valid_command_persists_one_completed_run_and_duplicate_is_a_no_op(
     migrated_engine,
+    coverage_source,
 ) -> None:
     session_factory = create_session_factory(migrated_engine)
     store = SqlAlchemyIngestionTransactions(
@@ -148,18 +150,42 @@ def test_valid_command_persists_one_completed_run_and_duplicate_is_a_no_op(
         source_event_group_id="2026_0918_1200",
         source_url="https://earthquake.phivolcs.dost.gov.ph/2026_0918_1200_B1.html",
     )
+    evidence = CatalogEvidence(
+        source_url="https://earthquake.phivolcs.dost.gov.ph/",
+        sha256="a" * 64,
+        retrieved_at=database_now,
+        coverage_start=database_now - timedelta(days=8),
+        coverage_end=database_now,
+        accepted_rows=1,
+    )
+    if coverage_source != "current":
+        prior_run_id = uuid4()
+        with migrated_engine.begin() as connection:
+            connection.execute(
+                insert(ingestion_runs).values(
+                    run_id=prior_run_id,
+                    trigger_type="scheduled",
+                    status="succeeded" if coverage_source == "prior_succeeded" else "failed",
+                    finished_at=database_now,
+                    correlation_id=uuid4(),
+                )
+            )
+            connection.execute(
+                insert(source_catalog_evidence).values(
+                    run_id=prior_run_id,
+                    source_url=evidence.source_url,
+                    catalog_sha256=evidence.sha256,
+                    retrieved_at=evidence.retrieved_at,
+                    coverage_start=evidence.coverage_start,
+                    coverage_end=evidence.coverage_end,
+                    accepted_rows=evidence.accepted_rows,
+                )
+            )
     reconciler = ReconcileCurrentCatalog(
         store=store,
         retriever=_Retriever(
             row,
-            CatalogEvidence(
-                source_url="https://earthquake.phivolcs.dost.gov.ph/",
-                sha256="a" * 64,
-                retrieved_at=database_now,
-                coverage_start=database_now - timedelta(days=8),
-                coverage_end=database_now,
-                accepted_rows=1,
-            ),
+            evidence if coverage_source == "current" else None,
         ),
         diagnostic_reporter=_Reporter(),
         model_release_id=model_release_id,
@@ -194,18 +220,27 @@ def test_valid_command_persists_one_completed_run_and_duplicate_is_a_no_op(
         assert run.attempt_count == 1
         assert run.events_found == 1
         assert run.events_inserted == 1
-        assert (
-            connection.scalar(
-                select(source_catalog_evidence.c.catalog_sha256).where(
-                    source_catalog_evidence.c.run_id == request.run_id
-                )
+        assert connection.scalar(
+            select(source_catalog_evidence.c.catalog_sha256).where(
+                source_catalog_evidence.c.run_id == request.run_id
             )
-            == "a" * 64
-        )
+        ) == ("a" * 64 if coverage_source == "current" else None)
         assert connection.scalar(select(func.count()).select_from(earthquake_events)) == 2
         dispatches = connection.execute(
             select(job_dispatches).order_by(job_dispatches.c.dispatch_id)
         ).all()
+        if coverage_source == "prior_failed":
+            assert len(dispatches) == 1
+            assert connection.scalar(select(func.count()).select_from(prediction_jobs)) == 0
+            assert (
+                connection.scalar(
+                    select(earthquake_event_revisions.c.prediction_skip_reason).where(
+                        earthquake_event_revisions.c.ingestion_run_id == request.run_id
+                    )
+                )
+                == "history_coverage_unavailable"
+            )
+            return
         assert len(dispatches) == 2
         ingestion_dispatch = next(
             dispatch for dispatch in dispatches if dispatch.ingestion_run_id == request.run_id

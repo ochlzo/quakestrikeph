@@ -42,7 +42,16 @@ INGESTED_AT = ANCHOR_TIME + timedelta(hours=1)
 BOOTSTRAP_SHA = "a" * 64
 
 
-def _revision(connection, run_id, *, event_time, ingested_at, revision_number=1, event_id=None):
+def _revision(
+    connection,
+    run_id,
+    *,
+    event_time,
+    ingested_at,
+    revision_number=1,
+    event_id=None,
+    skip_reason=None,
+):
     event_id = event_id or uuid4()
     revision_id = uuid4()
     if revision_number == 1:
@@ -67,7 +76,7 @@ def _revision(connection, run_id, *, event_time, ingested_at, revision_number=1,
             magnitude=Decimal("4.20"),
             location_description="Example",
             prediction_skip_reason=(
-                "history_coverage_unavailable" if run_id == SOURCE_RUN_ID else None
+                skip_reason or ("history_coverage_unavailable" if run_id == SOURCE_RUN_ID else None)
             ),
             ingested_at=ingested_at,
         )
@@ -75,7 +84,14 @@ def _revision(connection, run_id, *, event_time, ingested_at, revision_number=1,
     return event_id, revision_id
 
 
-def _seed(engine, *, bootstrap_end=None, live_start=None):
+def _seed(
+    engine,
+    *,
+    bootstrap_end=None,
+    live_start=None,
+    source_run_id=SOURCE_RUN_ID,
+    skip_reason="history_coverage_unavailable",
+):
     bootstrap_id, live_id, correlation_id = uuid4(), uuid4(), uuid4()
     bootstrap_correlation_id = uuid4()
     bootstrap_end = bootstrap_end or datetime(2026, 9, 19, tzinfo=UTC)
@@ -83,7 +99,7 @@ def _seed(engine, *, bootstrap_end=None, live_start=None):
     with engine.begin() as connection:
         for run_id, trigger, sha in (
             (bootstrap_id, "backfill", BOOTSTRAP_SHA),
-            (SOURCE_RUN_ID, "manual", None),
+            (source_run_id, "manual", None),
             (live_id, "scheduled", None),
         ):
             connection.execute(
@@ -95,7 +111,7 @@ def _seed(engine, *, bootstrap_end=None, live_start=None):
                     finished_at=INGESTED_AT,
                     correlation_id=(
                         correlation_id
-                        if run_id == SOURCE_RUN_ID
+                        if run_id == source_run_id
                         else bootstrap_correlation_id
                         if run_id == bootstrap_id
                         else uuid4()
@@ -125,13 +141,19 @@ def _seed(engine, *, bootstrap_end=None, live_start=None):
             )
         )
         _, candidate_id = _revision(
-            connection, SOURCE_RUN_ID, event_time=ANCHOR_TIME, ingested_at=INGESTED_AT
+            connection,
+            source_run_id,
+            event_time=ANCHOR_TIME,
+            ingested_at=INGESTED_AT,
+            skip_reason=skip_reason,
         )
     coverage = HistoryCoverage(datetime(2026, 8, 1, tzinfo=UTC), bootstrap_end, True)
     store = SqlAlchemyHistoricalRecovery(
         create_session_factory(engine),
         target_release_id=RELEASE_ID,
         bootstrap_run_id=bootstrap_id,
+        source_run_id=source_run_id,
+        skip_reason=skip_reason,
     )
     recovery = RecoverHistoricalPredictions(
         store,
@@ -140,6 +162,8 @@ def _seed(engine, *, bootstrap_end=None, live_start=None):
         bootstrap_sha256=BOOTSTRAP_SHA,
         bootstrap_correlation_id=bootstrap_correlation_id,
         bootstrap_coverage=coverage,
+        source_run_id=source_run_id,
+        skip_reason=skip_reason,
     )
     return recovery, candidate_id, live_id
 
@@ -184,6 +208,48 @@ def test_dry_run_then_apply_and_repeat_preserves_skip_and_audits(migrated_engine
                 )
             )
             == "history_coverage_unavailable"
+        )
+
+
+@pytest.mark.parametrize("reason", ["history_coverage_unavailable", "history_ends_before_anchor"])
+def test_selected_run_and_reason_are_scoped_and_reusable(migrated_engine, reason):
+    selected_run = uuid4()
+    recovery, revision_id, _ = _seed(
+        migrated_engine, source_run_id=selected_run, skip_reason=reason
+    )
+    with migrated_engine.begin() as connection:
+        _, other_id = _revision(
+            connection,
+            selected_run,
+            event_time=ANCHOR_TIME,
+            ingested_at=INGESTED_AT,
+            skip_reason="magnitude_below_m1",
+        )
+    assert recovery.run(apply=False)["eligible"] == 1
+    assert recovery.run(apply=True)["created"] == 1
+    assert recovery.run(apply=True)["reused"] == 1
+    with migrated_engine.connect() as connection:
+        job = connection.execute(select(prediction_jobs)).one()
+        assert job.event_revision_id == revision_id
+        audit = connection.execute(select(audit_logs)).one()
+        assert audit.reason_code == reason
+        assert audit._mapping["metadata"]["source_run_id"] == str(selected_run)
+        assert audit._mapping["metadata"]["historical_no_alert"] is True
+        assert (
+            connection.scalar(
+                select(earthquake_event_revisions.c.prediction_skip_reason).where(
+                    earthquake_event_revisions.c.event_revision_id == revision_id
+                )
+            )
+            == reason
+        )
+        assert (
+            connection.scalar(
+                select(func.count())
+                .select_from(prediction_jobs)
+                .where(prediction_jobs.c.event_revision_id == other_id)
+            )
+            == 0
         )
 
 
