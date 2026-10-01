@@ -3,8 +3,19 @@ http:
     backend-api:
       entryPoints: [web]
       rule: Host(`quakestrikeph.qzz.io`) && PathPrefix(`/api/v1/`)
-      middlewares: [public-api-limit]
+      priority: 100
+        bulletin:
+      entryPoints: [web]
+      rule: Host(`quakestrikeph.qzz.io`)
+      priority: 10
+      service: bulletin
+  middlewares: [public-api-limit]
       service: backend-api
+    bulletin:
+      entryPoints: [web]
+      rule: Host(`quakestrikeph.qzz.io`)
+      priority: 10
+      service: bulletin
   middlewares:
     public-api-limit:
       rateLimit:
@@ -14,6 +25,10 @@ http:
         sourceCriterion:
           requestHeaderName: CF-Connecting-IP
   services:
+    bulletin:
+      loadBalancer:
+        servers:
+          - url: http://bulletin:4321
     backend-api:
       loadBalancer:
         servers:

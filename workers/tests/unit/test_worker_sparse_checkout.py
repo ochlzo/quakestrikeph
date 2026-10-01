@@ -2,7 +2,7 @@ import subprocess
 from pathlib import Path
 
 
-def test_sparse_deployment_excludes_bulletin_and_keeps_backend_and_secrets(tmp_path: Path):
+def test_deployment_restores_bulletin_and_keeps_backend_and_secrets(tmp_path: Path):
     def git(*args):
         return subprocess.check_output(["git", "-C", str(tmp_path), *args], text=True).strip()
 
@@ -27,8 +27,9 @@ def test_sparse_deployment_excludes_bulletin_and_keeps_backend_and_secrets(tmp_p
     git("switch", "--detach", first)
     (tmp_path / ".env").write_text("test configuration", encoding="utf-8")
     git("sparse-checkout", "set", "--no-cone", "/*", "!/apps/quakestrikeph-bulletin/")
+    git("sparse-checkout", "disable")
     git("switch", "--detach", second)
-    assert not (tmp_path / "apps/quakestrikeph-bulletin").exists()
+    assert (tmp_path / "apps/quakestrikeph-bulletin/page.astro").read_text() == "second"
     assert (tmp_path / "workers/worker.py").exists()
     assert (tmp_path / "apps/backend-api/index.ts").exists()
     assert (tmp_path / ".env").read_text() == "test configuration"

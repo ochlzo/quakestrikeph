@@ -1,0 +1,14 @@
+services:
+  bulletin:
+    image: quakestrike-bulletin:${BULLETIN_IMAGE_TAG:?Set BULLETIN_IMAGE_TAG to the tested Git commit SHA}
+    build:
+      context: ..
+      dockerfile: apps/quakestrikeph-bulletin/Dockerfile
+    networks: [backend-edge]
+    restart: unless-stopped
+    mem_limit: 256m
+    logging:
+      driver: local
+      options:
+        max-size: "20m"
+        max-file: "5"

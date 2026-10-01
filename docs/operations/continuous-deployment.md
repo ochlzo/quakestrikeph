@@ -6,13 +6,42 @@ successful `main` run, its deploy job can connect to the VPS over Tailscale and
 run `infrastructure/scripts/deploy-workers.sh`. The deploy job is disabled until
 the repository variable `DEPLOY_ENABLED` is set to `true`.
 
-This deploys the current Python workers only. The read-only Backend API has a
-separate [manual VPS setup and rollout](backend-api.md). The workflow does not
-install, check, build, or deploy the Bulletin app. Configure its build and hosting
-separately in Vercel using `apps/quakestrikeph-bulletin` as the project root.
-Worker deployment excludes the Bulletin directory from the VPS working tree
-through Git sparse checkout; the app remains tracked in the monorepo. The
-Operations Console deployment remains planned.
+This deploys Python workers and the public Bulletin. The workflow also checks the
+Backend, whose image still has a separate [manual rollout](backend-api.md).
+Bulletin CI builds its Dockerfile (including Astro checks and production build)
+and checks the production homepage and an emitted asset. Deployment waits for
+all three checks and uses the tested main SHA for worker and Bulletin images.
+The Operations Console deployment remains planned.
+
+## Bulletin hosting
+
+Follow [ADR 0041](../adr/0041-vps-bulletin-deployment.md). The existing Cloudflare
+Tunnel hostname `quakestrikeph.qzz.io` continues pointing at `http://traefik:80`.
+Traefik sends `/api/v1/` to Backend port 3000 with priority 100 and other paths
+to Bulletin port 4321 with priority 10. No public host port is added.
+
+Complete the existing Backend setup first. The deploy script restores the full
+Git checkout, builds Bulletin before replacing services, and starts it using
+`compose.yml`, `compose.backend.yml`, and `compose.bulletin.yml`. The script
+sets `BULLETIN_IMAGE_TAG` to the tested SHA and saves it in the ignored VPS
+`.env` only after the public checks pass. The first rollout requires no prior
+Bulletin tag. Subsequent releases retain the previous tagged image for rollback.
+
+Bulletin joins only `backend-edge`; it has no PostgreSQL or Redis access.
+Its Dockerfile supplies a root-page health check, production Node command,
+and a non-root user. Compose adds bounded logs, restart policy, and memory limit.
+Traefik is recreated after Bulletin is healthy so its mounted route file uses
+the current checkout. The script checks the public homepage and earthquake API.
+A failed rollout restores previous worker and Bulletin images and routing; a
+failed first rollout removes Bulletin and restores the API-only configuration.
+Do not prune prior images until the release is verified.
+
+For the first release, keep `DEPLOY_ENABLED=false`, wait for green main checks,
+and run `bash infrastructure/scripts/deploy-workers.sh <tested-main-sha>` on
+the VPS using the new script. Confirm homepage, assets, map, earthquake list,
+and forecast reads over HTTPS, then set `DEPLOY_ENABLED=true` in GitHub.
+Future successful main runs deploy workers and Bulletin together. A Bulletin
+failure fails deployment and triggers rollback; the Backend tag is unchanged.
 
 ## Initialize the VPS once
 
