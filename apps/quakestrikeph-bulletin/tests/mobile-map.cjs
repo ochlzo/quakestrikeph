@@ -9,6 +9,16 @@ const { chromium } = require("playwright");
     const page = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: "reduce" });
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
+    page.on("console", (message) => {
+      if (message.type() === "warn" && message.text().includes("Supplemental map labels unavailable")) {
+        errors.push(message.text());
+      }
+    });
+    let landmarkRequests = 0;
+    page.on("request", (request) => {
+      if (request.url().endsWith("/assets/map/philippines-landmarks.geojson")) landmarkRequests++;
+    });
+    const landmarkResponse = page.waitForResponse((response) => response.url().endsWith("/assets/map/philippines-landmarks.geojson"));
     const events = Array.from({ length: 12 }, (_, index) => ({
       eventId: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
       eventTime: "2026-09-30T04:00:00Z", magnitude: 2.6,
@@ -35,6 +45,10 @@ const { chromium } = require("playwright");
     await page.getByRole("button", { name: "Show earthquakes" }).waitFor();
     assert.equal(await page.getByRole("region", { name: "Magnitude legend" }).isVisible(), true, "Mobile legend starts open");
     await page.waitForFunction(() => !document.querySelector('.terrain-button').disabled);
+    const labels = await (await landmarkResponse).json();
+    assert.equal(labels.features.length, 2264);
+    assert(labels.features.every((feature) => feature.properties.category === "landmarks"));
+    assert.equal(await page.locator(".map-plate").count(), 0, "Loaded map hides the relief placeholder");
     const attribution = page.locator(".maplibregl-ctrl-attrib");
     const attributionButton = page.locator(".maplibregl-ctrl-attrib-button");
     assert.equal(await attribution.evaluate((el) => el.open || el.classList.contains("maplibregl-compact-show")), false, "Attribution stays closed after source data arrives");
@@ -152,6 +166,20 @@ const { chromium } = require("playwright");
     await drawer.waitFor({ state: "hidden" });
     await page.getByRole("heading", { name: "Forecast Overview" }).waitFor();
     await page.screenshot({ path: ".astro/mobile-map-open.png" });
+    const terrainToggle = page.getByRole("button", { name: "3D terrain", exact: true });
+    await terrainToggle.click();
+    assert.equal(await terrainToggle.getAttribute("aria-pressed"), "true");
+    for (let step = 0; step < 7; step++) {
+      await page.locator(".maplibregl-canvas").press("Shift+ArrowUp");
+      // Each keyboard camera animation lasts 300 ms; let it settle before the next step.
+      await page.waitForTimeout(350);
+    }
+    await page.getByRole("button", { name: "Zoom in", exact: true }).click();
+    await page.waitForTimeout(400);
+    assert(await page.getByRole("heading", { name: "Forecast Overview" }).isVisible(), "3D tilt and zoom preserve the selected forecast");
+    await page.screenshot({ path: ".astro/mobile-map-3d.png" });
+    await terrainToggle.click();
+    assert.equal(await terrainToggle.getAttribute("aria-pressed"), "false");
     await trigger.click();
     await drawer.waitFor();
     assert(Math.abs((await drawer.boundingBox()).y - 844 * 0.35) < 3, "Reopens at compact snap");
@@ -193,6 +221,20 @@ const { chromium } = require("playwright");
     assert(await page.getByRole("region", { name: "Magnitude legend" }).isVisible());
     assert.equal(await page.getByRole("button", { name: "Magnitude legend" }).isVisible(), false);
     await page.screenshot({ path: ".astro/mobile-map-desktop.png" });
+    // Check the same high-tilt sky at desktop size without the forecast annotation covering it.
+    const desktopCanvas = page.locator(".maplibregl-canvas");
+    await desktopCanvas.click({ position: { x: 40, y: 140 } });
+    await page.getByRole("button", { name: "Show the Philippines", exact: true }).click();
+    await page.waitForTimeout(750);
+    await terrainToggle.click();
+    await page.waitForTimeout(550);
+    for (let step = 0; step < 5; step++) {
+      await desktopCanvas.press("Shift+ArrowUp");
+      await page.waitForTimeout(350);
+    }
+    assert.equal(await page.locator(".map-plate").count(), 0);
+    await page.screenshot({ path: ".astro/map-native-sky-desktop.png" });
+    assert.equal(landmarkRequests, 1, "Mode and camera changes reuse the landmark asset");
     assert.deepEqual(errors, []);
     console.log("PASS mobile fullscreen map, snap drawer, scrolling, filters, dismissal and desktop layout");
   } finally {

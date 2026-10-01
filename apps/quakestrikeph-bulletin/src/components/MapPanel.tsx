@@ -7,6 +7,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import type { Earthquake, Forecast } from "../lib/events";
 import { magnitudeBand, magnitudeBands } from "../lib/magnitude";
+import { addLandmarkLabels } from "../lib/map-landmarks";
+import { cleanMapStyle } from "../lib/map-labels";
 
 type Props = {
   events: Earthquake[];
@@ -79,7 +81,7 @@ function forecastEnd(value: string) {
 }
 
 function set3DInteractions(instance: MapLibreMap, enabled: boolean) {
-  instance.setMaxPitch(enabled ? 60 : 0);
+  instance.setMaxPitch(enabled ? 85 : 0);
   if (enabled) {
     instance.dragRotate.enable();
     instance.touchPitch.enable();
@@ -155,19 +157,19 @@ export default function MapPanel({
   useEffect(() => {
     if (!container.current) return;
     let disposed = false;
+    let removeLabelProtocol: (() => void) | undefined;
     const attributionListeners = new AbortController();
-    import("maplibre-gl")
-      .then((ml) => {
+    Promise.all([import("maplibre-gl"), import("../lib/map-label-tiles")])
+      .then(([ml, labels]) => {
         if (disposed || !container.current) return;
+        ml.addProtocol(labels.labelProtocol, labels.loadLabelTile);
+        removeLabelProtocol = () => ml.removeProtocol(labels.labelProtocol);
         ml.setWorkerUrl(workerUrl);
         const compact = window.matchMedia("(max-width: 600px)").matches;
         const instance = new ml.Map({
           container: container.current,
-          attributionControl: {
-            compact: true,
-            // stop adding custom attributions
-          },
-          style: "https://tiles.openfreemap.org/styles/positron",
+          attributionControl: { compact: true },
+          transformRequest: labels.transformLabelRequest,
           maxBounds: philippinesBounds,
           minZoom: 3.25,
           center: compact ? [123.1, 11.7] : [123.3, 10.8],
@@ -222,46 +224,22 @@ export default function MapPanel({
         }
         instance.on("load", () => {
           if (disposed) return;
-          for (const layer of instance.getStyle().layers) {
-            if (layer.type === "fill" && /water|ocean|sea/i.test(layer.id)) {
-              instance.setPaintProperty(layer.id, "fill-color", "#a4c6d3");
-            }
+          const nativeWaterColor = instance.getPaintProperty("water", "fill-color");
+          if (typeof nativeWaterColor === "string") {
+            instance.setPaintProperty("water", "fill-color", [
+              "case",
+              ["==", ["get", "class"], "ocean"],
+              "#74A9D9",
+              nativeWaterColor,
+            ]);
           }
-          // geoBoundaries gbOpen PHL ADM0, simplified OCHA/NAMRIA geometry;
-          // islets under 0.5 km² are omitted to avoid dark dots at regional zoom.
-          // This avoids the internal edges of OpenMapTiles water polygons.
-          instance.addSource("coastline", {
-            type: "geojson",
-            data: "/assets/map/philippines-coastline.geojson",
-          });
-          instance.addLayer(
-            {
-              id: "coastline-outline",
-              type: "line",
-              source: "coastline",
-              layout: { "line-join": "round", "line-cap": "round" },
-              paint: { "line-color": "#163c61", "line-width": 1.5 },
-            },
-            instance.getStyle().layers.find((layer) => layer.type === "symbol")
-              ?.id,
-          );
+          void addLandmarkLabels(instance, attributionListeners.signal);
           instance.addSource("terrain", {
             type: "raster-dem",
             tiles: ["https://tiles.mapterhorn.com/{z}/{x}/{y}.webp"],
             tileSize: 512,
             maxzoom: 12,
             encoding: "terrarium",
-          });
-          instance.addLayer({
-            id: "terrain-shade",
-            type: "hillshade",
-            source: "terrain",
-            layout: { visibility: "none" },
-            paint: {
-              "hillshade-shadow-color": "#3e6c6d",
-              "hillshade-highlight-color": "#ffffff",
-              "hillshade-accent-color": "#719896",
-            },
           });
           instance.addSource("forecast-radius", {
             type: "geojson",
@@ -299,6 +277,9 @@ export default function MapPanel({
           }, { signal: attributionListeners.signal });
           setMapReady(true);
         });
+        instance.setStyle("https://tiles.openfreemap.org/styles/liberty", {
+          transformStyle: (_previous, next) => cleanMapStyle(next),
+        });
       })
       .catch(() => setMapReady(false));
     return () => {
@@ -309,6 +290,7 @@ export default function MapPanel({
       annotationMarker.current?.remove();
       annotationMarker.current = null;
       map.current?.remove();
+      removeLabelProtocol?.();
       map.current = null;
     };
   }, []);
@@ -512,11 +494,14 @@ export default function MapPanel({
     map.current.setTerrain(
       next ? { source: "terrain", exaggeration: 1.3 } : null,
     );
-    map.current.setLayoutProperty(
-      "terrain-shade",
-      "visibility",
-      next ? "visible" : "none",
-    );
+    map.current.setSky({
+      "sky-color": next ? "#eaf2f8" : "transparent",
+      "horizon-color": next ? "#ffffff" : "transparent",
+      "sky-horizon-blend": 0.35,
+      "fog-color": "transparent",
+      "fog-ground-blend": 1, // Keep haze above the horizon; preserve native terrain colors.
+      "atmosphere-blend": 0,
+    });
     set3DInteractions(map.current, next);
     map.current.easeTo({
       pitch: next
@@ -537,12 +522,14 @@ export default function MapPanel({
       className="map-panel"
       aria-label="Earthquakes on the Philippine map"
     >
-      <img
-        className="map-plate"
-        src="/assets/plates/relief-map.webp"
-        alt=""
-        fetchPriority="high"
-      />
+      {!mapReady && (
+        <img
+          className="map-plate"
+          src="/assets/plates/relief-map.webp"
+          alt=""
+          fetchPriority="high"
+        />
+      )}
       <div className="map-canvas" ref={container} />
       {annotationHost &&
         selectedEvent &&
@@ -599,6 +586,7 @@ export default function MapPanel({
         isDisabled={!mapReady}
         aria-pressed={terrain}
         aria-label="3D terrain"
+        aria-description="In 3D, right-drag or use Shift + arrow keys to tilt and rotate. On touchscreens, move two fingers together to tilt; pinch to zoom."
       >
         <Layers3 size={18} aria-hidden="true" />
         <span className="terrain-label">3D terrain</span>

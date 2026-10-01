@@ -26,6 +26,12 @@ importers:
       '@internationalized/date':
         specifier: 3.12.4
         version: 3.12.4
+      '@mapbox/vector-tile':
+        specifier: 3.0.0
+        version: 3.0.0
+      '@maplibre/vt-pbf':
+        specifier: 4.3.2
+        version: 4.3.2
       astro:
         specifier: 7.3.5
         version: 7.3.5(jiti@2.7.0)(yaml@2.9.1)
@@ -44,6 +50,9 @@ importers:
       openapi-fetch:
         specifier: 0.17.0
         version: 0.17.0
+      pbf:
+        specifier: 5.1.2
+        version: 5.1.2
       react:
         specifier: 19.3.0
         version: 19.3.0
