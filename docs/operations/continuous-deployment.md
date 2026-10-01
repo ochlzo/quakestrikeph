@@ -9,7 +9,8 @@ the repository variable `DEPLOY_ENABLED` is set to `true`.
 This deploys Python workers and the public Bulletin. The workflow also checks the
 Backend, whose image still has a separate [manual rollout](backend-api.md).
 Bulletin CI builds its Dockerfile (including Astro checks and production build)
-and checks the production homepage and an emitted asset. Deployment waits for
+and checks the production homepage and an emitted asset. A disposable Traefik
+container also checks page/API routing and unrelated-host rejection. Deployment waits for
 all three checks and uses the tested main SHA for worker and Bulletin images.
 The Operations Console deployment remains planned.
 

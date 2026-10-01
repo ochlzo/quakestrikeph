@@ -4,12 +4,7 @@ http:
       entryPoints: [web]
       rule: Host(`quakestrikeph.qzz.io`) && PathPrefix(`/api/v1/`)
       priority: 100
-        bulletin:
-      entryPoints: [web]
-      rule: Host(`quakestrikeph.qzz.io`)
-      priority: 10
-      service: bulletin
-  middlewares: [public-api-limit]
+      middlewares: [public-api-limit]
       service: backend-api
     bulletin:
       entryPoints: [web]
