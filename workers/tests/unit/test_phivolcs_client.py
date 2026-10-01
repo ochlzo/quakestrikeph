@@ -47,6 +47,52 @@ def test_current_month_catalog_proves_coverage_only_when_all_event_rows_parse() 
     )
 
 
+@pytest.mark.parametrize(
+    ("heading", "first", "latest", "fetched_at"),
+    [
+        ("SEPTEMBER 2026", "01 September 2026", "01 October 2026", "2026-10-01T02:00:00Z"),
+        ("DECEMBER 2026", "01 December 2026", "01 January 2027", "2027-01-01T02:00:00Z"),
+    ],
+)
+def test_previous_month_catalog_covers_new_month_events(
+    heading: str, first: str, latest: str, fetched_at: str
+) -> None:
+    body = f"""<strong>{heading}</strong><table>
+      <tr><td><a href="2026_Earthquake_Information/September/2026_0901_0009_B1.html">
+        {first} - 08:09 AM</a></td>
+        <td>10</td><td>125</td><td>7</td><td>2.0</td><td>Test</td></tr>
+      <tr><td><a href="2026_Earthquake_Information/September/2026_0902_0100_B1.html">
+        {latest} - 09:00 AM</a></td>
+        <td>10</td><td>125</td><td>7</td><td>2.0</td><td>Test</td></tr>
+    </table>""".encode()
+    parsed = parse_current_catalog(body, CATALOG_URL)
+    retrieved_at = datetime.fromisoformat(fetched_at)
+
+    evidence = validated_catalog_evidence(parsed, CATALOG_URL, body, retrieved_at)
+
+    assert evidence is not None
+    assert evidence.coverage_start == parsed.declared_month_start
+    assert evidence.coverage_end == retrieved_at
+    assert evidence.accepted_rows == 2
+    # A stale heading, missing first day, future event, or malformed row is still unsafe.
+    for invalid_body, invalid_time in (
+        (body, retrieved_at.replace(month=3)),
+        (body.replace(first.encode(), first.replace("01", "02", 1).encode()), retrieved_at),
+        (body, retrieved_at.replace(hour=0)),
+        (body.replace(b"<td>2.0</td>", b"<td>NaN</td>", 1), retrieved_at),
+        (body.replace(f"<strong>{heading}</strong>".encode(), b""), retrieved_at),
+    ):
+        assert (
+            validated_catalog_evidence(
+                parse_current_catalog(invalid_body, CATALOG_URL),
+                CATALOG_URL,
+                invalid_body,
+                invalid_time,
+            )
+            is None
+        )
+
+
 class ScriptedResponse:
     def __init__(
         self, body: bytes, *, status_code: int = 200, content_type: str = "text/html"

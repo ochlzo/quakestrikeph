@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
@@ -71,6 +72,9 @@ class _Store:
         self.heartbeats = 0
         self.heartbeat_times: list[datetime] = []
         self.claimed_at: datetime | None = None
+
+    def successful_catalog_coverages(self, _start, _end):
+        return ()
 
     def claim_run(self, run_id, token, now):
         self.claimed_at = now
@@ -172,6 +176,28 @@ def test_exact_bulletin_match_uses_existing_event_without_group_fallback() -> No
     assert store.requests[0].input_key.startswith("row:")
     assert store.requests[0].history_coverage == HISTORY_COVERAGE
     assert store.checkpoints[0][1] == "revised"
+
+
+def test_prior_coverage_is_used_when_current_catalog_cannot_claim_coverage() -> None:
+    class PriorCoverageStore(_Store):
+        def successful_catalog_coverages(self, start, end):
+            assert start == NOW - timedelta(days=7)
+            assert end == NOW
+            return (HISTORY_COVERAGE,)
+
+    store = PriorCoverageStore()
+    row = replace(_row(), occurred_at=NOW)
+    result = ReconcileCurrentCatalog(
+        store=store,
+        retriever=_Retriever(CatalogParseResult((row,), ())),
+        diagnostic_reporter=_Reporter(),
+        model_release_id=MODEL_RELEASE_ID,
+        history_coverage=HistoryCoverage(NOW - timedelta(days=30), NOW - timedelta(days=8), True),
+        now=lambda: NOW,
+    ).execute(uuid4())
+
+    assert result.status == "succeeded"
+    assert store.requests[0].history_coverage.end == NOW
 
 
 def test_new_bulletin_with_an_unmatched_group_creates_a_new_event() -> None:

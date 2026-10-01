@@ -336,21 +336,18 @@ class PhivolcsCatalogClient:
 def validated_catalog_evidence(
     parsed: CatalogParseResult, source_url: str, body: bytes, retrieved_at: datetime
 ) -> CatalogEvidence | None:
-    """Trust a complete current-month page only when every event row normalized."""
+    """Trust a complete latest page, including a delayed month rollover."""
 
     month = parsed.declared_month_start
+    retrieval_month = retrieved_at.astimezone(MANILA)
     rows = parsed.accepted_rows
     if (
         month is None
         or not rows
         or parsed.candidate_row_count != len(rows)
-        or (month.year, month.month)
-        != (retrieved_at.astimezone(MANILA).year, retrieved_at.astimezone(MANILA).month)
+        or (retrieval_month.year - month.year) * 12 + retrieval_month.month - month.month
+        not in (0, 1)
         or min(row.occurred_at for row in rows).date() != month.date()
-        or any(
-            (row.occurred_at.year, row.occurred_at.month) != (month.year, month.month)
-            for row in rows
-        )
         or max(row.occurred_at for row in rows) > retrieved_at
     ):
         return None

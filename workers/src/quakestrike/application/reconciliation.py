@@ -182,14 +182,14 @@ class ReconcileSourceRows:
                 evidence = self._store.bind_catalog_evidence(
                     claim.run_id, claim.worker_execution_id, parsed.evidence
                 )
-                coverages.extend(
-                    self._store.successful_catalog_coverages(
-                        evidence.coverage_start - HISTORY_WINDOW,
-                        evidence.coverage_end,
-                    )
-                )
                 coverages.append(
                     HistoryCoverage(evidence.coverage_start, evidence.coverage_end, True)
+                )
+            if rows:
+                coverages.extend(
+                    self._store.successful_catalog_coverages(
+                        rows[0].occurred_at - HISTORY_WINDOW, rows[-1].occurred_at
+                    )
                 )
             merged_coverages = merge_history_coverages(coverages)
             skipped = (
