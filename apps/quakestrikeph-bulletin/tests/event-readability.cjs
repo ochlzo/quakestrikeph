@@ -13,10 +13,18 @@ const { chromium } = require("playwright");
     "Offshore east of Mindanao",
     "Location unavailable",
   ];
-  const labels = ["Near Sarangani (Davao Occidental)", "Near Socorro (Surigao Del Norte)",
-    "Near Monreal (Masbate)", "Near Legazpi City (Albay)", ...descriptions.slice(4)];
+  const labels = [
+    "11 km N 78° W of Balut Island (Municipality of Sarangani) (Davao Occidental)",
+    "9 km N 01° E of Socorro (Surigao Del Norte)",
+    "16 km N 62° W of Monreal (Masbate)",
+    ...descriptions.slice(3),
+  ];
   assert.deepEqual(descriptions.map(locationLabel), labels);
   assert.equal(locationLabel(""), "");
+  assert.equal(locationLabel("000 km S of Glan"), "0 km S of Glan");
+  assert.equal(locationLabel("000.5 km S of Glan"), "0.5 km S of Glan");
+  assert.equal(locationLabel("001.50 km N 01° E of Glan"), "1.50 km N 01° E of Glan");
+  assert.equal(locationLabel("010 metres S of Glan"), "010 metres S of Glan");
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -39,6 +47,7 @@ const { chromium } = require("playwright");
     for (const width of [1440, 390, 320]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(process.env.BULLETIN_URL || "http://localhost:4321");
+      if (width <= 760) await page.getByRole("button", { name: "Show earthquakes" }).click();
       const rows = page.locator(".event-row-v2:not(.event-row-skeleton)");
       await rows.first().waitFor();
       assert.deepEqual(await rows.locator("b").allTextContents(), labels);
@@ -51,12 +60,11 @@ const { chromium } = require("playwright");
       await page.screenshot({ path: `.astro/readability-${width}.png`, fullPage: true });
       await rows.first().click();
       assert.equal(await page.locator(".selected-card h2").textContent(), labels[0]);
-      assert.equal(await page.locator(".source-location").textContent(), `Detailed location: ${descriptions[0]}`);
-      assert(await page.locator(".source-location").evaluate((element) => parseFloat(getComputedStyle(element).fontSize)) >= 13);
+      assert.equal(await page.locator(".source-location").count(), 0);
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       await page.screenshot({ path: `.astro/readability-selected-${width}.png`, fullPage: true });
     }
     assert.deepEqual(errors, []);
-    console.log("PASS readable locations, exact source descriptions, metadata size and narrow layouts");
+    console.log("PASS source location headings, kilometre formatting, metadata size and narrow layouts");
   } finally { await browser.close(); }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

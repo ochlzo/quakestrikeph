@@ -10,12 +10,7 @@ export function displayTime(value: string) {
 
 export function magnitude(value: number) { return `M${value.toFixed(1)}`; }
 
-// Only shorten the known PHIVOLCS distance/bearing format; other descriptions stay intact.
+// Preserve source wording; remove padding only from the leading kilometre distance.
 export function locationLabel(description: string) {
-  const reference = description.match(
-    /^\d+(?:\.\d+)?\s+km\s+[NSEW](?:\s*\d+(?:\.\d+)?\s*°?\s*[NSEW])?\s+of\s+(.+)$/i,
-  )?.[1];
-  if (!reference) return description;
-  const place = reference.replace(/^.+?\s+\(Municipality of ([^)]+)\)(.*)$/i, "$1$2");
-  return `Near ${place}`;
+  return description.replace(/^0+(?=\d+(?:\.\d+)?\s+km\b)/i, "");
 }

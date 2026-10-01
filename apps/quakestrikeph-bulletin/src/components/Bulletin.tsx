@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import MapPanel from "./MapPanel";
 import MagnitudeFilter from "./MagnitudeFilter";
-import { magnitudeRangesForBands } from "../lib/magnitude";
+import { magnitudeBand, magnitudeRangesForBands } from "../lib/magnitude";
 import { bulletinApi } from "../lib/api/client";
 import { Button, LinkButton, buttonVariants } from "@/components/ui/button";
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
@@ -30,6 +30,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Popover } from "@/components/ui/popover";
 import {
   Select,
@@ -48,7 +49,6 @@ import {
   type Earthquake,
   type EarthquakeDetail,
 } from "../lib/events";
-import "../styles/bulletin.css";
 
 const dateOptions = [
   { label: "All dates", value: "all" },
@@ -386,17 +386,12 @@ export default function Bulletin() {
           aria-label="Selected earthquake"
         >
           <div className="card-top">
-            <div className="selected-mag">{magnitude(event.magnitude)}</div>
+            <div className={`selected-mag magnitude-value ${magnitudeBand(event.magnitude).className}`}>{magnitude(event.magnitude)}</div>
             <time dateTime={event.eventTime}>
               {displayTime(event.eventTime)}
             </time>
           </div>
           <h2>{locationLabel(event.locationDescription)}</h2>
-          {locationLabel(event.locationDescription) !== event.locationDescription && (
-            <p className="source-location">
-              <strong>Detailed location:</strong> {event.locationDescription}
-            </p>
-          )}
           <div className="card-bottom">
             <div className="selected-facts">
               <span>
@@ -429,7 +424,7 @@ export default function Bulletin() {
           onPress={() => selectEvent(event.eventId)}
         >
           <span className="row-v2-measure">
-            <strong>{magnitude(event.magnitude)}</strong>
+            <strong className={`magnitude-value ${magnitudeBand(event.magnitude).className}`}>{magnitude(event.magnitude)}</strong>
             <small>
               {event.depthKm === null
                 ? "Unknown depth"
@@ -441,7 +436,6 @@ export default function Bulletin() {
             <time dateTime={event.eventTime}>
               {displayTime(event.eventTime)}
             </time>
-            <small>PHIVOLCS</small>
           </span>
           <ChevronRight aria-hidden="true" />
         </Button>
@@ -572,7 +566,6 @@ export default function Bulletin() {
                 <span className="row-v2-detail">
                   <Skeleton className="h-4 w-4/5" />
                   <Skeleton className="h-3 w-3/5" />
-                  <Skeleton className="h-3 w-16" />
                 </span>
               </div>
             ))}
@@ -701,10 +694,12 @@ export default function Bulletin() {
           </span>
         </a>
         <nav className="site-nav" aria-label="Main navigation">
-          <a href="/" aria-current="page">
-            Earthquakes
-          </a>
-          <a href="/about">About</a>
+          <Tabs selectedKey="/" keyboardActivation="manual">
+            <TabsList aria-label="Main navigation">
+              <TabsTrigger id="/" href="/">Earthquakes</TabsTrigger>
+              <TabsTrigger id="/about" href="/about">About</TabsTrigger>
+            </TabsList>
+          </Tabs>
         </nav>
         <LinkButton className="alerts-button" href="/alerts">
           <Bell data-icon="inline-start" aria-hidden="true" />
