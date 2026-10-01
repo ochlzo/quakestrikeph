@@ -17,3 +17,10 @@ export function magnitudeRangesForBands(selected: string[]) {
         .map((band) => band.range)
     : undefined;
 }
+
+export function magnitudeBand(value: number) {
+  return (
+    magnitudeBands.find((band) => value >= (band.range.from ?? -Infinity)) ??
+    magnitudeBands.at(-1)!
+  );
+}

@@ -64,7 +64,15 @@ const { chromium } = require("playwright");
     const dateOption = page.locator('.date-filter-popover [data-slot="select-item"]').first();
     await dateOption.hover();
     const dateHoverColor = await dateOption.evaluate((element) => getComputedStyle(element).backgroundColor);
-    assert.equal(dateHoverColor, "rgb(233, 247, 247)");
+    const accentColor = await page.evaluate(() => {
+      const probe = document.createElement("span");
+      probe.style.backgroundColor = "var(--accent)";
+      document.body.append(probe);
+      const color = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return color;
+    });
+    assert.equal(dateHoverColor, accentColor, "Date options use the central accent token");
     await page.keyboard.press("Escape");
     await page.locator(".date-filter-popover").waitFor({ state: "hidden" });
 

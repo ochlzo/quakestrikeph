@@ -2,6 +2,8 @@
 
 **Status**: accepted
 
+[ADR 0041](0041-vps-bulletin-deployment.md) replaces the Bulletin checkout exclusion and hosting decision below. Recovery rules remain in force.
+
 Amends the single-run restriction in [ADR 0032](0032-audited-historical-live-prediction-recovery.md).
 The operator may explicitly select a succeeded live ingestion run and either
 `history_coverage_unavailable` or `history_ends_before_anchor` to recover.

@@ -1,4 +1,4 @@
-name: Worker and Backend checks
+name: Worker, Backend, and Bulletin checks
 
 on:
   pull_request:
@@ -67,13 +67,48 @@ jobs:
       - run: npm test
         working-directory: apps/backend-api
 
+  bulletin:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check and build production Bulletin image
+        run: docker build -t quakestrike-bulletin:test -f apps/quakestrikeph-bulletin/Dockerfile .
+      - name: Verify production pages and assets
+        run: |
+          docker network create bulletin-test
+          docker run -d --name bulletin-test --network bulletin-test --network-alias bulletin -p 127.0.0.1:4321:4321 quakestrike-bulletin:test
+          for attempt in $(seq 1 30); do
+            curl --fail --silent http://127.0.0.1:4321/ -o /tmp/bulletin.html && break
+            sleep 1
+          done
+          curl --fail --silent --show-error http://127.0.0.1:4321/ -o /tmp/bulletin.html
+          asset=$(python3 -c 'import re; print(re.search(r"(?:src|href)=\"(/_astro/[^\"]+)\"", open("/tmp/bulletin.html").read())[1])')
+          curl --fail --silent --show-error "http://127.0.0.1:4321$asset" -o /dev/null
+      - name: Verify Traefik page and API routing
+        run: |
+          docker run -d --name backend-route-test --network bulletin-test --network-alias backend-api quakestrike-bulletin:test node -e 'require("http").createServer((q,s)=>{s.setHeader("Content-Type","application/json");s.end(JSON.stringify({testBackend:true}))}).listen(3000,"0.0.0.0")'
+          docker run -d --name traefik-test --network bulletin-test -p 127.0.0.1:8080:80 -v "$GITHUB_WORKSPACE/infrastructure/traefik/backend.yml:/etc/traefik/backend.yml:ro" traefik:v3.7.13 --providers.file.filename=/etc/traefik/backend.yml --entrypoints.web.address=:80
+          curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 1 -H 'Host: quakestrikeph.qzz.io' http://127.0.0.1:8080/ -o /tmp/routed-bulletin.html
+          grep -q 'QuakeStrike' /tmp/routed-bulletin.html
+          grep -q '/_astro/' /tmp/routed-bulletin.html
+          curl --fail --silent --show-error -H 'Host: quakestrikeph.qzz.io' -H 'Content-Type: application/json' --data '{"limit":1}' http://127.0.0.1:8080/api/v1/earthquakes/search | python3 -c 'import json,sys; assert json.load(sys.stdin)["testBackend"] is True'
+          test "$(curl --silent -o /dev/null -w '%{http_code}' -H 'Host: unrelated.example' http://127.0.0.1:8080/)" = 404
+      - name: Remove test container
+        if: always()
+        run: |
+          docker rm -f traefik-test backend-route-test bulletin-test || true
+          docker network rm bulletin-test || true
+
   deploy:
     if: github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true'
-    needs: [workers, backend-unit]
+    needs: [workers, backend-unit, bulletin]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     concurrency:
-      group: production-workers
+      group: production-vps
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

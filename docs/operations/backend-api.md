@@ -20,7 +20,7 @@ worker stack running. Use a tested Git commit SHA for `BACKEND_IMAGE_TAG`.
 2. In Cloudflare Tunnel configuration, map the public hostname
    `quakestrikeph.qzz.io` to `http://traefik:80`. Cloudflare Tunnel must preserve
    the public host. The Traefik file route forwards only `/api/v1/` on this
-   hostname. No Console or pgAdmin route is created here.
+   hostname. [Bulletin hosting](continuous-deployment.md#bulletin-hosting) adds a lower-priority page route on the same hostname. No Console or pgAdmin route is created here.
 3. Provision the restricted role and start the three Backend path containers:
 
 ```bash
