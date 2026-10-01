@@ -21,23 +21,28 @@ const options = [
 
 type Props = {
   value: string[];
-  onApply: (value: string[]) => void;
+  onChange: (value: string[]) => void;
 };
 
-export default function MagnitudeFilter({ value, onApply }: Props) {
-  const [draft, setDraft] = useState(value.length ? value : ["all"]);
+export default function MagnitudeFilter({ value, onChange }: Props) {
+  const draft = value.length ? value : ["all"];
   const [search, setSearch] = useState("");
   const [focused, setFocused] = useState(false);
   const anchor = useRef<HTMLDivElement>(null);
   const popover = useRef<HTMLDivElement>(null);
+  const values = useRef<HTMLDivElement>(null);
 
-  useEffect(() => setDraft(value.length ? value : ["all"]), [value]);
-
-  function applySelection() {
-    onApply(options.filter((band) => band.className !== "all" && draft.includes(band.className))
-      .map((band) => band.className));
-    setSearch("");
-  }
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const row = values.current;
+      if (!row) return;
+      row.scrollTo({
+        left: row.scrollWidth,
+        behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [value]);
 
   return (
     <Combobox
@@ -49,7 +54,9 @@ export default function MagnitudeFilter({ value, onApply }: Props) {
         const selected = keys.map(String);
         const bands = selected.filter((key) => key !== "all");
         const choseAll = selected.includes("all") && !draft.includes("all");
-        setDraft(choseAll || bands.length === 0 ? ["all"] : bands);
+        onChange(choseAll ? [] : options
+          .filter((band) => band.className !== "all" && bands.includes(band.className))
+          .map((band) => band.className));
         setSearch("");
       }}
       inputValue={search}
@@ -66,12 +73,12 @@ export default function MagnitudeFilter({ value, onApply }: Props) {
           const next = event.relatedTarget as Node | null;
           if (!anchor.current?.contains(next) && !popover.current?.contains(next)) {
             setFocused(false);
-            applySelection();
+            setSearch("");
           }
         }}
       >
         <Stone className="magnitude-filter-icon size-5" aria-hidden="true" />
-        <div className="magnitude-filter-values">
+        <div ref={values} className="magnitude-filter-values">
           {!draft.includes("all") && <ComboboxChipList<(typeof options)[number]>>
             {(band) => (
               <ComboboxChip
@@ -102,7 +109,7 @@ export default function MagnitudeFilter({ value, onApply }: Props) {
         shouldCloseOnInteractOutside={(element) => {
           if (anchor.current?.contains(element)) return false;
           setFocused(false);
-          applySelection();
+          setSearch("");
           return true;
         }}
       >

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Layers3, LocateFixed, Minus, Plus } from "lucide-react";
+import { CircleQuestionMark, Layers3, LocateFixed, Minus, Plus } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -123,6 +123,8 @@ export default function MapPanel({
     id: string;
     focusRequest: number;
   } | null>(null);
+  const legendControl = useRef<HTMLDivElement>(null);
+  const [legendOpen, setLegendOpen] = useState(true);
   const [terrain, setTerrain] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   onSelectRef.current = onSelect;
@@ -142,6 +144,20 @@ export default function MapPanel({
       : null;
   const radiusKm =
     reportedRadiusKm !== null && reportedRadiusKm > 0 ? reportedRadiusKm : null;
+
+  useEffect(() => {
+    if (!legendOpen) return;
+    const listeners = new AbortController();
+    document.addEventListener("pointerdown", (event) => {
+      if (event.target instanceof Node && !legendControl.current?.contains(event.target)) {
+        setLegendOpen(false);
+      }
+    }, { capture: true, signal: listeners.signal });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") setLegendOpen(false);
+    }, { signal: listeners.signal });
+    return () => listeners.abort();
+  }, [legendOpen]);
 
   useEffect(() => {
     if (!container.current) return;
@@ -168,6 +184,7 @@ export default function MapPanel({
         });
         set3DInteractions(instance, false);
         map.current = instance;
+        instance.on("dragstart", () => setLegendOpen(false));
         instance.on("click", (event) => {
           const target = event.originalEvent.target;
           if (
@@ -188,6 +205,10 @@ export default function MapPanel({
           .getContainer()
           .querySelector<HTMLDetailsElement>(".maplibregl-ctrl-attrib");
         if (attribution) {
+          // Set compact before source metadata arrives, which otherwise opens attribution.
+          if (window.matchMedia("(max-width: 760px)").matches) {
+            attribution.classList.add("maplibregl-compact");
+          }
           attribution.classList.remove("maplibregl-compact-show");
           attribution.open = false;
           const closeUnlessInside = (target: EventTarget | null) => {
@@ -269,10 +290,20 @@ export default function MapPanel({
               "line-dasharray": [2, 2],
             },
           });
-          instance.addControl(
-            new ml.ScaleControl({ maxWidth: 192, unit: "metric" }),
-            "bottom-left",
-          );
+          const mobileControls = window.matchMedia("(max-width: 760px)");
+          let scale = new ml.ScaleControl({
+            maxWidth: mobileControls.matches ? 96 : 192,
+            unit: "metric",
+          });
+          instance.addControl(scale, "bottom-left");
+          mobileControls.addEventListener("change", () => {
+            instance.removeControl(scale);
+            scale = new ml.ScaleControl({
+              maxWidth: mobileControls.matches ? 96 : 192,
+              unit: "metric",
+            });
+            instance.addControl(scale, "bottom-left");
+          }, { signal: attributionListeners.signal });
           setMapReady(true);
         });
       })
@@ -417,7 +448,7 @@ export default function MapPanel({
         .addTo(instance);
       setAnnotationHost(host);
 
-      if (forecastStatus === "loading") return;
+      if (forecastStatus === "loading" || !instance.getContainer().clientHeight) return;
       const duration = window.matchMedia("(prefers-reduced-motion: reduce)")
         .matches
         ? 0
@@ -507,7 +538,9 @@ export default function MapPanel({
   }
 
   return (
+    <div className="map-region">
     <section
+      id="earthquake-map"
       className="map-panel"
       aria-label="Earthquakes on the Philippine map"
     >
@@ -533,30 +566,32 @@ export default function MapPanel({
               <span>Forecast details are unavailable right now.</span>
             ) : forecast ? (
               <>
-                <strong className="forecast-map-radius">
-                  {reportedRadiusKm === null
-                    ? "Activity radius unavailable"
-                    : `${Math.round(reportedRadiusKm)} km estimated activity radius`}
-                </strong>
+                <h3 className="forecast-map-heading">Forecast Overview</h3>
                 <span className="forecast-map-period">
                   24-hour forecast {forecast.expired ? "ended" : "through"}{" "}
                   {forecastEnd(forecast.windowEnd)}
                 </span>
-                <span
-                  className="forecast-map-occurrence"
-                  aria-label={`${chance(forecast.probabilityM1Plus24h)} chance of at least one further earthquake of magnitude 1.0 or higher`}
-                >
-                  <strong>
-                    {chance(forecast.probabilityM1Plus24h)} chance
-                  </strong>{" "}
-                  of at least one further M1.0+ earthquake
-                </span>
-                {radiusKm !== null && (
-                  <small>
-                    The circle shows distance, not a safety boundary or chance
-                    area.
-                  </small>
-                )}
+                <div className="forecast-map-occurrence">
+                  <strong className="forecast-map-metric">
+                    Chance of further activity: {chance(forecast.probabilityM1Plus24h)}
+                  </strong>
+                  <p>
+                    Chance of at least one further earthquake of magnitude 1.0 or higher.
+                  </p>
+                </div>
+                <div className="forecast-map-distance">
+                  <strong className="forecast-map-metric">
+                    {reportedRadiusKm === null
+                      ? "Estimated activity radius unavailable"
+                      : `Estimated activity radius: ${Math.round(reportedRadiusKm)} km`}
+                  </strong>
+                  {radiusKm !== null && (
+                    <p>
+                      The circle shows the system’s estimated reach of further
+                      activity from this earthquake over the 24-hour forecast window.
+                    </p>
+                  )}
+                </div>
               </>
             ) : (
               <span>No forecast is available for this earthquake.</span>
@@ -604,15 +639,29 @@ export default function MapPanel({
           <LocateFixed aria-hidden="true" />
         </Button>
       </div>
-      <div className="map-legend" aria-label="Magnitude legend">
-        <strong>Magnitude (M)</strong>
-        {magnitudeBands.map((band) => (
-          <span key={band.className}>
-            <i className={`dot ${band.className}`} aria-hidden="true" />
-            {band.label}
-          </span>
-        ))}
+      <div className={`map-legend-control${legendOpen ? " is-open" : ""}`} ref={legendControl}>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="map-legend-toggle"
+          aria-label="Magnitude legend"
+          aria-expanded={legendOpen}
+          aria-controls="map-magnitude-legend"
+          onPress={() => setLegendOpen((open) => !open)}
+        >
+          <CircleQuestionMark aria-hidden="true" />
+        </Button>
+        <div id="map-magnitude-legend" className="map-legend" role="region" aria-label="Magnitude legend">
+          <strong>Magnitude (M)</strong>
+          {magnitudeBands.map((band) => (
+            <span key={band.className}>
+              <i className={`dot ${band.className}`} aria-hidden="true" />
+              {band.label}
+            </span>
+          ))}
+        </div>
       </div>
     </section>
+    </div>
   );
 }
