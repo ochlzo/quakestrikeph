@@ -67,23 +67,6 @@ jobs:
       - run: npm test
         working-directory: apps/backend-api
 
-  bulletin:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 24.21.0
-      - run: npm install -g pnpm@11.11.0
-      - run: pnpm install --frozen-lockfile
-        working-directory: apps/quakestrikeph-bulletin
-      - run: pnpm run check
-        working-directory: apps/quakestrikeph-bulletin
-      - run: pnpm run build
-        working-directory: apps/quakestrikeph-bulletin
-
   deploy:
     if: github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true'
     needs: [workers, backend-unit]

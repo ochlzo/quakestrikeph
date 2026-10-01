@@ -10,6 +10,8 @@ from alembic.config import Config as AlembicConfig
 from sqlalchemy.exc import SQLAlchemyError
 
 from quakestrike.application.historical_recovery import (
+    SKIP_REASON,
+    SOURCE_RUN_ID,
     RecoverHistoricalPredictions,
     UnsafeHistoricalRecovery,
 )
@@ -166,8 +168,14 @@ def reissue_legacy_predictions() -> int:
     return 0
 
 
-def recover_historical_predictions(*, apply: bool, batch_size: int = 50) -> int:
-    """Preview or create audited prediction work for the one affected live run."""
+def recover_historical_predictions(
+    *,
+    apply: bool,
+    batch_size: int = 50,
+    source_run_id: UUID = SOURCE_RUN_ID,
+    skip_reason: str = SKIP_REASON,
+) -> int:
+    """Preview or create audited prediction work for a selected affected live run."""
 
     action = "recover-historical-predictions"
     try:
@@ -190,6 +198,8 @@ def recover_historical_predictions(*, apply: bool, batch_size: int = 50) -> int:
                 create_session_factory(engine),
                 target_release_id=settings.model_release_id,
                 bootstrap_run_id=UUID(manifest["run_id"]),
+                source_run_id=source_run_id,
+                skip_reason=skip_reason,
             )
             counts = RecoverHistoricalPredictions(
                 store,
@@ -198,6 +208,8 @@ def recover_historical_predictions(*, apply: bool, batch_size: int = 50) -> int:
                 bootstrap_sha256=snapshot.sha256,
                 bootstrap_correlation_id=UUID(manifest["correlation_id"]),
                 bootstrap_coverage=snapshot.coverage.history_coverage(),
+                source_run_id=source_run_id,
+                skip_reason=skip_reason,
             ).run(
                 apply=apply,
                 max_new_jobs=batch_size,
