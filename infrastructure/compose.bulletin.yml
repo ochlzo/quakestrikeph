@@ -4,6 +4,8 @@ services:
     build:
       context: ..
       dockerfile: apps/quakestrikeph-bulletin/Dockerfile
+      args:
+        PUBLIC_CLERK_PUBLISHABLE_KEY: ${PUBLIC_CLERK_PUBLISHABLE_KEY:-}
     networks: [backend-edge]
     restart: unless-stopped
     mem_limit: 256m

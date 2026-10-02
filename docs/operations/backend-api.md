@@ -1,4 +1,4 @@
-# Read-only public Backend API
+# Bulletin Backend API
 
 The Backend exposes earthquake and forecast reads at
 `https://quakestrikeph.qzz.io/api/v1`. The API reads the production PostgreSQL
@@ -32,7 +32,7 @@ docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/c
 
 The role has column-limited `SELECT` on events, revisions, prediction jobs, and
 model releases, plus `SELECT` on forecasts. It has read-only transactions by
-default and no grant on users, alerts, audits, or technical logs. If the VPS
+default and narrowly scoped account reads/writes plus append-only audits after the account migration. It has no writes to worker records, alerts or technical logs. See [account setup](bulletin-accounts.md). If the VPS
 already runs a Cloudflare Tunnel for this hostname, use its managed tunnel
 token and do not create an unrelated public route. The Cloudflare mapping is
 an explicit operator setup step outside this repository.

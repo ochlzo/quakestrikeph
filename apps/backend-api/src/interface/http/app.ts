@@ -4,8 +4,10 @@ import type { EarthquakeReader } from '../../ports/earthquakeReader.js';
 import { DataUnavailable } from '../../application/information/errors.js';
 import { InvalidRequest } from './searchRequest.js';
 import { earthquakeRoutes } from './routes/earthquakes.js';
+import { accountRoutes, type AccountDependencies } from './routes/account.js';
+import { AccountError } from '../../domain/accounts.js';
 
-export function createApp(reader: EarthquakeReader, now: () => Date = () => new Date()) {
+export function createApp(reader: EarthquakeReader, now: () => Date = () => new Date(), accounts?: AccountDependencies) {
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '8kb', strict: true }));
@@ -28,12 +30,17 @@ export function createApp(reader: EarthquakeReader, now: () => Date = () => new 
   });
 
   app.use('/api/v1/earthquakes', earthquakeRoutes(reader, now));
+  app.use('/api/v1/account', accountRoutes(accounts));
 
   app.use((_req, res) => {
     res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } });
   });
 
   const handleError: ErrorRequestHandler = (error: unknown, _req, res, _next) => {
+    if (error instanceof AccountError) {
+      res.status(error.status).json({ error: { code: error.code, message: error.message, ...(error.field ? { field: error.field } : {}) } });
+      return;
+    }
     if (error instanceof InvalidRequest) {
       res.status(400).json({ error: { code: 'INVALID_REQUEST', message: error.message } });
       return;

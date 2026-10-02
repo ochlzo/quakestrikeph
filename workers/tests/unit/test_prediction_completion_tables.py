@@ -42,5 +42,5 @@ def test_prediction_completion_tables_include_required_indexes_and_staging_guard
         "ck_forecasts_supersedes_other"
     }
     assert {constraint.name for constraint in audit_logs.constraints} >= {
-        "ck_audit_logs_user_actor_deferred"
+        "fk_audit_logs_actor_user"
     }

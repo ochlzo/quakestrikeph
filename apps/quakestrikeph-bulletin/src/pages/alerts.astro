@@ -1,0 +1,10 @@
+---
+import AccountApp from '../features/accounts/AccountApp';
+import '../styles/globals.css';
+import '../styles/account-reference.css';
+import '../styles/account-flow.css';
+import '../styles/accounts.css';
+---
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" /><meta name="robots" content="noindex" /><title>Alert preferences · QuakeStrike PH Bulletin</title></head>
+<body><AccountApp publishableKey={import.meta.env.PUBLIC_CLERK_PUBLISHABLE_KEY ?? ''} initial="alerts" client:only="react" /></body></html>

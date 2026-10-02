@@ -27,7 +27,7 @@ WHERE schemaname = 'public'
     'earthquake_events', 'earthquake_bulletin_event_identities',
     'earthquake_event_revisions', 'model_releases', 'prediction_jobs',
     'prediction_attempts', 'forecasts', 'alert_jobs', 'audit_logs',
-    'job_dispatches', 'maintenance_runs'
+    'job_dispatches', 'maintenance_runs', 'users'
   ) \gexec
 SELECT format('ALTER TYPE %I.%I OWNER TO quakestrike_migration', n.nspname, t.typname)
 FROM pg_type AS t
@@ -37,7 +37,7 @@ WHERE n.nspname = 'public'
   AND pg_get_userbyid(t.typowner) <> 'quakestrike_migration'
   AND t.typname IN (
     'ingestion_run_status', 'prediction_job_status', 'dispatch_status',
-    'prediction_attempt_status', 'alert_job_status', 'maintenance_run_status'
+    'prediction_attempt_status', 'alert_job_status', 'maintenance_run_status', 'account_status'
   ) \gexec
 SQL
     then
@@ -115,6 +115,14 @@ GRANT SELECT (job_id, event_revision_id, model_release_id, status, requested_at)
   ON prediction_jobs TO quakestrike_backend;
 GRANT SELECT ON forecasts TO quakestrike_backend;
 GRANT SELECT (model_release_id) ON model_releases TO quakestrike_backend;
+GRANT SELECT ON users TO quakestrike_backend;
+GRANT INSERT (user_id, clerk_user_id, display_name, email, email_verified_at)
+  ON users TO quakestrike_backend;
+GRANT UPDATE (display_name, email, email_verified_at, email_enabled, mobile_number,
+  mobile_verified_at, sms_enabled, alert_trigger_magnitude, nearby_alerts_only,
+  alert_location_latitude, alert_location_longitude, alert_trigger_distance_km,
+  onboarding_completed_at, updated_at) ON users TO quakestrike_backend;
+GRANT INSERT ON audit_logs TO quakestrike_backend;
 SQL
     then
       echo '{"action":"create-backend","status":"ready"}'

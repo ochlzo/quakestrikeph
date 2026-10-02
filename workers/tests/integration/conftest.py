@@ -42,7 +42,7 @@ def clean_database(migrated_engine: Engine) -> Iterator[None]:
             text(
                 "TRUNCATE maintenance_runs, source_catalog_evidence, ingestion_run_inputs, "
                 "earthquake_bulletin_event_identities, "
-                "audit_logs, job_dispatches, prediction_jobs, model_releases, "
+                "audit_logs, users, job_dispatches, prediction_jobs, model_releases, "
                 "earthquake_event_revisions, "
                 "earthquake_events, ingestion_runs CASCADE"
             )

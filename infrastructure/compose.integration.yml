@@ -67,11 +67,14 @@ services:
       dockerfile: apps/backend-api/Dockerfile.test
     environment:
       TEST_DATABASE_URL: postgresql://quakestrike_test:integration-only@postgres-test:5432/quakestrike_test
+      TEST_REDIS_URL: redis://redis-test:6379/0
       TEST_BACKEND_DATABASE_URL: postgresql://quakestrike_backend:integration-only@postgres-test:5432/quakestrike_test
     networks:
       - phase2-test
     depends_on:
       postgres-test:
+        condition: service_healthy
+      redis-test:
         condition: service_healthy
     logging:
       driver: local

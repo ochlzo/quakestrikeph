@@ -19,6 +19,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import ENUM, JSONB, UUID
 
+from quakestrike.infrastructure.database.account_tables import users as users
 from quakestrike.infrastructure.database.metadata import metadata
 
 INGESTION_RUN_STATUSES = (
@@ -759,7 +760,11 @@ audit_logs = Table(
     Column("audit_id", UUID(as_uuid=True), primary_key=True),
     Column("occurred_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("actor_type", Text, nullable=False),
-    Column("actor_user_id", UUID(as_uuid=True)),
+    Column(
+        "actor_user_id",
+        UUID(as_uuid=True),
+        ForeignKey("users.user_id", name="fk_audit_logs_actor_user", ondelete="RESTRICT"),
+    ),
     Column("actor_service", Text),
     Column("action", Text, nullable=False),
     Column("target_type", Text),
@@ -792,7 +797,6 @@ audit_logs = Table(
         name="ck_audit_logs_identifiers_nonblank",
     ),
     CheckConstraint("jsonb_typeof(metadata) = 'object'", name="ck_audit_logs_metadata_object"),
-    CheckConstraint("actor_type <> 'user'", name="ck_audit_logs_user_actor_deferred"),
 )
 Index("ix_audit_logs_occurred_at", audit_logs.c.occurred_at)
 Index("ix_audit_logs_actor_occurred_at", audit_logs.c.actor_user_id, audit_logs.c.occurred_at)

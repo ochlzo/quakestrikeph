@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import { Toaster } from "./ui/sonner";
 import { today } from "@internationalized/date";
 import { Dialog, type DateValue, type RangeValue } from "react-aria-components";
 import {
@@ -92,6 +94,13 @@ function phtDayBoundary(date: DateValue, nextDay = false) {
 }
 
 export default function Bulletin() {
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('preferences') !== 'saved') return;
+    toast.success('Alert preferences saved.', { description: 'Automatic alert delivery is not yet available.' });
+    url.searchParams.delete('preferences');
+    window.history.replaceState(window.history.state, '', url);
+  }, []);
   const [mobile, setMobile] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerSnap, setDrawerSnap] = useState<number | string | null>(0.65);
@@ -683,6 +692,7 @@ export default function Bulletin() {
 
   return (
     <div className="bulletin-app">
+      <Toaster position="bottom-right" richColors />
       <header className="site-header">
         <a className="brand" href="/" aria-label="QuakeStrike PH Bulletin home">
           <span className="brand-mark">

@@ -41,10 +41,145 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getAccount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["saveProfile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["savePreferences"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account/phone/attempts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["startPhoneVerification"];
+        delete: operations["cancelPhoneVerification"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account/phone/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["verifyPhone"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        Preferences: {
+            emailEnabled: boolean;
+            smsEnabled: boolean;
+            magnitude: number;
+            nearbyOnly: boolean;
+            latitude: number | null;
+            longitude: number | null;
+            distanceKm: number | null;
+        };
+        Account: components["schemas"]["Preferences"] & {
+            /** Format: uuid */
+            userId: string;
+            displayName: string;
+            /** Format: email */
+            email: string;
+            phone: string | null;
+            onboardingCompleted: boolean;
+            /** @enum {string} */
+            status: "active" | "suspended" | "closed";
+        };
+        PendingPhone: {
+            /** Format: uuid */
+            id: string;
+            phone: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: date-time */
+            resendAt: string;
+        };
+        AccountState: {
+            account: components["schemas"]["Account"] | null;
+            pending: components["schemas"]["PendingPhone"] | null;
+            /** @enum {string} */
+            nextStep: "profile" | "channels" | "verify-phone" | "preferences" | "complete";
+            /** @constant */
+            deliveryAvailable: false;
+        };
+        ProfileRequest: {
+            displayName: string;
+        };
+        PhoneRequest: {
+            phone: string;
+        };
+        PhoneProof: {
+            /** Format: uuid */
+            attemptId: string;
+            code: string;
+        };
+        AccountError: {
+            error: {
+                code: string;
+                message: string;
+                field?: string;
+            };
+        };
         /** @description Lower bound is inclusive; upper bound is exclusive. At least one bound is required. */
         MagnitudeRange: {
             from?: number;
@@ -237,6 +372,194 @@ export interface operations {
             404: components["responses"]["NotFound"];
             429: components["responses"]["RateLimited"];
             503: components["responses"]["Unavailable"];
+        };
+    };
+    getAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful owner-only operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountState"];
+                };
+            };
+            /** @description Authentication, validation, state or provider error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountError"];
+                };
+            };
+        };
+    };
+    saveProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful owner-only operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            /** @description Authentication, validation, state or provider error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountError"];
+                };
+            };
+        };
+    };
+    savePreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Preferences"];
+            };
+        };
+        responses: {
+            /** @description Successful owner-only operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            /** @description Authentication, validation, state or provider error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountError"];
+                };
+            };
+        };
+    };
+    startPhoneVerification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PhoneRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful owner-only operation */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingPhone"];
+                };
+            };
+            /** @description Authentication, validation, state or provider error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountError"];
+                };
+            };
+        };
+    };
+    cancelPhoneVerification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful owner-only operation */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication, validation, state or provider error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountError"];
+                };
+            };
+        };
+    };
+    verifyPhone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PhoneProof"];
+            };
+        };
+        responses: {
+            /** @description Successful owner-only operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            /** @description Authentication, validation, state or provider error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountError"];
+                };
+            };
         };
     };
 }

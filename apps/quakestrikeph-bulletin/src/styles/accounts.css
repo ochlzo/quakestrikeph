@@ -1,0 +1,25 @@
+.account-app{min-height:100svh;display:flex;flex-direction:column;background:#eaf2f4;color:#1a2c30;--muted:#5f6b6e}
+.account-app .screen-focus{outline:none}.account-app .screen-focus:focus-visible{outline:none}
+.account-app [data-slot=field]{gap:0}.account-app [data-slot=field-label]{display:block;margin-bottom:8px;font-size:13px;font-weight:600}
+.account-app [data-slot=input]{height:52px;padding:0 14px;border-radius:10px;font-size:15px;border-color:#dce3e4;background:white}
+.account-app [data-slot=input][aria-invalid=true]{border-color:#b42318}
+.account-app [data-slot=field-error]{color:#b42318;font-size:13px;line-height:1.5;margin:8px 0 14px}
+.account-app [data-slot=button]{white-space:normal}.account-app button[disabled]{cursor:default;opacity:.6}
+.account-app .text-button{min-height:44px}.account-app .password-wrap input{padding-right:52px}
+.account-app .switch-row [data-slot=switch]{width:44px;height:26px;min-width:44px;background:#c0cdcf;position:relative;cursor:pointer;border-radius:999px;display:inline-flex;align-items:center;border:0}
+.account-app .switch-row [data-slot=switch][data-selected]{background:#0e6873}
+.account-app .switch-row [data-slot=switch-thumb]{display:block;position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:50%;background:white;transform:translateX(0)}
+.account-app .switch-row [data-slot=switch-thumb][data-selected]{transform:translateX(18px)}
+.account-app .switch-row input{width:1px;height:1px;padding:0}
+.account-app .delivery-note{font-size:13px;line-height:1.55;color:#36585d;background:#edf6f6;border-radius:10px;padding:14px 16px;margin:0 0 22px}
+.location-map{height:310px;margin-top:18px;border-radius:10px;overflow:hidden;background:#e7f2f3}
+.location-map .maplibregl-marker{cursor:grab}.location-map .maplibregl-marker svg{width:27px;height:41px}
+.location-map .maplibregl-ctrl button{width:36px;height:36px}.location-map canvas{max-width:100%}
+.location-search-label{display:block;font-size:13px;font-weight:600;margin-bottom:8px}
+.place-context{display:block;font-size:12px;color:#5f6b6e}
+.account-app .location-summary{overflow-wrap:anywhere}.account-app .location-summary svg{flex-shrink:0}
+.account-app .settings-rail nav button{justify-content:flex-start;font-size:14px;height:auto}
+.account-app .support a{text-decoration:underline;text-underline-offset:3px}
+.account-app .header,.account-app footer{flex-shrink:0}.account-app .account-inner{min-width:0}
+.account-app .form-intro,.account-app .support{overflow-wrap:anywhere}
+@media(max-width:760px){.account-app .settings-rail nav button{font-size:12px;justify-content:center;padding:10px 6px;gap:5px}.account-app .location-map{height:280px}.account-app [data-slot=input]{font-size:16px}.account-app .header .back{max-width:145px}.account-app footer{font-size:11px}}

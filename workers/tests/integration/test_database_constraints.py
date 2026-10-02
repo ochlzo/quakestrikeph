@@ -700,7 +700,7 @@ def test_forecast_cannot_be_changed_after_creation(migrated_engine, parents) -> 
     assert stored_count == forecast["expected_m1_plus_count_24h"]
 
 
-def test_user_audit_actor_is_deferred_until_users_exist(migrated_engine) -> None:
+def test_user_audit_actor_cannot_reference_a_missing_user(migrated_engine) -> None:
     _failed(
         migrated_engine,
         insert(audit_logs).values(

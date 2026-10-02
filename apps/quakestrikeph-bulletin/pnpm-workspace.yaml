@@ -1,2 +1,5 @@
 allowBuilds:
   esbuild@0.28.2: true
+minimumReleaseAgeExclude:
+  - '@clerk/react@6.17.5'
+  - '@clerk/shared@4.38.0'

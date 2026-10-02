@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
-  title: QuakeStrike PH public information API
+  title: QuakeStrike PH Bulletin API
   version: 1.0.0
-  description: Read-only earthquake and forecast information from the configured model release.
+  description: Public earthquake information and authenticated owner-only account settings.
 servers:
   - url: https://quakestrikeph.qzz.io/api/v1
 paths:
@@ -58,7 +58,133 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/Unavailable'
+  /account:
+    get:
+      operationId: getAccount
+      security: [{ClerkSession: []}]
+      responses:
+        '200':
+          description: Successful owner-only operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountState'
+        default:
+          description: Authentication, validation, state or provider error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountError'
+  /account/profile:
+    put:
+      operationId: saveProfile
+      security: [{ClerkSession: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileRequest'
+      responses:
+        '200':
+          description: Successful owner-only operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        default:
+          description: Authentication, validation, state or provider error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountError'
+  /account/preferences:
+    put:
+      operationId: savePreferences
+      security: [{ClerkSession: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Preferences'
+      responses:
+        '200':
+          description: Successful owner-only operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        default:
+          description: Authentication, validation, state or provider error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountError'
+  /account/phone/attempts:
+    post:
+      operationId: startPhoneVerification
+      security: [{ClerkSession: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PhoneRequest'
+      responses:
+        '201':
+          description: Successful owner-only operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingPhone'
+        default:
+          description: Authentication, validation, state or provider error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountError'
+    delete:
+      operationId: cancelPhoneVerification
+      security: [{ClerkSession: []}]
+      responses:
+        '204':
+          description: Successful owner-only operation
+        default:
+          description: Authentication, validation, state or provider error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountError'
+  /account/phone/verify:
+    post:
+      operationId: verifyPhone
+      security: [{ClerkSession: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PhoneProof'
+      responses:
+        '200':
+          description: Successful owner-only operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        default:
+          description: Authentication, validation, state or provider error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountError'
 components:
+  securitySchemes:
+    ClerkSession:
+      type: http
+      scheme: bearer
+      bearerFormat: Clerk session JWT
   responses:
     InvalidRequest:
       description: Invalid filter or event identifier
@@ -87,6 +213,81 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
   schemas:
+    Preferences:
+      type: object
+      required: [emailEnabled, smsEnabled, magnitude, nearbyOnly, latitude, longitude, distanceKm]
+      properties:
+        emailEnabled: {type: boolean}
+        smsEnabled: {type: boolean}
+        magnitude: {type: number, minimum: 1, maximum: 10, multipleOf: 0.1}
+        nearbyOnly: {type: boolean}
+        latitude: {type: [number, 'null'], minimum: -90, maximum: 90}
+        longitude: {type: [number, 'null'], minimum: -180, maximum: 180}
+        distanceKm: {type: [integer, 'null'], minimum: 1, maximum: 1000}
+    Account:
+      allOf:
+        - $ref: '#/components/schemas/Preferences'
+        - type: object
+          required: [userId, displayName, email, phone, onboardingCompleted, status]
+          properties:
+            userId: {type: string, format: uuid}
+            displayName: {type: string, minLength: 1, maxLength: 100}
+            email: {type: string, format: email}
+            phone: {type: [string, 'null']}
+            onboardingCompleted: {type: boolean}
+            status: {type: string, enum: [active, suspended, closed]}
+    PendingPhone:
+      type: object
+      required: [id, phone, expiresAt, resendAt]
+      properties:
+        id: {type: string, format: uuid}
+        phone: {type: string}
+        expiresAt: {type: string, format: date-time}
+        resendAt: {type: string, format: date-time}
+    AccountState:
+      type: object
+      required: [account, pending, nextStep, deliveryAvailable]
+      properties:
+        account:
+          anyOf:
+            - $ref: '#/components/schemas/Account'
+            - type: 'null'
+        pending:
+          anyOf:
+            - $ref: '#/components/schemas/PendingPhone'
+            - type: 'null'
+        nextStep: {type: string, enum: [profile, channels, verify-phone, preferences, complete]}
+        deliveryAvailable: {type: boolean, const: false}
+    ProfileRequest:
+      type: object
+      additionalProperties: false
+      required: [displayName]
+      properties:
+        displayName: {type: string, minLength: 1, maxLength: 100}
+    PhoneRequest:
+      type: object
+      additionalProperties: false
+      required: [phone]
+      properties:
+        phone: {type: string}
+    PhoneProof:
+      type: object
+      additionalProperties: false
+      required: [attemptId, code]
+      properties:
+        attemptId: {type: string, format: uuid}
+        code: {type: string, pattern: '^[0-9]{6}$'}
+    AccountError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: {type: string}
+            message: {type: string}
+            field: {type: string}
     MagnitudeRange:
       type: object
       description: Lower bound is inclusive; upper bound is exclusive. At least one bound is required.

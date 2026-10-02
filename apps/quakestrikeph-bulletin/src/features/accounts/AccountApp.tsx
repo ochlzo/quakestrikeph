@@ -1,0 +1,1517 @@
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
+import {
+  AuthenticateWithRedirectCallback,
+  ClerkProvider,
+  TaskSetupMFA,
+  TaskChooseOrganization,
+  useAuth,
+  useClerk,
+  useReverification,
+  useSession,
+  useUser,
+} from "@clerk/react";
+import { useSignIn, useSignUp } from "@clerk/react/legacy";
+import {
+  Activity,
+  ArrowLeft,
+  ArrowRight,
+  Eye,
+  EyeOff,
+  Mail,
+  MapPin,
+  Phone,
+  Settings,
+} from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { Field, FieldError, FieldLabel } from "../../components/ui/field";
+import { Switch } from "../../components/ui/switch";
+import { Toaster } from "../../components/ui/sonner";
+import LocationPicker, { locationLabel, usePlaces } from "./LocationPicker";
+import {
+  accountRequest,
+  AccountFailure,
+  type Account,
+  type AccountState,
+  type PendingPhone,
+  type Preferences,
+} from "./api";
+
+type Screen =
+  | "signin"
+  | "signup"
+  | "verify-email"
+  | "device-code"
+  | "forgot"
+  | "recovery-code"
+  | "reset"
+  | "profile"
+  | "channels"
+  | "phone"
+  | "verify-phone"
+  | "preferences"
+  | "location"
+  | "account"
+  | "reverify"
+  | "password"
+  | "change-email"
+  | "close";
+const preferences = (account: Account): Preferences => ({
+  emailEnabled: account.emailEnabled,
+  smsEnabled: account.smsEnabled,
+  magnitude: account.magnitude,
+  nearbyOnly: account.nearbyOnly,
+  latitude: account.latitude,
+  longitude: account.longitude,
+  distanceKm: account.distanceKm,
+});
+const blank: Preferences = {
+  emailEnabled: false,
+  smsEnabled: false,
+  magnitude: 4.5,
+  nearbyOnly: false,
+  latitude: null,
+  longitude: null,
+  distanceKm: null,
+};
+const passwordRequirements = "Use at least 8 characters, including one lowercase letter, one uppercase letter, and one number.";
+// Product form validation only; Clerk owns credentials and its server-side rules.
+const passwordPattern = "(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{8,}";
+
+function FormField({
+  id,
+  label,
+  error,
+  type = "text",
+  ...props
+}: {
+  id: string;
+  label: string;
+  error?: string;
+} & React.ComponentProps<typeof Input>) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <Field className="field" data-invalid={!!error}>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <div className={type === "password" ? "password-wrap" : undefined}>
+        <Input
+          {...props}
+          id={id}
+          type={type === "password" && visible ? "text" : type}
+          pattern={type === "password" && props.autoComplete === "new-password" ? passwordPattern : props.pattern}
+          title={type === "password" && props.autoComplete === "new-password" ? passwordRequirements : props.title}
+          aria-invalid={!!error}
+          aria-describedby={error ? `${id}-error` : props["aria-describedby"]}
+        />
+        {type === "password" && (
+          <Button
+            className="show-password"
+            variant="ghost"
+            aria-label={`${visible ? "Hide" : "Show"} ${label.toLowerCase()}`}
+            onPress={() => setVisible((x) => !x)}
+          >
+            {visible ? <EyeOff /> : <Eye />}
+          </Button>
+        )}
+      </div>
+      {error && <FieldError id={`${id}-error`}>{error}</FieldError>}
+    </Field>
+  );
+}
+
+function Shell({
+  screen,
+  name,
+  children,
+  navigate,
+}: {
+  screen: Screen;
+  name: string;
+  children: ReactNode;
+  navigate: (screen: Screen) => void;
+}) {
+  const wide = ["preferences", "location", "account"].includes(screen);
+  const entry = [
+    "signin",
+    "signup",
+    "verify-email",
+    "forgot",
+    "recovery-code",
+    "reset",
+    "device-code",
+  ].includes(screen);
+  const rootClass = `account-app map flow-screen ${wide ? "settings-workspace wide" : entry ? "" : "focused-shell"}`;
+  return (
+    <div className={rootClass}>
+      <header className="header">
+        <a className="brand" href="/">
+          <span className="brand-mark">
+            <Activity />
+          </span>
+          <span>
+            QuakeStrike PH<small>Bulletin</small>
+          </span>
+        </a>
+        <a className="back" href="/">
+          <ArrowLeft />
+          Back to Bulletin
+        </a>
+      </header>
+      <main className="layout">
+        {wide && (
+          <aside className="settings-rail">
+            <div className="rail-identity">
+              <span className="avatar">{name.slice(0, 1).toUpperCase()}</span>
+              <div>
+                <strong>{name}</strong>
+                <small>Personal settings</small>
+              </div>
+            </div>
+            <nav aria-label="Settings">
+              <Button
+                aria-current={screen === "preferences" ? "page" : undefined}
+                onPress={() => navigate("preferences")}
+              >
+                <Settings />
+                Alert preferences
+              </Button>
+              <Button
+                aria-current={screen === "location" ? "page" : undefined}
+                onPress={() => navigate("location")}
+              >
+                <MapPin />
+                Alert location
+              </Button>
+              <Button
+                aria-current={screen === "account" ? "page" : undefined}
+                onPress={() => navigate("account")}
+              >
+                <Activity />
+                Account
+              </Button>
+            </nav>
+            <p>
+              Public earthquake information is available without an account.
+            </p>
+          </aside>
+        )}
+        <section className="story" aria-labelledby="story-title">
+          <div className="story-copy">
+            <h1 id="story-title">Earthquake alert settings</h1>
+            <p>
+              An account is required to save and manage your earthquake alert
+              settings.
+            </p>
+          </div>
+          <figure className="map-art">
+            <img
+              src="/assets/accounts/philippines-offset-map-transparent.png"
+              alt=""
+              fetchPriority="high"
+            />
+          </figure>
+        </section>
+        <section className="account" aria-labelledby="form-title">
+          <div className="account-inner">{children}</div>
+        </section>
+      </main>
+      <footer>
+        <span>QuakeStrike PH Bulletin</span>
+        <span>
+          Saved preferences · Automatic alert delivery is not yet available
+        </span>
+      </footer>
+    </div>
+  );
+}
+
+export default function AccountApp({
+  publishableKey,
+  initial = "alerts",
+}: {
+  publishableKey: string;
+  initial?: string;
+}) {
+  if (!publishableKey)
+    return (
+      <Shell screen="signin" name="" navigate={() => {}}>
+        <h2 id="form-title">Account access unavailable</h2>
+        <p className="form-intro">
+          Please try again later. Public earthquake information is still
+          available.
+        </p>
+        <a className="guest" href="/">
+          View Bulletin <ArrowRight />
+        </a>
+      </Shell>
+    );
+  return (
+    <ClerkProvider
+      publishableKey={publishableKey}
+      signInUrl="/sign-in"
+      signUpUrl="/sign-up"
+      signInFallbackRedirectUrl="/alerts?entry=1"
+      signUpFallbackRedirectUrl="/alerts?entry=1"
+      taskUrls={{
+        "reset-password": "/alerts",
+        "setup-mfa": "/alerts",
+        "choose-organization": "/alerts",
+      }}
+    >
+      {initial === "callback" ? (
+        <AuthenticateWithRedirectCallback
+          signInUrl="/sign-in"
+          signUpUrl="/sign-up"
+          signInFallbackRedirectUrl="/alerts?entry=1"
+          signUpFallbackRedirectUrl="/alerts?entry=1"
+        />
+      ) : (
+        <AccountFlow initial={initial} />
+      )}
+      <Toaster position="bottom-right" richColors />
+    </ClerkProvider>
+  );
+}
+
+function AccountFlow({ initial }: { initial: string }) {
+  const { isLoaded, isSignedIn, getToken } = useAuth({
+    treatPendingAsSignedOut: false,
+  });
+  const { user } = useUser();
+  const { session } = useSession();
+  const clerk = useClerk();
+  const resetTaskPassword = useReverification(async (newPassword: string) => {
+    if (!user) throw new Error("Sign in again");
+    await user.updatePassword({ newPassword, signOutOfOtherSessions: true });
+  });
+  const { signIn } = useSignIn();
+  const { signUp } = useSignUp();
+  const [screen, setScreen] = useState<Screen>(
+    initial === "signup" ? "signup" : "signin",
+  );
+  const [account, setAccount] = useState<Account | null>(null);
+  const [pending, setPending] = useState<PendingPhone | null>(null);
+  const [draft, setDraft] = useState<Preferences>({ ...blank });
+  const [name, setName] = useState(""),
+    [email, setEmail] = useState(""),
+    [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState(""),
+    [currentPassword, setCurrentPassword] = useState("");
+  const [code, setCode] = useState(""),
+    [phone, setPhone] = useState(""),
+    [channel, setChannel] = useState("email");
+  const [busy, setBusy] = useState(false),
+    [loading, setLoading] = useState(true);
+  const [error, setError] = useState(""),
+    [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [returnAction, setReturnAction] = useState<Screen>("phone");
+  const [sentAt, setSentAt] = useState(0),
+    [now, setNow] = useState(Date.now());
+  const [reverifyMethod, setReverifyMethod] = useState<
+    "password" | "email_code"
+  >("password");
+  const heading = useRef<HTMLDivElement>(null),
+    signedOnce = useRef(false);
+  const { list } = usePlaces();
+  const dirty =
+    account &&
+    (JSON.stringify(draft) !== JSON.stringify(preferences(account)) ||
+      (screen === "account" && name !== account.displayName));
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    heading.current?.focus();
+    setCode("");
+  }, [screen]);
+  useEffect(() => {
+    if (!dirty) return;
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    const click = (event: MouseEvent) => {
+      const anchor = (event.target as Element).closest("a[href]");
+      if (
+        anchor &&
+        !anchor.getAttribute("href")?.startsWith("#") &&
+        !window.confirm("Leave without saving your changes?")
+      )
+        event.preventDefault();
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    document.addEventListener("click", click, true);
+    return () => {
+      window.removeEventListener("beforeunload", beforeUnload);
+      document.removeEventListener("click", click, true);
+    };
+  }, [dirty]);
+
+  async function api<T>(path = "", method = "GET", body?: unknown) {
+    return accountRequest<T>(
+      await getToken({ skipCache: true }),
+      path,
+      method,
+      body,
+    );
+  }
+  function updateAccount(next: Account) {
+    setAccount(next);
+    setDraft(preferences(next));
+    setName(next.displayName);
+  }
+  async function resume() {
+    const state = await api<AccountState>();
+    if (state.account) updateAccount(state.account);
+    setPending(state.pending);
+    if (state.nextStep === "complete") {
+      if (
+        ["signin", "signup"].includes(initial) ||
+        new URLSearchParams(location.search).has("entry")
+      ) {
+        location.assign("/");
+        return;
+      }
+      setScreen(initial === "account" ? "account" : "preferences");
+    } else setScreen(state.nextStep);
+  }
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (session?.currentTask) {
+      signedOnce.current = false;
+      setLoading(false);
+      return;
+    }
+    if (!isSignedIn) {
+      signedOnce.current = false;
+      setLoading(false);
+      return;
+    }
+    if (signedOnce.current) return;
+    signedOnce.current = true;
+    resume()
+      .catch((e) => {
+        setError(
+          e instanceof Error ? e.message : "Account settings could not load.",
+        );
+      })
+      .finally(() => setLoading(false));
+  }, [isLoaded, isSignedIn, session?.currentTask?.key]);
+  function navigate(next: Screen) {
+    setError("");
+    setFieldErrors({});
+    if (next === "location") {
+      setScreen(next);
+      return;
+    }
+    if (dirty && !window.confirm("Discard your unsaved changes?")) return;
+    if (account) {
+      setDraft(preferences(account));
+      setName(account.displayName);
+    }
+    setScreen(next);
+  }
+  async function action(work: () => Promise<void>, generic?: string) {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    setFieldErrors({});
+    try {
+      await work();
+    } catch (e) {
+      if (screen === "signup" && typeof e === "object" && e && "errors" in e &&
+          Array.isArray(e.errors) && e.errors.some(item => item?.code === "form_password_pwned")) {
+        setFieldErrors({ password: "This password has appeared in a data breach. Choose a different password." });
+        return;
+      }
+      if (e instanceof AccountFailure) {
+        if (e.code === "REVERIFICATION_REQUIRED") {
+          setReturnAction(screen === "password" ? "password" : "phone");
+          try {
+            await prepareReverification();
+          } catch {
+            setError(
+              "Identity verification is unavailable. Please sign in again.",
+            );
+          }
+          return;
+        }
+        if (e.code === "SIGN_IN_REQUIRED") {
+          setAccount(null);
+          setScreen("signin");
+        }
+        if (e.field) setFieldErrors({ [e.field]: e.message });
+        else setError(e.message);
+        if (e.code === "ATTEMPT_EXPIRED") {
+          setPending(null);
+          setScreen("phone");
+          setError(e.message);
+        }
+      } else
+        setError(
+          generic ?? "This request could not be completed. Please try again.",
+        );
+    } finally {
+      setBusy(false);
+    }
+  }
+  function form(work: () => Promise<void>, generic?: string) {
+    return (event: FormEvent) => {
+      event.preventDefault();
+      void action(work, generic);
+    };
+  }
+  async function completeAuth(attempt: {
+    status: string | null;
+    createdSessionId: string | null;
+  }) {
+    setPassword("");
+    setCurrentPassword("");
+    setCode("");
+    if (attempt.status === "complete" && attempt.createdSessionId) {
+      await clerk.setActive({ session: attempt.createdSessionId });
+    } else if (
+      attempt.status === "needs_client_trust" ||
+      attempt.status === "needs_second_factor"
+    ) {
+      const factor = signIn?.supportedSecondFactors?.find(
+        (f) => f.strategy === "email_code",
+      );
+      if (!factor || !signIn)
+        throw new Error("A verification factor is unavailable");
+      await signIn.prepareSecondFactor({
+        strategy: "email_code",
+        emailAddressId: factor.emailAddressId,
+      });
+      setSentAt(Date.now());
+      setScreen("device-code");
+    } else throw new Error("Additional account information is needed");
+  }
+  async function google() {
+    if (!signIn) return;
+    await signIn.authenticateWithRedirect({
+      strategy: "oauth_google",
+      redirectUrl: "/sso-callback",
+      redirectUrlComplete: "/alerts?entry=1",
+      oidcPrompt: "select_account",
+    });
+  }
+  async function prepareReverification() {
+    if (!session) throw new Error("Sign in again");
+    const verification = await session.startVerification({
+      level: "first_factor",
+    });
+    if (
+      user?.passwordEnabled &&
+      verification.supportedFirstFactors?.some((f) => f.strategy === "password")
+    )
+      setReverifyMethod("password");
+    else {
+      const factor = verification.supportedFirstFactors?.find(
+        (f) => f.strategy === "email_code",
+      );
+      if (!factor || factor.strategy !== "email_code")
+        throw new Error("Email verification is unavailable");
+      await session.prepareFirstFactorVerification({
+        strategy: "email_code",
+        emailAddressId: factor.emailAddressId,
+      });
+      setReverifyMethod("email_code");
+      setSentAt(Date.now());
+    }
+    setScreen("reverify");
+  }
+  async function sensitive(next: Screen) {
+    if (dirty && !window.confirm("Discard your unsaved changes?")) return;
+    if (account) {
+      setDraft(preferences(account));
+      setName(account.displayName);
+    }
+    setReturnAction(next);
+    await prepareReverification();
+  }
+  async function requestPhone(nextPhone: string) {
+    try {
+      return await api<PendingPhone>("/phone/attempts", "POST", {
+        phone: nextPhone,
+      });
+    } finally {
+      // Replacement can pause SMS even when the provider request fails.
+      if (account?.phone) {
+        try {
+          const state = await api<AccountState>();
+          if (state.account) updateAccount(state.account);
+        } catch {
+          setAccount(null);
+        }
+      }
+    }
+  }
+  const submit = (label: string) => (
+    <Button className="primary" type="submit" isDisabled={busy}>
+      {busy ? "Please wait…" : label}
+      <ArrowRight />
+    </Button>
+  );
+  const back = (next: Screen, label = "Back") => (
+    <Button
+      variant="link"
+      className="text-button"
+      onPress={() => navigate(next)}
+    >
+      <ArrowLeft />
+      {label}
+    </Button>
+  );
+  const title = (text: string, intro: string) => (
+    <>
+      <h2 id="form-title">{text}</h2>
+      <p className="form-intro">{intro}</p>
+    </>
+  );
+  const codeField = (
+    <FormField
+      id="code"
+      label="Verification code"
+      inputMode="numeric"
+      autoComplete="one-time-code"
+      pattern="[0-9]{6}"
+      maxLength={6}
+      className="otp"
+      value={code}
+      onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+      required
+      error={fieldErrors.code}
+    />
+  );
+  const newPasswordFields = (
+    <>
+      <FormField
+        id="new-password"
+        label="New password"
+        type="password"
+        autoComplete="new-password"
+        minLength={8}
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        required
+        error={fieldErrors.password}
+      />
+      <FormField
+        id="confirm-password"
+        label="Confirm password"
+        type="password"
+        autoComplete="new-password"
+        value={confirmPassword}
+        onChange={(e) => setConfirmPassword(e.target.value)}
+        required
+        error={fieldErrors.confirmPassword}
+      />
+    </>
+  );
+  const cooldown =
+    Math.max(
+      0,
+      Math.ceil(
+        ((screen === "verify-phone"
+          ? Date.parse(pending?.resendAt ?? "")
+          : sentAt + 60000) -
+          now) /
+          1000,
+      ),
+    ) || 0;
+  const resend = (work: () => Promise<void>) => (
+    <div className="resend">
+      <span>Didn't get a code?</span>
+      <Button
+        variant="link"
+        className="text-button"
+        isDisabled={busy || cooldown > 0}
+        onPress={() => void action(work)}
+      >
+        {cooldown ? `Resend in ${cooldown}s` : "Resend code"}
+      </Button>
+    </div>
+  );
+
+  let content: ReactNode;
+  if (!isLoaded || loading)
+    content = (
+      <>
+        {title(
+          "Loading your account",
+          "Your saved settings will appear shortly.",
+        )}
+        <p role="status">Please wait…</p>
+      </>
+    );
+  else if (session?.currentTask)
+    content = (
+      <>
+        {title(
+          session.currentTask.key === "reset-password"
+            ? "Choose a new password"
+            : "Complete account verification",
+          session.currentTask.key === "reset-password"
+            ? `${passwordRequirements} Other sessions will be signed out.`
+            : "Complete this required step to access your saved settings.",
+        )}
+        {session.currentTask.key === "reset-password" ? (
+          <form onSubmit={form(async () => {
+            if (password !== confirmPassword) {
+              setFieldErrors({ confirmPassword: "The passwords do not match." });
+              return;
+            }
+            await resetTaskPassword(password);
+            setPassword("");
+            setConfirmPassword("");
+            await clerk.setActive({ session });
+            location.assign("/alerts?entry=1");
+          }, "The password could not be saved. Please try again.")}>
+            {newPasswordFields}
+            {submit("Save new password")}
+          </form>
+        ) : session.currentTask.key === "setup-mfa" ? (
+          <TaskSetupMFA redirectUrlComplete="/alerts?entry=1" />
+        ) : session.currentTask.key === "choose-organization" ? (
+          <TaskChooseOrganization redirectUrlComplete="/alerts?entry=1" />
+        ) : (
+          <p>Please sign in again to complete account verification.</p>
+        )}
+        <Button
+          className="secondary"
+          onPress={() => void clerk.signOut({ redirectUrl: "/sign-in" })}
+        >
+          Return to sign in
+        </Button>
+      </>
+    );
+  else if (isSignedIn && !account && !["profile"].includes(screen))
+    content = (
+      <>
+        {title(
+          "Account settings unavailable",
+          "Your account could not be loaded. You can still read the Bulletin.",
+        )}
+        <FieldError>{error}</FieldError>
+        <Button className="primary" onPress={() => void action(resume)}>
+          Try again
+        </Button>
+      </>
+    );
+  else if (screen === "signin" || screen === "signup")
+    content = (
+      <>
+        <nav className="mode-switch" aria-label="Account access">
+          <a
+            href="/sign-in"
+            aria-current={screen === "signin" ? "page" : undefined}
+          >
+            Sign in
+          </a>
+          <a
+            href="/sign-up"
+            aria-current={screen === "signup" ? "page" : undefined}
+          >
+            Sign up
+          </a>
+        </nav>
+        {title(
+          screen === "signup" ? "Create your account" : "Sign in",
+          screen === "signup"
+            ? "Save your personal earthquake alert settings."
+            : "Access your saved earthquake alert settings.",
+        )}
+        <Button
+          className="google"
+          isDisabled={busy}
+          onPress={() =>
+            void action(
+              google,
+              "Google sign-in was not completed. Try again or use your password.",
+            )
+          }
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              fill="#4285F4"
+              d="M21.6 12.2c0-.7-.1-1.5-.2-2.2H12v4.2h5.4a4.6 4.6 0 0 1-2 3v2.5h3.3c1.9-1.8 2.9-4.4 2.9-7.5"
+            />
+            <path
+              fill="#34A853"
+              d="M12 22c2.7 0 5-1 6.7-2.4L15.4 17c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3v2.6A10 10 0 0 0 12 22"
+            />
+            <path
+              fill="#FBBC05"
+              d="M6.4 13.9a6 6 0 0 1 0-3.8V7.5H3a10 10 0 0 0 0 9l3.4-2.6"
+            />
+            <path
+              fill="#EA4335"
+              d="M12 6c1.5 0 2.8.5 3.8 1.5l2.8-2.8A9.6 9.6 0 0 0 12 2a10 10 0 0 0-9 5.5l3.4 2.6A5.9 5.9 0 0 1 12 6"
+            />
+          </svg>
+          Continue with Google
+        </Button>
+        <div className="divider">
+          <span>or use your email</span>
+        </div>
+        <form
+          onSubmit={form(
+            async () => {
+              if (screen === "signup") {
+                if (!signUp) return;
+                await signUp.create({ emailAddress: email, password });
+                await signUp.prepareEmailAddressVerification({
+                  strategy: "email_code",
+                });
+                setPassword("");
+                setSentAt(Date.now());
+                setScreen("verify-email");
+              } else if (signIn)
+                await completeAuth(
+                  await signIn.create({ identifier: email, password }),
+                );
+            },
+            screen === "signin"
+              ? "Sign-in did not work. Check your email and password, or continue with Google."
+              : "The account could not be created. Check the password requirements, or try sign-in and recovery.",
+          )}
+        >
+          {screen === "signup" && (
+            <FormField
+              id="name"
+              label="Name"
+              autoComplete="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={100}
+              required
+            />
+          )}
+          <FormField
+            id="email"
+            label="Email address"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+          <FormField
+            id="password"
+            label="Password"
+            type="password"
+            autoComplete={
+              screen === "signup" ? "new-password" : "current-password"
+            }
+            minLength={screen === "signup" ? 8 : undefined}
+            error={fieldErrors.password}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+          {screen === "signin" ? (
+            <Button
+              className="text-button"
+              variant="link"
+              onPress={() => setScreen("forgot")}
+            >
+              Forgot password?
+            </Button>
+          ) : (
+            <p className="support">
+              {passwordRequirements}
+            </p>
+          )}
+          {submit(screen === "signup" ? "Create account" : "Sign in")}
+        </form>
+        <div id="clerk-captcha" />
+        <p className="opt-in-note">
+          Creating an account does not enable alerts.
+          <br />
+          Choose which channels to enable when you save your preferences.
+        </p>
+        <a className="guest" href="/">
+          View Bulletin without an account
+          <ArrowRight />
+        </a>
+      </>
+    );
+  else if (screen === "verify-email" || screen === "device-code")
+    content = (
+      <>
+        {back("signin")}
+        {title(
+          "Verify your email",
+          screen === "device-code"
+            ? "Enter the code sent to your email to confirm this device."
+            : `Enter the code sent to ${email}.`,
+        )}
+        <form
+          onSubmit={form(async () => {
+            if (screen === "verify-email" && signUp)
+              await completeAuth(
+                await signUp.attemptEmailAddressVerification({ code }),
+              );
+            else if (signIn)
+              await completeAuth(
+                await signIn.attemptSecondFactor({
+                  strategy: "email_code",
+                  code,
+                }),
+              );
+          }, "That code did not work. Check it or request a new code.")}
+        >
+          {codeField}
+          {submit("Verify email")}
+        </form>
+        {resend(async () => {
+          if (screen === "verify-email")
+            await signUp?.prepareEmailAddressVerification({
+              strategy: "email_code",
+            });
+          else {
+            const factor = signIn?.supportedSecondFactors?.find(
+              (f) => f.strategy === "email_code",
+            );
+            if (factor)
+              await signIn?.prepareSecondFactor({
+                strategy: "email_code",
+                emailAddressId: factor.emailAddressId,
+              });
+          }
+          setSentAt(Date.now());
+          toast.success("A new email code was requested.");
+        })}
+      </>
+    );
+  else if (["forgot", "recovery-code", "reset"].includes(screen))
+    content = (
+      <>
+        {back("signin")}
+        {title(
+          screen === "forgot"
+            ? "Forgot your password?"
+            : screen === "reset"
+              ? "Choose a new password"
+              : "Check your email",
+          screen === "forgot"
+            ? "Enter your email to request a recovery code."
+            : screen === "reset"
+              ? passwordRequirements
+              : "If recovery is available for this address, a code will be sent. Enter it below.",
+        )}
+        <form
+          onSubmit={form(async () => {
+            if (!signIn) return;
+            if (screen === "forgot") {
+              // Same UI result for existing, Google-only and unknown addresses.
+              try {
+                await signIn.create({
+                  strategy: "reset_password_email_code",
+                  identifier: email,
+                });
+              } catch {
+                /* Enumeration-safe entry result. */
+              }
+              setSentAt(Date.now());
+              setScreen("recovery-code");
+            } else if (screen === "recovery-code") {
+              await signIn.attemptFirstFactor({
+                strategy: "reset_password_email_code",
+                code,
+              });
+              setScreen("reset");
+            } else {
+              if (password !== confirmPassword) {
+                setFieldErrors({
+                  confirmPassword: "The passwords do not match.",
+                });
+                return;
+              }
+              await completeAuth(
+                await signIn.resetPassword({
+                  password,
+                  signOutOfOtherSessions: true,
+                }),
+              );
+            }
+          }, "Recovery could not be completed. Check your code or request a new one.")}
+        >
+          {screen === "forgot" ? (
+            <FormField
+              id="email"
+              label="Email address"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              required
+            />
+          ) : screen === "recovery-code" ? (
+            codeField
+          ) : newPasswordFields}
+          {submit(
+            screen === "forgot"
+              ? "Send recovery code"
+              : screen === "reset"
+                ? "Save new password"
+                : "Verify code",
+          )}
+        </form>
+        {screen === "recovery-code" &&
+          resend(async () => {
+            try {
+              await signIn?.create({
+                strategy: "reset_password_email_code",
+                identifier: email,
+              });
+            } catch {}
+            setSentAt(Date.now());
+            toast.success("Recovery code requested, if available.");
+          })}
+      </>
+    );
+  else if (screen === "profile")
+    content = (
+      <>
+        {title(
+          "Complete your profile",
+          "Choose the name to use for your personal settings.",
+        )}
+        <form
+          onSubmit={form(async () => {
+            const next = await api<Account>("/profile", "PUT", {
+              displayName: name,
+            });
+            updateAccount(next);
+            setScreen("channels");
+          })}
+        >
+          <FormField
+            id="name"
+            label="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={100}
+            autoComplete="name"
+            required
+            error={fieldErrors.displayName}
+          />
+          {submit("Continue")}
+        </form>
+      </>
+    );
+  else if (screen === "channels")
+    content = (
+      <>
+        {title(
+          "How would you like to receive alerts?",
+          "Choose a setup route. Alerts stay off until you save your preferences.",
+        )}
+        <fieldset className="choices">
+          <legend>Receive options</legend>
+          {[
+            ["email", "Email", "Use your verified account email."],
+            ["sms", "SMS", "Verify a supported Philippine mobile number."],
+            ["both", "Email and SMS", "Set up both destinations."],
+            [
+              "none",
+              "Neither for now",
+              "Save your settings with both channels off.",
+            ],
+          ].map(([id, label, text]) => (
+            <label className="choice" key={id}>
+              <input
+                type="radio"
+                name="channel"
+                value={id}
+                checked={channel === id}
+                onChange={() => setChannel(id)}
+              />
+              <span>
+                <strong>{label}</strong>
+                <small>{text}</small>
+              </span>
+              {id === "sms" ? <Phone /> : <Mail />}
+            </label>
+          ))}
+        </fieldset>
+        <Button
+          className="primary"
+          onPress={() =>
+            setScreen(
+              ["sms", "both"].includes(channel) && !account?.phone
+                ? "phone"
+                : "preferences",
+            )
+          }
+        >
+          Continue
+          <ArrowRight />
+        </Button>
+      </>
+    );
+  else if (screen === "phone" || screen === "verify-phone")
+    content = (
+      <>
+        {back(account?.onboardingCompleted ? "account" : "channels")}
+        {title(
+          screen === "phone"
+            ? account?.phone
+              ? "Change your mobile number"
+              : "Add your mobile number"
+            : "Verify your mobile number",
+          screen === "phone"
+            ? "We check ordinary-alert network support before requesting a code."
+            : `Enter the code sent to ${pending?.phone ?? "your phone"}. SMS stays off until you save preferences.`,
+        )}
+        {account?.phone && (
+          <p className="support">
+            Your current number remains linked while you verify its replacement.
+            SMS is paused when you start the replacement.
+          </p>
+        )}
+        <form
+          onSubmit={form(async () => {
+            if (screen === "phone") {
+              const p = await requestPhone(phone);
+              setPending(p);
+              setPhone(p.phone);
+              setScreen("verify-phone");
+            } else if (pending) {
+              updateAccount(
+                await api<Account>("/phone/verify", "POST", {
+                  attemptId: pending.id,
+                  code,
+                }),
+              );
+              setPending(null);
+              setScreen("preferences");
+              toast.success(
+                "Mobile number verified. SMS remains off until you opt in.",
+              );
+            }
+          })}
+        >
+          {screen === "phone" ? (
+            <FormField
+              id="phone"
+              label={account?.phone ? "New mobile number" : "Mobile number"}
+              type="tel"
+              autoComplete="tel"
+              placeholder="0917 123 4567"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              required
+              error={fieldErrors.phone}
+            />
+          ) : (
+            codeField
+          )}
+          {submit(
+            screen === "phone"
+              ? "Send verification code"
+              : "Verify mobile number",
+          )}
+        </form>
+        {screen === "verify-phone" && (
+          <>
+            {resend(async () => {
+              const p = await requestPhone(pending?.phone ?? phone);
+              setPending(p);
+              setCode("");
+              toast.success("A new SMS code was requested.");
+            })}
+            <p className="support" role="status">
+              {pending && Date.parse(pending.expiresAt) <= now
+                ? "This attempt has expired. Request a new code."
+                : "The code expires after five minutes."}
+            </p>
+            <Button
+              className="secondary"
+              onPress={() =>
+                void action(async () => {
+                  await api("/phone/attempts", "DELETE");
+                  setPending(null);
+                  setScreen("phone");
+                })
+              }
+            >
+              Use another number
+            </Button>
+          </>
+        )}
+        <p className="support">
+          Shared-sender SMS alerts support Globe/TM and DITO. Smart/TNT is
+          currently unsupported.
+        </p>
+        <Button className="secondary" onPress={() => setScreen("preferences")}>
+          Continue without SMS
+        </Button>
+      </>
+    );
+  else if (screen === "preferences")
+    content = (
+      <>
+        {title(
+          "Alert preferences",
+          "Choose your receive options and the earthquakes you want to hear about.",
+        )}
+        <p className="delivery-note">
+          Your preferences can be saved now. Automatic earthquake alert delivery
+          is not yet available.
+        </p>
+        <form
+          onSubmit={form(async () => {
+            const finishing = !account?.onboardingCompleted;
+            const next = await api<Account>("/preferences", "PUT", draft);
+            updateAccount(next);
+            if (finishing) location.assign("/?preferences=saved");
+            else toast.success("Alert preferences saved.");
+          })}
+        >
+          <div className="switch-row">
+            <span>
+              <strong>Email alerts</strong>
+              <small>{account?.email} · Verified</small>
+            </span>
+            <Switch
+              aria-label="Email alerts"
+              isSelected={draft.emailEnabled}
+              onChange={(v) => setDraft((p) => ({ ...p, emailEnabled: v }))}
+            />
+          </div>
+          <div className="switch-row">
+            <span>
+              <strong>SMS alerts</strong>
+              <small>
+                {account?.phone ?? "Verify a supported mobile number first."}
+              </small>
+            </span>
+            <Switch
+              aria-label="SMS alerts"
+              isDisabled={!account?.phone}
+              isSelected={draft.smsEnabled}
+              onChange={(v) => setDraft((p) => ({ ...p, smsEnabled: v }))}
+            />
+          </div>
+          {fieldErrors.smsEnabled && (
+            <FieldError>{fieldErrors.smsEnabled}</FieldError>
+          )}
+          {!account?.phone && (
+            <Button
+              className="text-button"
+              variant="link"
+              onPress={() => navigate("phone")}
+            >
+              Add a mobile number
+            </Button>
+          )}
+          <div className="settings-section">
+            <FormField
+              id="magnitude"
+              label="Minimum earthquake magnitude"
+              type="number"
+              min={1}
+              max={10}
+              step={0.1}
+              value={String(draft.magnitude)}
+              onChange={(e) =>
+                setDraft((p) => ({ ...p, magnitude: Number(e.target.value) }))
+              }
+              required
+              error={fieldErrors.magnitude}
+            />
+            <p className="support">
+              Choose M1.0–M10.0. This uses the observed earthquake magnitude.
+            </p>
+          </div>
+          <div className="nearby-section">
+            <div className="switch-row">
+              <span>
+                <strong>Only earthquakes near my location</strong>
+                <small>Apply the same distance rule to both channels.</small>
+              </span>
+              <Switch
+                aria-label="Only earthquakes near my location"
+                isSelected={draft.nearbyOnly}
+                onChange={(v) => setDraft((p) => ({ ...p, nearbyOnly: v }))}
+              />
+            </div>
+            <div className="location-summary">
+              <MapPin />
+              <span>
+                {locationLabel(draft.latitude, draft.longitude, list)}
+                {draft.distanceKm ? ` · Within ${draft.distanceKm} km` : ""}
+              </span>
+              <Button
+                className="text-button"
+                variant="link"
+                onPress={() => setScreen("location")}
+              >
+                Choose location
+              </Button>
+            </div>
+            {(fieldErrors.location ||
+              fieldErrors.latitude ||
+              fieldErrors.distanceKm) && (
+              <FieldError>
+                {fieldErrors.location ??
+                  fieldErrors.latitude ??
+                  fieldErrors.distanceKm}
+              </FieldError>
+            )}
+          </div>
+          <p className="rule-note">
+            Verification does not enable alerts. Saving these switches records
+            your choice; both can stay off.
+          </p>
+          {submit("Save preferences")}
+        </form>
+      </>
+    );
+  else if (screen === "location")
+    content = (
+      <LocationPicker
+        draft={draft}
+        onUse={(p) => {
+          setDraft((d) => ({ ...d, ...p }));
+          setScreen("preferences");
+        }}
+        onCancel={() => setScreen("preferences")}
+      />
+    );
+  else if (screen === "account")
+    content = (
+      <>
+        {title(
+          "Account settings",
+          "Manage your profile, verified destinations and sign-in settings.",
+        )}
+        <form
+          onSubmit={form(async () => {
+            const next = await api<Account>("/profile", "PUT", {
+              displayName: name,
+            });
+            setAccount(next);
+            setName(next.displayName);
+            toast.success("Profile saved.");
+          })}
+        >
+          <FormField
+            id="name"
+            label="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={100}
+            required
+            error={fieldErrors.displayName}
+          />
+          {submit("Save profile")}
+        </form>
+        <div className="account-row">
+          <span>
+            <strong>Email address</strong>
+            <small>{account?.email} · Verified</small>
+          </span>
+          <Button
+            variant="link"
+            className="text-button"
+            onPress={() => navigate("change-email")}
+          >
+            Change
+          </Button>
+        </div>
+        <div className="account-row">
+          <span>
+            <strong>Mobile number</strong>
+            <small>{account?.phone ?? "No mobile number added"}</small>
+          </span>
+          <Button
+            variant="link"
+            className="text-button"
+            onPress={() =>
+              void action(() =>
+                account?.phone
+                  ? sensitive("phone")
+                  : Promise.resolve(navigate("phone")),
+              )
+            }
+          >
+            {account?.phone ? "Change" : "Add"}
+          </Button>
+        </div>
+        <div className="account-row">
+          <span>
+            <strong>Password</strong>
+            <small>
+              {user?.passwordEnabled
+                ? "Password sign-in enabled"
+                : "Continue with Google"}
+            </small>
+          </span>
+          <Button
+            variant="link"
+            className="text-button"
+            onPress={() => void action(() => sensitive("password"))}
+          >
+            {user?.passwordEnabled ? "Change password" : "Add password"}
+          </Button>
+        </div>
+        <div className="account-links">
+          <Button
+            variant="link"
+            className="text-button"
+            onPress={() => {
+              if (!dirty || window.confirm("Discard your unsaved changes?"))
+                void clerk.signOut({ redirectUrl: "/" });
+            }}
+          >
+            Sign out
+          </Button>
+          <Button
+            variant="link"
+            className="danger-link"
+            onPress={() => navigate("close")}
+          >
+            Remove account
+          </Button>
+        </div>
+      </>
+    );
+  else if (screen === "reverify")
+    content = (
+      <>
+        {back("account")}
+        {title(
+          "Verify your identity again",
+          reverifyMethod === "password"
+            ? "Enter your current password before changing sensitive account details."
+            : "Enter the verification code sent to your account email.",
+        )}
+        <form
+          onSubmit={form(async () => {
+            if (!session) return;
+            const verification = await session.attemptFirstFactorVerification(
+              reverifyMethod === "password"
+                ? { strategy: "password", password: currentPassword }
+                : { strategy: "email_code", code },
+            );
+            if (verification.status !== "complete")
+              throw new Error("Verification is incomplete");
+            await getToken({ skipCache: true });
+            setCurrentPassword("");
+            setScreen(returnAction);
+          }, "Identity verification did not work. Check your password or code and try again.")}
+        >
+          {reverifyMethod === "password" ? (
+            <FormField
+              id="current-password"
+              label="Current password"
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              required
+            />
+          ) : (
+            codeField
+          )}
+          {submit("Verify identity")}
+        </form>
+        {reverifyMethod === "email_code" && resend(prepareReverification)}
+      </>
+    );
+  else if (screen === "password")
+    content = (
+      <>
+        {back("account")}
+        {title(
+          user?.passwordEnabled
+            ? "Change your password"
+            : "Add password sign-in",
+          `${passwordRequirements} Other sessions will be signed out.`,
+        )}
+        <form
+          onSubmit={form(async () => {
+            if (password !== confirmPassword) {
+              setFieldErrors({
+                confirmPassword: "The passwords do not match.",
+              });
+              return;
+            }
+            await user?.updatePassword({
+              newPassword: password,
+              ...(user.passwordEnabled ? { currentPassword } : {}),
+              signOutOfOtherSessions: true,
+            });
+            setPassword("");
+            setConfirmPassword("");
+            setCurrentPassword("");
+            setScreen("account");
+            toast.success("Password saved.");
+          }, `The password could not be saved. Check your current password. ${passwordRequirements}`)}
+        >
+          {user?.passwordEnabled && (
+            <FormField
+              id="current-password"
+              label="Current password"
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          )}
+          {newPasswordFields}
+          {submit("Save password")}
+        </form>
+      </>
+    );
+  else
+    content = (
+      <>
+        {title(
+          screen === "close"
+            ? "Account removal is unavailable"
+            : "Email change is unavailable",
+          "This account action is not available in the current release.",
+        )}
+        <p className="support">
+          {screen === "close"
+            ? "Your account and saved settings remain available. You can turn both alert preferences off at any time."
+            : "Keep using your current verified email. Your saved preferences are unaffected."}
+        </p>
+        <Button className="primary" onPress={() => setScreen("account")}>
+          Back to account settings
+        </Button>
+      </>
+    );
+  return (
+    <Shell
+      screen={screen}
+      name={account?.displayName ?? ""}
+      navigate={navigate}
+    >
+      <div
+        ref={heading}
+        tabIndex={-1}
+        className="screen-focus"
+        aria-busy={busy}
+      >
+        {content}
+        {error && (session?.currentTask || !(isSignedIn && !account && screen !== "profile")) && (
+          <FieldError>{error}</FieldError>
+        )}
+      </div>
+    </Shell>
+  );
+}

@@ -23,6 +23,10 @@ export default defineConfig({
     },
     server: {
       proxy: {
+        "/api/v1/account": {
+          target: process.env.ACCOUNT_API_TARGET || "http://127.0.0.1:3000",
+          changeOrigin: false,
+        },
         "/api/v1": {
           target: "https://quakestrikeph.qzz.io",
           changeOrigin: true,
