@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { CircleQuestionMark, Layers3, LocateFixed, Minus, Plus } from "lucide-react";
+import { CircleQuestionMark, Layers3, LocateFixed, Minus, Plus, X } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -110,7 +110,6 @@ export default function MapPanel({
   const annotationMarker = useRef<Marker | null>(null);
   const onSelectRef = useRef(onSelect);
   const selectedIdRef = useRef(selectedId);
-  const focusRequestRef = useRef(focusRequest);
   const [annotationHost, setAnnotationHost] = useState<HTMLDivElement | null>(
     null,
   );
@@ -124,7 +123,6 @@ export default function MapPanel({
   const [mapReady, setMapReady] = useState(false);
   onSelectRef.current = onSelect;
   selectedIdRef.current = selectedId;
-  focusRequestRef.current = focusRequest;
   const selectedEvent = events.find((event) => event.eventId === selectedId);
   const forecastDismissed =
     dismissedForecast?.id === selectedId &&
@@ -176,30 +174,13 @@ export default function MapPanel({
         set3DInteractions(instance, false);
         map.current = instance;
         instance.on("dragstart", () => setLegendOpen(false));
-        instance.on("click", (event) => {
-          const target = event.originalEvent.target;
-          if (
-            !selectedIdRef.current ||
-            (target instanceof Element &&
-              target.closest(
-                ".quake-marker, .forecast-map-host, .maplibregl-control-container",
-              ))
-          )
-            return;
-          setDismissedForecast({
-            id: selectedIdRef.current,
-            focusRequest: focusRequestRef.current,
-          });
-        });
         // Attach to this map instance, including maps recreated by Fast Refresh.
         const attribution = instance
           .getContainer()
           .querySelector<HTMLDetailsElement>(".maplibregl-ctrl-attrib");
         if (attribution) {
           // Set compact before source metadata arrives, which otherwise opens attribution.
-          if (window.matchMedia("(max-width: 760px)").matches) {
-            attribution.classList.add("maplibregl-compact");
-          }
+          attribution.classList.add("maplibregl-compact");
           attribution.classList.remove("maplibregl-compact-show");
           attribution.open = false;
           const closeUnlessInside = (target: EventTarget | null) => {
@@ -535,6 +516,18 @@ export default function MapPanel({
             role="status"
             aria-live="polite"
           >
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="forecast-map-close"
+              aria-label="Close forecast overview"
+              onPress={() => {
+                setDismissedForecast({ id: selectedEvent.eventId, focusRequest });
+                markers.current.get(selectedEvent.eventId)?.getElement().focus({ preventScroll: true });
+              }}
+            >
+              <X aria-hidden="true" />
+            </Button>
             {forecastStatus === "loading" ? (
               <span>Loading forecast…</span>
             ) : forecastStatus === "error" ? (

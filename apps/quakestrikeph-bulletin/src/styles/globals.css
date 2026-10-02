@@ -1,8 +1,4 @@
 @import "@fontsource-variable/geist";
-@import "@fontsource/martel-sans/latin-400.css";
-@import "@fontsource/martel-sans/latin-600.css";
-@import "@fontsource/martel-sans/latin-700.css";
-@import "@fontsource/martel-sans/latin-800.css";
 
 @import "tailwindcss";
 @import "tw-animate-css";
@@ -928,7 +924,7 @@ a {
   z-index: 1;
 }
 .maplibregl-map {
-  font-family: "Martel Sans", Arial, sans-serif;
+  font-family: var(--font-sans);
 }
 .terrain-button,
 .map-tools,
@@ -941,12 +937,12 @@ a {
   left: 14px;
   min-width: 145px;
   justify-content: space-between;
-  background: #fbfdfd;
+  background: rgb(251 253 253 / 90%);
   color: var(--ink);
 }
 .terrain-button:not(:disabled):hover,
 .map-tools button:hover {
-  background: #eaf6f6;
+  background: rgb(234 246 246 / 90%);
 }
 .terrain-button:disabled {
   cursor: wait;
@@ -983,14 +979,15 @@ a {
   top: 14px;
   right: 14px;
   display: grid;
+  grid-auto-flow: column;
   gap: 2px;
 }
 .map-tools button {
-  background: #fbfdfd;
+  background: rgb(251 253 253 / 90%);
   color: var(--ink);
 }
 .map-tools button:last-child {
-  margin-top: 3px;
+  margin-left: 3px;
 }
 .map-legend-toggle {
   display: none;
@@ -1003,7 +1000,7 @@ a {
   gap: 5px;
   padding: 11px 12px;
   border-radius: 10px;
-  background: rgb(251 253 253 / 96%);
+  background: rgb(251 253 253 / 90%);
   color: var(--ink);
   box-shadow: 0 2px 9px rgb(10 45 60 / 13%);
   font-size: 11px;
@@ -1057,10 +1054,7 @@ a {
   border-color: var(--ink);
   background: rgb(251 253 253 / 80%);
   color: var(--ink);
-  font:
-    600 11px "Martel Sans",
-    Arial,
-    sans-serif;
+  font: 600 11px var(--font-sans);
 }
 .map-panel .maplibregl-ctrl-bottom-left {
   bottom: 8px;
@@ -1086,22 +1080,46 @@ a {
   outline-offset: 4px;
 }
 .forecast-map-host {
+  top: 60px !important;
+  bottom: 38px;
+  right: 14px;
+  left: auto !important;
+  width: 260px;
+  display: flex;
+  align-items: flex-start;
+  transform: none !important;
   z-index: 2;
   pointer-events: none;
 }
 .forecast-map-annotation {
+  position: relative;
   width: 260px;
+  max-height: 100%;
+  overflow-y: auto;
   display: grid;
   gap: 5px;
   padding: 9px 10px;
   border-radius: 5px;
-  background: #fbfdfd;
+  background: rgb(251 253 253 / 90%);
   color: var(--ink);
-  font:
-    600 13px/1.45 "Martel Sans",
-    Arial,
-    sans-serif;
+  font: 600 13px/1.45 var(--font-sans);
   pointer-events: auto;
+}
+.forecast-map-close {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  color: var(--ink);
+}
+.map-panel .maplibregl-ctrl-attrib {
+  background-color: rgb(255 255 255 / 90%);
+}
+.map-panel .maplibregl-ctrl-attrib-button {
+  background-color: transparent;
+}
+.forecast-map-annotation > span,
+.forecast-map-heading {
+  padding-right: 24px;
 }
 .forecast-map-heading {
   margin: 0;
@@ -1290,7 +1308,7 @@ a {
     height: 24px;
     padding: 0;
     border-radius: 50%;
-    background: var(--surface);
+    background: rgb(251 253 253 / 90%);
     color: var(--ink);
   }
   .map-legend-toggle svg {
@@ -1349,7 +1367,7 @@ a {
     gap: 0;
     border: 1px solid var(--border);
     border-radius: 10px;
-    background: var(--surface);
+    background: rgb(251 253 253 / 90%);
   }
   .map-tools button {
     position: relative;
@@ -1376,7 +1394,7 @@ a {
     height: 14px;
   }
   .map-tools button:last-child {
-    margin-top: 0;
+    margin-left: 0;
   }
   .map-panel .maplibregl-ctrl-scale {
     font-size: 9px;
@@ -1476,7 +1494,7 @@ a {
     font-weight: 700;
     background: var(--primary);
     color: #fff;
-    border: 2px solid #fff;
+    border: 0;
     box-shadow: 0 5px 16px rgb(26 44 48 / 25%);
   }
   .earthquake-drawer-trigger::before {
@@ -1643,8 +1661,6 @@ a {
 
 /* Keep the existing map theme independent of the surrounding application. */
 .map-panel {
-  --font-sans: "Martel Sans", Arial, sans-serif;
-  --font-heading: var(--font-sans);
   --ink: #0b2c47;
   --coastal-teal: #117e89;
   --coastal-teal-deep: #096975;
