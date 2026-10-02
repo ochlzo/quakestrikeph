@@ -4,11 +4,11 @@ import { CircleQuestionMark, Layers3, LocateFixed, Minus, Plus } from "lucide-re
 import { Button, buttonVariants } from "@/components/ui/button";
 import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import type { Earthquake, Forecast } from "../lib/events";
 import { magnitudeBand, magnitudeBands } from "../lib/magnitude";
 import { addLandmarkLabels } from "../lib/map-landmarks";
-import { cleanMapStyle } from "../lib/map-labels";
+import { cleanMapStyle, transformLabelRequest } from "../lib/map-labels";
+import { loadMapRuntime } from "../lib/map-runtime";
 
 type Props = {
   events: Earthquake[];
@@ -157,19 +157,15 @@ export default function MapPanel({
   useEffect(() => {
     if (!container.current) return;
     let disposed = false;
-    let removeLabelProtocol: (() => void) | undefined;
     const attributionListeners = new AbortController();
-    Promise.all([import("maplibre-gl"), import("../lib/map-label-tiles")])
-      .then(([ml, labels]) => {
+    loadMapRuntime()
+      .then((ml) => {
         if (disposed || !container.current) return;
-        ml.addProtocol(labels.labelProtocol, labels.loadLabelTile);
-        removeLabelProtocol = () => ml.removeProtocol(labels.labelProtocol);
-        ml.setWorkerUrl(workerUrl);
         const compact = window.matchMedia("(max-width: 600px)").matches;
         const instance = new ml.Map({
           container: container.current,
           attributionControl: { compact: true },
-          transformRequest: labels.transformLabelRequest,
+          transformRequest: transformLabelRequest,
           maxBounds: philippinesBounds,
           minZoom: 3.25,
           center: compact ? [123.1, 11.7] : [123.3, 10.8],
@@ -290,7 +286,6 @@ export default function MapPanel({
       annotationMarker.current?.remove();
       annotationMarker.current = null;
       map.current?.remove();
-      removeLabelProtocol?.();
       map.current = null;
     };
   }, []);

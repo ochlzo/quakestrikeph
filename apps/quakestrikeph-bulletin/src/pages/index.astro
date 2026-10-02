@@ -9,7 +9,14 @@ import '../styles/globals.css';
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>QuakeStrike PH Bulletin</title>
     <meta name="description" content="Explore recent earthquakes in the Philippines and understand earthquake forecast information." />
+    <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin="anonymous" />
+    <link rel="preload" as="fetch" href="https://tiles.openfreemap.org/styles/liberty" crossorigin="anonymous" />
+    <link rel="preload" as="fetch" href="https://tiles.openfreemap.org/planet" crossorigin="anonymous" />
     <link rel="preload" as="image" href="/assets/plates/relief-map.webp" />
+    <script>
+      import { loadMapRuntime } from "../lib/map-runtime";
+      void loadMapRuntime().catch(() => { /* MapPanel retries and retains its placeholder on failure. */ });
+    </script>
   </head>
   <body>
     <Bulletin client:load />

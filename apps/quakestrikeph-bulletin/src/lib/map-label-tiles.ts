@@ -1,18 +1,10 @@
 import { VectorTile } from "@mapbox/vector-tile";
 import { fromVectorTileJs, type VectorTileLike } from "@maplibre/vt-pbf";
 import { PbfReader } from "pbf";
-import type { AddProtocolAction, RequestTransformFunction } from "maplibre-gl";
-import { cleanMapLabel, englishMapLabel } from "./map-labels.ts";
-
-export const labelProtocol = "quakestrike-labels";
-
-export const transformLabelRequest: RequestTransformFunction = (url, type) => {
-  if (type === "Tile" && url.startsWith("https://tiles.openfreemap.org/planet/")
-    && new URL(url).pathname.endsWith(".pbf")) {
-    return { url: `${labelProtocol}://${url}` };
-  }
-  return undefined;
-};
+import type { AddProtocolAction } from "maplibre-gl";
+import { cleanMapLabel, englishMapLabel, labelProtocol } from "./map-labels.ts";
+import { cacheLabelTile, readLabelTile } from "./map-label-cache.ts";
+export { labelProtocol, transformLabelRequest } from "./map-labels.ts";
 
 export function cleanLabelTile(data: ArrayBuffer): ArrayBuffer {
   const tile = new VectorTile(new PbfReader(data));
@@ -34,13 +26,32 @@ export function cleanLabelTile(data: ArrayBuffer): ArrayBuffer {
 }
 
 export const loadLabelTile: AddProtocolAction = async (request, controller) => {
-  const response = await fetch(request.url.slice(`${labelProtocol}://`.length), {
+  controller.signal.throwIfAborted();
+  const url = request.url.slice(`${labelProtocol}://`.length);
+  const cached = await readLabelTile(url);
+  controller.signal.throwIfAborted();
+  if (cached) {
+    const data = await cached.arrayBuffer();
+    controller.signal.throwIfAborted();
+    return { data, cacheControl: cached.headers.get("Cache-Control") || undefined,
+      expires: cached.headers.get("Expires") || undefined };
+  }
+  const response = await fetch(url, {
     signal: controller.signal,
     headers: request.headers,
     credentials: request.credentials,
   });
   if (!response.ok) throw new Error(`Map label tile HTTP ${response.status}`);
-  const data = cleanLabelTile(await response.arrayBuffer());
+  const bytes = await response.arrayBuffer();
+  controller.signal.throwIfAborted();
+  const data = cleanLabelTile(bytes);
+  const headers = new Headers({ "Content-Type": "application/x-protobuf" });
+  for (const field of ["Cache-Control", "Expires"]) {
+    const value = response.headers.get(field);
+    if (value) headers.set(field, value);
+  }
+  await cacheLabelTile(url, data, headers);
+  controller.signal.throwIfAborted();
   return {
     data,
     cacheControl: response.headers.get("Cache-Control") || undefined,

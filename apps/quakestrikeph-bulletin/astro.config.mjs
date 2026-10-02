@@ -10,6 +10,17 @@ export default defineConfig({
   integrations: [react()],
   vite: {
     plugins: [tailwindcss()],
+    worker: {
+      plugins: () => [{
+        name: "retain-maplibre-worker-initialization",
+        transform(code, id) {
+          // MapLibre marks dist modules side-effect-free, but this one installs its worker API.
+          if (id.replaceAll("\\", "/").endsWith("/maplibre-gl-worker.mjs")) {
+            return { code, moduleSideEffects: "no-treeshake" };
+          }
+        },
+      }],
+    },
     server: {
       proxy: {
         "/api/v1": {

@@ -5,6 +5,7 @@ import { fromGeojsonVt } from "@maplibre/vt-pbf";
 import { PbfReader } from "pbf";
 import { cleanMapLabel, englishMapLabel, cleanMapStyle } from "../src/lib/map-labels.ts";
 import { cleanLabelTile, labelProtocol, loadLabelTile, transformLabelRequest } from "../src/lib/map-label-tiles.ts";
+import { cacheLabelTile, labelCacheName } from "../src/lib/map-label-cache.ts";
 
 assert.equal(cleanMapLabel("  Peña-Blanca  (Mt. 12) / 山 🗻\n"), "PeñaBlanca Mt 12");
 assert.equal(cleanMapLabel("Peña NIÑO!"), "Peña NIÑO");
@@ -93,4 +94,55 @@ try {
 } finally {
   globalThis.fetch = originalFetch;
 }
-console.log("PASS English label cleanup, style preservation, vector geometry/metadata, tile routing, cache headers, failure and cancellation");
+// Cache Storage is browser-owned; exercise the loader with a small in-memory implementation.
+const originalCaches = Object.getOwnPropertyDescriptor(globalThis, "caches");
+const entries = new Map();
+let failRead = false, failWrite = false, failOpen = false;
+const cache = {
+  async match(key) { if (failRead) throw new Error("Cache read blocked"); return entries.get(String(key))?.clone(); },
+  async put(key, response) { if (failWrite) throw new Error("Quota exceeded"); entries.set(String(key), response.clone()); },
+  async keys() { return [...entries.keys()].map((key) => new Request(key)); },
+  async delete(key) { return entries.delete(typeof key === "string" ? key : key.url); },
+};
+try {
+  Object.defineProperty(globalThis, "caches", { configurable: true, value: {
+    async open(name) { assert.equal(name, labelCacheName); if (failOpen) throw new Error("Storage blocked"); return cache; },
+  } });
+  let fetches = 0;
+  globalThis.fetch = async () => { fetches++; return new Response(input, { headers: {
+    "Cache-Control": "public, max-age=86400", "Content-Encoding": "gzip",
+  } }); };
+  const request = { url: `${labelProtocol}://${url}` };
+  const first = await loadLabelTile(request, new AbortController());
+  const second = await loadLabelTile(request, new AbortController());
+  assert.equal(fetches, 1, "Cleaned cache hit bypasses downloading and transforming the tile");
+  assert.deepEqual(new Uint8Array(second.data), new Uint8Array(first.data));
+  assert.equal(decode(second.data).layers.transportation_name.feature(0).properties.qs_name, "Peña Rd");
+  assert.equal(entries.get(url).headers.get("Content-Encoding"), null, "Cleaned bytes are not marked as compressed");
+  const cancelled = new AbortController(); cancelled.abort();
+  await assert.rejects(loadLabelTile(request, cancelled), { name: "AbortError" });
+  assert.equal(fetches, 1);
+  failRead = true;
+  await loadLabelTile(request, new AbortController());
+  assert.equal(fetches, 2, "Read errors fall back to the normal tile path");
+  failRead = false; failWrite = true;
+  assert(await loadLabelTile({ url: `${request.url}?quota` }, new AbortController()));
+  assert.equal(entries.has(`${url}?quota`), false);
+  failWrite = false; failOpen = true;
+  assert(await loadLabelTile({ url: `${request.url}?unavailable` }, new AbortController()));
+  failOpen = false;
+  const headers = new Headers({ "Cache-Control": "public, max-age=86400" });
+  for (let i = 0; i < 18; i++) await cacheLabelTile(`${url}?tile=${i}`, output, headers);
+  assert.equal(entries.size, 16, "Persistent cache evicts the oldest tiles");
+  assert(!entries.has(`${url}?tile=0`));
+  assert(entries.has(`${url}?tile=17`));
+  await cacheLabelTile(`${url}?large`, new ArrayBuffer(2 * 1024 * 1024 + 1), headers);
+  assert(!entries.has(`${url}?large`), "Oversized tiles are not stored");
+  await cacheLabelTile(`${url}?private`, output, new Headers({ "Cache-Control": "private, no-store" }));
+  assert(!entries.has(`${url}?private`), "Origin cache restrictions are respected");
+} finally {
+  globalThis.fetch = originalFetch;
+  if (originalCaches) Object.defineProperty(globalThis, "caches", originalCaches);
+  else Reflect.deleteProperty(globalThis, "caches");
+}
+console.log("PASS label cleanup, geometry/styles, routing, cancellation, cleaned-tile cache reuse/limits and storage failure fallback");

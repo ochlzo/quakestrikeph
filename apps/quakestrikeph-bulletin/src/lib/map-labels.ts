@@ -1,4 +1,14 @@
-import type { StyleSpecification } from "maplibre-gl";
+import type { RequestTransformFunction, StyleSpecification } from "maplibre-gl";
+
+export const labelProtocol = "quakestrike-labels";
+
+export const transformLabelRequest: RequestTransformFunction = (url, type) => {
+  if (type === "Tile" && url.startsWith("https://tiles.openfreemap.org/planet/")
+    && new URL(url).pathname.endsWith(".pbf")) {
+    return { url: `${labelProtocol}://${url}` };
+  }
+  return undefined;
+};
 
 export function cleanMapLabel(value: unknown): string {
   return String(value ?? "").normalize("NFKD")
