@@ -21,5 +21,91 @@
 .account-app .settings-rail nav button{justify-content:flex-start;font-size:14px;height:auto}
 .account-app .support a{text-decoration:underline;text-underline-offset:3px}
 .account-app .header,.account-app footer{flex-shrink:0}.account-app .account-inner{min-width:0}
+.account-app .header .back{min-height:44px}
 .account-app .form-intro,.account-app .support{overflow-wrap:anywhere}
 @media(max-width:760px){.account-app .settings-rail nav button{font-size:12px;justify-content:center;padding:10px 6px;gap:5px}.account-app .location-map{height:280px}.account-app [data-slot=input]{font-size:16px}.account-app .header .back{max-width:145px}.account-app footer{font-size:11px}}
+
+/* Coastal split for Map & Sheet screens; mobile keeps the original map shell. */
+@media (max-width: 760px) {
+  .account-app .header .brand { margin: 0; }
+}
+@media (min-width: 761px) {
+  .account-app.account-entry {
+    height: 100dvh;
+    min-height: 0;
+  }
+  .account-app.account-entry .header { height: 64px; }
+  .account-app.account-entry .layout {
+    min-height: 0;
+    margin: 0 5% 12px;
+    grid-template-columns: 1fr 1fr;
+    border: 1px solid var(--line);
+    background: white;
+  }
+  .account-app.account-entry .account {
+    min-height: 0;
+    margin: 0;
+    border-radius: 0;
+    padding-block: 16px;
+    overflow-y: auto;
+    align-items: safe center;
+  }
+  .account-app.account-entry { background: white; }
+  .account-app.account-entry .story {
+    min-height: 0;
+    padding: clamp(24px, 5vh, 52px) 11%;
+    padding-bottom: 32px;
+    justify-content: flex-start;
+    background: var(--pale);
+  }
+  .account-app.account-entry .story-copy {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
+  }
+  .account-app.account-entry .story h1 {
+    max-width: 14ch;
+  }
+  .account-app.account-entry .story h1,
+  .account-app.account-entry .account h2 {
+    font-size: 34px;
+    font-weight: 650;
+    line-height: 1.15;
+  }
+  .account-app.account-entry .story-copy p { font-size: 16px; }
+  .account-app.account-entry .map-art {
+    position: relative;
+    inset: auto;
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    margin: 32px 0;
+    border-radius: 16px;
+  }
+  .account-app.account-entry .map-art img {
+    height: 100%;
+    padding: 8px 24px;
+    transform: none;
+  }
+  .account-app.account-entry .story-note { display: block; font-size: 12px; }
+  .account-app.account-entry h2 { margin: 8px 0 4px; }
+  .account-app.account-entry .form-intro { margin-bottom: 8px; }
+  .account-app.account-entry .divider { margin-block: 8px; }
+  .account-app.account-entry .field { margin-bottom: 8px; }
+  .account-app.account-entry .opt-in-note { margin: 8px 0 8px; }
+  .account-app.account-entry footer { padding-block: 8px; }
+}
+
+/* Keep component borders and focus behavior; retain account field sizing. */
+.account-app:is([data-screen="signin"], [data-screen="signup"]) [data-slot="input"] {
+  border-width: revert-layer;
+  border-style: revert-layer;
+  border-radius: revert-layer;
+  outline: revert-layer;
+  outline-offset: revert-layer;
+  transition: revert-layer;
+}
+.account-app:is([data-screen="signin"], [data-screen="signup"]) .show-password {
+  border-radius: revert-layer;
+}

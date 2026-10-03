@@ -82,7 +82,8 @@ const blank: Preferences = {
   longitude: null,
   distanceKm: null,
 };
-const passwordRequirements = "Use at least 8 characters, including one lowercase letter, one uppercase letter, and one number.";
+const passwordRequirements =
+  "Use at least 8 characters, including one lowercase letter, one uppercase letter, and one number.";
 // Product form validation only; Clerk owns credentials and its server-side rules.
 const passwordPattern = "(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{8,}";
 
@@ -106,8 +107,16 @@ function FormField({
           {...props}
           id={id}
           type={type === "password" && visible ? "text" : type}
-          pattern={type === "password" && props.autoComplete === "new-password" ? passwordPattern : props.pattern}
-          title={type === "password" && props.autoComplete === "new-password" ? passwordRequirements : props.title}
+          pattern={
+            type === "password" && props.autoComplete === "new-password"
+              ? passwordPattern
+              : props.pattern
+          }
+          title={
+            type === "password" && props.autoComplete === "new-password"
+              ? passwordRequirements
+              : props.title
+          }
           aria-invalid={!!error}
           aria-describedby={error ? `${id}-error` : props["aria-describedby"]}
         />
@@ -148,9 +157,9 @@ function Shell({
     "reset",
     "device-code",
   ].includes(screen);
-  const rootClass = `account-app map flow-screen ${wide ? "settings-workspace wide" : entry ? "" : "focused-shell"}`;
+  const rootClass = `account-app map flow-screen ${wide ? "settings-workspace wide" : entry ? "account-entry" : "focused-shell"}`;
   return (
-    <div className={rootClass}>
+    <div className={rootClass} data-screen={screen}>
       <header className="header">
         <a className="brand" href="/">
           <span className="brand-mark">
@@ -218,6 +227,9 @@ function Shell({
               fetchPriority="high"
             />
           </figure>
+          <p className="story-note">
+            The public Bulletin is available without an account.
+          </p>
         </section>
         <section className="account" aria-labelledby="form-title">
           <div className="account-inner">{children}</div>
@@ -225,9 +237,6 @@ function Shell({
       </main>
       <footer>
         <span>QuakeStrike PH Bulletin</span>
-        <span>
-          Saved preferences · Automatic alert delivery is not yet available
-        </span>
       </footer>
     </div>
   );
@@ -285,12 +294,20 @@ function SessionAccountFlow({ initial }: { initial: string }) {
   const { isLoaded, isSignedIn, userId, sessionId } = useAuth({
     treatPendingAsSignedOut: false,
   });
-  const identity = !isLoaded ? "loading" : isSignedIn ? `${userId}:${sessionId}` : "signed-out";
+  const identity = !isLoaded
+    ? "loading"
+    : isSignedIn
+      ? `${userId}:${sessionId}`
+      : "signed-out";
   const [boundary, setBoundary] = useState({ identity, generation: 0 });
   if (boundary.identity !== identity) {
     // Keep the anonymous signup draft at first sign-in. Leaving an authenticated
     // session always discards its private state, even when switching accounts.
-    setBoundary({ identity, generation: boundary.generation + (boundary.identity === "signed-out" ? 0 : 1) });
+    setBoundary({
+      identity,
+      generation:
+        boundary.generation + (boundary.identity === "signed-out" ? 0 : 1),
+    });
   }
   return <AccountFlow key={boundary.generation} initial={initial} />;
 }
@@ -342,7 +359,9 @@ function AccountFlow({ initial }: { initial: string }) {
   const active = useRef(true);
   useLayoutEffect(() => {
     active.current = true;
-    return () => { active.current = false; };
+    return () => {
+      active.current = false;
+    };
   }, []);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -448,9 +467,18 @@ function AccountFlow({ initial }: { initial: string }) {
     try {
       await work();
     } catch (e) {
-      if (screen === "signup" && typeof e === "object" && e && "errors" in e &&
-          Array.isArray(e.errors) && e.errors.some(item => item?.code === "form_password_pwned")) {
-        setFieldErrors({ password: "This password has appeared in a data breach. Choose a different password." });
+      if (
+        screen === "signup" &&
+        typeof e === "object" &&
+        e &&
+        "errors" in e &&
+        Array.isArray(e.errors) &&
+        e.errors.some((item) => item?.code === "form_password_pwned")
+      ) {
+        setFieldErrors({
+          password:
+            "This password has appeared in a data breach. Choose a different password.",
+        });
         return;
       }
       if (e instanceof AccountFailure) {
@@ -686,17 +714,21 @@ function AccountFlow({ initial }: { initial: string }) {
             : "Complete this required step to access your saved settings.",
         )}
         {session.currentTask.key === "reset-password" ? (
-          <form onSubmit={form(async () => {
-            if (password !== confirmPassword) {
-              setFieldErrors({ confirmPassword: "The passwords do not match." });
-              return;
-            }
-            await resetTaskPassword(password);
-            setPassword("");
-            setConfirmPassword("");
-            await clerk.setActive({ session });
-            location.assign("/alerts?entry=1");
-          }, "The password could not be saved. Please try again.")}>
+          <form
+            onSubmit={form(async () => {
+              if (password !== confirmPassword) {
+                setFieldErrors({
+                  confirmPassword: "The passwords do not match.",
+                });
+                return;
+              }
+              await resetTaskPassword(password);
+              setPassword("");
+              setConfirmPassword("");
+              await clerk.setActive({ session });
+              location.assign("/alerts?entry=1");
+            }, "The password could not be saved. Please try again.")}
+          >
             {newPasswordFields}
             {submit("Save new password")}
           </form>
@@ -848,9 +880,7 @@ function AccountFlow({ initial }: { initial: string }) {
               Forgot password?
             </Button>
           ) : (
-            <p className="support">
-              {passwordRequirements}
-            </p>
+            <p className="support">{passwordRequirements}</p>
           )}
           {submit(screen === "signup" ? "Create account" : "Sign in")}
         </form>
@@ -979,7 +1009,9 @@ function AccountFlow({ initial }: { initial: string }) {
             />
           ) : screen === "recovery-code" ? (
             codeField
-          ) : newPasswordFields}
+          ) : (
+            newPasswordFields
+          )}
           {submit(
             screen === "forgot"
               ? "Send recovery code"
@@ -1530,9 +1562,11 @@ function AccountFlow({ initial }: { initial: string }) {
         aria-busy={busy}
       >
         {content}
-        {error && (session?.currentTask || !(isSignedIn && !account && screen !== "profile")) && (
-          <FieldError>{error}</FieldError>
-        )}
+        {error &&
+          (session?.currentTask ||
+            !(isSignedIn && !account && screen !== "profile")) && (
+            <FieldError>{error}</FieldError>
+          )}
       </div>
     </Shell>
   );
