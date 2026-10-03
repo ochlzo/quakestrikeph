@@ -1,11 +1,101 @@
 .account-app{min-height:100svh;display:flex;flex-direction:column;background:#eaf2f4;color:#1a2c30;--muted:#5f6b6e}
 .account-app .screen-focus{outline:none}.account-app .screen-focus:focus-visible{outline:none}
+.account-app .auth-tabs { display: block; }
+.account-app .auth-tabs .mode-switch { height: auto; }
+.account-app .mode-switch [data-slot="tabs-trigger"] {
+  min-height: 44px;
+  height: auto;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 7px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.account-app .mode-switch [data-selected] {
+  background: white;
+  color: var(--teal);
+  box-shadow: 0 2px 4px #1a2c3010;
+}
+.account-app .mode-switch [data-slot="tabs-trigger"]:hover { background: #e2eded; }
+/* The selected surface travels with the form's entry timing. */
+.account-app .auth-tabs .mode-switch { position: relative; isolation: isolate; }
+.account-app .auth-tabs .mode-switch::before {
+  content: "";
+  position: absolute;
+  inset: 4px auto 4px 4px;
+  width: calc((100% - 16px) / 2);
+  border-radius: 7px;
+  background: white;
+  box-shadow: 0 2px 4px #1a2c3010;
+  transform: translateX(0);
+  transition: transform 320ms cubic-bezier(.16, 1, .3, 1);
+  pointer-events: none;
+}
+.account-app .auth-tabs .mode-switch:has([data-key="signin"][data-selected])::before {
+  transform-origin: right center;
+  animation: tab-stretch-signin 320ms cubic-bezier(.16, 1, .3, 1);
+}
+.account-app .auth-tabs .mode-switch:has([data-key="signup"][data-selected])::before {
+  transform: translateX(calc(100% + 8px));
+  transform-origin: left center;
+  animation: tab-stretch-signup 320ms cubic-bezier(.16, 1, .3, 1);
+}
+.account-app .auth-tabs .mode-switch [data-slot="tabs-trigger"] {
+  z-index: 1;
+  background: transparent;
+  box-shadow: none;
+  transition: color 180ms ease-out;
+}
+.account-app .auth-tabs .mode-switch [data-slot="tabs-trigger"]:hover { background: transparent; }
+@keyframes tab-stretch-signin {
+  0% { scale: 1 1; }
+  30% { scale: 1.1 1; }
+  100% { scale: 1 1; }
+}
+@keyframes tab-stretch-signup {
+  0% { scale: 1 1; }
+  30% { scale: 1.1 1; }
+  100% { scale: 1 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .account-app .auth-tabs .mode-switch:has([data-key][data-selected])::before { transition: none; animation: none; }
+  .account-app .auth-tabs .mode-switch [data-slot="tabs-trigger"] { transition: none; }
+}
+@media (max-width: 760px) {
+  .account-app .mode-switch [data-slot="tabs-trigger"] { min-height: 40px; }
+}
+.account-app .account-loading [data-slot="skeleton"] { background: var(--pale); }
+.account-app .loading-tab { height: 44px; flex: 1; }
+.account-app .loading-heading { height: 1.15em; width: 32%; }
+.account-app .loading-heading-wide { width: 80%; }
+.account-app .loading-copy { height: 1.55em; }
+.account-app .loading-divider { width: 96px; height: 18px; }
+.account-app .loading-label { width: 96px; height: 19.5px; }
+.account-app .loading-label-spaced { margin-bottom: 8px; }
+.account-app .loading-forgot { width: 102px; height: 24px; }
+.account-app .loading-input { height: 52px; border-radius: var(--radius-lg); }
+.account-app .loading-password-note [data-slot="skeleton"] { height: 1.55em; }
+.account-app .loading-password-note [data-slot="skeleton"]:last-child { width: 70%; }
+.account-app .loading-guest { height: 19.5px; }
+@media (prefers-reduced-motion: reduce) {
+  .account-app .account-loading [data-slot="skeleton"] { animation: none; }
+}
 .account-app [data-slot=field]{gap:0}.account-app [data-slot=field-label]{display:block;margin-bottom:8px;font-size:13px;font-weight:600}
 .account-app [data-slot=input]{height:52px;padding:0 14px;border-radius:10px;font-size:15px;border-color:#dce3e4;background:white}
 .account-app [data-slot=input][aria-invalid=true]{border-color:#b42318}
 .account-app [data-slot=field-error]{color:#b42318;font-size:13px;line-height:1.5;margin:8px 0 14px}
 .account-app [data-slot=button]{white-space:normal}.account-app button[disabled]{cursor:default;opacity:.6}
 .account-app .text-button{min-height:44px}.account-app .password-wrap input{padding-right:52px}
+.account-app .field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.account-app .field-label-row [data-slot="field-label"] { margin-bottom: 0; }
+.account-app .field-label-row .text-button { min-height: 24px; height: 24px; padding: 0; }
 .account-app .switch-row [data-slot=switch]{width:44px;height:26px;min-width:44px;background:#c0cdcf;position:relative;cursor:pointer;border-radius:999px;display:inline-flex;align-items:center;border:0}
 .account-app .switch-row [data-slot=switch][data-selected]{background:#0e6873}
 .account-app .switch-row [data-slot=switch-thumb]{display:block;position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:50%;background:white;transform:translateX(0)}
@@ -21,6 +111,7 @@
 .account-app .settings-rail nav button{justify-content:flex-start;font-size:14px;height:auto}
 .account-app .support a{text-decoration:underline;text-underline-offset:3px}
 .account-app .header,.account-app footer{flex-shrink:0}.account-app .account-inner{min-width:0}
+.account-app footer { box-sizing: content-box; min-block-size: 1lh; }
 .account-app .header .back{min-height:44px}
 .account-app .form-intro,.account-app .support{overflow-wrap:anywhere}
 @media(max-width:760px){.account-app .settings-rail nav button{font-size:12px;justify-content:center;padding:10px 6px;gap:5px}.account-app .location-map{height:280px}.account-app [data-slot=input]{font-size:16px}.account-app .header .back{max-width:145px}.account-app footer{font-size:11px}}
@@ -97,8 +188,8 @@
   .account-app.account-entry footer { padding-block: 8px; }
 }
 
-/* Keep component borders and focus behavior; retain account field sizing. */
-.account-app:is([data-screen="signin"], [data-screen="signup"]) [data-slot="input"] {
+/* FormField shares the accepted account sizing and shadcn border/focus behavior. */
+.account-app .account-form-field [data-slot="input"] {
   border-width: revert-layer;
   border-style: revert-layer;
   border-radius: revert-layer;
@@ -106,11 +197,20 @@
   outline-offset: revert-layer;
   transition: revert-layer;
 }
-.account-app:is([data-screen="signin"], [data-screen="signup"]) .show-password {
+.account-app .account-form-field .show-password {
   border-radius: revert-layer;
+}
+.account-app .field.account-form-field {
+  margin-bottom: 16px;
 }
 
 /* Separate account access methods and keep each form group together. */
+.account-app[data-screen="forgot"] .account h2 {
+  margin: 16px 0 8px;
+}
+.account-app[data-screen="forgot"] .form-intro {
+  margin-bottom: 24px;
+}
 .account-app:is([data-screen="signin"], [data-screen="signup"]) .account h2 {
   margin: 16px 0 8px;
 }
@@ -119,9 +219,6 @@
 }
 .account-app:is([data-screen="signin"], [data-screen="signup"]) .divider {
   margin-block: 16px;
-}
-.account-app:is([data-screen="signin"], [data-screen="signup"]) .field {
-  margin-bottom: 16px;
 }
 @media (max-width: 760px) {
   .account-app:is([data-screen="signin"], [data-screen="signup"]) .header .back {
@@ -133,7 +230,7 @@
 
 .mobile-guest { display: none; }
 @media (max-width: 760px) {
-  .account-app:is([data-screen="signin"], [data-screen="signup"]) .header .back {
+  .account-app:is([data-screen="signin"], [data-screen="signup"], [data-screen="forgot"]) .header .back {
     display: none;
   }
   .account-app .mobile-guest {
@@ -147,7 +244,7 @@
   from { opacity: .2; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.account-app:is([data-screen="signin"], [data-screen="signup"]) .screen-focus > :not(nav),
+.account-app:is([data-screen="signin"], [data-screen="signup"]) .auth-tabs [data-slot="tabs-content"] > *,
 .account-app:is([data-screen="signin"], [data-screen="signup"]) form > .field {
   animation: auth-field-entry 320ms cubic-bezier(.16, 1, .3, 1) both;
 }
@@ -158,7 +255,7 @@
   animation-delay: 120ms;
 }
 @media (prefers-reduced-motion: reduce) {
-  .account-app:is([data-screen="signin"], [data-screen="signup"]) .screen-focus > :not(nav),
+  .account-app:is([data-screen="signin"], [data-screen="signup"]) .auth-tabs [data-slot="tabs-content"] > *,
   .account-app:is([data-screen="signin"], [data-screen="signup"]) form > .field {
     animation: none;
   }

@@ -4,7 +4,6 @@ import {
   useRef,
   useState,
   type FormEvent,
-  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import {
@@ -33,6 +32,8 @@ import {
 import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
+import { Skeleton } from "../../components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { Field, FieldError, FieldLabel } from "../../components/ui/field";
 import { Switch } from "../../components/ui/switch";
 import { Toaster } from "../../components/ui/sonner";
@@ -91,18 +92,27 @@ const passwordPattern = "(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{8,}";
 function FormField({
   id,
   label,
+  labelAction,
   error,
   type = "text",
   ...props
 }: {
   id: string;
   label: string;
+  labelAction?: ReactNode;
   error?: string;
 } & React.ComponentProps<typeof Input>) {
   const [visible, setVisible] = useState(false);
   return (
-    <Field className="field" data-invalid={!!error}>
-      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+    <Field className="field account-form-field" data-invalid={!!error}>
+      {labelAction ? (
+        <div className="field-label-row">
+          <FieldLabel htmlFor={id}>{label}</FieldLabel>
+          {labelAction}
+        </div>
+      ) : (
+        <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      )}
       <div className={type === "password" ? "password-wrap" : undefined}>
         <Input
           {...props}
@@ -140,11 +150,13 @@ function FormField({
 function Shell({
   screen,
   name,
+  isLoading = false,
   children,
   navigate,
 }: {
   screen: Screen;
   name: string;
+  isLoading?: boolean;
   children: ReactNode;
   navigate: (screen: Screen) => void;
 }) {
@@ -171,9 +183,8 @@ function Shell({
           </span>
         </a>
         <a className="back" href="/">
-          <ArrowLeft />
           <span>
-            {screen === "signin" || screen === "signup"
+            {screen === "signin" || screen === "signup" || screen === "forgot"
               ? "View Bulletin without an account"
               : "Back to Bulletin"}
           </span>
@@ -236,13 +247,22 @@ function Shell({
             The public Bulletin is available without an account.
           </p>
         </section>
-        <section className="account" aria-labelledby="form-title">
-          <div className="account-inner" key={screen === "signin" || screen === "signup" ? screen : "account"}>{children}</div>
+        <section
+          className="account"
+          aria-labelledby={isLoading ? undefined : "form-title"}
+          aria-label={isLoading ? "Account" : undefined}
+        >
+          <div
+            className="account-inner"
+            key={
+              screen === "signin" || screen === "signup" ? "auth" : "account"
+            }
+          >
+            {children}
+          </div>
         </section>
       </main>
-      <footer>
-        <span>QuakeStrike PH Bulletin</span>
-      </footer>
+      <footer />
     </div>
   );
 }
@@ -372,8 +392,12 @@ function AccountFlow({ initial }: { initial: string }) {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
+  const previousScreen = useRef(screen);
   useEffect(() => {
-    heading.current?.focus();
+    const wasAuth = previousScreen.current === "signin" || previousScreen.current === "signup";
+    const isAuth = screen === "signin" || screen === "signup";
+    if (!(wasAuth && isAuth)) heading.current?.focus();
+    previousScreen.current = screen;
     setCode("");
   }, [screen]);
   useEffect(() => {
@@ -386,7 +410,11 @@ function AccountFlow({ initial }: { initial: string }) {
       setError("");
       setFieldErrors({});
       setPassword("");
-      setScreen(new URLSearchParams(window.location.search).get("mode") === "sign-up" ? "signup" : "signin");
+      setScreen(
+        new URLSearchParams(window.location.search).get("mode") === "sign-up"
+          ? "signup"
+          : "signin",
+      );
     };
     window.addEventListener("popstate", restoreAuthMode);
     return () => window.removeEventListener("popstate", restoreAuthMode);
@@ -479,11 +507,9 @@ function AccountFlow({ initial }: { initial: string }) {
     }
     setScreen(next);
   }
-  function switchAuthMode(event: ReactMouseEvent<HTMLAnchorElement>, next: "signin" | "signup") {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    event.preventDefault();
+  function switchAuthMode(next: "signin" | "signup") {
     if (busy || next === screen) return;
-    window.history.pushState(null, "", event.currentTarget.href);
+    window.history.pushState(null, "", `/auth?mode=${next === "signup" ? "sign-up" : "sign-in"}`);
     setPassword("");
     navigate(next);
   }
@@ -720,15 +746,59 @@ function AccountFlow({ initial }: { initial: string }) {
   );
 
   let content: ReactNode;
-  if (!isLoaded || loading)
+  const isAccountLoading = !isLoaded || loading;
+  if (isAccountLoading)
     content = (
-      <>
-        {title(
-          "Loading your account",
-          "Your saved settings will appear shortly.",
-        )}
-        <p role="status">Please wait…</p>
-      </>
+      <div
+        className="account-loading"
+        role="status"
+        aria-label="Loading account"
+      >
+        <div aria-hidden="true">
+
+          <div className="mode-switch">
+            <Skeleton className="loading-tab" />
+            <Skeleton className="loading-tab" />
+          </div>
+
+          <h2>
+            <Skeleton
+              className={`loading-heading ${screen === "signup" ? "loading-heading-wide" : ""}`}
+            />
+          </h2>
+          <Skeleton className="form-intro loading-copy" />
+          <Skeleton className="google" />
+          <div className="divider">
+            <Skeleton className="loading-divider" />
+          </div>
+          <div>
+            {(screen === "signup"
+              ? ["name", "email", "password"]
+              : ["email", "password"]
+            ).map((field) => (
+              <Field className="field account-form-field" key={field}>
+                {field === "password" && screen !== "signup" ? (
+                  <div className="field-label-row">
+                    <Skeleton className="loading-label" />
+                    <Skeleton className="loading-forgot" />
+                  </div>
+                ) : (
+                  <Skeleton className="loading-label loading-label-spaced" />
+                )}
+                <Skeleton className="loading-input" />
+              </Field>
+            ))}
+            {screen === "signup" && (
+              <div className="support loading-password-note">
+                <Skeleton />
+                <Skeleton />
+              </div>
+            )}
+            <Skeleton className="primary" />
+          </div>
+          <Skeleton className="mobile-guest loading-guest" />
+        </div>
+      </div>
     );
   else if (session?.currentTask)
     content = (
@@ -769,7 +839,9 @@ function AccountFlow({ initial }: { initial: string }) {
         )}
         <Button
           className="secondary"
-          onPress={() => void clerk.signOut({ redirectUrl: "/auth?mode=sign-in" })}
+          onPress={() =>
+            void clerk.signOut({ redirectUrl: "/auth?mode=sign-in" })
+          }
         >
           Return to sign in
         </Button>
@@ -790,136 +862,136 @@ function AccountFlow({ initial }: { initial: string }) {
     );
   else if (screen === "signin" || screen === "signup")
     content = (
-      <>
-        <nav className="mode-switch" aria-label="Account access">
-          <a
-            href="/auth?mode=sign-in"
-            onClick={(event) => switchAuthMode(event, "signin")}
-            aria-current={screen === "signin" ? "page" : undefined}
-          >
-            Sign in
-          </a>
-          <a
-            href="/auth?mode=sign-up"
-            onClick={(event) => switchAuthMode(event, "signup")}
-            aria-current={screen === "signup" ? "page" : undefined}
-          >
-            Sign up
-          </a>
-        </nav>
-        {title(
-          screen === "signup" ? "Create your account" : "Sign in",
-          screen === "signup"
-            ? "Save your personal earthquake alert settings."
-            : "Access your saved earthquake alert settings.",
-        )}
-        <Button
-          className="google"
-          isDisabled={busy}
-          onPress={() =>
-            void action(
-              google,
-              "Google sign-in was not completed. Try again or use your password.",
-            )
-          }
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              fill="#4285F4"
-              d="M21.6 12.2c0-.7-.1-1.5-.2-2.2H12v4.2h5.4a4.6 4.6 0 0 1-2 3v2.5h3.3c1.9-1.8 2.9-4.4 2.9-7.5"
-            />
-            <path
-              fill="#34A853"
-              d="M12 22c2.7 0 5-1 6.7-2.4L15.4 17c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3v2.6A10 10 0 0 0 12 22"
-            />
-            <path
-              fill="#FBBC05"
-              d="M6.4 13.9a6 6 0 0 1 0-3.8V7.5H3a10 10 0 0 0 0 9l3.4-2.6"
-            />
-            <path
-              fill="#EA4335"
-              d="M12 6c1.5 0 2.8.5 3.8 1.5l2.8-2.8A9.6 9.6 0 0 0 12 2a10 10 0 0 0-9 5.5l3.4 2.6A5.9 5.9 0 0 1 12 6"
-            />
-          </svg>
-          Continue with Google
-        </Button>
-        <div className="divider">
-          <span>or use your email</span>
-        </div>
-        <form
-          onSubmit={form(
-            async () => {
-              if (screen === "signup") {
-                if (!signUp) return;
-                await signUp.create({ emailAddress: email, password });
-                await signUp.prepareEmailAddressVerification({
-                  strategy: "email_code",
-                });
-                setPassword("");
-                setSentAt(Date.now());
-                setScreen("verify-email");
-              } else if (signIn)
-                await completeAuth(
-                  await signIn.create({ identifier: email, password }),
-                );
-            },
-            screen === "signin"
-              ? "Sign-in did not work. Check your email and password, or continue with Google."
-              : "The account could not be created. Check the password requirements, or try sign-in and recovery.",
+      <Tabs
+        className="auth-tabs"
+        selectedKey={screen}
+        onSelectionChange={(key) => {
+          if (key === "signin" || key === "signup") switchAuthMode(key);
+        }}
+        isDisabled={busy}
+      >
+        <TabsList className="mode-switch" aria-label="Account access">
+          <TabsTrigger id="signin">Sign in</TabsTrigger>
+          <TabsTrigger id="signup">Sign up</TabsTrigger>
+        </TabsList>
+        <TabsContent id={screen} key={screen}>
+          {title(
+            screen === "signup" ? "Create your account" : "Sign in",
+            screen === "signup"
+              ? "Save your personal earthquake alert settings."
+              : "Access your saved earthquake alert settings.",
           )}
-        >
-          {screen === "signup" && (
+          <Button
+            className="google"
+            isDisabled={busy}
+            onPress={() =>
+              void action(
+                google,
+                "Google sign-in was not completed. Try again or use your password.",
+              )
+            }
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="#4285F4"
+                d="M21.6 12.2c0-.7-.1-1.5-.2-2.2H12v4.2h5.4a4.6 4.6 0 0 1-2 3v2.5h3.3c1.9-1.8 2.9-4.4 2.9-7.5"
+              />
+              <path
+                fill="#34A853"
+                d="M12 22c2.7 0 5-1 6.7-2.4L15.4 17c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3v2.6A10 10 0 0 0 12 22"
+              />
+              <path
+                fill="#FBBC05"
+                d="M6.4 13.9a6 6 0 0 1 0-3.8V7.5H3a10 10 0 0 0 0 9l3.4-2.6"
+              />
+              <path
+                fill="#EA4335"
+                d="M12 6c1.5 0 2.8.5 3.8 1.5l2.8-2.8A9.6 9.6 0 0 0 12 2a10 10 0 0 0-9 5.5l3.4 2.6A5.9 5.9 0 0 1 12 6"
+              />
+            </svg>
+            Continue with Google
+          </Button>
+          <div className="divider">
+            <span>or use your email</span>
+          </div>
+          <form
+            onSubmit={form(
+              async () => {
+                if (screen === "signup") {
+                  if (!signUp) return;
+                  await signUp.create({ emailAddress: email, password });
+                  await signUp.prepareEmailAddressVerification({
+                    strategy: "email_code",
+                  });
+                  setPassword("");
+                  setSentAt(Date.now());
+                  setScreen("verify-email");
+                } else if (signIn)
+                  await completeAuth(
+                    await signIn.create({ identifier: email, password }),
+                  );
+              },
+              screen === "signin"
+                ? "Sign-in did not work. Check your email and password, or continue with Google."
+                : "The account could not be created. Check the password requirements, or try sign-in and recovery.",
+            )}
+          >
+            {screen === "signup" && (
+              <FormField
+                id="name"
+                label="Name"
+                autoComplete="name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={100}
+                required
+              />
+            )}
             <FormField
-              id="name"
-              label="Name"
-              autoComplete="name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              maxLength={100}
+              id="email"
+              label="Email address"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               required
             />
-          )}
-          <FormField
-            id="email"
-            label="Email address"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-          <FormField
-            id="password"
-            label="Password"
-            type="password"
-            autoComplete={
-              screen === "signup" ? "new-password" : "current-password"
-            }
-            minLength={screen === "signup" ? 8 : undefined}
-            error={fieldErrors.password}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-          {screen === "signin" ? (
-            <Button
-              className="text-button"
-              variant="link"
-              onPress={() => setScreen("forgot")}
-            >
-              Forgot password?
-            </Button>
-          ) : (
-            <p className="support">{passwordRequirements}</p>
-          )}
-          {submit(screen === "signup" ? "Create account" : "Sign in")}
-        </form>
-        <div id="clerk-captcha" />
-        <a className="guest mobile-guest" href="/">
-          View Bulletin without an account
-          <ArrowRight />
-        </a>
-      </>
+            <FormField
+              id="password"
+              label="Password"
+              labelAction={
+                screen === "signin" && (
+                  <Button
+                    className="text-button"
+                    variant="link"
+                    onPress={() => setScreen("forgot")}
+                  >
+                    Forgot password?
+                  </Button>
+                )
+              }
+              type="password"
+              autoComplete={screen === "signup" ? "off" : "current-password"}
+              pattern={screen === "signup" ? passwordPattern : undefined}
+              title={screen === "signup" ? passwordRequirements : undefined}
+              minLength={screen === "signup" ? 8 : undefined}
+              error={fieldErrors.password}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+            {screen === "signup" && (
+              <p className="support">{passwordRequirements}</p>
+            )}
+            {submit(screen === "signup" ? "Create account" : "Sign in")}
+          </form>
+          <div id="clerk-captcha" />
+          <a className="guest mobile-guest" href="/">
+            View Bulletin without an account
+            <ArrowRight />
+          </a>
+          </TabsContent>
+      </Tabs>
     );
   else if (screen === "verify-email" || screen === "device-code")
     content = (
@@ -1578,13 +1650,14 @@ function AccountFlow({ initial }: { initial: string }) {
     <Shell
       screen={screen}
       name={account?.displayName ?? ""}
+      isLoading={isAccountLoading}
       navigate={navigate}
     >
       <div
         ref={heading}
         tabIndex={-1}
         className="screen-focus"
-        aria-busy={busy}
+        aria-busy={busy || isAccountLoading}
       >
         {content}
         {error &&
