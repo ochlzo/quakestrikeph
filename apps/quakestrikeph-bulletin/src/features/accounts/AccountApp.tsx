@@ -237,7 +237,7 @@ function Shell({
           </p>
         </section>
         <section className="account" aria-labelledby="form-title">
-          <div className="account-inner">{children}</div>
+          <div className="account-inner" key={screen === "signin" || screen === "signup" ? screen : "account"}>{children}</div>
         </section>
       </main>
       <footer>
