@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type FormEvent,
@@ -273,11 +274,25 @@ export default function AccountApp({
           signUpFallbackRedirectUrl="/alerts?entry=1"
         />
       ) : (
-        <AccountFlow initial={initial} />
+        <SessionAccountFlow initial={initial} />
       )}
       <Toaster position="bottom-right" richColors />
     </ClerkProvider>
   );
+}
+
+function SessionAccountFlow({ initial }: { initial: string }) {
+  const { isLoaded, isSignedIn, userId, sessionId } = useAuth({
+    treatPendingAsSignedOut: false,
+  });
+  const identity = !isLoaded ? "loading" : isSignedIn ? `${userId}:${sessionId}` : "signed-out";
+  const [boundary, setBoundary] = useState({ identity, generation: 0 });
+  if (boundary.identity !== identity) {
+    // Keep the anonymous signup draft at first sign-in. Leaving an authenticated
+    // session always discards its private state, even when switching accounts.
+    setBoundary({ identity, generation: boundary.generation + (boundary.identity === "signed-out" ? 0 : 1) });
+  }
+  return <AccountFlow key={boundary.generation} initial={initial} />;
 }
 
 function AccountFlow({ initial }: { initial: string }) {
@@ -324,6 +339,11 @@ function AccountFlow({ initial }: { initial: string }) {
     account &&
     (JSON.stringify(draft) !== JSON.stringify(preferences(account)) ||
       (screen === "account" && name !== account.displayName));
+  const active = useRef(true);
+  useLayoutEffect(() => {
+    active.current = true;
+    return () => { active.current = false; };
+  }, []);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
@@ -355,12 +375,14 @@ function AccountFlow({ initial }: { initial: string }) {
   }, [dirty]);
 
   async function api<T>(path = "", method = "GET", body?: unknown) {
-    return accountRequest<T>(
-      await getToken({ skipCache: true }),
-      path,
-      method,
-      body,
-    );
+    const token = await getToken({ skipCache: true });
+    if (!active.current) throw new Error("The account session changed.");
+    try {
+      return await accountRequest<T>(token, path, method, body);
+    } finally {
+      // Ignore old successes and errors before state changes or reverification.
+      if (!active.current) throw new Error("The account session changed.");
+    }
   }
   function updateAccount(next: Account) {
     setAccount(next);

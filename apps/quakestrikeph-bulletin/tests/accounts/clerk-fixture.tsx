@@ -4,14 +4,24 @@ import { useSyncExternalStore, type ReactNode } from 'react';
 let signed = new URLSearchParams(location.search).get('signed') === '1';
 const listeners = new Set<() => void>();
 const subscribe = (callback: () => void) => { listeners.add(callback); return () => { listeners.delete(callback); }; };
-const snapshot = () => signed;
+let userId = 'fixture-user', sessionId = 'fixture-session';
+const snapshot = () => signed ? `${userId}:${sessionId}` : 'signed-out';
+window.addEventListener('fixture:auth', event => {
+  const next = (event as CustomEvent<{ userId: string | null; sessionId: string | null }>).detail;
+  signed = !!next.userId && !!next.sessionId;
+  userId = next.userId ?? '';
+  sessionId = next.sessionId ?? '';
+  listeners.forEach(fn => fn());
+});
 export const ClerkProvider = ({ children }: { children: ReactNode }) => children;
 export const AuthenticateWithRedirectCallback = () => <p>OAuth callback fixture</p>;
 export const TaskSetupMFA = () => <p>Required multi-factor setup</p>;
 export const TaskChooseOrganization = () => <p>Required organization choice</p>;
 export function useAuth() {
-  const isSignedIn = useSyncExternalStore(subscribe, snapshot);
-  return { isLoaded: true, isSignedIn, getToken: async () => isSignedIn ? 'FIXTURE_SESSION' : null };
+  const identity = useSyncExternalStore(subscribe, snapshot);
+  const isSignedIn = identity !== 'signed-out';
+  return { isLoaded: true, isSignedIn, userId: isSignedIn ? userId : null,
+    sessionId: isSignedIn ? sessionId : null, getToken: async () => isSignedIn ? 'FIXTURE_SESSION' : null };
 }
 let passwordError = new URLSearchParams(location.search).get('password-error') === '1';
 export const useUser = () => ({ user: {
