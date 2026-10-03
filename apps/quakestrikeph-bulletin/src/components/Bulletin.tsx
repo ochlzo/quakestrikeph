@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
-import { Toaster } from "./ui/sonner";
+import { toast, Toaster } from "./ui/toast";
 import { today } from "@internationalized/date";
 import { Dialog, type DateValue, type RangeValue } from "react-aria-components";
 import {
@@ -97,7 +96,7 @@ export default function Bulletin() {
   useEffect(() => {
     const url = new URL(window.location.href);
     if (url.searchParams.get('preferences') !== 'saved') return;
-    toast.success('Alert preferences saved.', { description: 'Automatic alert delivery is not yet available.' });
+    toast.add({ type: 'success', title: 'Alert preferences saved.', description: 'Automatic alert delivery is not yet available.' });
     url.searchParams.delete('preferences');
     window.history.replaceState(window.history.state, '', url);
   }, []);
@@ -692,7 +691,7 @@ export default function Bulletin() {
 
   return (
     <div className="bulletin-app">
-      <Toaster position="bottom-right" richColors />
+      <Toaster />
       <header className="site-header">
         <a className="brand" href="/" aria-label="QuakeStrike PH Bulletin home">
           <span className="brand-mark">

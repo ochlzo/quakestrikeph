@@ -1,0 +1,4 @@
+interface:
+  display_name: "State Preview"
+  short_description: "Temporary toolbar for browsing UI states"
+  default_prompt: "Use $state-preview to preview this UI with sample data and removable development tools."

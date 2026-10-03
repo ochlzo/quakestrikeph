@@ -1,4 +1,4 @@
-.account-app{min-height:100svh;display:flex;flex-direction:column;background:#eaf2f4;color:#1a2c30;--muted:#5f6b6e}
+.account-app{min-height:100svh;display:flex;flex-direction:column;background:#eaf2f4;color:#1a2c30;--account-muted:#5f6b6e}
 .account-app .screen-focus{outline:none}.account-app .screen-focus:focus-visible{outline:none}
 .account-app .auth-tabs { display: block; }
 .account-app .auth-tabs .mode-switch { height: auto; }
@@ -9,7 +9,7 @@
   font-size: 14px;
   font-weight: 600;
   border-radius: 7px;
-  color: var(--muted);
+  color: var(--account-muted);
   cursor: pointer;
 }
 .account-app .mode-switch [data-selected] {
@@ -83,8 +83,9 @@
 }
 .account-app [data-slot=field]{gap:0}.account-app [data-slot=field-label]{display:block;margin-bottom:8px;font-size:13px;font-weight:600}
 .account-app [data-slot=input]{height:52px;padding:0 14px;border-radius:10px;font-size:15px;border-color:#dce3e4;background:white}
-.account-app [data-slot=input][aria-invalid=true]{border-color:#b42318}
-.account-app [data-slot=field-error]{color:#b42318;font-size:13px;line-height:1.5;margin:8px 0 14px}
+.account-app [data-slot=input][aria-invalid=true]{border-color:var(--destructive)}
+.account-app [data-slot=field-error]{color:var(--destructive);font-size:13px;line-height:1.5;margin:8px 0 14px}
+.account-app .auth-tabs form:has(#password[aria-invalid="true"]) > .support { display: none; }
 .account-app [data-slot=button]{white-space:normal}.account-app button[disabled]{cursor:default;opacity:.6}
 .account-app .text-button{min-height:44px}.account-app .password-wrap input{padding-right:52px}
 .account-app .field-label-row {
@@ -205,6 +206,15 @@
 }
 
 /* Separate account access methods and keep each form group together. */
+.account-app:is([data-screen="verify-email"], [data-screen="device-code"]) .account h2 {
+  margin: 16px 0 8px;
+}
+.account-app:is([data-screen="verify-email"], [data-screen="device-code"]) .form-intro {
+  margin-bottom: 24px;
+}
+.account-app:is([data-screen="verify-email"], [data-screen="device-code"]) .resend {
+  margin: 16px 0 0;
+}
 .account-app[data-screen="forgot"] .account h2 {
   margin: 16px 0 8px;
 }

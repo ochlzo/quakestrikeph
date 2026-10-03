@@ -24,19 +24,24 @@ import {
   ArrowRight,
   Eye,
   EyeOff,
+  Loader,
   Mail,
   MapPin,
   Phone,
   Settings,
 } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Skeleton } from "../../components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "../../components/ui/tabs";
 import { Field, FieldError, FieldLabel } from "../../components/ui/field";
 import { Switch } from "../../components/ui/switch";
-import { Toaster } from "../../components/ui/sonner";
+import { toast, Toaster } from "../../components/ui/toast";
 import LocationPicker, { locationLabel, usePlaces } from "./LocationPicker";
 import {
   accountRequest,
@@ -89,6 +94,18 @@ const passwordRequirements =
 // Product form validation only; Clerk owns credentials and its server-side rules.
 const passwordPattern = "(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{8,}";
 
+function showAuthError(message: string, mode: "signin" | "signup") {
+  return toast.add({
+    id: "account-auth-error",
+    type: "error",
+    title: mode === "signin"
+      ? "Sign-in unsuccessful"
+      : "Account creation unsuccessful",
+    description: message,
+    timeout: 8000,
+  });
+}
+
 function FormField({
   id,
   label,
@@ -103,8 +120,13 @@ function FormField({
   error?: string;
 } & React.ComponentProps<typeof Input>) {
   const [visible, setVisible] = useState(false);
+  const [validationError, setValidationError] = useState("");
+  const fieldError = error || validationError;
   return (
-    <Field className="field account-form-field" data-invalid={!!error}>
+    <Field
+      className="field account-form-field"
+      data-invalid={fieldError ? true : undefined}
+    >
       {labelAction ? (
         <div className="field-label-row">
           <FieldLabel htmlFor={id}>{label}</FieldLabel>
@@ -116,6 +138,27 @@ function FormField({
       <div className={type === "password" ? "password-wrap" : undefined}>
         <Input
           {...props}
+          onInvalid={(event) => {
+            event.preventDefault();
+            props.onInvalid?.(event);
+            const input = event.currentTarget;
+            setValidationError(
+              input.validity.valueMissing
+                ? `${label} is required.`
+                : input.validity.typeMismatch
+                  ? "Enter a valid email address."
+                  : type === "password"
+                    ? passwordRequirements
+                    : input.validationMessage,
+            );
+            input.form
+              ?.querySelector<HTMLInputElement>("input:invalid")
+              ?.focus();
+          }}
+          onChange={(event) => {
+            if (event.currentTarget.validity.valid) setValidationError("");
+            props.onChange?.(event);
+          }}
           id={id}
           type={type === "password" && visible ? "text" : type}
           pattern={
@@ -128,8 +171,10 @@ function FormField({
               ? passwordRequirements
               : props.title
           }
-          aria-invalid={!!error}
-          aria-describedby={error ? `${id}-error` : props["aria-describedby"]}
+          aria-invalid={!!fieldError}
+          aria-describedby={
+            fieldError ? `${id}-error` : props["aria-describedby"]
+          }
         />
         {type === "password" && (
           <Button
@@ -142,7 +187,7 @@ function FormField({
           </Button>
         )}
       </div>
-      {error && <FieldError id={`${id}-error`}>{error}</FieldError>}
+      {fieldError && <FieldError id={`${id}-error`}>{fieldError}</FieldError>}
     </Field>
   );
 }
@@ -310,7 +355,7 @@ export default function AccountApp({
       ) : (
         <SessionAccountFlow initial={initial} />
       )}
-      <Toaster position="bottom-right" richColors />
+      <Toaster />
     </ClerkProvider>
   );
 }
@@ -368,6 +413,7 @@ function AccountFlow({ initial }: { initial: string }) {
     [loading, setLoading] = useState(true);
   const [error, setError] = useState(""),
     [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
   const [returnAction, setReturnAction] = useState<Screen>("phone");
   const [sentAt, setSentAt] = useState(0),
     [now, setNow] = useState(Date.now());
@@ -394,7 +440,9 @@ function AccountFlow({ initial }: { initial: string }) {
   }, []);
   const previousScreen = useRef(screen);
   useEffect(() => {
-    const wasAuth = previousScreen.current === "signin" || previousScreen.current === "signup";
+    const wasAuth =
+      previousScreen.current === "signin" ||
+      previousScreen.current === "signup";
     const isAuth = screen === "signin" || screen === "signup";
     if (!(wasAuth && isAuth)) heading.current?.focus();
     previousScreen.current = screen;
@@ -509,9 +557,18 @@ function AccountFlow({ initial }: { initial: string }) {
   }
   function switchAuthMode(next: "signin" | "signup") {
     if (busy || next === screen) return;
-    window.history.pushState(null, "", `/auth?mode=${next === "signup" ? "sign-up" : "sign-in"}`);
+    window.history.pushState(
+      null,
+      "",
+      `/auth?mode=${next === "signup" ? "sign-up" : "sign-in"}`,
+    );
     setPassword("");
     navigate(next);
+  }
+  function reportError(message: string) {
+    if ((screen === "signin" || screen === "signup") && !session?.currentTask)
+      showAuthError(message, screen);
+    else setError(message);
   }
   async function action(work: () => Promise<void>, generic?: string) {
     if (busy) return;
@@ -541,7 +598,7 @@ function AccountFlow({ initial }: { initial: string }) {
           try {
             await prepareReverification();
           } catch {
-            setError(
+            reportError(
               "Identity verification is unavailable. Please sign in again.",
             );
           }
@@ -552,14 +609,14 @@ function AccountFlow({ initial }: { initial: string }) {
           setScreen("signin");
         }
         if (e.field) setFieldErrors({ [e.field]: e.message });
-        else setError(e.message);
+        else reportError(e.message);
         if (e.code === "ATTEMPT_EXPIRED") {
           setPending(null);
           setScreen("phone");
-          setError(e.message);
+          reportError(e.message);
         }
       } else
-        setError(
+        reportError(
           generic ?? "This request could not be completed. Please try again.",
         );
     } finally {
@@ -659,9 +716,13 @@ function AccountFlow({ initial }: { initial: string }) {
     }
   }
   const submit = (label: string) => (
-    <Button className="primary" type="submit" isDisabled={busy}>
-      {busy ? "Please wait…" : label}
-      <ArrowRight />
+    <Button className="primary" type="submit" isDisabled={busy} aria-busy={busy}>
+      {busy ? "Please wait..." : label}
+      {busy ? (
+        <Loader className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+      ) : (
+        <ArrowRight aria-hidden="true" />
+      )}
     </Button>
   );
   const back = (next: Screen, label = "Back") => (
@@ -755,7 +816,6 @@ function AccountFlow({ initial }: { initial: string }) {
         aria-label="Loading account"
       >
         <div aria-hidden="true">
-
           <div className="mode-switch">
             <Skeleton className="loading-tab" />
             <Skeleton className="loading-tab" />
@@ -932,7 +992,7 @@ function AccountFlow({ initial }: { initial: string }) {
                   );
               },
               screen === "signin"
-                ? "Sign-in did not work. Check your email and password, or continue with Google."
+                ? "Check your email and password, then try again."
                 : "The account could not be created. Check the password requirements, or try sign-in and recovery.",
             )}
           >
@@ -952,8 +1012,12 @@ function AccountFlow({ initial }: { initial: string }) {
               label="Email address"
               type="email"
               autoComplete="email"
+              error={fieldErrors.email}
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setFieldErrors((errors) => ({ ...errors, email: "" }));
+              }}
               required
             />
             <FormField
@@ -977,7 +1041,10 @@ function AccountFlow({ initial }: { initial: string }) {
               minLength={screen === "signup" ? 8 : undefined}
               error={fieldErrors.password}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setFieldErrors((errors) => ({ ...errors, password: "" }));
+              }}
               required
             />
             {screen === "signup" && (
@@ -990,7 +1057,7 @@ function AccountFlow({ initial }: { initial: string }) {
             View Bulletin without an account
             <ArrowRight />
           </a>
-          </TabsContent>
+        </TabsContent>
       </Tabs>
     );
   else if (screen === "verify-email" || screen === "device-code")
@@ -1037,7 +1104,7 @@ function AccountFlow({ initial }: { initial: string }) {
               });
           }
           setSentAt(Date.now());
-          toast.success("A new email code was requested.");
+          toast.add({ type: "success", title: "A new email code was requested." });
         })}
       </>
     );
@@ -1126,7 +1193,7 @@ function AccountFlow({ initial }: { initial: string }) {
               });
             } catch {}
             setSentAt(Date.now());
-            toast.success("Recovery code requested, if available.");
+            toast.add({ type: "success", title: "Recovery code requested, if available." });
           })}
       </>
     );
@@ -1246,9 +1313,10 @@ function AccountFlow({ initial }: { initial: string }) {
               );
               setPending(null);
               setScreen("preferences");
-              toast.success(
-                "Mobile number verified. SMS remains off until you opt in.",
-              );
+              toast.add({
+                type: "success",
+                title: "Mobile number verified. SMS remains off until you opt in.",
+              });
             }
           })}
         >
@@ -1279,7 +1347,7 @@ function AccountFlow({ initial }: { initial: string }) {
               const p = await requestPhone(pending?.phone ?? phone);
               setPending(p);
               setCode("");
-              toast.success("A new SMS code was requested.");
+              toast.add({ type: "success", title: "A new SMS code was requested." });
             })}
             <p className="support" role="status">
               {pending && Date.parse(pending.expiresAt) <= now
@@ -1326,7 +1394,7 @@ function AccountFlow({ initial }: { initial: string }) {
             const next = await api<Account>("/preferences", "PUT", draft);
             updateAccount(next);
             if (finishing) location.assign("/?preferences=saved");
-            else toast.success("Alert preferences saved.");
+            else toast.add({ type: "success", title: "Alert preferences saved." });
           })}
         >
           <div className="switch-row">
@@ -1454,7 +1522,7 @@ function AccountFlow({ initial }: { initial: string }) {
             });
             setAccount(next);
             setName(next.displayName);
-            toast.success("Profile saved.");
+            toast.add({ type: "success", title: "Profile saved." });
           })}
         >
           <FormField
@@ -1608,7 +1676,7 @@ function AccountFlow({ initial }: { initial: string }) {
             setConfirmPassword("");
             setCurrentPassword("");
             setScreen("account");
-            toast.success("Password saved.");
+            toast.add({ type: "success", title: "Password saved." });
           }, `The password could not be saved. Check your current password. ${passwordRequirements}`)}
         >
           {user?.passwordEnabled && (

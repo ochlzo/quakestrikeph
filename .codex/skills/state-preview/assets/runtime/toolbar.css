@@ -1,0 +1,21 @@
+.state-preview-toolbar {
+  position: fixed; left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+  z-index: 10000; display: flex; align-items: center; gap: 4px; max-width: calc(100vw - 24px);
+  padding: 4px 6px; border-radius: 10px; background: #1a2c30; color: white;
+  box-shadow: 0 6px 24px #1a2c3033; font: 500 12px/1.4 "Geist Variable", sans-serif;
+}
+.state-preview-label { padding: 0 8px; color: #b8dedf; }
+.state-preview-toolbar button, .state-preview-toolbar select {
+  min-width: 36px; height: 36px; padding: 0 6px; border: 0; border-radius: 6px;
+  background: transparent; color: white; font: inherit; cursor: pointer;
+}
+.state-preview-toolbar button { display: grid; place-items: center; }
+.state-preview-toolbar [hidden] { display: none; }
+.state-preview-toolbar button:hover, .state-preview-toolbar select { background: #ffffff14; }
+.state-preview-toolbar :focus-visible { outline: 2px solid #b8dedf; outline-offset: 1px; }
+.state-preview-toolbar option { background: #1a2c30; }
+.state-preview-toolbar svg { width: 16px; height: 16px; }
+@media (max-width: 760px) {
+  .state-preview-toolbar button, .state-preview-toolbar select { height: 44px; min-width: 40px; }
+  .state-preview-label { display: none; }
+}
