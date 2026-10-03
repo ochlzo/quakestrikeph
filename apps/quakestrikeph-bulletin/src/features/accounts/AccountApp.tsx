@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import {
@@ -171,7 +172,11 @@ function Shell({
         </a>
         <a className="back" href="/">
           <ArrowLeft />
-          Back to Bulletin
+          <span>
+            {screen === "signin" || screen === "signup"
+              ? "View Bulletin without an account"
+              : "Back to Bulletin"}
+          </span>
         </a>
       </header>
       <main className="layout">
@@ -265,8 +270,8 @@ export default function AccountApp({
   return (
     <ClerkProvider
       publishableKey={publishableKey}
-      signInUrl="/sign-in"
-      signUpUrl="/sign-up"
+      signInUrl="/auth?mode=sign-in"
+      signUpUrl="/auth?mode=sign-up"
       signInFallbackRedirectUrl="/alerts?entry=1"
       signUpFallbackRedirectUrl="/alerts?entry=1"
       taskUrls={{
@@ -277,8 +282,8 @@ export default function AccountApp({
     >
       {initial === "callback" ? (
         <AuthenticateWithRedirectCallback
-          signInUrl="/sign-in"
-          signUpUrl="/sign-up"
+          signInUrl="/auth?mode=sign-in"
+          signUpUrl="/auth?mode=sign-up"
           signInFallbackRedirectUrl="/alerts?entry=1"
           signUpFallbackRedirectUrl="/alerts?entry=1"
         />
@@ -372,6 +377,21 @@ function AccountFlow({ initial }: { initial: string }) {
     setCode("");
   }, [screen]);
   useEffect(() => {
+    if (screen === "signin" || screen === "signup")
+      document.title = `${screen === "signup" ? "Create an account" : "Sign in"} · QuakeStrike PH Bulletin`;
+  }, [screen]);
+  useEffect(() => {
+    const restoreAuthMode = () => {
+      if (window.location.pathname !== "/auth" || isSignedIn) return;
+      setError("");
+      setFieldErrors({});
+      setPassword("");
+      setScreen(new URLSearchParams(window.location.search).get("mode") === "sign-up" ? "signup" : "signin");
+    };
+    window.addEventListener("popstate", restoreAuthMode);
+    return () => window.removeEventListener("popstate", restoreAuthMode);
+  }, [isSignedIn]);
+  useEffect(() => {
     if (!dirty) return;
     const beforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
@@ -458,6 +478,14 @@ function AccountFlow({ initial }: { initial: string }) {
       setName(account.displayName);
     }
     setScreen(next);
+  }
+  function switchAuthMode(event: ReactMouseEvent<HTMLAnchorElement>, next: "signin" | "signup") {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    if (busy || next === screen) return;
+    window.history.pushState(null, "", event.currentTarget.href);
+    setPassword("");
+    navigate(next);
   }
   async function action(work: () => Promise<void>, generic?: string) {
     if (busy) return;
@@ -741,7 +769,7 @@ function AccountFlow({ initial }: { initial: string }) {
         )}
         <Button
           className="secondary"
-          onPress={() => void clerk.signOut({ redirectUrl: "/sign-in" })}
+          onPress={() => void clerk.signOut({ redirectUrl: "/auth?mode=sign-in" })}
         >
           Return to sign in
         </Button>
@@ -765,13 +793,15 @@ function AccountFlow({ initial }: { initial: string }) {
       <>
         <nav className="mode-switch" aria-label="Account access">
           <a
-            href="/sign-in"
+            href="/auth?mode=sign-in"
+            onClick={(event) => switchAuthMode(event, "signin")}
             aria-current={screen === "signin" ? "page" : undefined}
           >
             Sign in
           </a>
           <a
-            href="/sign-up"
+            href="/auth?mode=sign-up"
+            onClick={(event) => switchAuthMode(event, "signup")}
             aria-current={screen === "signup" ? "page" : undefined}
           >
             Sign up
@@ -885,12 +915,7 @@ function AccountFlow({ initial }: { initial: string }) {
           {submit(screen === "signup" ? "Create account" : "Sign in")}
         </form>
         <div id="clerk-captcha" />
-        <p className="opt-in-note">
-          Creating an account does not enable alerts.
-          <br />
-          Choose which channels to enable when you save your preferences.
-        </p>
-        <a className="guest" href="/">
+        <a className="guest mobile-guest" href="/">
           View Bulletin without an account
           <ArrowRight />
         </a>

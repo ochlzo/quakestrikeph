@@ -109,3 +109,35 @@
 .account-app:is([data-screen="signin"], [data-screen="signup"]) .show-password {
   border-radius: revert-layer;
 }
+
+/* Separate account access methods and keep each form group together. */
+.account-app:is([data-screen="signin"], [data-screen="signup"]) .account h2 {
+  margin: 16px 0 8px;
+}
+.account-app:is([data-screen="signin"], [data-screen="signup"]) .form-intro {
+  margin-bottom: 16px;
+}
+.account-app:is([data-screen="signin"], [data-screen="signup"]) .divider {
+  margin-block: 16px;
+}
+.account-app:is([data-screen="signin"], [data-screen="signup"]) .field {
+  margin-bottom: 16px;
+}
+@media (max-width: 760px) {
+  .account-app:is([data-screen="signin"], [data-screen="signup"]) .header .back {
+    min-width: 0;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+}
+
+.mobile-guest { display: none; }
+@media (max-width: 760px) {
+  .account-app:is([data-screen="signin"], [data-screen="signup"]) .header .back {
+    display: none;
+  }
+  .account-app .mobile-guest {
+    display: flex;
+    margin-top: 16px;
+  }
+}
