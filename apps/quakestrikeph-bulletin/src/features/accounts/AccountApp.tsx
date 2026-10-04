@@ -19,7 +19,6 @@ import {
 } from "@clerk/react";
 import { useSignIn, useSignUp } from "@clerk/react/legacy";
 import {
-  Activity,
   ArrowLeft,
   ArrowRight,
   Eye,
@@ -29,6 +28,7 @@ import {
   MapPin,
   Phone,
   Settings,
+  UserRound,
 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -43,6 +43,7 @@ import { Field, FieldError, FieldLabel } from "../../components/ui/field";
 import { Switch } from "../../components/ui/switch";
 import { toast, Toaster } from "../../components/ui/toast";
 import LocationPicker, { locationLabel, usePlaces } from "./LocationPicker";
+import AccountHeader from "./AccountHeader";
 import {
   accountRequest,
   AccountFailure,
@@ -219,23 +220,11 @@ function Shell({
   const rootClass = `account-app map flow-screen ${wide ? "settings-workspace wide" : entry ? "account-entry" : "focused-shell"}`;
   return (
     <div className={rootClass} data-screen={screen}>
-      <header className="header">
-        <a className="brand" href="/">
-          <span className="brand-mark">
-            <Activity />
-          </span>
-          <span>
-            QuakeStrike PH<small>Bulletin</small>
-          </span>
-        </a>
-        <a className="back" href="/">
-          <span>
-            {screen === "signin" || screen === "signup" || screen === "forgot"
-              ? "View Bulletin without an account"
-              : "Back to Bulletin"}
-          </span>
-        </a>
-      </header>
+      <AccountHeader
+        publicLink={
+          screen === "signin" || screen === "signup" || screen === "forgot"
+        }
+      />
       <main className="layout">
         {wide && (
           <aside className="settings-rail">
@@ -243,7 +232,6 @@ function Shell({
               <span className="avatar">{name.slice(0, 1).toUpperCase()}</span>
               <div>
                 <strong>{name}</strong>
-                <small>Personal settings</small>
               </div>
             </div>
             <nav aria-label="Settings">
@@ -265,13 +253,10 @@ function Shell({
                 aria-current={screen === "account" ? "page" : undefined}
                 onPress={() => navigate("account")}
               >
-                <Activity />
+                <UserRound />
                 Account
               </Button>
             </nav>
-            <p>
-              Public earthquake information is available without an account.
-            </p>
           </aside>
         )}
         <section className="story" aria-labelledby="story-title">
@@ -414,6 +399,9 @@ function AccountFlow({ initial }: { initial: string }) {
     [loading, setLoading] = useState(true);
   const [error, setError] = useState(""),
     [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  const emailVerified = Boolean(account?.email) && account?.emailVerified !== false;
+  const phoneVerified = Boolean(account?.phone) && account?.phoneVerified !== false;
 
   const [returnAction, setReturnAction] = useState<Screen>("phone");
   const [sentAt, setSentAt] = useState(0),
@@ -594,7 +582,10 @@ function AccountFlow({ initial }: { initial: string }) {
         return;
       }
       if (e instanceof AccountFailure) {
-        if (e.code === "SEND_LIMIT" && (screen === "phone" || screen === "verify-phone")) {
+        if (
+          e.code === "SEND_LIMIT" &&
+          (screen === "phone" || screen === "verify-phone")
+        ) {
           toast.add({
             id: "phone-send-limit",
             type: "error",
@@ -725,7 +716,7 @@ function AccountFlow({ initial }: { initial: string }) {
       }
     }
   }
-  const submit = (label: string) => (
+  const submit = (label: string, showArrow = true) => (
     <Button
       className="primary"
       type="submit"
@@ -738,9 +729,9 @@ function AccountFlow({ initial }: { initial: string }) {
           className="animate-spin motion-reduce:animate-none"
           aria-hidden="true"
         />
-      ) : (
+      ) : showArrow ? (
         <ArrowRight aria-hidden="true" />
-      )}
+      ) : null}
     </Button>
   );
   const back = (next: Screen, label = "Back") => (
@@ -758,21 +749,6 @@ function AccountFlow({ initial }: { initial: string }) {
       <h2 id="form-title">{text}</h2>
       <p className="form-intro">{intro}</p>
     </>
-  );
-  const codeField = (
-    <FormField
-      id="code"
-      label="Verification code"
-      inputMode="numeric"
-      autoComplete="one-time-code"
-      pattern="[0-9]{6}"
-      maxLength={6}
-      className="otp"
-      value={code}
-      onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-      required
-      error={fieldErrors.code}
-    />
   );
   const newPasswordFields = (
     <>
@@ -830,6 +806,39 @@ function AccountFlow({ initial }: { initial: string }) {
     setCode("");
     toast.add({ type: "success", title: "A new SMS code was requested." });
   };
+  const codeField = (
+    <FormField
+      id="code"
+      label="Verification code"
+      labelAction={
+        screen === "verify-phone" && !phoneExpired ? (
+          <Button
+            type="button"
+            variant="link"
+            className="text-button phone-resend"
+            isDisabled={busy || cooldown > 0}
+            aria-label={
+              cooldown
+                ? `Resend code available in ${cooldown} seconds`
+                : "Resend code"
+            }
+            onPress={() => void action(resendPhone)}
+          >
+            {cooldown ? `${cooldown}s` : "Resend"}
+          </Button>
+        ) : undefined
+      }
+      inputMode="numeric"
+      autoComplete="one-time-code"
+      pattern="[0-9]{6}"
+      maxLength={6}
+      className="otp"
+      value={code}
+      onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+      required
+      error={fieldErrors.code}
+    />
+  );
 
   let content: ReactNode;
   const isAccountLoading = !isLoaded || loading;
@@ -1354,22 +1363,23 @@ function AccountFlow({ initial }: { initial: string }) {
         {back(account?.onboardingCompleted ? "account" : "channels")}
         {title(
           screen === "phone"
-            ? account?.phone
+            ? phoneVerified
               ? "Change your mobile number"
               : "Add your mobile number"
             : "Verify your mobile number",
-          screen === "phone"
-            ? "We check ordinary-alert network support before requesting a code."
-            : (
-                <>
-                  Enter the code sent to{" "}
-                  <strong className="phone-destination">
-                    {pending?.phone ?? "your phone"}
-                  </strong>.
-                </>
-              ),
+          screen === "phone" ? (
+            "We check ordinary-alert network support before requesting a code."
+          ) : (
+            <>
+              Enter the code sent to{" "}
+              <strong className="phone-destination">
+                {pending?.phone ?? "your phone"}
+              </strong>
+              .
+            </>
+          ),
         )}
-        {account?.phone && (
+        {phoneVerified && (
           <p className="support">
             Your current number remains linked while you verify its replacement.
             SMS is paused when you start the replacement.
@@ -1424,13 +1434,15 @@ function AccountFlow({ initial }: { initial: string }) {
             >
               {busy
                 ? "Please wait..."
-                : cooldown ? `Resend in ${cooldown}s` : "Resend code"}
+                : cooldown
+                  ? `Resend in ${cooldown}s`
+                  : "Resend code"}
               <ArrowRight aria-hidden="true" />
             </Button>
-          ) : submit(
-            screen === "phone"
-              ? "Send verification code"
-              : "Verify code",
+          ) : (
+            submit(
+              screen === "phone" ? "Send verification code" : "Verify code",
+            )
           )}
         </form>
         {screen === "verify-phone" && (
@@ -1441,8 +1453,16 @@ function AccountFlow({ initial }: { initial: string }) {
                   ? "This code has expired. Request a new code."
                   : "The code expires after five minutes."}
               </p>
-              {!phoneExpired && resend(resendPhone)}
             </div>
+          </>
+        )}
+        {screen === "phone" && (
+          <p className="support">
+            Smart and TNT numbers are currently unsupported.
+          </p>
+        )}
+        <div className="phone-alternatives">
+          {screen === "verify-phone" && (
             <Button
               variant="link"
               className="text-button phone-change"
@@ -1456,20 +1476,17 @@ function AccountFlow({ initial }: { initial: string }) {
             >
               Use another number
             </Button>
-          </>
-        )}
-        {screen === "phone" && (
-          <p className="support">
-            Smart and TNT numbers are currently unsupported.
-          </p>
-        )}
-        <Button
-          variant={screen === "verify-phone" ? "link" : "default"}
-          className={screen === "verify-phone" ? "text-button phone-skip" : "secondary"}
-          onPress={() => setScreen("preferences")}
-        >
-          Continue without SMS
-        </Button>
+          )}
+          <Button
+            variant={screen === "verify-phone" ? "link" : "default"}
+            className={
+              screen === "verify-phone" ? "text-button phone-skip" : "secondary"
+            }
+            onPress={() => setScreen("preferences")}
+          >
+            Continue without SMS
+          </Button>
+        </div>
       </>
     );
   else if (screen === "preferences")
@@ -1479,14 +1496,14 @@ function AccountFlow({ initial }: { initial: string }) {
           "Alert preferences",
           "Choose your receive options and the earthquakes you want to hear about.",
         )}
-        <p className="delivery-note">
-          Your preferences can be saved now. Automatic earthquake alert delivery
-          is not yet available.
-        </p>
         <form
           onSubmit={form(async () => {
             const finishing = !account?.onboardingCompleted;
-            const next = await api<Account>("/preferences", "PUT", draft);
+            const next = await api<Account>("/preferences", "PUT", {
+              ...draft,
+              emailEnabled: emailVerified && draft.emailEnabled,
+              smsEnabled: phoneVerified && draft.smsEnabled,
+            });
             updateAccount(next);
             if (finishing) location.assign("/?preferences=saved");
             else
@@ -1496,13 +1513,21 @@ function AccountFlow({ initial }: { initial: string }) {
           <div className="switch-row">
             <span>
               <strong>Email alerts</strong>
-              <small>{account?.email} · Verified</small>
+              <small>
+                {account?.email}
+              </small>
             </span>
-            <Switch
+            {emailVerified ? <Switch
               aria-label="Email alerts"
-              isSelected={draft.emailEnabled}
+              isSelected={emailVerified && draft.emailEnabled}
               onChange={(v) => setDraft((p) => ({ ...p, emailEnabled: v }))}
-            />
+            /> : <Button
+              className="secondary verify-destination"
+              aria-label="Verify email"
+              onPress={() => action(async () => {
+                toast.add({ type: "info", title: "Email verification is not available here yet." });
+              })}
+            >Verify</Button>}
           </div>
           <div className="switch-row">
             <span>
@@ -1511,24 +1536,22 @@ function AccountFlow({ initial }: { initial: string }) {
                 {account?.phone ?? "Verify a supported mobile number first."}
               </small>
             </span>
-            <Switch
+            {phoneVerified ? <Switch
               aria-label="SMS alerts"
-              isDisabled={!account?.phone}
-              isSelected={draft.smsEnabled}
+              isSelected={phoneVerified && draft.smsEnabled}
               onChange={(v) => setDraft((p) => ({ ...p, smsEnabled: v }))}
-            />
+            /> : <Button
+              className="secondary verify-destination"
+              aria-label="Verify mobile number"
+              onPress={() => action(async () => {
+                setPhone(account?.phone ?? "");
+                if (phoneVerified) await sensitive("phone");
+                else navigate("phone");
+              })}
+            >Verify</Button>}
           </div>
           {fieldErrors.smsEnabled && (
             <FieldError>{fieldErrors.smsEnabled}</FieldError>
-          )}
-          {!account?.phone && (
-            <Button
-              className="text-button"
-              variant="link"
-              onPress={() => navigate("phone")}
-            >
-              Add a mobile number
-            </Button>
           )}
           <div className="settings-section">
             <FormField
@@ -1546,7 +1569,7 @@ function AccountFlow({ initial }: { initial: string }) {
               error={fieldErrors.magnitude}
             />
             <p className="support">
-              Choose M1.0–M10.0. This uses the observed earthquake magnitude.
+              Choose M1.0 – M10.0. This uses the observed earthquake magnitude.
             </p>
           </div>
           <div className="nearby-section">
@@ -1585,11 +1608,7 @@ function AccountFlow({ initial }: { initial: string }) {
               </FieldError>
             )}
           </div>
-          <p className="rule-note">
-            Verification does not enable alerts. Saving these switches records
-            your choice; both can stay off.
-          </p>
-          {submit("Save preferences")}
+          {submit("Save preferences", false)}
         </form>
       </>
     );
@@ -1630,7 +1649,7 @@ function AccountFlow({ initial }: { initial: string }) {
             required
             error={fieldErrors.displayName}
           />
-          {submit("Save profile")}
+          {submit("Save profile", false)}
         </form>
         <div className="account-row">
           <span>

@@ -1,6 +1,11 @@
 import type { components } from '../../lib/api/schema';
 
-export type Account = components['schemas']['Account'];
+// The API supplies verified destinations. These optional flags also support
+// frontend states where a destination still needs verification.
+export type Account = components['schemas']['Account'] & {
+  emailVerified?: boolean;
+  phoneVerified?: boolean;
+};
 export type Preferences = components['schemas']['Preferences'];
 export type PendingPhone = components['schemas']['PendingPhone'];
 export type AccountState = components['schemas']['AccountState'];

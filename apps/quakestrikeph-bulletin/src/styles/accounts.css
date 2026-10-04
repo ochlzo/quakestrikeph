@@ -1,13 +1,54 @@
 .account-app{min-height:100svh;display:flex;flex-direction:column;background:#eaf2f4;color:#1a2c30;--account-muted:#5f6b6e}
 .account-app .screen-focus{outline:none}.account-app .screen-focus:focus-visible{outline:none}
+.account-app .header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: rgb(255 255 255 / 88%);
+  backdrop-filter: blur(12px);
+}
+.account-app[data-screen="preferences"] .account h2 { margin-top: 0; }
+.account-app[data-screen="preferences"] .location-summary { border-bottom: 0; }
+.account-app .settings-rail .avatar { background: white; }
+@media (min-width: 761px) {
+  .account-app:is([data-screen="preferences"], [data-screen="account"]) form > .primary {
+    display: flex;
+    width: auto;
+    height: 44px;
+    padding-inline: 20px;
+  }
+  .account-app[data-screen="preferences"] form > .primary { margin-left: auto; }
+  .account-app.settings-workspace .settings-rail {
+    position: sticky;
+    top: 108px;
+  }
+}
 .account-app[data-screen="verify-phone"] .phone-destination { color: var(--teal); overflow-wrap: anywhere; }
 .account-app[data-screen="verify-phone"] .phone-recovery { margin-top: 16px; }
 .account-app[data-screen="verify-phone"] .phone-recovery .support { margin: 0; text-align: center; }
-.account-app[data-screen="verify-phone"] .phone-recovery .resend { margin-top: 4px; }
-.account-app[data-screen="verify-phone"] .phone-change,
-.account-app[data-screen="verify-phone"] .phone-skip { display: flex; width: 100%; min-height: 44px; }
-.account-app[data-screen="verify-phone"] .phone-change { margin-top: 12px; }
-.account-app[data-screen="verify-phone"] .phone-skip { margin-top: 24px; }
+.account-app[data-screen="verify-phone"] .field-label-row { margin-bottom: 4px; }
+.account-app[data-screen="verify-phone"] .field-label-row .phone-resend {
+  min-width: 44px;
+  min-height: 44px;
+  height: 44px;
+  margin-block: -10px;
+  font-variant-numeric: tabular-nums;
+}
+.account-app[data-screen="verify-phone"] .phone-alternatives {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 16px;
+  margin-top: 16px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.account-app[data-screen="verify-phone"] .phone-alternatives .text-button {
+  width: auto;
+  min-height: 44px;
+  margin: 0;
+  font-size: 13px;
+}
 /* Keep phone entry spacing consistent without changing other account steps. */
 .account-app[data-screen="phone"] .account { padding: 40px 48px; }
 .account-app[data-screen="phone"] .screen-focus > .text-button { min-height: 44px; }
@@ -17,7 +58,7 @@
 .account-app[data-screen="phone"] #phone-error { margin-block: 8px; }
 .account-app[data-screen="phone"] form > .primary { margin-top: 24px; }
 .account-app[data-screen="phone"] .screen-focus > .support { margin: 12px 0 24px; }
-.account-app[data-screen="phone"] .screen-focus > .secondary { margin-top: 0; }
+.account-app[data-screen="phone"] .phone-alternatives > .secondary { margin-top: 0; }
 /* Lock the alert-options page; short viewports scroll inside the form panel. */
 html:has(.account-app[data-screen="channels"]),
 body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
@@ -207,9 +248,10 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
 .account-app .field-label-row .text-button { min-height: 24px; height: 24px; padding: 0; }
 .account-app .switch-row [data-slot=switch]{width:44px;height:26px;min-width:44px;background:#c0cdcf;position:relative;cursor:pointer;border-radius:999px;display:inline-flex;align-items:center;border:0}
 .account-app .switch-row [data-slot=switch][data-selected]{background:#0e6873}
-.account-app .switch-row [data-slot=switch-thumb]{display:block;position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:50%;background:white;transform:translateX(0)}
-.account-app .switch-row [data-slot=switch-thumb][data-selected]{transform:translateX(18px)}
+.account-app .switch-row [data-slot=switch][data-disabled]{cursor:not-allowed}
+.account-app .switch-row [data-slot=switch-thumb]{display:block;position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:50%;background:white}
 .account-app .switch-row input{width:1px;height:1px;padding:0}
+.account-app .switch-row .verify-destination { width: auto; min-height: 44px; margin: 0; padding: 8px 16px; flex-shrink: 0; }
 .account-app .delivery-note{font-size:13px;line-height:1.55;color:#36585d;background:#edf6f6;border-radius:10px;padding:14px 16px;margin:0 0 22px}
 .location-map{height:310px;margin-top:18px;border-radius:10px;overflow:hidden;background:#e7f2f3}
 .location-map .maplibregl-marker{cursor:grab}.location-map .maplibregl-marker svg{width:27px;height:41px}
