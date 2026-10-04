@@ -10,5 +10,6 @@ export default {
     { find: '@', replacement: path('../../src') },
   ] },
   esbuild: { jsx: 'automatic' },
+  define: { 'import.meta.env.PUBLIC_CLERK_PUBLISHABLE_KEY': JSON.stringify('FIXTURE_ONLY') },
   server: { host: '127.0.0.1', port: 4332, strictPort: true },
 };

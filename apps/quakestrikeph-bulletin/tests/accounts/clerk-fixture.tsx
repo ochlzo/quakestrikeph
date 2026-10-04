@@ -21,7 +21,10 @@ export function useAuth() {
   const identity = useSyncExternalStore(subscribe, snapshot);
   const isSignedIn = identity !== 'signed-out';
   return { isLoaded: true, isSignedIn, userId: isSignedIn ? userId : null,
-    sessionId: isSignedIn ? sessionId : null, getToken: async () => isSignedIn ? 'FIXTURE_SESSION' : null };
+    sessionId: isSignedIn ? sessionId : null, getToken: async (options?: { skipCache?: boolean }) => {
+      console.info(`fixture:token-mode:${options?.skipCache ? 'fresh' : 'cached'}`);
+      return isSignedIn ? 'FIXTURE_SESSION' : null;
+    } };
 }
 let passwordError = new URLSearchParams(location.search).get('password-error') === '1';
 export const useUser = () => ({ user: {

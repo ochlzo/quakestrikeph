@@ -227,8 +227,23 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
 .account-app .loading-password-note [data-slot="skeleton"] { height: 1.55em; }
 .account-app .loading-password-note [data-slot="skeleton"]:last-child { width: 70%; }
 .account-app .loading-guest { height: 19.5px; }
+.account-app .loading-avatar { width: 48px; height: 48px; border-radius: 50%; flex-shrink: 0; }
+.account-app .loading-name { width: 96px; height: 20px; }
+.account-app .settings-rail [data-slot="skeleton"] { background: var(--line); }
+.account-app .preferences-loading .settings-section .field { max-width: 440px; }
+.account-app .preferences-loading .loading-input { border-radius: 10px; }
+.account-app .loading-destination { width: min(220px, 45vw); height: 18.6px; margin-top: 4px; }
+.account-app .loading-switch { width: 44px; height: 26px; border-radius: 999px; flex-shrink: 0; }
+.account-app .loading-field-label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; }
+.account-app .loading-location { flex: 1; height: 20px; min-width: 0; }
+.account-app .loading-location-action { width: 100px; height: 44px; flex-shrink: 0; }
+.account-app .preferences-loading .switch-row { cursor: default; }
+@media (min-width: 761px) {
+  .account-app[data-screen="preferences"] .preferences-loading form > .primary { width: 165px; }
+}
 @media (prefers-reduced-motion: reduce) {
   .account-app .account-loading [data-slot="skeleton"] { animation: none; }
+  .account-app .settings-rail [data-slot="skeleton"] { animation: none; }
 }
 .account-app [data-slot=field]{gap:0}.account-app [data-slot=field-label]{display:block;margin-bottom:8px;font-size:13px;font-weight:600}
 .account-app [data-slot=input]{height:52px;padding:0 14px;border-radius:10px;font-size:15px;border-color:#dce3e4;background:white}

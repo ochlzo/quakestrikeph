@@ -229,13 +229,14 @@ function Shell({
         {wide && (
           <aside className="settings-rail">
             <div className="rail-identity">
-              <span className="avatar">{name.slice(0, 1).toUpperCase()}</span>
+              {isLoading ? <Skeleton className="loading-avatar" aria-hidden="true" /> : <span className="avatar">{name.slice(0, 1).toUpperCase()}</span>}
               <div>
-                <strong>{name}</strong>
+                {isLoading ? <Skeleton className="loading-name" aria-hidden="true" /> : <strong>{name}</strong>}
               </div>
             </div>
             <nav aria-label="Settings">
               <Button
+                isDisabled={isLoading}
                 aria-current={screen === "preferences" ? "page" : undefined}
                 onPress={() => navigate("preferences")}
               >
@@ -243,6 +244,7 @@ function Shell({
                 Alert preferences
               </Button>
               <Button
+                isDisabled={isLoading}
                 aria-current={screen === "location" ? "page" : undefined}
                 onPress={() => navigate("location")}
               >
@@ -250,6 +252,7 @@ function Shell({
                 Alert location
               </Button>
               <Button
+                isDisabled={isLoading}
                 aria-current={screen === "account" ? "page" : undefined}
                 onPress={() => navigate("account")}
               >
@@ -382,7 +385,13 @@ function AccountFlow({ initial }: { initial: string }) {
   const { signIn } = useSignIn();
   const { signUp } = useSignUp();
   const [screen, setScreen] = useState<Screen>(
-    initial === "signup" ? "signup" : "signin",
+    initial === "alerts"
+      ? "preferences"
+      : initial === "account"
+        ? "account"
+        : initial === "signup"
+          ? "signup"
+          : "signin",
   );
   const [account, setAccount] = useState<Account | null>(null);
   const [pending, setPending] = useState<PendingPhone | null>(null);
@@ -400,8 +409,10 @@ function AccountFlow({ initial }: { initial: string }) {
   const [error, setError] = useState(""),
     [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  const emailVerified = Boolean(account?.email) && account?.emailVerified !== false;
-  const phoneVerified = Boolean(account?.phone) && account?.phoneVerified !== false;
+  const emailVerified =
+    Boolean(account?.email) && account?.emailVerified !== false;
+  const phoneVerified =
+    Boolean(account?.phone) && account?.phoneVerified !== false;
 
   const [returnAction, setReturnAction] = useState<Screen>("phone");
   const [sentAt, setSentAt] = useState(0),
@@ -479,7 +490,7 @@ function AccountFlow({ initial }: { initial: string }) {
   }, [dirty]);
 
   async function api<T>(path = "", method = "GET", body?: unknown) {
-    const token = await getToken({ skipCache: true });
+    const token = await getToken({ skipCache: method !== "GET" });
     if (!active.current) throw new Error("The account session changed.");
     try {
       return await accountRequest<T>(token, path, method, body);
@@ -517,6 +528,7 @@ function AccountFlow({ initial }: { initial: string }) {
     }
     if (!isSignedIn) {
       signedOnce.current = false;
+      setScreen(initial === "signup" ? "signup" : "signin");
       setLoading(false);
       return;
     }
@@ -842,7 +854,47 @@ function AccountFlow({ initial }: { initial: string }) {
 
   let content: ReactNode;
   const isAccountLoading = !isLoaded || loading;
-  if (isAccountLoading)
+  if (isAccountLoading && (initial === "alerts" || initial === "account" || isSignedIn))
+    content = (
+      <div className="account-loading preferences-loading">
+        <span className="sr-only" role="status">Loading alert settings</span>
+        {title("Alert preferences", "Choose your receive options and the earthquakes you want to hear about.")}
+        <form aria-hidden="true">
+          {["Email alerts", "SMS alerts"].map((label) => (
+            <div className="switch-row" key={label}>
+              <span>
+                <strong>{label}</strong>
+                <Skeleton className="loading-destination" />
+              </span>
+              <Skeleton className="loading-switch" />
+            </div>
+          ))}
+          <div className="settings-section">
+            <div className="field">
+              <span className="loading-field-label">Minimum earthquake magnitude</span>
+              <Skeleton className="loading-input" />
+            </div>
+            <p className="support">Choose M1.0 – M10.0. This uses the observed earthquake magnitude.</p>
+          </div>
+          <div className="nearby-section">
+            <div className="switch-row">
+              <span>
+                <strong>Only earthquakes near my location</strong>
+                <small>Apply the same distance rule to both channels.</small>
+              </span>
+              <Skeleton className="loading-switch" />
+            </div>
+            <div className="location-summary">
+              <MapPin />
+              <Skeleton className="loading-location" />
+              <Skeleton className="loading-location-action" />
+            </div>
+          </div>
+          <Skeleton className="primary" />
+        </form>
+      </div>
+    );
+  else if (isAccountLoading)
     content = (
       <div
         className="account-loading"
@@ -1403,8 +1455,7 @@ function AccountFlow({ initial }: { initial: string }) {
               setScreen("preferences");
               toast.add({
                 type: "success",
-                title:
-                  "Mobile number verified. SMS remains off until you opt in.",
+                title: "Mobile number verified.",
               });
             }
           })}
@@ -1513,21 +1564,30 @@ function AccountFlow({ initial }: { initial: string }) {
           <div className="switch-row">
             <span>
               <strong>Email alerts</strong>
-              <small>
-                {account?.email}
-              </small>
+              <small>{account?.email}</small>
             </span>
-            {emailVerified ? <Switch
-              aria-label="Email alerts"
-              isSelected={emailVerified && draft.emailEnabled}
-              onChange={(v) => setDraft((p) => ({ ...p, emailEnabled: v }))}
-            /> : <Button
-              className="secondary verify-destination"
-              aria-label="Verify email"
-              onPress={() => action(async () => {
-                toast.add({ type: "info", title: "Email verification is not available here yet." });
-              })}
-            >Verify</Button>}
+            {emailVerified ? (
+              <Switch
+                aria-label="Email alerts"
+                isSelected={emailVerified && draft.emailEnabled}
+                onChange={(v) => setDraft((p) => ({ ...p, emailEnabled: v }))}
+              />
+            ) : (
+              <Button
+                className="secondary verify-destination"
+                aria-label="Verify email"
+                onPress={() =>
+                  action(async () => {
+                    toast.add({
+                      type: "info",
+                      title: "Email verification is not available here yet.",
+                    });
+                  })
+                }
+              >
+                Verify
+              </Button>
+            )}
           </div>
           <div className="switch-row">
             <span>
@@ -1536,19 +1596,27 @@ function AccountFlow({ initial }: { initial: string }) {
                 {account?.phone ?? "Verify a supported mobile number first."}
               </small>
             </span>
-            {phoneVerified ? <Switch
-              aria-label="SMS alerts"
-              isSelected={phoneVerified && draft.smsEnabled}
-              onChange={(v) => setDraft((p) => ({ ...p, smsEnabled: v }))}
-            /> : <Button
-              className="secondary verify-destination"
-              aria-label="Verify mobile number"
-              onPress={() => action(async () => {
-                setPhone(account?.phone ?? "");
-                if (phoneVerified) await sensitive("phone");
-                else navigate("phone");
-              })}
-            >Verify</Button>}
+            {phoneVerified ? (
+              <Switch
+                aria-label="SMS alerts"
+                isSelected={phoneVerified && draft.smsEnabled}
+                onChange={(v) => setDraft((p) => ({ ...p, smsEnabled: v }))}
+              />
+            ) : (
+              <Button
+                className="secondary verify-destination"
+                aria-label="Verify mobile number"
+                onPress={() =>
+                  action(async () => {
+                    setPhone(account?.phone ?? "");
+                    if (phoneVerified) await sensitive("phone");
+                    else navigate("phone");
+                  })
+                }
+              >
+                Verify
+              </Button>
+            )}
           </div>
           {fieldErrors.smsEnabled && (
             <FieldError>{fieldErrors.smsEnabled}</FieldError>

@@ -5,7 +5,6 @@ import { Dialog, type DateValue, type RangeValue } from "react-aria-components";
 import {
   Activity,
   ArrowRight,
-  Bell,
   Calendar,
   ChevronRight,
   ChevronsUpDown,
@@ -16,10 +15,11 @@ import {
   Search,
 } from "lucide-react";
 import MapPanel from "./MapPanel";
+import AlertsButton from "./AlertsButton";
 import MagnitudeFilter from "./MagnitudeFilter";
 import { magnitudeBand, magnitudeRangesForBands } from "../lib/magnitude";
 import { bulletinApi } from "../lib/api/client";
-import { Button, LinkButton, buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
 import { RangeCalendar } from "@/components/ui/calendar";
 import {
@@ -710,10 +710,7 @@ export default function Bulletin() {
             </TabsList>
           </Tabs>
         </nav>
-        <LinkButton className="alerts-button" href="/alerts">
-          <Bell data-icon="inline-start" aria-hidden="true" />
-          Receive alerts
-        </LinkButton>
+        <AlertsButton />
       </header>
 
       <main className="dashboard">
