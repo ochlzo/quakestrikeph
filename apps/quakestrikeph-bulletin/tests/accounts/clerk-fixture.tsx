@@ -25,6 +25,7 @@ export function useAuth() {
 }
 let passwordError = new URLSearchParams(location.search).get('password-error') === '1';
 export const useUser = () => ({ user: {
+  primaryEmailAddress: { emailAddress: 'maria@example.com' },
   passwordEnabled: new URLSearchParams(location.search).get('passwordless') !== '1',
   updatePassword: async () => {
     if (passwordError) { passwordError = false; throw new Error('Fixture provider failure'); }
@@ -45,7 +46,11 @@ const session = {
 export const useSession = () => ({ session });
 export const useClerk = () => ({
   setActive: async () => { signed = true; session.currentTask = null; listeners.forEach(fn => fn()); },
-  signOut: async () => { signed = false; listeners.forEach(fn => fn()); },
+  signOut: async (options?: { redirectUrl?: string }) => {
+    if (new URLSearchParams(location.search).has('signout-error')) throw new Error('Fixture sign-out failure');
+    signed = false; listeners.forEach(fn => fn());
+    if (options?.redirectUrl) location.assign(options.redirectUrl);
+  },
 });
 const complete = { status: 'complete', createdSessionId: 'fixture-session' };
 const signIn = {

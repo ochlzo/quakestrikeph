@@ -1,5 +1,113 @@
 .account-app{min-height:100svh;display:flex;flex-direction:column;background:#eaf2f4;color:#1a2c30;--account-muted:#5f6b6e}
 .account-app .screen-focus{outline:none}.account-app .screen-focus:focus-visible{outline:none}
+.account-app[data-screen="verify-phone"] .phone-destination { color: var(--teal); overflow-wrap: anywhere; }
+.account-app[data-screen="verify-phone"] .phone-recovery { margin-top: 16px; }
+.account-app[data-screen="verify-phone"] .phone-recovery .support { margin: 0; text-align: center; }
+.account-app[data-screen="verify-phone"] .phone-recovery .resend { margin-top: 4px; }
+.account-app[data-screen="verify-phone"] .phone-change,
+.account-app[data-screen="verify-phone"] .phone-skip { display: flex; width: 100%; min-height: 44px; }
+.account-app[data-screen="verify-phone"] .phone-change { margin-top: 12px; }
+.account-app[data-screen="verify-phone"] .phone-skip { margin-top: 24px; }
+/* Keep phone entry spacing consistent without changing other account steps. */
+.account-app[data-screen="phone"] .account { padding: 40px 48px; }
+.account-app[data-screen="phone"] .screen-focus > .text-button { min-height: 44px; }
+.account-app[data-screen="phone"] .account h2 { margin: 16px 0 12px; }
+.account-app[data-screen="phone"] .form-intro { margin-bottom: 28px; }
+.account-app[data-screen="phone"] .field.account-form-field { margin-bottom: 0; }
+.account-app[data-screen="phone"] #phone-error { margin-block: 8px; }
+.account-app[data-screen="phone"] form > .primary { margin-top: 24px; }
+.account-app[data-screen="phone"] .screen-focus > .support { margin: 12px 0 24px; }
+.account-app[data-screen="phone"] .screen-focus > .secondary { margin-top: 0; }
+/* Lock the alert-options page; short viewports scroll inside the form panel. */
+html:has(.account-app[data-screen="channels"]),
+body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
+.account-app[data-screen="channels"] { height: 100dvh; min-height: 0; overflow: hidden; }
+.account-app[data-screen="channels"] .layout { min-height: 0; overflow: hidden; margin-bottom: 24px; }
+.account-app[data-screen="channels"] .account {
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  justify-content: flex-start;
+  padding-block: 24px;
+}
+.account-app[data-screen="channels"] .account-inner { flex-shrink: 0; }
+.account-app[data-screen="channels"] .account h2 { margin-top: 0; }
+@media (max-width: 760px) {
+  body:has(.account-app) [data-slot="toast-viewport"] {
+    position: fixed;
+    top: max(16px, env(safe-area-inset-top));
+    right: 16px;
+    bottom: auto;
+    left: auto;
+    width: calc(100% - 32px);
+    max-width: 384px;
+    margin: 0;
+  }
+  body:has(.account-app) [data-slot="toast"] {
+    top: 0;
+    bottom: auto;
+    transform-origin: top;
+    transform: translateX(var(--toast-swipe-movement-x)) translateY(calc(var(--toast-swipe-movement-y) + var(--toast-index) * 12px)) scale(var(--scale));
+  }
+  body:has(.account-app) [data-slot="toast"][data-expanded] {
+    transform: translateX(var(--toast-swipe-movement-x)) translateY(calc(var(--toast-offset-y) + var(--toast-index) * 12px + var(--toast-swipe-movement-y)));
+  }
+  body:has(.account-app) [data-slot="toast"]:is([data-starting-style], [data-ending-style]) {
+    transform: translateY(-150%);
+  }
+  .account-app:is([data-screen="channels"], [data-screen="phone"], [data-screen="verify-phone"]) { background: white; }
+  .account-app:is([data-screen="channels"], [data-screen="phone"], [data-screen="verify-phone"]) .layout { margin: 12px 0 0; }
+  .account-app:is([data-screen="channels"], [data-screen="phone"], [data-screen="verify-phone"]) .account {
+    border-radius: 0;
+    padding: 24px 24px 32px;
+  }
+}
+/* Keep the short profile task centered on desktop and compact on mobile. */
+.account-app[data-screen="profile"] .header { flex-shrink: 0; }
+.account-app[data-screen="profile"] .layout {
+  margin: 24px;
+  align-items: center;
+}
+.account-app[data-screen="profile"] .account {
+  flex: none;
+  align-self: center;
+  padding: 40px 48px;
+}
+.account-app[data-screen="profile"] .account h2 {
+  margin: 0 0 12px;
+  font-size: 32px;
+  line-height: 1.2;
+}
+.account-app[data-screen="profile"] .form-intro { margin: 0 0 28px; }
+.account-app[data-screen="profile"] .profile-email {
+  color: var(--teal);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.account-app[data-screen="profile"] .account-form-field [data-slot="input"] { height: 52px; }
+.account-app[data-screen="profile"] .profile-actions { margin-top: 24px; }
+.account-app[data-screen="profile"] .profile-actions button { height: 52px; }
+@media (min-width: 761px) {
+  .account-app[data-screen="profile"] .profile-actions { flex-direction: row-reverse; }
+}
+@media (max-width: 760px) {
+  .account-app[data-screen="profile"] { background: white; }
+  .account-app[data-screen="profile"] .layout {
+    margin: 12px 0 0;
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+  .account-app[data-screen="profile"] .account {
+    align-self: auto;
+    border-radius: 0;
+    padding: 24px 24px 32px;
+  }
+  .account-app[data-screen="profile"] .account h2 { font-size: 28px; }
+  .account-app[data-screen="profile"] .form-intro { margin-bottom: 24px; }
+  .account-app[data-screen="profile"] .profile-actions { flex-direction: column; }
+  .account-app[data-screen="profile"] .profile-actions button { flex: none; width: 100%; }
+}
 .account-app .auth-tabs { display: block; }
 .account-app .auth-tabs .mode-switch { height: auto; }
 .account-app .mode-switch [data-slot="tabs-trigger"] {

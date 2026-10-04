@@ -119,7 +119,7 @@ def test_migration_gate_is_ready_at_head_and_read_only_when_revision_is_stale(
     settings = _settings(str(migrated_engine.url))
     ready = AlembicMigrationStateGate(settings, engine=migrated_engine).check()
     assert ready.ready is True
-    assert ready.details["current_revision"] == "20261002_11"
+    assert ready.details["current_revision"] == "20261004_12"
 
     with migrated_engine.begin() as connection:
         connection.execute(text("UPDATE alembic_version SET version_num = 'stale_revision'"))
@@ -130,7 +130,37 @@ def test_migration_gate_is_ready_at_head_and_read_only_when_revision_is_stale(
             connection.scalar(text("SELECT version_num FROM alembic_version")) == "stale_revision"
         )
     with migrated_engine.begin() as connection:
-        connection.execute(text("UPDATE alembic_version SET version_num = '20261002_11'"))
+        connection.execute(text("UPDATE alembic_version SET version_num = '20261004_12'"))
+
+
+def test_display_name_migration_preserves_profile_and_restores_nullable_columns(
+    migrated_engine,
+) -> None:
+    config = alembic_config()
+    command.downgrade(config, "20261002_11")
+    user_id = uuid4()
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO users
+                (user_id, clerk_user_id, display_name, email)
+                VALUES (:id, 'name-migration-reader', 'Maria Santos', 'maria@example.invalid')"""),
+            {"id": user_id},
+        )
+    command.upgrade(config, "head")
+    removed_names = {"first_name", "middle_name", "last_name"}
+    columns = {column["name"] for column in inspect(migrated_engine).get_columns("users")}
+    assert columns.isdisjoint(removed_names)
+    with migrated_engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text("SELECT display_name FROM users WHERE user_id = :id"), {"id": user_id}
+            )
+            == "Maria Santos"
+        )
+    command.downgrade(config, "20261002_11")
+    columns = {column["name"]: column for column in inspect(migrated_engine).get_columns("users")}
+    assert all(columns[name]["nullable"] for name in removed_names)
+    command.upgrade(config, "head")
 
 
 def test_maintenance_evidence_requires_artifact_and_restore_link(migrated_engine) -> None:

@@ -97,6 +97,14 @@ At the approved desktop viewport, a 48px-high full-width header and filter strip
 
 The mobile map retains the 24px circular question-mark legend control above attribution. Its compact vertical legend starts open and closes on a second tap, an outside press, map dragging, or Escape. Terrain, zoom, and recenter controls have compact 32px-tall surfaces with extended 44px touch areas. Zoom and recenter share a horizontal toolbar with subtle separators and 44px-wide buttons. The mobile scale has smaller text and a 96px maximum width. Attribution stays closed until clicked.
 
+### Mobile forms and cards
+
+At 760px and below, prefer fewer visible cards. Simple forms, including profile completion and alert setup, use a white page background beneath the existing header. Remove the outer card's rounded corners and surrounding canvas gaps. Keep comfortable horizontal padding around the form and preserve field borders and button shapes.
+
+Keep short forms near the top, below the header. Do not vertically center them by default. Allow scrolling when content or the open keyboard reduces available space. Empty space below a short form is acceptable.
+
+Use cards when their boundaries help users distinguish separate groups, selectable options, or independent items. Avoid wrapping an entire mobile task in a card merely to repeat the desktop layout. Desktop may retain its centered card.
+
 ## Elevation & Depth
 
 Borders and tonal surfaces separate panels. A small, soft shadow lifts floating map controls. The geographic terrain itself provides depth inside the map.

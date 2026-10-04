@@ -11,15 +11,17 @@ export default defineConfig({
   vite: {
     plugins: [tailwindcss()],
     worker: {
-      plugins: () => [{
-        name: "retain-maplibre-worker-initialization",
-        transform(code, id) {
-          // MapLibre marks dist modules side-effect-free, but this one installs its worker API.
-          if (id.replaceAll("\\", "/").endsWith("/maplibre-gl-worker.mjs")) {
-            return { code, moduleSideEffects: "no-treeshake" };
-          }
+      plugins: () => [
+        {
+          name: "retain-maplibre-worker-initialization",
+          transform(code, id) {
+            // MapLibre marks dist modules side-effect-free, but this one installs its worker API.
+            if (id.replaceAll("\\", "/").endsWith("/maplibre-gl-worker.mjs")) {
+              return { code, moduleSideEffects: "no-treeshake" };
+            }
+          },
         },
-      }],
+      ],
     },
     server: {
       proxy: {
@@ -31,6 +33,10 @@ export default defineConfig({
           target: process.env.API_TARGET || "https://quakestrikeph.qzz.io",
           changeOrigin: true,
         },
+      },
+      watch: {
+        usePolling: process.env.DEV_USE_POLLING === "true",
+        interval: 300,
       },
     },
   },

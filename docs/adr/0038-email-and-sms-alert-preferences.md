@@ -12,8 +12,10 @@ provider attempts, status, idempotency, and reconciliation. The observed
 anchor magnitude threshold and optional observed-epicenter distance rule are
 shared. Brevo sends transactional alert email; Clerk sends authentication email.
 
-After account sign-up, show a provisional email/SMS/both choice to route the
-user. Email proceeds to the final alert-preferences screen. SMS or both first
+After account sign-up, show independent provisional SMS and email checkboxes to
+route the user. SMS appears first and is selected by default. A separated
+"Neither for now" choice clears both selections. These choices do not enable
+alerts. Email alone proceeds to the final alert-preferences screen. SMS or both first
 checks whether the current IPROG shared sender can carry ordinary alerts to
 the proposed network. An unsupported or unknown result stops before OTP and
 offers email or no alerts. A supported number proceeds to IPROG provider-managed

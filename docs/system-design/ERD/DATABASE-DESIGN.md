@@ -41,9 +41,6 @@ One Bulletin account maps uniquely to a stable Clerk user ID from email/password
 ```text
 user_id uuid PK
 clerk_user_id text UQ
-first_name text?
-middle_name text?
-last_name text?
 display_name text
 email text
 email_verified_at timestamptz?
@@ -62,7 +59,9 @@ created_at timestamptz = now()
 updated_at timestamptz = now()
 ```
 
-`account_status` is `active`, `suspended`, or `closed`. `display_name` is required when the Backend creates the profile; other name parts may be absent. The Backend creates a row only after Clerk completes email verification or Google authentication. A missing row means the profile step is unfinished; a null `onboarding_completed_at` means the alert-preferences step is unfinished. The final preference save sets that timestamp, even when both channels are off. Both receive switches default to false and become true only by explicit audited opt-in. Enforce `CHECK (onboarding_completed_at IS NOT NULL OR (NOT email_enabled AND NOT sms_enabled))` and `CHECK (account_status <> 'closed' OR (NOT email_enabled AND NOT sms_enabled AND mobile_number IS NULL AND mobile_verified_at IS NULL))`. An active account still needs completed onboarding and a current verified destination before delivery.
+`display_name` is the only stored profile name. The Backend trims surrounding whitespace and accepts 1–100 characters. It does not split the name into first, middle, or last names. Migration `20261004_12` removes the unused name columns; its downgrade restores nullable columns but cannot recover dropped values.
+
+`account_status` is `active`, `suspended`, or `closed`. `display_name` is required when the Backend creates the profile. The Backend creates a row only after Clerk completes email verification or Google authentication. A missing row means the profile step is unfinished; a null `onboarding_completed_at` means the alert-preferences step is unfinished. The final preference save sets that timestamp, even when both channels are off. Both receive switches default to false and become true only by explicit audited opt-in. Enforce `CHECK (onboarding_completed_at IS NOT NULL OR (NOT email_enabled AND NOT sms_enabled))` and `CHECK (account_status <> 'closed' OR (NOT email_enabled AND NOT sms_enabled AND mobile_number IS NULL AND mobile_verified_at IS NULL))`. An active account still needs completed onboarding and a current verified destination before delivery.
 
 `email` mirrors the current Clerk email; it is not the local identity key and has no independent uniqueness claim. `email_verified_at` is set only after trusted Clerk evidence for that exact current address. A requested email change sets it null to pause email delivery while Clerk holds the pending replacement; after verification, the Backend updates `email` and `email_verified_at` together and the existing `email_enabled` choice can resume. Restrict direct Clerk email changes outside this controlled flow or synchronize them with verified, idempotent Clerk events before any email send. If the mirror is missing or inconsistent, fail closed. A closed account cannot have an enabled channel.
 

@@ -98,9 +98,10 @@ function showAuthError(message: string, mode: "signin" | "signup") {
   return toast.add({
     id: "account-auth-error",
     type: "error",
-    title: mode === "signin"
-      ? "Sign-in unsuccessful"
-      : "Account creation unsuccessful",
+    title:
+      mode === "signin"
+        ? "Sign-in unsuccessful"
+        : "Account creation unsuccessful",
     description: message,
     timeout: 8000,
   });
@@ -408,7 +409,7 @@ function AccountFlow({ initial }: { initial: string }) {
     [currentPassword, setCurrentPassword] = useState("");
   const [code, setCode] = useState(""),
     [phone, setPhone] = useState(""),
-    [channel, setChannel] = useState("email");
+    [channels, setChannels] = useState<string[]>(["sms"]);
   const [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(true);
   const [error, setError] = useState(""),
@@ -593,6 +594,15 @@ function AccountFlow({ initial }: { initial: string }) {
         return;
       }
       if (e instanceof AccountFailure) {
+        if (e.code === "SEND_LIMIT" && (screen === "phone" || screen === "verify-phone")) {
+          toast.add({
+            id: "phone-send-limit",
+            type: "error",
+            title: e.message,
+            timeout: 8000,
+          });
+          return;
+        }
         if (e.code === "REVERIFICATION_REQUIRED") {
           setReturnAction(screen === "password" ? "password" : "phone");
           try {
@@ -716,10 +726,18 @@ function AccountFlow({ initial }: { initial: string }) {
     }
   }
   const submit = (label: string) => (
-    <Button className="primary" type="submit" isDisabled={busy} aria-busy={busy}>
+    <Button
+      className="primary"
+      type="submit"
+      isDisabled={busy}
+      aria-busy={busy}
+    >
       {busy ? "Please wait..." : label}
       {busy ? (
-        <Loader className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+        <Loader
+          className="animate-spin motion-reduce:animate-none"
+          aria-hidden="true"
+        />
       ) : (
         <ArrowRight aria-hidden="true" />
       )}
@@ -735,7 +753,7 @@ function AccountFlow({ initial }: { initial: string }) {
       {label}
     </Button>
   );
-  const title = (text: string, intro: string) => (
+  const title = (text: string, intro: ReactNode) => (
     <>
       <h2 id="form-title">{text}</h2>
       <p className="form-intro">{intro}</p>
@@ -805,6 +823,13 @@ function AccountFlow({ initial }: { initial: string }) {
       </Button>
     </div>
   );
+  const phoneExpired = !!pending && Date.parse(pending.expiresAt) <= now;
+  const resendPhone = async () => {
+    const p = await requestPhone(pending?.phone ?? phone);
+    setPending(p);
+    setCode("");
+    toast.add({ type: "success", title: "A new SMS code was requested." });
+  };
 
   let content: ReactNode;
   const isAccountLoading = !isLoaded || loading;
@@ -1104,7 +1129,10 @@ function AccountFlow({ initial }: { initial: string }) {
               });
           }
           setSentAt(Date.now());
-          toast.add({ type: "success", title: "A new email code was requested." });
+          toast.add({
+            type: "success",
+            title: "A new email code was requested.",
+          });
         })}
       </>
     );
@@ -1193,7 +1221,10 @@ function AccountFlow({ initial }: { initial: string }) {
               });
             } catch {}
             setSentAt(Date.now());
-            toast.add({ type: "success", title: "Recovery code requested, if available." });
+            toast.add({
+              type: "success",
+              title: "Recovery code requested, if available.",
+            });
           })}
       </>
     );
@@ -1202,7 +1233,17 @@ function AccountFlow({ initial }: { initial: string }) {
       <>
         {title(
           "Complete your profile",
-          "Choose the name to use for your personal settings.",
+          user?.primaryEmailAddress?.emailAddress ? (
+            <>
+              Choose the name for your personal settings for{" "}
+              <strong className="profile-email">
+                {user.primaryEmailAddress.emailAddress}
+              </strong>
+              .
+            </>
+          ) : (
+            "Choose the name to use for your personal settings."
+          ),
         )}
         <form
           onSubmit={form(async () => {
@@ -1223,7 +1264,22 @@ function AccountFlow({ initial }: { initial: string }) {
             required
             error={fieldErrors.displayName}
           />
-          {submit("Continue")}
+          <div className="profile-actions">
+            {submit("Continue")}
+            <Button
+              type="button"
+              className="secondary"
+              isDisabled={busy}
+              onPress={() =>
+                void action(
+                  () => clerk.signOut({ redirectUrl: "/" }),
+                  "Sign-out could not be completed. Please try again.",
+                )
+              }
+            >
+              Cancel and sign out
+            </Button>
+          </div>
         </form>
       </>
     );
@@ -1232,27 +1288,27 @@ function AccountFlow({ initial }: { initial: string }) {
       <>
         {title(
           "How would you like to receive alerts?",
-          "Choose a setup route. Alerts stay off until you save your preferences.",
+          "Choose Email, SMS, or both. Alerts stay off until you save your preferences.",
         )}
         <fieldset className="choices">
           <legend>Receive options</legend>
           {[
-            ["email", "Email", "Use your verified account email."],
             ["sms", "SMS", "Verify a supported Philippine mobile number."],
-            ["both", "Email and SMS", "Set up both destinations."],
-            [
-              "none",
-              "Neither for now",
-              "Save your settings with both channels off.",
-            ],
+            ["email", "Email", "Use your verified account email."],
           ].map(([id, label, text]) => (
             <label className="choice" key={id}>
               <input
-                type="radio"
+                type="checkbox"
                 name="channel"
                 value={id}
-                checked={channel === id}
-                onChange={() => setChannel(id)}
+                checked={channels.includes(id)}
+                onChange={(event) =>
+                  setChannels((selected) =>
+                    event.target.checked
+                      ? [...selected, id]
+                      : selected.filter((channel) => channel !== id),
+                  )
+                }
               />
               <span>
                 <strong>{label}</strong>
@@ -1261,12 +1317,27 @@ function AccountFlow({ initial }: { initial: string }) {
               {id === "sms" ? <Phone /> : <Mail />}
             </label>
           ))}
+          <div className="choice-alternative">
+            <label className="choice">
+              <input
+                type="checkbox"
+                name="channel"
+                value="none"
+                checked={channels.length === 0}
+                onChange={() => setChannels([])}
+              />
+              <span>
+                <strong>Neither for now</strong>
+                <small>Save your settings with both channels off.</small>
+              </span>
+            </label>
+          </div>
         </fieldset>
         <Button
           className="primary"
           onPress={() =>
             setScreen(
-              ["sms", "both"].includes(channel) && !account?.phone
+              channels.includes("sms") && !account?.phone
                 ? "phone"
                 : "preferences",
             )
@@ -1289,7 +1360,14 @@ function AccountFlow({ initial }: { initial: string }) {
             : "Verify your mobile number",
           screen === "phone"
             ? "We check ordinary-alert network support before requesting a code."
-            : `Enter the code sent to ${pending?.phone ?? "your phone"}. SMS stays off until you save preferences.`,
+            : (
+                <>
+                  Enter the code sent to{" "}
+                  <strong className="phone-destination">
+                    {pending?.phone ?? "your phone"}
+                  </strong>.
+                </>
+              ),
         )}
         {account?.phone && (
           <p className="support">
@@ -1304,7 +1382,7 @@ function AccountFlow({ initial }: { initial: string }) {
               setPending(p);
               setPhone(p.phone);
               setScreen("verify-phone");
-            } else if (pending) {
+            } else if (pending && !phoneExpired) {
               updateAccount(
                 await api<Account>("/phone/verify", "POST", {
                   attemptId: pending.id,
@@ -1315,7 +1393,8 @@ function AccountFlow({ initial }: { initial: string }) {
               setScreen("preferences");
               toast.add({
                 type: "success",
-                title: "Mobile number verified. SMS remains off until you opt in.",
+                title:
+                  "Mobile number verified. SMS remains off until you opt in.",
               });
             }
           })}
@@ -1335,27 +1414,38 @@ function AccountFlow({ initial }: { initial: string }) {
           ) : (
             codeField
           )}
-          {submit(
+          {screen === "verify-phone" && phoneExpired ? (
+            <Button
+              className="primary"
+              type="button"
+              isDisabled={busy || cooldown > 0}
+              aria-busy={busy}
+              onPress={() => void action(resendPhone)}
+            >
+              {busy
+                ? "Please wait..."
+                : cooldown ? `Resend in ${cooldown}s` : "Resend code"}
+              <ArrowRight aria-hidden="true" />
+            </Button>
+          ) : submit(
             screen === "phone"
               ? "Send verification code"
-              : "Verify mobile number",
+              : "Verify code",
           )}
         </form>
         {screen === "verify-phone" && (
           <>
-            {resend(async () => {
-              const p = await requestPhone(pending?.phone ?? phone);
-              setPending(p);
-              setCode("");
-              toast.add({ type: "success", title: "A new SMS code was requested." });
-            })}
-            <p className="support" role="status">
-              {pending && Date.parse(pending.expiresAt) <= now
-                ? "This attempt has expired. Request a new code."
-                : "The code expires after five minutes."}
-            </p>
+            <div className="phone-recovery">
+              <p className="support" role="status">
+                {phoneExpired
+                  ? "This code has expired. Request a new code."
+                  : "The code expires after five minutes."}
+              </p>
+              {!phoneExpired && resend(resendPhone)}
+            </div>
             <Button
-              className="secondary"
+              variant="link"
+              className="text-button phone-change"
               onPress={() =>
                 void action(async () => {
                   await api("/phone/attempts", "DELETE");
@@ -1368,11 +1458,16 @@ function AccountFlow({ initial }: { initial: string }) {
             </Button>
           </>
         )}
-        <p className="support">
-          Shared-sender SMS alerts support Globe/TM and DITO. Smart/TNT is
-          currently unsupported.
-        </p>
-        <Button className="secondary" onPress={() => setScreen("preferences")}>
+        {screen === "phone" && (
+          <p className="support">
+            Smart and TNT numbers are currently unsupported.
+          </p>
+        )}
+        <Button
+          variant={screen === "verify-phone" ? "link" : "default"}
+          className={screen === "verify-phone" ? "text-button phone-skip" : "secondary"}
+          onPress={() => setScreen("preferences")}
+        >
           Continue without SMS
         </Button>
       </>
@@ -1394,7 +1489,8 @@ function AccountFlow({ initial }: { initial: string }) {
             const next = await api<Account>("/preferences", "PUT", draft);
             updateAccount(next);
             if (finishing) location.assign("/?preferences=saved");
-            else toast.add({ type: "success", title: "Alert preferences saved." });
+            else
+              toast.add({ type: "success", title: "Alert preferences saved." });
           })}
         >
           <div className="switch-row">

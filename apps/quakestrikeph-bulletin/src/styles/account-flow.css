@@ -30,6 +30,8 @@
 .flow-screen .resend button{min-height:44px;font-size:13px}
 .flow-screen .secondary{width:100%;min-height:48px;border:1px solid var(--line);border-radius:10px;background:white;color:var(--teal);font-size:14px;font-weight:550;margin-top:12px;padding:10px 16px}
 .flow-screen .secondary:hover{background:var(--pale)}
+.flow-screen .profile-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px}
+.flow-screen .profile-actions .primary,.flow-screen .profile-actions .secondary{flex:1 1 180px;width:auto;margin:0;min-height:48px}
 .flow-screen fieldset{border:0;margin:0;padding:0;min-width:0}
 .flow-screen legend{font-size:17px;font-weight:650;margin-bottom:14px}
 .flow-screen .choices{display:grid;gap:12px;margin-bottom:20px}
@@ -39,6 +41,7 @@
 .flow-screen .choice strong{display:block;font-size:15px;font-weight:600}
 .flow-screen .choice small{display:block;font-size:13px;color:var(--account-muted);line-height:1.5;margin-top:4px}
 .flow-screen .choice>svg{margin-left:auto;color:var(--teal)}
+.flow-screen .choice-alternative{border-top:1px solid var(--line);margin-top:4px;padding-top:16px}
 .flow-screen .switch-row{display:flex;justify-content:space-between;gap:20px;align-items:center;padding:16px 0;border-bottom:1px solid var(--line);cursor:pointer}
 .flow-screen .switch-row strong{display:block;font-size:15px;font-weight:600}
 .flow-screen .switch-row small{display:block;font-size:12px;color:var(--account-muted);line-height:1.55;margin-top:4px;overflow-wrap:anywhere}
