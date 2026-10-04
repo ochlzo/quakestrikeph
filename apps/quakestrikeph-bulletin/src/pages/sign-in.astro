@@ -1,3 +1,4 @@
 ---
-return Astro.redirect('/auth?mode=sign-in', 302);
+import AccountLayout from '../layouts/AccountLayout.astro';
 ---
+<AccountLayout title="Sign in" initial="signin" />

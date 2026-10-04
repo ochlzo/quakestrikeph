@@ -1,6 +1,3 @@
 ---
-import AccountLayout from '../layouts/AccountLayout.astro';
-const initial = Astro.url.searchParams.get('mode') === 'sign-up' ? 'signup' : 'signin';
-const title = initial === 'signup' ? 'Create an account' : 'Sign in';
+return Astro.redirect(Astro.url.searchParams.get('mode') === 'sign-up' ? '/sign-up' : '/sign-in', 302);
 ---
-<AccountLayout title={title} initial={initial} />

@@ -1,7 +1,9 @@
 // This module is reachable only from the separate test Vite configuration.
 // It is never imported or aliased by Astro or the production build.
 import { useSyncExternalStore, type ReactNode } from 'react';
-let signed = new URLSearchParams(location.search).get('signed') === '1';
+const query = new URLSearchParams(location.search);
+let signed = query.has('signed') ? query.get('signed') === '1' : sessionStorage.getItem('fixture:signed') === '1';
+sessionStorage.setItem('fixture:signed', signed ? '1' : '0');
 const listeners = new Set<() => void>();
 const subscribe = (callback: () => void) => { listeners.add(callback); return () => { listeners.delete(callback); }; };
 let userId = 'fixture-user', sessionId = 'fixture-session';
@@ -9,6 +11,7 @@ const snapshot = () => signed ? `${userId}:${sessionId}` : 'signed-out';
 window.addEventListener('fixture:auth', event => {
   const next = (event as CustomEvent<{ userId: string | null; sessionId: string | null }>).detail;
   signed = !!next.userId && !!next.sessionId;
+  sessionStorage.setItem('fixture:signed', signed ? '1' : '0');
   userId = next.userId ?? '';
   sessionId = next.sessionId ?? '';
   listeners.forEach(fn => fn());
@@ -26,10 +29,10 @@ export function useAuth() {
       return isSignedIn ? 'FIXTURE_SESSION' : null;
     } };
 }
-let passwordError = new URLSearchParams(location.search).get('password-error') === '1';
+let passwordError = query.get('password-error') === '1';
 export const useUser = () => ({ user: {
   primaryEmailAddress: { emailAddress: 'maria@example.com' },
-  passwordEnabled: new URLSearchParams(location.search).get('passwordless') !== '1',
+  passwordEnabled: query.get('passwordless') !== '1',
   updatePassword: async () => {
     if (passwordError) { passwordError = false; throw new Error('Fixture provider failure'); }
     console.info('fixture:password-write:update');
@@ -38,7 +41,7 @@ export const useUser = () => ({ user: {
 } });
 export const useReverification = <Args extends unknown[], Result,>(work: (...args: Args) => Promise<Result>) => work;
 const session = {
-  currentTask: new URLSearchParams(location.search).get('task') === 'reset-password'
+  currentTask: query.get('task') === 'reset-password'
     ? { key: 'reset-password' } : null,
   startVerification: async () => ({ supportedFirstFactors: [{ strategy: 'password' }, { strategy: 'email_code', emailAddressId: 'fixture-email' }] }),
   prepareFirstFactorVerification: async () => {},
@@ -48,10 +51,10 @@ const session = {
 };
 export const useSession = () => ({ session });
 export const useClerk = () => ({
-  setActive: async () => { signed = true; session.currentTask = null; listeners.forEach(fn => fn()); },
+  setActive: async () => { signed = true; sessionStorage.setItem('fixture:signed', '1'); session.currentTask = null; listeners.forEach(fn => fn()); },
   signOut: async (options?: { redirectUrl?: string }) => {
-    if (new URLSearchParams(location.search).has('signout-error')) throw new Error('Fixture sign-out failure');
-    signed = false; listeners.forEach(fn => fn());
+    if (query.has('signout-error')) throw new Error('Fixture sign-out failure');
+    signed = false; sessionStorage.setItem('fixture:signed', '0'); listeners.forEach(fn => fn());
     if (options?.redirectUrl) location.assign(options.redirectUrl);
   },
 });

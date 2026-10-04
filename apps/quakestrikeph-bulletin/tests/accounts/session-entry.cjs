@@ -8,6 +8,23 @@ const root = process.env.ACCOUNTS_FIXTURE_URL || 'http://127.0.0.1:4332';
   const browser = await chromium.launch({ channel: 'msedge', headless: true });
   try {
     for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+      for (const signed of [0, 1]) {
+        const pendingPage = await browser.newPage({ viewport });
+        await pendingPage.route('**/clerk-fixture.tsx*', async route => {
+          const response = await route.fetch();
+          const source = await response.text();
+          assert(source.includes('isLoaded: true'), 'Fixture must expose the authentication loading state');
+          await route.fulfill({ response, body: source.replace('isLoaded: true', 'isLoaded: false') });
+        });
+        await pendingPage.goto(`${root}/?signed=${signed}`);
+        await pendingPage.locator('.account-loading').waitFor();
+        assert.equal(await pendingPage.locator('.preferences-loading').count(), 0,
+          'Unresolved authentication must not show preferences');
+        assert.equal(await pendingPage.locator('.account-app').getAttribute('data-screen'), 'signin');
+        assert.equal(await pendingPage.locator('.settings-rail').count(), 0);
+        assert.equal(await pendingPage.locator('.loading-tab').count(), 2);
+        await pendingPage.close();
+      }
       const page = await browser.newPage({ viewport });
       const tokenModes = [];
       page.on('console', message => {
@@ -15,10 +32,12 @@ const root = process.env.ACCOUNTS_FIXTURE_URL || 'http://127.0.0.1:4332';
       });
       await page.goto(`${root}/?header=1&signed=1`);
       await page.getByRole('link', { name: 'Alert settings', exact: true }).waitFor();
+      assert.equal(await page.getByRole('link', { name: 'Alert settings', exact: true }).getAttribute('href'), '/alerts');
       await page.evaluate(() => window.dispatchEvent(new CustomEvent('fixture:auth', {
         detail: { userId: null, sessionId: null },
       })));
       await page.getByRole('link', { name: 'Receive alerts', exact: true }).waitFor();
+      assert.equal(await page.getByRole('link', { name: 'Receive alerts', exact: true }).getAttribute('href'), '/sign-in');
       let release;
       const gate = new Promise(resolve => { release = resolve; });
       await page.route('**/api/v1/account', async route => {
@@ -52,9 +71,24 @@ const root = process.env.ACCOUNTS_FIXTURE_URL || 'http://127.0.0.1:4332';
       await page.getByRole('button', { name: 'Save preferences', exact: true }).click();
       await page.getByText('Alert preferences saved.', { exact: true }).waitFor();
       assert.deepEqual(tokenModes, ['fixture:token-mode:cached', 'fixture:token-mode:fresh']);
-      await page.goto(root);
+      await page.goto(`${root}/?signed=0`);
       await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();
       await page.close();
+      for (const entry of ['initial=signin', 'initial=signup', 'entry=1']) {
+        const entryPage = await browser.newPage({ viewport });
+        await entryPage.route('**/api/v1/account', route => route.fulfill({ json: {
+          account: { userId: 'fixture-user', displayName: 'Maria Santos', email: 'maria@example.invalid',
+            phone: null, onboardingCompleted: true, status: 'active', emailEnabled: false, smsEnabled: false,
+            magnitude: 4.5, nearbyOnly: false, latitude: null, longitude: null, distanceKm: null },
+          pending: null, nextStep: 'complete', deliveryAvailable: false,
+        } }));
+        await entryPage.goto(`${root}/?signed=1&${entry}`);
+        await entryPage.locator('.preferences-loading').waitFor({ state: 'detached' });
+        await entryPage.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
+        assert.equal(new URL(entryPage.url()).pathname, '/alerts',
+          `Completed sign-in from ${entry} must return to preferences`);
+        await entryPage.close();
+      }
     }
     console.log('Session entry checks passed on desktop and mobile.');
   } finally {

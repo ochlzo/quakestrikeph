@@ -91,7 +91,7 @@ const account = {
     await task.page.getByText('The password could not be saved. Please try again.', { exact: true }).waitFor();
     assert.equal(task.writes.length, 0);
     await task.page.getByRole('button', { name: 'Save new password', exact: true }).click();
-    await task.page.waitForURL('**/alerts?entry=1');
+    await task.page.waitForURL('**/alerts');
     assert.deepEqual(task.writes, ['fixture:password-write:update']);
     await task.page.close();
     assert.deepEqual(errors, []);

@@ -1,0 +1,136 @@
+import { ArrowRight, Mail, Phone } from "lucide-react";
+import { Button } from "../../../components/ui/button";
+import { FormField } from "../account-ui";
+import { type Account } from "../api";
+import type { AccountFlowState } from "../useAccountFlow";
+
+export function ProfileScreen({ flow }: { flow: AccountFlowState; }) {
+  const {
+    title, user, form, api,
+    name, updateAccount, setScreen, setName,
+    fieldErrors, submit, busy, action,
+    clerk,
+  } = flow;
+  return (
+    <>
+      {title(
+        "Complete your profile",
+        user?.primaryEmailAddress?.emailAddress ? (
+          <>
+            Choose the name for your personal settings for{" "}
+            <strong className="profile-email">
+              {user.primaryEmailAddress.emailAddress}
+            </strong>
+            .
+          </>
+        ) : (
+          "Choose the name to use for your personal settings."
+        ),
+      )}
+      <form
+        onSubmit={form(async () => {
+          const next = await api<Account>("/profile", "PUT", {
+            displayName: name,
+          });
+          updateAccount(next);
+          setScreen("channels");
+        })}
+      >
+        <FormField
+          id="name"
+          label="Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={100}
+          autoComplete="name"
+          required
+          error={fieldErrors.displayName}
+        />
+        <div className="profile-actions">
+          {submit("Continue")}
+          <Button
+            type="button"
+            className="secondary"
+            isDisabled={busy}
+            onPress={() =>
+              void action(
+                () => clerk.signOut({ redirectUrl: "/" }),
+                "Sign-out could not be completed. Please try again.",
+              )
+            }
+          >
+            Cancel and sign out
+          </Button>
+        </div>
+      </form>
+    </>
+  );
+}
+
+export function ChannelsScreen({ flow }: { flow: AccountFlowState; }) {
+  const { title, channels, setChannels, setScreen, account } = flow;
+  return (
+    <>
+      {title(
+        "How would you like to receive alerts?",
+        "Choose Email, SMS, or both. Alerts stay off until you save your preferences.",
+      )}
+      <fieldset className="choices">
+        <legend>Receive options</legend>
+        {[
+          ["sms", "SMS", "Verify a supported Philippine mobile number."],
+          ["email", "Email", "Use your verified account email."],
+        ].map(([id, label, text]) => (
+          <label className="choice" key={id}>
+            <input
+              type="checkbox"
+              name="channel"
+              value={id}
+              checked={channels.includes(id)}
+              onChange={(event) =>
+                setChannels((selected) =>
+                  event.target.checked
+                    ? [...selected, id]
+                    : selected.filter((channel) => channel !== id),
+                )
+              }
+            />
+            <span>
+              <strong>{label}</strong>
+              <small>{text}</small>
+            </span>
+            {id === "sms" ? <Phone /> : <Mail />}
+          </label>
+        ))}
+        <div className="choice-alternative">
+          <label className="choice">
+            <input
+              type="checkbox"
+              name="channel"
+              value="none"
+              checked={channels.length === 0}
+              onChange={() => setChannels([])}
+            />
+            <span>
+              <strong>Neither for now</strong>
+              <small>Save your settings with both channels off.</small>
+            </span>
+          </label>
+        </div>
+      </fieldset>
+      <Button
+        className="primary"
+        onPress={() =>
+          setScreen(
+            channels.includes("sms") && !account?.phone
+              ? "phone"
+              : "preferences",
+          )
+        }
+      >
+        Continue
+        <ArrowRight />
+      </Button>
+    </>
+  );
+}

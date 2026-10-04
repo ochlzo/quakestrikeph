@@ -4,7 +4,7 @@ import { LinkButton } from "./ui/button";
 
 function AlertsLink({ signedIn = false }: { signedIn?: boolean }) {
   return (
-    <LinkButton className="alerts-button" href="/alerts">
+    <LinkButton className="alerts-button" href={signedIn ? "/alerts" : "/sign-in"}>
       <Bell data-icon="inline-start" aria-hidden="true" />
       {signedIn ? "Alert settings" : "Receive alerts"}
     </LinkButton>

@@ -1,3 +1,4 @@
 ---
-return Astro.redirect('/auth?mode=sign-up', 302);
+import AccountLayout from '../layouts/AccountLayout.astro';
 ---
+<AccountLayout title="Create an account" initial="signup" />
