@@ -79,7 +79,7 @@ export default function LocationPicker({ draft, onUse, onCancel }: {
       if (!active || !container.current) return;
       const initial = pointRef.current;
       const instance = new lib.Map({ container: container.current, style: 'https://tiles.openfreemap.org/styles/liberty',
-        center: initial ? [initial[1], initial[0]] : [121, 12.4], zoom: initial ? 9 : 4.5, attributionControl: {} });
+        center: initial ? [initial[1], initial[0]] : [121, 12.4], zoom: initial ? 9 : 4.5, attributionControl: { compact: false } });
       map.current = instance;
       instance.addControl(new lib.NavigationControl({ showCompass: false }), 'top-right');
       const pin = new lib.Marker({ color: '#0e6873', draggable: true }); marker.current = pin;

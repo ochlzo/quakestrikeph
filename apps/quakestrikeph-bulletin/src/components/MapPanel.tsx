@@ -162,7 +162,7 @@ export default function MapPanel({
         const compact = window.matchMedia("(max-width: 600px)").matches;
         const instance = new ml.Map({
           container: container.current,
-          attributionControl: { compact: true },
+          attributionControl: { compact: false },
           transformRequest: transformLabelRequest,
           maxBounds: philippinesBounds,
           minZoom: 3.25,
@@ -174,31 +174,6 @@ export default function MapPanel({
         set3DInteractions(instance, false);
         map.current = instance;
         instance.on("dragstart", () => setLegendOpen(false));
-        // Attach to this map instance, including maps recreated by Fast Refresh.
-        const attribution = instance
-          .getContainer()
-          .querySelector<HTMLDetailsElement>(".maplibregl-ctrl-attrib");
-        if (attribution) {
-          // Set compact before source metadata arrives, which otherwise opens attribution.
-          attribution.classList.add("maplibregl-compact");
-          attribution.classList.remove("maplibregl-compact-show");
-          attribution.open = false;
-          const closeUnlessInside = (target: EventTarget | null) => {
-            if (target instanceof Node && attribution.contains(target)) return;
-            attribution.classList.remove("maplibregl-compact-show");
-            attribution.open = false;
-          };
-          document.addEventListener(
-            "pointerdown",
-            (event) => closeUnlessInside(event.target),
-            { capture: true, signal: attributionListeners.signal },
-          );
-          attribution.addEventListener(
-            "focusout",
-            (event) => closeUnlessInside(event.relatedTarget),
-            { signal: attributionListeners.signal },
-          );
-        }
         instance.on("load", () => {
           if (disposed) return;
           const nativeWaterColor = instance.getPaintProperty("water", "fill-color");

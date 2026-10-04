@@ -1111,11 +1111,12 @@ a {
   right: 4px;
   color: var(--ink);
 }
-.map-panel .maplibregl-ctrl-attrib {
-  background-color: rgb(255 255 255 / 90%);
-}
-.map-panel .maplibregl-ctrl-attrib-button {
-  background-color: transparent;
+@media (max-width: 760px) {
+  :is(.map-panel, .location-map) .maplibregl-ctrl-attrib {
+    font-size: 8px;
+    line-height: calc(20px / 1.5);
+    padding: 0 calc(5px / 1.5);
+  }
 }
 .forecast-map-annotation > span,
 .forecast-map-heading {

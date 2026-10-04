@@ -7,7 +7,20 @@
   background: rgb(255 255 255 / 88%);
   backdrop-filter: blur(12px);
 }
-.account-app[data-screen="preferences"] .account h2 { margin-top: 0; }
+.account-app[data-screen="preferences"] .account h2 { margin-top: 0; margin-bottom: 12px; }
+.account-app[data-screen="preferences"] .form-intro { margin-bottom: 24px; }
+.account-app[data-screen="preferences"] form > .switch-row { padding-block: 20px; }
+.account-app[data-screen="preferences"] form > .switch-row:first-child { padding-top: 0; }
+.account-app[data-screen="preferences"] .settings-section { margin-top: 24px; }
+.account-app[data-screen="preferences"] .settings-section .field { margin-bottom: 12px; }
+.account-app[data-screen="preferences"] .settings-section .support { margin: 0; }
+.account-app[data-screen="preferences"] .nearby-section { margin-top: 24px; }
+.account-app[data-screen="preferences"] .nearby-section .switch-row { padding: 20px 0 16px; }
+.account-app[data-screen="preferences"] .location-summary { padding: 8px 0 0; }
+.account-app[data-screen="preferences"] form > .primary { margin-top: 24px; }
+@media (min-width: 761px) {
+  .account-app[data-screen="preferences"] .account { padding: 32px 40px; }
+}
 .account-app[data-screen="preferences"] .location-summary { border-bottom: 0; }
 .account-app .settings-rail .avatar { background: white; }
 @media (min-width: 761px) {

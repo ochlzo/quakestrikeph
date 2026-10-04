@@ -43,6 +43,7 @@ const root = process.env.ACCOUNTS_FIXTURE_URL || 'http://127.0.0.1:4332';
       release();
       await page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
       await page.locator('.preferences-loading').waitFor({ state: 'detached' });
+      await page.screenshot({ path: `.impeccable/review/alerts-skeleton/preferences-${viewport.width}.png`, fullPage: true });
       assert.deepEqual(tokenModes, ['fixture:token-mode:cached']);
       await page.route('**/api/v1/account/preferences', route => route.fulfill({ json: {
         ...route.request().postDataJSON(), userId: 'fixture-user', displayName: 'Maria Santos',
