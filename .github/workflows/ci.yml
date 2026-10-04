@@ -35,6 +35,9 @@ jobs:
           uv run --project workers ruff check workers
           uv run --project workers ruff format --check workers
 
+      - name: Check local Compose isolation
+        run: python3 infrastructure/scripts/check-local-compose.py
+
       - name: Start isolated test services
         run: docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test redis-test
 

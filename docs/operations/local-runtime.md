@@ -109,7 +109,8 @@ role, which can read model releases but cannot change the registry or schema.
 PostgreSQL mounts the role-script directory so a checked-out script update is
 visible before the explicit grant command runs.
 On an existing local database, role provisioning transfers only the known
-worker tables and enum types to the migration role so later migrations can run.
+worker tables, enum types, and snapshot functions to the migration role.
+This permits later migrations to replace administrator-owned legacy functions.
 An exact registration repeat is safe.
 
 The reissue command handles durable `SEIS 1.0` prediction work that cannot
@@ -321,3 +322,72 @@ docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/c
 
 This stops the containers and retains their volumes. Do not add `-v` unless
 you intend to delete the local PostgreSQL and Redis data.
+
+## 9. Add the local Backend and Bulletin
+
+Use the same `infrastructure` project and root `.env` for local web development.
+Do not include `compose.edge.yml`; that file enables the production edge.
+The local override publishes only `127.0.0.1:3000` and `127.0.0.1:4321`.
+PostgreSQL and Redis remain private. See [ADR 0043](../adr/0043-shared-local-compose-runtime.md).
+
+Set `BACKEND_DB_PASSWORD`, a matching `BACKEND_DATABASE_URL` with the
+`quakestrike_backend` login, and the registered `MODEL_RELEASE_ID` in root `.env`.
+Set `BACKEND_IMAGE_TAG` for the shared Backend file; the local override uses
+the development-only `quakestrike-backend:local` image instead.
+Set `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `PUBLIC_CLERK_PUBLISHABLE_KEY`,
+`CLERK_AUTHORIZED_PARTIES=http://localhost:4321,http://127.0.0.1:4321`,
+`ACCOUNT_REDIS_URL=redis://redis:6379/0`, and `IPROG_API_TOKEN` for account features.
+The Bulletin receives only the publishable key and local proxy targets.
+
+1. Match `MODEL_RELEASE_ID` to the verified `SEIS 1.0.1` bundle.
+2. Back up the shared database before applying pending migrations.
+3. Provision migration and worker roles.
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml up -d --wait postgres redis
+docker compose --env-file .env -f infrastructure/compose.yml exec -T postgres sh /opt/quakestrike/provision-roles.sh create
+```
+
+4. Apply migrations explicitly from the development checkout.
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml run --build --rm local-init
+```
+
+5. Register and verify the selected model release.
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml run --rm local-init quakestrike register-model-release
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml run --rm local-init quakestrike verify-model-release
+```
+
+6. Provision the Backend role after migrations.
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml exec -T postgres sh /opt/quakestrike/provision-roles.sh create-backend
+```
+
+7. Build the local web images.
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml build backend-api bulletin
+```
+
+8. If another Bulletin server uses port 4321, stop that server before starting the container.
+9. Start the local web services.
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml up -d --wait postgres redis backend-api bulletin
+```
+
+Open `http://127.0.0.1:4321`. Both public and account API requests reach the
+local Backend. Account records created in the former isolated database remain
+in its original volume; configuration consolidation does not transfer them.
+Keep that volume and the ignored configuration backup until its data is no
+longer needed. Never use `down -v` to retire the old account environment.
+
+The Bulletin mounts application source for development. After a lockfile
+change, rebuild its image and renew only its dependency volume with
+`docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml up -d --no-deps --force-recreate -V bulletin`.
+The command renews anonymous volumes; the Bulletin dependency mount must be
+anonymous so it never changes the shared PostgreSQL or Redis volumes.

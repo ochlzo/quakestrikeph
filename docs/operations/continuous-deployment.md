@@ -23,7 +23,7 @@ to Bulletin port 4321 with priority 10. No public host port is added.
 
 Complete the existing Backend setup first. The deploy script restores the full
 Git checkout, builds Bulletin before replacing services, and starts it using
-`compose.yml`, `compose.backend.yml`, and `compose.bulletin.yml`. The script
+`compose.yml`, `compose.backend.yml`, `compose.edge.yml`, and `compose.bulletin.yml`. The script
 sets `BULLETIN_IMAGE_TAG` to the tested SHA and saves it in the ignored VPS
 `.env` only after the public checks pass. The first rollout requires no prior
 Bulletin tag. Subsequent releases retain the previous tagged image for rollback.

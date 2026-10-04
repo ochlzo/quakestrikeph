@@ -1,0 +1,48 @@
+services:
+  traefik:
+    image: traefik:v3.7.13
+    command:
+      - --providers.file.filename=/etc/traefik/backend.yml
+      - --entrypoints.web.address=:80
+      - --ping=true
+    volumes:
+      - ./traefik/backend.yml:/etc/traefik/backend.yml:ro
+    networks: [backend-edge]
+    depends_on:
+      backend-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping=true"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    mem_limit: 128m
+    logging:
+      driver: local
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.9.3
+    command: ["tunnel", "--metrics", "127.0.0.1:2000", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in .env}
+    networks: [backend-edge]
+    depends_on:
+      traefik:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "127.0.0.1:2000", "ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    mem_limit: 128m
+    logging:
+      driver: local
+      options:
+        max-size: "20m"
+        max-file: "5"

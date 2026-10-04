@@ -2,6 +2,7 @@
 .github
 .codex
 .impeccable
+.local
 .idea
 .vscode
 docs
@@ -11,6 +12,8 @@ CONTRIBUTING.md
 README.md
 .env
 .env.*
+**/.env
+**/.env.*
 !.env.example
 **/.venv
 **/__pycache__

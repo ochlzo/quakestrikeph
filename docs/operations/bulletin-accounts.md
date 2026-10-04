@@ -5,26 +5,12 @@ routes or enable automatic earthquake delivery.
 
 ## Local configuration
 
-In `apps/quakestrikeph-bulletin/.env.local`, set only the development
-`PUBLIC_CLERK_PUBLISHABLE_KEY` and `ACCOUNT_API_TARGET=http://127.0.0.1:3000`.
-Account requests use that local proxy; public earthquake reads keep the
-existing read-only target. Do not set a production account target during tests.
-
-In `apps/backend-api/.env.local`, set `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`
-(the same publishable key as the Bulletin; required for session verification),
-`CLERK_AUTHORIZED_PARTIES=http://localhost:4321,http://127.0.0.1:4321`,
-`ACCOUNT_REDIS_URL`, `IPROG_API_TOKEN`, the restricted Backend `DATABASE_URL`
-and registered `MODEL_RELEASE_ID`. All environment files are ignored by Git.
-Migrations and role grants are explicit setup steps; the Backend does neither
-at startup. Apply migration head and rerun `create-backend` in the development
-database before enabling the new routes. Do not use a development database
-for the integration test commands below.
-
-Build with `npm ci`, `npm run build` and start with
-`node --env-file=.env.local dist/src/server.js` in `apps/backend-api`.
-Run `pnpm install --frozen-lockfile` and `pnpm dev --host 127.0.0.1`
-in the Bulletin. Docker builds accept only `PUBLIC_CLERK_PUBLISHABLE_KEY`
-as the frontend build argument. Provider secrets go only to the Backend.
+Accounts use the shared local `infrastructure` Compose project and root `.env`.
+Follow [the local web setup](local-runtime.md#9-add-the-local-backend-and-bulletin).
+The Bulletin and Backend share the worker database and Redis service.
+Provider secrets reach only the Backend. The Bulletin receives the publishable key.
+Apply migrations and restricted Backend grants before starting account routes.
+Do not include `compose.edge.yml` during local development.
 
 The development Clerk app is **QuakeStrike PH Bulletin** in Personal/Hobby:
 `app_3K8Qn66bPx5HFT1S1aJQUxveCS0`, instance
@@ -105,21 +91,15 @@ the disposable integration tests actually ran rather than skipped. Report
 Docker/provider blockers explicitly. No production migration, deployment,
 merge or alert-send action is authorized by this implementation request.
 
-## Prepared local account runtime
+## Former isolated account runtime
 
-The ignored `.impeccable/runtime/accounts/compose.yml` and its ignored `.env`
-prepare the separate `quakestrike-bulletin-accounts-dev` project. It is not the
-disposable integration project. It has a durable local volume, private database
-and Redis, restricted Backend grants, and a localhost-only API port. Start it
-from the worktree with:
+The former `quakestrike-bulletin-accounts-dev` project is retired from the local
+development workflow. Its durable database volume remains recovery evidence.
+Configuration copies are preserved under the ignored
+`.local/backups/accounts-runtime/` directory in the main checkout.
+The former worktree's design files and runtime evidence are archived under
+`.local/backups/bulletin-accounts-worktree/` in the main checkout.
 
-```powershell
-docker compose --env-file .impeccable/runtime/accounts/.env -f .impeccable/runtime/accounts/compose.yml up -d postgres redis backend
-```
-
-Its migrations are already applied. The `account-ui-fixture` model metadata
-is solely for account UI startup, never for forecasts. No prediction worker runs.
-The current user-owned Bulletin dev server runs on `http://localhost:4321`
-(IPv6 loopback); do not assume it also binds `127.0.0.1` or restart it without
-need. Avoid `down -v`
-on this development project when retaining account test data.
+Shared runtime setup does not copy account test records or fixture model metadata.
+Do not delete the old volume or start both Backends on port 3000.
+The separate disposable integration project remains unchanged.

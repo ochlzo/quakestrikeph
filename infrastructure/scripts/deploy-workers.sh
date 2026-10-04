@@ -25,7 +25,8 @@ compose() {
 }
 
 web_compose() {
-    docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.bulletin.yml "$@"
+    local edge_files=(); [[ ! -f infrastructure/compose.edge.yml ]] || edge_files=(-f infrastructure/compose.edge.yml)
+    docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml "${edge_files[@]}" -f infrastructure/compose.bulletin.yml "$@"
 }
 
 for service in postgres redis dispatcher data-ingestor; do
@@ -61,7 +62,8 @@ rollback() {
                 web_compose up -d --wait --no-deps bulletin >&2 || true
                 web_compose up -d --wait --no-deps --force-recreate traefik >&2 || true
             else
-                docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml up -d --wait --no-deps --force-recreate traefik >&2 || true
+                rollback_edge=(); [[ ! -f infrastructure/compose.edge.yml ]] || rollback_edge=(-f infrastructure/compose.edge.yml)
+                docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml "${rollback_edge[@]}" up -d --wait --no-deps --force-recreate traefik >&2 || true
             fi
         fi
         export WORKER_IMAGE_TAG=$previous_tag

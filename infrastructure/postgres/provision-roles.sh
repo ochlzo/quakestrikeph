@@ -39,6 +39,24 @@ WHERE n.nspname = 'public'
     'ingestion_run_status', 'prediction_job_status', 'dispatch_status',
     'prediction_attempt_status', 'alert_job_status', 'maintenance_run_status', 'account_status'
   ) \gexec
+DO $function_ownership$
+DECLARE app_function record;
+BEGIN
+    FOR app_function IN
+        SELECT n.nspname, p.proname, pg_get_function_identity_arguments(p.oid) AS arguments
+        FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public'
+          AND pg_get_userbyid(p.proowner) <> 'quakestrike_migration'
+          AND p.oid IN (
+              to_regprocedure('public.quakestrike_prediction_input_snapshot_sha256(jsonb)'),
+              to_regprocedure('public.quakestrike_prediction_jobs_snapshot_immutable()')
+          )
+    LOOP
+        EXECUTE format('ALTER FUNCTION %I.%I(%s) OWNER TO quakestrike_migration',
+                       app_function.nspname, app_function.proname, app_function.arguments);
+    END LOOP;
+END
+$function_ownership$;
 SQL
     then
       echo '{"action":"provision-db-roles","status":"ready"}'

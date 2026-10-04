@@ -24,10 +24,10 @@ worker stack running. Use a tested Git commit SHA for `BACKEND_IMAGE_TAG`.
 3. Provision the restricted role and start the three Backend path containers:
 
 ```bash
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml up -d --wait postgres
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml exec -T postgres sh /opt/quakestrike/provision-roles.sh create-backend
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml build backend-api
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml up -d --wait backend-api traefik cloudflared
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml up -d --wait postgres
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml exec -T postgres sh /opt/quakestrike/provision-roles.sh create-backend
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml build backend-api
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml up -d --wait backend-api traefik cloudflared
 ```
 
 The role has column-limited `SELECT` on events, revisions, prediction jobs, and
@@ -42,7 +42,7 @@ an explicit operator setup step outside this repository.
 Check container readiness, then query the public HTTPS path:
 
 ```bash
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml ps backend-api traefik cloudflared
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml ps backend-api traefik cloudflared
 curl -i -X POST 'https://quakestrikeph.qzz.io/api/v1/earthquakes/search' -H 'Content-Type: application/json' --data '{"limit":2,"magnitudeRanges":[{"below":3},{"from":5}]}'
 ```
 
@@ -75,7 +75,7 @@ the live catalog, review its query plan before adding a PostgreSQL text index.
 To stop only this public path, run:
 
 ```bash
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml stop cloudflared traefik backend-api
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml stop cloudflared traefik backend-api
 ```
 
 Leave the PostgreSQL and worker containers running. For a new Backend image,

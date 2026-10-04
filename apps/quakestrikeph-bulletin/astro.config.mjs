@@ -28,7 +28,7 @@ export default defineConfig({
           changeOrigin: false,
         },
         "/api/v1": {
-          target: "https://quakestrikeph.qzz.io",
+          target: process.env.API_TARGET || "https://quakestrikeph.qzz.io",
           changeOrigin: true,
         },
       },

@@ -1,0 +1,58 @@
+# Combine with compose.yml and compose.backend.yml. No public edge services.
+services:
+  local-init:
+    profiles: ["init"]
+    image: quakestrike-workers:local
+    build:
+      context: ../workers
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: ${MIGRATION_DATABASE_URL:?Set MIGRATION_DATABASE_URL in .env}
+      REDIS_URL: ${REDIS_URL:?Set REDIS_URL in .env}
+      PHIVOLCS_CATALOG_URL: ${PHIVOLCS_CATALOG_URL:?Set PHIVOLCS_CATALOG_URL in .env}
+      MODEL_RELEASE_ID: ${MODEL_RELEASE_ID:?Set MODEL_RELEASE_ID in .env}
+      MODEL_ARTIFACT_DIRECTORY: /app/model-artifacts
+    volumes:
+      - ${MODEL_ARTIFACT_HOST_DIRECTORY:-../model-artifacts}:/app/model-artifacts:ro
+    command: ["quakestrike", "migrate"]
+    networks: [private-data]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend-api:
+    image: quakestrike-backend:local
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  bulletin:
+    image: quakestrike-bulletin:local
+    build:
+      context: ..
+      dockerfile: apps/quakestrikeph-bulletin/Dockerfile
+      target: development
+    environment:
+      PUBLIC_CLERK_PUBLISHABLE_KEY: ${PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+      ACCOUNT_API_TARGET: http://backend-api:3000
+      API_TARGET: http://backend-api:3000
+    volumes:
+      - ../apps/quakestrikeph-bulletin:/app
+      - /app/node_modules
+    ports: ["127.0.0.1:4321:4321"]
+    networks: [backend-edge]
+    depends_on:
+      backend-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4321/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: local
+      options:
+        max-size: "20m"
+        max-file: "5"

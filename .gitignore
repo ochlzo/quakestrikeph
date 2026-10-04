@@ -27,6 +27,7 @@ database/initialization/source-snapshots/
 *.bootstrap.json
 
 # Local runtime output
+.local/
 *.log
 *.pid
 *.sqlite

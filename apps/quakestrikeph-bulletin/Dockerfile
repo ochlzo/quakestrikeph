@@ -1,4 +1,4 @@
-FROM node:24.21.0-bookworm-slim AS build
+FROM node:24.21.0-bookworm-slim AS development
 WORKDIR /app
 
 RUN npm install -g pnpm@11.11.0
@@ -7,6 +7,9 @@ RUN pnpm install --frozen-lockfile
 COPY apps/quakestrikeph-bulletin/astro.config.mjs apps/quakestrikeph-bulletin/tsconfig.json ./
 COPY apps/quakestrikeph-bulletin/src ./src
 COPY apps/quakestrikeph-bulletin/public ./public
+CMD ["pnpm", "dev", "--host", "0.0.0.0"]
+
+FROM development AS build
 ARG PUBLIC_CLERK_PUBLISHABLE_KEY
 ENV PUBLIC_CLERK_PUBLISHABLE_KEY=$PUBLIC_CLERK_PUBLISHABLE_KEY
 RUN pnpm run check && pnpm run build && pnpm prune --prod
