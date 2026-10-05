@@ -3,7 +3,6 @@ import { toast, Toaster } from "./ui/toast";
 import { today } from "@internationalized/date";
 import { Dialog, type DateValue, type RangeValue } from "react-aria-components";
 import {
-  Activity,
   ArrowRight,
   Calendar,
   ChevronRight,
@@ -15,7 +14,8 @@ import {
   Search,
 } from "lucide-react";
 import MapPanel from "./MapPanel";
-import AlertsButton from "./AlertsButton";
+import BulletinLayout from "./BulletinLayout";
+import { useIsMobile } from "../hooks/use-mobile";
 import MagnitudeFilter from "./MagnitudeFilter";
 import { magnitudeBand, magnitudeRangesForBands } from "../lib/magnitude";
 import { bulletinApi } from "../lib/api/client";
@@ -33,7 +33,6 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Popover } from "@/components/ui/popover";
 import {
   Select,
@@ -103,7 +102,7 @@ export default function Bulletin({ initialResults = null }: { initialResults?: c
     url.searchParams.delete('preferences');
     window.history.replaceState(window.history.state, '', url);
   }, []);
-  const [mobile, setMobile] = useState(false);
+  const mobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerSnap, setDrawerSnap] = useState<number | string | null>(0.65);
   const [query, setQuery] = useState("");
@@ -156,15 +155,9 @@ export default function Bulletin({ initialResults = null }: { initialResults?: c
   }, []);
 
   useEffect(() => {
-    const media = window.matchMedia("(max-width: 760px)");
-    const update = () => {
-      setMobile(media.matches);
-      setDrawerOpen(false);
-    };
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
+    setDrawerOpen(false);
+    setCalendarOpen(false);
+  }, [mobile]);
 
 
   useEffect(() => {
@@ -717,95 +710,69 @@ export default function Bulletin({ initialResults = null }: { initialResults?: c
   );
 
   return (
-    <div className="bulletin-app">
+    <BulletinLayout filters={filters} results={earthquakeList}>
       <Toaster />
-      <header className="site-header">
-        <a className="brand" href="/" aria-label="QuakeStrike PH Bulletin home">
-          <span className="brand-mark">
-            <Activity aria-hidden="true" size={24} strokeWidth={2.2} />
-          </span>
-          <span>
-            <strong>QuakeStrike PH Bulletin</strong>
-            <small>PHILIPPINE EARTHQUAKE INFORMATION</small>
-          </span>
-        </a>
-        <nav className="site-nav" aria-label="Main navigation">
-          <Tabs selectedKey="/" keyboardActivation="manual">
-            <TabsList aria-label="Main navigation">
-              <TabsTrigger id="/" href="/">Earthquakes</TabsTrigger>
-              <TabsTrigger id="/about" href="/about">About</TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </nav>
-        <AlertsButton />
-      </header>
-
-      <main className="dashboard">
-        {!mobile && filters}
-
-        <div className="content-grid">
-          {!mobile && earthquakeList}
-          <div className="map-stage">
-            <MapPanel
-              events={visible}
-              selectedId={selected?.eventId ?? null}
-              focusRequest={focusRequest}
-              forecast={
-                selected && selectedDetail?.eventId === selected.eventId
-                  ? selectedDetail.forecast
-                  : null
-              }
-              forecastStatus={
-                selected && selectedDetail?.eventId === selected.eventId
-                  ? "ready"
-                  : detailStatus === "error"
-                    ? "error"
-                    : "loading"
-              }
-              onSelect={(id) => selectEvent(id, true)}
-            />
-            {mobile && (
-              <Drawer
-                open={drawerOpen}
-                onOpenChange={(open) => {
-                  if (open) setDrawerSnap(0.65);
-                  else setCalendarOpen(false);
-                  setDrawerOpen(open);
-                }}
-                snapPoints={[0.65, 1]}
-                snapPoint={drawerSnap}
-                onSnapPointChange={setDrawerSnap}
-                showSwipeHandle
-              >
-                <DrawerTrigger className={buttonVariants({ className: "earthquake-drawer-trigger" })}>
-                  <ListCollapse aria-hidden="true" />
-                  Show earthquakes
-                </DrawerTrigger>
-                <DrawerContent className="earthquake-drawer" initialFocus={drawerClose}>
-                  <DrawerTitle className="sr-only">Earthquake search and results</DrawerTitle>
-                  <DrawerDescription className="sr-only">
-                    Filter earthquakes by location, date, and magnitude. Drag the handle to expand or close.
-                  </DrawerDescription>
-                  <div className="earthquake-drawer-actions">
-                    <button type="button" className={buttonVariants({ variant: "ghost", size: "icon" })}
-                      aria-label={drawerSnap === 1 ? "Collapse earthquake drawer" : "Expand earthquake drawer"}
-                      onClick={() => setDrawerSnap(drawerSnap === 1 ? 0.65 : 1)}>
-                      <ChevronsUpDown aria-hidden="true" />
-                    </button>
-                    <DrawerClose ref={drawerClose} className={buttonVariants({ variant: "ghost", size: "icon" })} aria-label="Close earthquakes">
-                      <X aria-hidden="true" />
-                    </DrawerClose>
-                  </div>
-                  <div className="earthquake-drawer-scroll">
-                    {filters}
-                    {earthquakeList}
-                  </div>
-                </DrawerContent>
-              </Drawer>
-            )}
-          </div>
+      <div className="content-grid">
+        <div className="map-stage">
+          <MapPanel
+            events={visible}
+            selectedId={selected?.eventId ?? null}
+            focusRequest={focusRequest}
+            forecast={
+              selected && selectedDetail?.eventId === selected.eventId
+                ? selectedDetail.forecast
+                : null
+            }
+            forecastStatus={
+              selected && selectedDetail?.eventId === selected.eventId
+                ? "ready"
+                : detailStatus === "error"
+                  ? "error"
+                  : "loading"
+            }
+            onSelect={(id) => selectEvent(id, true)}
+          />
+          {mobile && (
+            <Drawer
+              open={drawerOpen}
+              onOpenChange={(open) => {
+                if (open) setDrawerSnap(0.65);
+                else setCalendarOpen(false);
+                setDrawerOpen(open);
+              }}
+              snapPoints={[0.65, 1]}
+              snapPoint={drawerSnap}
+              onSnapPointChange={setDrawerSnap}
+              showSwipeHandle
+            >
+              <DrawerTrigger className={buttonVariants({ className: "earthquake-drawer-trigger" })}>
+                <ListCollapse aria-hidden="true" />
+                Show earthquakes
+              </DrawerTrigger>
+              <DrawerContent className="earthquake-drawer" initialFocus={drawerClose}>
+                <DrawerTitle className="sr-only">Earthquake search and results</DrawerTitle>
+                <DrawerDescription className="sr-only">
+                  Filter earthquakes by location, date, and magnitude. Drag the handle to expand or close.
+                </DrawerDescription>
+                <div className="earthquake-drawer-actions">
+                  <button type="button" className={buttonVariants({ variant: "ghost", size: "icon" })}
+                    aria-label={drawerSnap === 1 ? "Collapse earthquake drawer" : "Expand earthquake drawer"}
+                    onClick={() => setDrawerSnap(drawerSnap === 1 ? 0.65 : 1)}>
+                    <ChevronsUpDown aria-hidden="true" />
+                  </button>
+                  <DrawerClose ref={drawerClose} className={buttonVariants({ variant: "ghost", size: "icon" })} aria-label="Close earthquakes">
+                    <X aria-hidden="true" />
+                  </DrawerClose>
+                </div>
+                <div className="earthquake-drawer-scroll">
+                  {filters}
+                  {earthquakeList}
+                </div>
+              </DrawerContent>
+            </Drawer>
+          )}
         </div>
-      </main>
-    </div>
+      </div>
+    </BulletinLayout>
   );
 }

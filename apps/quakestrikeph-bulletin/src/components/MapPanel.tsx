@@ -163,6 +163,7 @@ export default function MapPanel({
         const compact = window.matchMedia("(max-width: 600px)").matches;
         const instance = new ml.Map({
           container: container.current,
+          trackResize: false,
           attributionControl: { compact: false },
           transformRequest: transformLabelRequest,
           maxBounds: philippinesBounds,
@@ -246,6 +247,63 @@ export default function MapPanel({
       map.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (!mapReady || !container.current) return;
+    const element = container.current;
+    const viewport = element.parentElement!;
+    const shell = element.closest(".bulletin-shell");
+    const sidebarGap = shell?.querySelector('[data-slot="sidebar-gap"]');
+    let transitionCenter: [number, number] | null = null;
+    const resizeWithoutMovingImage = (width: number, changeLayout: () => void) => {
+      const instance = map.current;
+      if (!instance) return;
+      const canvas = instance.getCanvas();
+      // Preserve the geography at the right edge while the clipping area changes.
+      const center = instance.unproject([canvas.clientWidth - width / 2, canvas.clientHeight / 2]);
+      changeLayout();
+      instance.resize().jumpTo({ center }).redraw();
+    };
+    const finishTransition = () => {
+      if (!transitionCenter) return;
+      const center = transitionCenter;
+      transitionCenter = null;
+      resizeWithoutMovingImage(viewport.clientWidth, () => {
+        element.classList.remove("map-sidebar-transition");
+        element.style.removeProperty("--map-transition-width");
+      });
+      map.current?.easeTo({ center, duration: 220 });
+    };
+    const startTransition = () => {
+      const instance = map.current;
+      if (!instance || !shell) return;
+      instance.stop();
+      transitionCenter = instance.getCenter().toArray();
+      const inset = parseFloat(getComputedStyle(element.closest(".dashboard")!).paddingLeft);
+      const width = viewport.getBoundingClientRect().right - shell.getBoundingClientRect().left - inset;
+      resizeWithoutMovingImage(width, () => {
+        element.style.setProperty("--map-transition-width", `${width}px`);
+        element.classList.add("map-sidebar-transition");
+      });
+    };
+    sidebarGap?.addEventListener("transitionrun", startTransition);
+    sidebarGap?.addEventListener("transitionend", finishTransition);
+    sidebarGap?.addEventListener("transitioncancel", finishTransition);
+    const observer = new ResizeObserver(() => {
+      if (transitionCenter) return;
+      // Redraw before browser paint; resizing clears the WebGL canvas.
+      map.current?.resize().redraw();
+    });
+    observer.observe(viewport);
+    return () => {
+      observer.disconnect();
+      sidebarGap?.removeEventListener("transitionrun", startTransition);
+      sidebarGap?.removeEventListener("transitionend", finishTransition);
+      sidebarGap?.removeEventListener("transitioncancel", finishTransition);
+      element.classList.remove("map-sidebar-transition");
+      element.style.removeProperty("--map-transition-width");
+    };
+  }, [mapReady]);
 
   useEffect(() => {
     if (!mapReady || !map.current) return;
