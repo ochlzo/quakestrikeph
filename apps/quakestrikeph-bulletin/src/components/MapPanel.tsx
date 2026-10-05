@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { CircleQuestionMark, Layers3, LocateFixed, Minus, Plus, X } from "lucide-react";
+import { CircleQuestionMark, LocateFixed, Minus, Plus, X } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Earthquake, Forecast } from "../lib/events";
+import { likelihoodLevel } from "../lib/events";
 import { magnitudeBand, magnitudeBands } from "../lib/magnitude";
 import { addLandmarkLabels } from "../lib/map-landmarks";
 import { cleanMapStyle, transformLabelRequest } from "../lib/map-labels";
@@ -515,11 +516,12 @@ export default function MapPanel({
                   {forecastEnd(forecast.windowEnd)}
                 </span>
                 <div className="forecast-map-occurrence">
-                  <strong className="forecast-map-metric">
-                    Chance of further activity: {chance(forecast.probabilityM1Plus24h)}
-                  </strong>
+                  <span className="forecast-map-metric">
+                    <strong>{likelihoodLevel(forecast.probabilityM1Plus24h)}</strong>{" "}
+                    <strong>({chance(forecast.probabilityM1Plus24h)})</strong>
+                  </span>
                   <p>
-                    Chance of at least one further earthquake of magnitude 1.0 or higher.
+                    Chance of at least one further earthquake near the epicenter.
                   </p>
                 </div>
                 <div className="forecast-map-distance">
@@ -551,11 +553,10 @@ export default function MapPanel({
         aria-label="3D terrain"
         aria-description="In 3D, right-drag or use Shift + arrow keys to tilt and rotate. On touchscreens, move two fingers together to tilt; pinch to zoom."
       >
-        <Layers3 size={18} aria-hidden="true" />
-        <span className="terrain-label">3D terrain</span>
         <span className="terrain-switch" aria-hidden="true">
           <span className="terrain-thumb" />
         </span>
+        <span className="terrain-label">3D terrain</span>
       </Button>
       <div className="map-tools">
         <Button

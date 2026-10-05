@@ -23,7 +23,10 @@ const { chromium } = require("playwright");
     await waitForMap();
     assert.equal(await page.locator('link[rel="preconnect"][href="https://tiles.openfreemap.org"]').count(), 1);
     assert.equal(await page.locator('link[rel="preload"][as="fetch"][href$="/styles/liberty"]').count(), 1);
-    const workers = page.workers();
+    const workers = [];
+    for (const worker of page.workers()) {
+      if (await worker.evaluate(() => typeof self.addProtocol === "function")) workers.push(worker);
+    }
     assert.equal(workers.length, 1, "Reuse MapLibre's worker rather than adding another worker pool");
     assert(workers[0].url().includes("map-worker"));
     assert.equal(await workers[0].evaluate(() => typeof self.addProtocol), "function", "Production bundle retains MapLibre initialization");

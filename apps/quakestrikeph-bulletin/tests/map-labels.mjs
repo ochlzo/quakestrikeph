@@ -98,9 +98,10 @@ try {
 const originalCaches = Object.getOwnPropertyDescriptor(globalThis, "caches");
 const entries = new Map();
 let failRead = false, failWrite = false, failOpen = false;
+let holdWrite = null;
 const cache = {
   async match(key) { if (failRead) throw new Error("Cache read blocked"); return entries.get(String(key))?.clone(); },
-  async put(key, response) { if (failWrite) throw new Error("Quota exceeded"); entries.set(String(key), response.clone()); },
+  async put(key, response) { if (holdWrite) await holdWrite; if (failWrite) throw new Error("Quota exceeded"); entries.set(String(key), response.clone()); },
   async keys() { return [...entries.keys()].map((key) => new Request(key)); },
   async delete(key) { return entries.delete(typeof key === "string" ? key : key.url); },
 };
@@ -114,22 +115,47 @@ try {
   } }); };
   const request = { url: `${labelProtocol}://${url}` };
   const first = await loadLabelTile(request, new AbortController());
+  await cacheLabelTile(`${url}?flush`, output, new Headers({ "Cache-Control": "public, max-age=86400" }));
   const second = await loadLabelTile(request, new AbortController());
   assert.equal(fetches, 1, "Cleaned cache hit bypasses downloading and transforming the tile");
   assert.deepEqual(new Uint8Array(second.data), new Uint8Array(first.data));
   assert.equal(decode(second.data).layers.transportation_name.feature(0).properties.qs_name, "Peña Rd");
   assert.equal(entries.get(url).headers.get("Content-Encoding"), null, "Cleaned bytes are not marked as compressed");
+  let releaseWrite;
+  holdWrite = new Promise((resolve) => { releaseWrite = resolve; });
+  const slowUrl = `${url}?slow-storage`;
+  let timer;
+  try {
+    const tile = await Promise.race([
+      loadLabelTile({ url: `${labelProtocol}://${slowUrl}` }, new AbortController()),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Tile display waits for cache storage")), 1000); }),
+    ]);
+    assert(!entries.has(slowUrl), "The tile resolves while its cache write is pending");
+    structuredClone(tile.data, { transfer: [tile.data] });
+    assert.equal(tile.data.byteLength, 0, "Simulate MapLibre transferring the returned bytes");
+  } finally {
+    clearTimeout(timer);
+    releaseWrite();
+    holdWrite = null;
+  }
+  // A following queued write waits for the earlier background write to complete.
+  await cacheLabelTile(`${url}?flush`, output, new Headers({ "Cache-Control": "public, max-age=86400" }));
+  assert.equal(decode(await entries.get(slowUrl).arrayBuffer()).layers.place.feature(0).properties.qs_name, "Beijing",
+    "Background storage retains valid bytes after the worker transfers the original buffer");
   const cancelled = new AbortController(); cancelled.abort();
   await assert.rejects(loadLabelTile(request, cancelled), { name: "AbortError" });
-  assert.equal(fetches, 1);
+  assert.equal(fetches, 2);
   failRead = true;
   await loadLabelTile(request, new AbortController());
-  assert.equal(fetches, 2, "Read errors fall back to the normal tile path");
+  assert.equal(fetches, 3, "Read errors fall back to the normal tile path");
+  await cacheLabelTile(`${url}?flush`, output, new Headers({ "Cache-Control": "public, max-age=86400" }));
   failRead = false; failWrite = true;
   assert(await loadLabelTile({ url: `${request.url}?quota` }, new AbortController()));
+  await cacheLabelTile(`${url}?flush`, output, new Headers({ "Cache-Control": "public, max-age=86400" }));
   assert.equal(entries.has(`${url}?quota`), false);
   failWrite = false; failOpen = true;
   assert(await loadLabelTile({ url: `${request.url}?unavailable` }, new AbortController()));
+  await cacheLabelTile(`${url}?flush`, output, new Headers({ "Cache-Control": "public, max-age=86400" }));
   failOpen = false;
   const headers = new Headers({ "Cache-Control": "public, max-age=86400" });
   for (let i = 0; i < 18; i++) await cacheLabelTile(`${url}?tile=${i}`, output, headers);
@@ -145,4 +171,4 @@ try {
   if (originalCaches) Object.defineProperty(globalThis, "caches", originalCaches);
   else Reflect.deleteProperty(globalThis, "caches");
 }
-console.log("PASS label cleanup, geometry/styles, routing, cancellation, cleaned-tile cache reuse/limits and storage failure fallback");
+console.log("PASS label cleanup, geometry/styles, routing, cancellation, background cache writes, buffer transfer, cache reuse/limits and storage failure fallback");

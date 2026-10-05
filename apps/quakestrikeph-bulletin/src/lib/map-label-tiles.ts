@@ -50,7 +50,7 @@ export const loadLabelTile: AddProtocolAction = async (request, controller) => {
     const value = response.headers.get(field);
     if (value) headers.set(field, value);
   }
-  await cacheLabelTile(url, data, headers);
+  void cacheLabelTile(url, data, headers);
   controller.signal.throwIfAborted();
   return {
     data,

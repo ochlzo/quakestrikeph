@@ -15,6 +15,7 @@ import { PreferencesScreen } from "./screens/PreferencesScreen";
 import { RecoveryScreen } from "./screens/RecoveryScreen";
 import { ReverificationScreen, SessionTaskScreen } from "./screens/VerificationScreens";
 import { useAccountFlow } from "./useAccountFlow";
+import { isPublicAccountScreen } from "./routes";
 
 export default function AccountApp({
   publishableKey,
@@ -91,8 +92,10 @@ function AccountFlow({ initial }: { initial: string; }) {
     busy, navigate, error, session,
     isSignedIn, isLoaded,
   } = flow;
+  const loadingPreferences = screen === "preferences" ||
+    (isLoaded && isSignedIn && !isPublicAccountScreen(screen));
   let content: ReactNode;
-  if (isAccountLoading && isLoaded && isSignedIn) content = <PreferencesLoading flow={flow} />;
+  if (isAccountLoading && loadingPreferences) content = <PreferencesLoading flow={flow} />;
   else if (isAccountLoading) content = <AuthLoading flow={flow} />;
   else if (session?.currentTask) content = <SessionTaskScreen flow={flow} />;
   else if (isSignedIn && !account && !["profile"].includes(screen)) content = <UnavailableAccountScreen flow={flow} />;
@@ -110,7 +113,7 @@ function AccountFlow({ initial }: { initial: string; }) {
   else content = <UnavailableActionScreen flow={flow} />;
   return (
     <Shell
-      screen={isAccountLoading && !(isLoaded && isSignedIn)
+      screen={isAccountLoading && !loadingPreferences
         ? initial === "signup" ? "signup" : "signin"
         : screen}
       name={account?.displayName ?? ""}

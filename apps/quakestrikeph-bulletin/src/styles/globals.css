@@ -935,8 +935,9 @@ a {
 .terrain-button {
   top: 14px;
   left: 14px;
-  min-width: 145px;
-  justify-content: space-between;
+  min-width: 0;
+  justify-content: flex-start;
+  gap: 6px;
   background: rgb(251 253 253 / 90%);
   color: var(--ink);
 }

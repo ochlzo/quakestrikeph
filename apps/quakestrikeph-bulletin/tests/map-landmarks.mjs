@@ -60,7 +60,6 @@ try {
   assert.equal(map.before, "native-poi", "Native symbols get collision priority");
   assert.equal(map.supplemental.paint["text-color"], nativeLayers[0].paint["text-color"]);
   assert.equal(map.supplemental.layout["text-font"], map.layers[0].layout["text-font"]);
-  assert(map.source.attribution.includes("CC BY 4.0"));
   assert(map.source.data.features.every((feature) => /^[A-Za-zñÑ0-9 ]*$/.test(feature.properties.display_name)));
   assert.deepEqual(map.supplemental.layout["text-field"], ["get", "display_name"]);
   assert.deepEqual(map.filters[0].at(-1), ["!", ["in", ["id"], ["literal", [1]]]]);

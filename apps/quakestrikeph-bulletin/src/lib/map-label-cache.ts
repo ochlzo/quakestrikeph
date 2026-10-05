@@ -25,11 +25,13 @@ export function cacheLabelTile(url: string, data: ArrayBuffer, headers: Headers)
   if (data.byteLength > maxTileBytes || /\b(no-store|no-cache|private)\b/i.test(headers.get("Cache-Control") || "")) {
     return Promise.resolve();
   }
+  // Copy the bytes before MapLibre transfers and detaches the returned tile buffer.
+  const response = new Response(data, { headers });
   writes = writes.then(async () => {
     const cache = await openCache();
     if (!cache) return;
     try {
-      await cache.put(url, new Response(data, { headers }));
+      await cache.put(url, response);
       // FIFO: retain 16 tiles of at most 2 MiB each (32 MiB of tile bodies).
       const keys = await cache.keys();
       await Promise.all(keys.slice(0, Math.max(0, keys.length - maxTiles)).map((key) => cache.delete(key)));

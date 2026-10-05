@@ -73,7 +73,6 @@ export async function addLandmarkLabels(map: MapLibreMap, signal: AbortSignal): 
       data: { type: "FeatureCollection", features: features.map((feature) => ({
         ...feature, properties: { ...feature.properties, display_name: cleanMapLabel(feature.properties.name) },
       })) },
-      attribution: '<a href="https://www.geonames.org/">GeoNames</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>',
     });
     map.addLayer({
       id: layerId,

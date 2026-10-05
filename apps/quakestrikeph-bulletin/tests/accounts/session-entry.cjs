@@ -9,21 +9,30 @@ const root = process.env.ACCOUNTS_FIXTURE_URL || 'http://127.0.0.1:4332';
   try {
     for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
       for (const signed of [0, 1]) {
-        const pendingPage = await browser.newPage({ viewport });
-        await pendingPage.route('**/clerk-fixture.tsx*', async route => {
-          const response = await route.fetch();
-          const source = await response.text();
-          assert(source.includes('isLoaded: true'), 'Fixture must expose the authentication loading state');
-          await route.fulfill({ response, body: source.replace('isLoaded: true', 'isLoaded: false') });
-        });
-        await pendingPage.goto(`${root}/?signed=${signed}`);
-        await pendingPage.locator('.account-loading').waitFor();
-        assert.equal(await pendingPage.locator('.preferences-loading').count(), 0,
-          'Unresolved authentication must not show preferences');
-        assert.equal(await pendingPage.locator('.account-app').getAttribute('data-screen'), 'signin');
-        assert.equal(await pendingPage.locator('.settings-rail').count(), 0);
-        assert.equal(await pendingPage.locator('.loading-tab').count(), 2);
-        await pendingPage.close();
+        for (const path of ['/sign-in', '/alerts']) {
+          const pendingPage = await browser.newPage({ viewport });
+          await pendingPage.route('**/clerk-fixture.tsx*', async route => {
+            const response = await route.fetch();
+            const source = await response.text();
+            assert(source.includes('isLoaded: true'), 'Fixture must expose the authentication loading state');
+            await route.fulfill({ response, body: source.replace('isLoaded: true', 'isLoaded: false') });
+          });
+          await pendingPage.goto(`${root}${path}?signed=${signed}`);
+          await pendingPage.locator('.account-loading').waitFor();
+          const alerts = path === '/alerts';
+          assert.equal(await pendingPage.locator('.preferences-loading').count(), alerts ? 1 : 0,
+            'The destination must select its loading skeleton before authentication resolves');
+          assert.equal(await pendingPage.locator('.account-app').getAttribute('data-screen'), alerts ? 'preferences' : 'signin');
+          assert.equal(await pendingPage.locator('.settings-rail').count(), alerts ? 1 : 0);
+          assert.equal(await pendingPage.locator('.loading-tab').count(), alerts ? 0 : 2);
+          assert.equal(await pendingPage.locator('#magnitude').count(), 0, 'Saved preferences must remain hidden');
+          assert.equal(await pendingPage.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+          if (signed === 1) {
+            await mkdir('.impeccable/review/alerts-skeleton', { recursive: true });
+            await pendingPage.screenshot({ path: `.impeccable/review/alerts-skeleton/pending-${alerts ? 'alerts' : 'signin'}-${viewport.width}.png`, fullPage: true });
+          }
+          await pendingPage.close();
+        }
       }
       const page = await browser.newPage({ viewport });
       const tokenModes = [];
@@ -49,6 +58,13 @@ const root = process.env.ACCOUNTS_FIXTURE_URL || 'http://127.0.0.1:4332';
           pending: null, nextStep: 'complete', deliveryAvailable: false,
         } });
       });
+      await page.goto(`${root}/sign-in?signed=1`);
+      await page.locator('.account-loading').waitFor();
+      assert.equal(await page.locator('.preferences-loading').count(), 0,
+        'Sign-in must keep its loading skeleton until navigation to alerts');
+      assert.equal(await page.locator('.account-app').getAttribute('data-screen'), 'signin');
+      assert.deepEqual(tokenModes, ['fixture:token-mode:cached']);
+      tokenModes.length = 0;
       await page.goto(`${root}/?signed=1`);
       await page.getByRole('status').filter({ hasText: 'Loading alert settings' }).waitFor();
       assert.equal(await page.locator('.preferences-loading [data-slot="skeleton"]').count(), 9);

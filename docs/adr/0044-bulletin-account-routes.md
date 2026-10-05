@@ -24,8 +24,10 @@ opens `/alerts`. This replaces the earlier return to the public Bulletin after
 authentication or the final onboarding save.
 
 Signed-out visits to protected destinations replace the route with `/sign-in`.
-Unknown authentication shows the authentication skeleton. Preferences are not
-shown until Clerk confirms a signed-in session. Backend session verification
+Unknown authentication shows the destination's loading skeleton: `/sign-in`
+shows authentication loading, and `/alerts` shows alert-settings loading.
+Saved preferences are not shown until Clerk confirms a signed-in session.
+Backend session verification
 and ownership checks remain authoritative; browser routing is a UX safeguard.
 
 The account React island retains the shared workflow and draft while local

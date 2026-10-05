@@ -19,6 +19,8 @@ import AlertsButton from "./AlertsButton";
 import MagnitudeFilter from "./MagnitudeFilter";
 import { magnitudeBand, magnitudeRangesForBands } from "../lib/magnitude";
 import { bulletinApi } from "../lib/api/client";
+import type { components } from "../lib/api/schema";
+import { readEarthquakeCache, writeEarthquakeCache, type EarthquakeSearch } from "../lib/earthquake-cache";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
 import { RangeCalendar } from "@/components/ui/calendar";
@@ -92,7 +94,8 @@ function phtDayBoundary(date: DateValue, nextDay = false) {
   ).toISOString();
 }
 
-export default function Bulletin() {
+export default function Bulletin({ initialResults = null }: { initialResults?: components["schemas"]["SearchResponse"] | null }) {
+  const initialPage = useRef(initialResults);
   useEffect(() => {
     const url = new URL(window.location.href);
     if (url.searchParams.get('preferences') !== 'saved') return;
@@ -115,7 +118,7 @@ export default function Bulletin() {
   const [calendarMonths, setCalendarMonths] = useState(1);
   const [magnitudeFilter, setMagnitudeFilter] = useState<string[]>([]);
   const [settledMagnitudeFilter, setSettledMagnitudeFilter] = useState(magnitudeFilter);
-  const [events, setEvents] = useState<Earthquake[]>([]);
+  const [events, setEvents] = useState<Earthquake[]>(initialResults?.items ?? []);
   const [settledLocation, setSettledLocation] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusRequest, setFocusRequest] = useState(0);
@@ -126,8 +129,8 @@ export default function Bulletin() {
   const [detailStatus, setDetailStatus] = useState<
     "loading" | "ready" | "error"
   >("loading");
-  const [status, setStatus] = useState<"loading" | "ready" | "error">(
-    "loading",
+  const [status, setStatus] = useState<"restoring" | "loading" | "ready" | "error">(
+    initialResults ? "ready" : "restoring",
   );
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [pageStatus, setPageStatus] = useState<"idle" | "loading" | "error">(
@@ -144,6 +147,13 @@ export default function Bulletin() {
   const location = query.trim();
 
   useEffect(() => () => pageController.current?.abort(), []);
+  useEffect(() => {
+    const refreshRestoredPage = (event: PageTransitionEvent) => {
+      if (event.persisted) setRequestAttempt((attempt) => attempt + 1);
+    };
+    window.addEventListener("pageshow", refreshRestoredPage);
+    return () => window.removeEventListener("pageshow", refreshRestoredPage);
+  }, []);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 760px)");
@@ -174,22 +184,35 @@ export default function Bulletin() {
 
     if (location.length === 1) return () => controller.abort();
 
+    const search: EarthquakeSearch = {
+      limit: 30,
+      location: location || undefined,
+      dateFrom: dateFilter.from,
+      dateTo: dateFilter.to,
+      magnitudeRanges: magnitudeRangesForBands(magnitudeFilter),
+    };
+    const initial = initialPage.current;
+    initialPage.current = null;
+    const cached = initial ? null : readEarthquakeCache(search);
+    if (initial) writeEarthquakeCache(search, initial);
+    if (cached) {
+      setEvents(cached.items);
+      setSettledLocation(location);
+      setSettledDateFilter(dateFilter);
+      setSettledMagnitudeFilter(magnitudeFilter);
+      setStatus("ready");
+    } else if (!initial) setStatus("loading");
+
     async function loadEvents() {
-      setStatus("loading");
       try {
         const { data } = await bulletinApi.POST("/earthquakes/search", {
-          body: {
-            limit: 30,
-            location: location || undefined,
-            dateFrom: dateFilter.from,
-            dateTo: dateFilter.to,
-            magnitudeRanges: magnitudeRangesForBands(magnitudeFilter),
-          },
+          body: search,
           signal: controller.signal,
         });
         if (controller.signal.aborted) return;
         if (!data) throw new Error("Search failed");
-        setEvents(data.items);
+        writeEarthquakeCache(search, data);
+        setEvents((current) => JSON.stringify(current) === JSON.stringify(data.items) ? current : data.items);
         setNextCursor(data.nextCursor);
         setSettledLocation(location);
         setSettledDateFilter(dateFilter);
@@ -201,6 +224,10 @@ export default function Bulletin() {
         setStatus("ready");
       } catch {
         if (!controller.signal.aborted) {
+          if (cached || initial) {
+            toast.add({ type: "error", title: "Earthquakes could not be refreshed.", description: "Showing saved results. Reload to try again." });
+            return;
+          }
           setSettledLocation(location);
           setSettledDateFilter(dateFilter);
           setSettledMagnitudeFilter(magnitudeFilter);

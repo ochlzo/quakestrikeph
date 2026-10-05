@@ -89,13 +89,26 @@ Map labels display English letters (A–Z), ñ, Ñ, digits, and spaces only in b
 
 Label cleanup runs inside MapLibre's existing worker rather than on the UI thread. Cleaned public tiles persist in a versioned browser Cache Storage cache keyed by the provider's snapshot URL. It retains at most 16 tiles, each no larger than 2 MiB (32 MiB of tile bodies), evicting older entries. Storage failures and oversized tiles fall back to normal worker processing; private/no-store/no-cache responses are not persisted. Bump the cache version whenever label rules change. This cache contains no earthquake, forecast, or account data.
 
-The homepage preconnects to OpenFreeMap, preloads Liberty's style and tile metadata, and begins loading the shared MapLibre runtime before React hydration completes. MapPanel reuses that same runtime promise; camera and interaction behavior are unchanged.
+The homepage preconnects to OpenFreeMap, preloads Liberty's style and tile metadata, and begins loading the shared MapLibre runtime before React hydration completes. The runtime prewarms MapLibre's worker after configuring its URL. MapPanel reuses that same runtime promise; camera and interaction behavior are unchanged. Transformed tiles return without waiting for cache writes. The cache copies tile bytes before MapLibre transfers the original buffer and stores that copy in the background.
 
 ## Layout
 
 At the approved desktop viewport, a 48px-high full-width header and filter strip sit above a left event panel and a larger right map. The event panel is roughly 558px wide at 1585px; the map takes the remaining width. At 760px and below, the map fills the viewport beneath the header and navigation. A bottom-center Show earthquakes button opens the shadcn snap-point drawer at 65% of viewport height; dragging or the expand control reaches full height. The drawer orders location search, a shared row of date and magnitude filters, and the earthquake list without its visible heading or subtitle. Contents scroll inside the drawer with hidden scrollbars and safe-area padding. Escape, outside pressing, a downward swipe, or the close control dismisses it; focus returns to its trigger. Filter and selection state persist between openings and breakpoint changes. Selecting a map marker shows its forecast on the map without scrolling the page. Desktop retains its inline filters and independently scrollable event panel.
 
 The mobile map retains the 24px circular question-mark legend control above attribution. Its compact vertical legend starts open and closes on a second tap, an outside press, map dragging, or Escape. Terrain, zoom, and recenter controls have compact 32px-tall surfaces with extended 44px touch areas. Zoom and recenter share a horizontal toolbar with subtle separators and 44px-wide buttons. The mobile scale has smaller text and a 96px maximum width. Attribution stays closed until clicked.
+
+The homepage renders the first 30 earthquake rows in its initial HTML using
+the public Backend API. A failed or timed-out server request leaves the browser
+to restore saved rows or retry. Hydration retains fresh server rows during the
+background request, rather than replacing them with an older browser result.
+When initial rows are unavailable, the list restores the last successful search from the same browser
+tab when its filters match. The cache contains at most 30 public summary rows;
+loading more rows does not enlarge it. The first page refreshes in the
+background without a saved-results timestamp. Fresh results replace the list and
+its pagination cursor; failed refreshes retain the saved rows and report the
+failure. Missing, invalid, or unavailable storage falls back to normal loading.
+Restoring a page through the browser's back/forward cache also refreshes the
+first page. The cache stores no private account data or event detail responses.
 
 ### Mobile forms and cards
 
