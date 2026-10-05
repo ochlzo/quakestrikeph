@@ -43,6 +43,7 @@ function BulletinHeader() {
   return (
     <header className="site-header bulletin-header">
       <SidebarTrigger className="aria-expanded:bg-transparent hover:aria-expanded:bg-muted" aria-label="Toggle sidebar" aria-expanded={isMobile ? openMobile : open} />
+      <a className="bulletin-mobile-title" href="/" aria-label="QuakeStrike PH Bulletin home">QuakeStrike PH</a>
       {!isMobile && (
         <nav className="site-nav" aria-label="Main navigation">
           <Tabs selectedKey="/" keyboardActivation="manual">

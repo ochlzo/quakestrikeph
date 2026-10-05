@@ -1,11 +1,15 @@
 import { Eye, EyeOff, MapPin, Settings, UserRound } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { RouterProvider } from "react-aria-components";
 import { Button } from "../../components/ui/button";
 import { Field, FieldError, FieldLabel } from "../../components/ui/field";
 import { Input } from "../../components/ui/input";
 import { Skeleton } from "../../components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
+import { useIsMobile } from "../../hooks/use-mobile";
 import AccountHeader from "./AccountHeader";
 import type { Screen } from "./routes";
+import { screenAtPath } from "./routes";
 export const passwordRequirements =
   "Use at least 8 characters, including one lowercase letter, one uppercase letter, and one number.";
 export const passwordPattern = "(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{8,}";
@@ -108,6 +112,22 @@ export function Shell({
   navigate: (screen: Screen) => void;
 }) {
   const wide = ["preferences", "location", "account"].includes(screen);
+  const isMobile = useIsMobile();
+  const [headerHidden, setHeaderHidden] = useState(false);
+  useEffect(() => {
+    setHeaderHidden(false);
+    if (!wide || !isMobile) return;
+    let previousY = window.scrollY;
+    function onScroll() {
+      const y = Math.max(0, Math.min(window.scrollY, document.documentElement.scrollHeight - window.innerHeight));
+      if (y <= 78) setHeaderHidden(false);
+      else if (Math.abs(y - previousY) < 8) return;
+      else setHeaderHidden(y > previousY);
+      previousY = y;
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [wide, isMobile]);
   const entry = [
     "signin",
     "signup",
@@ -119,7 +139,10 @@ export function Shell({
   ].includes(screen);
   const rootClass = `account-app map flow-screen ${wide ? "settings-workspace wide" : entry ? "account-entry" : "focused-shell"}`;
   return (
-    <div className={rootClass} data-screen={screen}>
+    <div className={rootClass} data-screen={screen} data-header-hidden={headerHidden || undefined}
+      onFocusCapture={(event) => {
+        if (event.target.closest(".header")) setHeaderHidden(false);
+      }}>
       <AccountHeader
         publicLink={
           screen === "signin" || screen === "signup" || screen === "forgot"
@@ -134,7 +157,19 @@ export function Shell({
                 {isLoading ? <Skeleton className="loading-name" aria-hidden="true" /> : <strong>{name}</strong>}
               </div>
             </div>
-            <nav aria-label="Settings">
+            <RouterProvider navigate={(path) => {
+              const next = screenAtPath(path);
+              if (next) navigate(next);
+            }}>
+              <Tabs className="settings-mobile-tabs" selectedKey={screen} keyboardActivation="manual" isDisabled={isLoading}>
+                <TabsList aria-label="Settings">
+                  <TabsTrigger id="preferences" href="/alerts"><Settings aria-hidden="true" /><span>Alert preferences</span></TabsTrigger>
+                  <TabsTrigger id="location" href="/alerts/location"><MapPin aria-hidden="true" /><span>Alert location</span></TabsTrigger>
+                  <TabsTrigger id="account" href="/account"><UserRound aria-hidden="true" /><span>Account</span></TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </RouterProvider>
+            <nav className="settings-desktop-nav" aria-label="Settings">
               <Button
                 isDisabled={isLoading}
                 aria-current={screen === "preferences" ? "page" : undefined}

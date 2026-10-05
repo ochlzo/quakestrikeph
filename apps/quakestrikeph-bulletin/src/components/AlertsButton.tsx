@@ -4,9 +4,9 @@ import { LinkButton } from "./ui/button";
 
 function AlertsLink({ signedIn = false }: { signedIn?: boolean }) {
   return (
-    <LinkButton className="alerts-button" href={signedIn ? "/alerts" : "/sign-in"}>
+    <LinkButton className="alerts-button" href={signedIn ? "/alerts" : "/sign-in"} aria-label={signedIn ? "Alert settings" : "Receive alerts"}>
       <Bell data-icon="inline-start" aria-hidden="true" />
-      {signedIn ? "Alert settings" : "Receive alerts"}
+      <span>{signedIn ? "Alert settings" : "Receive alerts"}</span>
     </LinkButton>
   );
 }

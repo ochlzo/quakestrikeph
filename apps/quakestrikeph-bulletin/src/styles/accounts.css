@@ -23,6 +23,43 @@
 }
 .account-app[data-screen="preferences"] .location-summary { border-bottom: 0; }
 .account-app .settings-rail .avatar { background: white; }
+.account-app .settings-mobile-tabs { display: none; }
+@media (max-width: 760px) {
+  .account-app.settings-workspace .header {
+    transition: transform 180ms ease-out;
+  }
+  .account-app.settings-workspace[data-header-hidden] .header {
+    transform: translateY(-100%);
+  }
+  .account-app.settings-workspace[data-header-hidden] .settings-rail { top: 0; }
+  .account-app .settings-rail {
+    position: sticky;
+    top: 78px;
+    z-index: 19;
+    flex-shrink: 0;
+    background: white;
+    transition: top 180ms ease-out;
+  }
+  .account-app .settings-rail nav.settings-desktop-nav { display: none; }
+  .account-app .settings-mobile-tabs { display: flex; }
+  .account-app .settings-mobile-tabs [data-slot="tabs-list"] {
+    width: 100%;
+    height: auto;
+    min-height: 50px;
+  }
+  .account-app .settings-mobile-tabs [data-slot="tabs-trigger"] {
+    min-width: 0;
+    min-height: 44px;
+    height: auto;
+    font-size: 12px;
+    text-decoration: none;
+    white-space: normal;
+    line-height: 1.35;
+  }
+  .account-app .settings-mobile-tabs [data-slot="tabs-trigger"][data-selected] {
+    color: var(--teal);
+  }
+}
 @media (min-width: 761px) {
   .account-app:is([data-screen="preferences"], [data-screen="account"]) form > .primary {
     display: flex;
@@ -221,6 +258,8 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
   100% { scale: 1 1; }
 }
 @media (prefers-reduced-motion: reduce) {
+  .account-app.settings-workspace .header,
+  .account-app.settings-workspace .settings-rail { transition: none; }
   .account-app .auth-tabs .mode-switch:has([data-key][data-selected])::before { transition: none; animation: none; }
   .account-app .auth-tabs .mode-switch [data-slot="tabs-trigger"] { transition: none; }
 }

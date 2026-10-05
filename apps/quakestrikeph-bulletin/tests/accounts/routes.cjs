@@ -38,9 +38,25 @@ const baseAccount = { userId: 'fixture-user', displayName: 'Maria Santos', email
         await page.getByRole('heading', { name: heading, exact: true }).waitFor();
       }
       await page.goto(`${root}/alerts?signed=1`);
+      if (viewport.width <= 760) {
+        await page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
+        await page.setViewportSize({ width: viewport.width, height: 600 });
+        await page.evaluate(() => window.scrollTo(0, 160));
+        await page.waitForFunction(() => document.querySelector('.account-app').hasAttribute('data-header-hidden'));
+        assert.equal(await page.locator('.settings-rail').evaluate(el => el.getBoundingClientRect().top), 0);
+        await page.evaluate(() => window.scrollTo(0, 120));
+        await page.waitForFunction(() => !document.querySelector('.account-app').hasAttribute('data-header-hidden'));
+        assert.equal(await page.locator('.settings-rail').evaluate(el => el.getBoundingClientRect().top), 78);
+        await page.evaluate(() => window.scrollTo(0, 160));
+        await page.waitForFunction(() => document.querySelector('.account-app').hasAttribute('data-header-hidden'));
+        await page.locator('.header .back').focus();
+        await page.waitForFunction(() => !document.querySelector('.account-app').hasAttribute('data-header-hidden'));
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.setViewportSize(viewport);
+      }
       await page.locator('#magnitude').fill('6.2');
       const before = gets;
-      await page.getByRole('button', { name: 'Alert location', exact: true }).click();
+      await page.getByRole(viewport.width <= 760 ? 'tab' : 'button', { name: 'Alert location', exact: true }).click();
       await page.getByRole('heading', { name: 'Choose your alert location', exact: true }).waitFor();
       assert.equal(new URL(page.url()).pathname, '/alerts/location');
       await page.goBack();
@@ -48,7 +64,7 @@ const baseAccount = { userId: 'fixture-user', displayName: 'Maria Santos', email
       assert.equal(await page.locator('#magnitude').inputValue(), '6.2');
       await page.goForward();
       await page.getByRole('heading', { name: 'Choose your alert location', exact: true }).waitFor();
-      await page.getByRole('button', { name: 'Alert preferences', exact: true }).click();
+      await page.getByRole(viewport.width <= 760 ? 'tab' : 'button', { name: 'Alert preferences', exact: true }).click();
       assert.equal(await page.locator('#magnitude').inputValue(), '6.2');
       assert.equal(gets, before, 'Local settings navigation must not reload the account');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -56,17 +72,17 @@ const baseAccount = { userId: 'fixture-user', displayName: 'Maria Santos', email
       await page.screenshot({ path: `.impeccable/review/account-routes/preferences-${viewport.width}.png`, fullPage: true });
       const dismiss = dialog => dialog.dismiss();
       page.on('dialog', dismiss);
-      await page.getByRole('button', { name: 'Account', exact: true }).click();
+      await page.getByRole(viewport.width <= 760 ? 'tab' : 'button', { name: 'Account', exact: true }).click();
       assert.equal(new URL(page.url()).pathname, '/alerts');
       page.off('dialog', dismiss);
       await page.getByRole('button', { name: 'Save preferences', exact: true }).click();
       await page.getByText('Alert preferences saved.', { exact: true }).waitFor();
-      await page.getByRole('button', { name: 'Account', exact: true }).click();
+      await page.getByRole(viewport.width <= 760 ? 'tab' : 'button', { name: 'Account', exact: true }).click();
       assert.equal(new URL(page.url()).pathname, '/account');
       await page.screenshot({ path: `.impeccable/review/account-routes/account-${viewport.width}.png`, fullPage: true });
       await page.goBack();
       await page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
-      await page.getByRole('button', { name: 'Account', exact: true }).click();
+      await page.getByRole(viewport.width <= 760 ? 'tab' : 'button', { name: 'Account', exact: true }).click();
       await page.locator('#name').fill('Unsaved name');
       page.on('dialog', dismiss);
       await page.goBack();
