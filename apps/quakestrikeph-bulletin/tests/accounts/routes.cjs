@@ -39,10 +39,27 @@ const baseAccount = { userId: 'fixture-user', displayName: 'Maria Santos', email
       }
       await page.goto(`${root}/alerts?signed=1`);
       await page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
-      assert.equal(await page.getByRole('button', { name: 'Toggle sidebar' }).getAttribute('aria-expanded'), 'false');
+      if (viewport.width <= 760) assert.equal(await page.getByRole('button', { name: 'Toggle sidebar' }).getAttribute('aria-expanded'), 'false');
+      else assert.equal(await page.getByRole('button', { name: 'Toggle sidebar' }).count(), 0);
+      if (viewport.width > 760) {
+        const sidebar = page.locator('[data-slot="sidebar-container"]');
+        const state = page.locator('[data-slot="sidebar"][data-state]');
+        const before = await page.locator('.account').boundingBox();
+        assert.equal(await page.locator('[data-slot="sidebar-gap"]').evaluate(el => el.getBoundingClientRect().width), 48);
+        await sidebar.hover();
+        await page.waitForFunction(() => document.querySelector('[data-slot="sidebar"][data-state]').dataset.state === 'expanded');
+        assert.equal((await page.locator('.account').boundingBox()).x, before.x);
+        await page.mouse.move(1000, 400);
+        await page.waitForFunction(() => document.querySelector('[data-slot="sidebar"][data-state]').dataset.state === 'collapsed');
+        await page.getByRole('link', { name: 'Earthquakes', exact: true }).focus();
+        assert.equal(await state.getAttribute('data-state'), 'expanded');
+        await page.getByRole('link', { name: 'Back to Bulletin', exact: true }).focus();
+        await page.waitForFunction(() => document.querySelector('[data-slot="sidebar"][data-state]').dataset.state === 'collapsed');
+      }
       assert.equal(await page.locator('.site-nav').count(), 0);
       assert.equal(await page.getByRole('link', { name: 'Back to Bulletin', exact: true }).getAttribute('href'), '/');
-      await page.getByRole('button', { name: 'Toggle sidebar' }).click();
+      if (viewport.width <= 760) await page.getByRole('button', { name: 'Toggle sidebar' }).click();
+      else await page.locator('[data-slot="sidebar-container"]').hover();
       await page.getByRole('link', { name: 'Earthquakes', exact: true }).waitFor();
       await page.getByRole('link', { name: 'About', exact: true }).waitFor();
       await page.getByRole('button', { name: 'User menu', exact: true }).click();
@@ -50,7 +67,10 @@ const baseAccount = { userId: 'fixture-user', displayName: 'Maria Santos', email
       await page.getByRole('menuitem', { name: 'Sign-out', exact: true }).waitFor();
       await page.getByRole('menuitem', { name: 'Account', exact: true }).press('Escape');
       if (viewport.width <= 760) await page.getByRole('button', { name: 'Close navigation', exact: true }).click();
-      else await page.getByRole('button', { name: 'Toggle sidebar' }).click();
+      else {
+        await page.getByRole('link', { name: 'Back to Bulletin', exact: true }).focus();
+        await page.mouse.move(1000, 400);
+      }
       if (viewport.width <= 760) {
         await page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
         await page.setViewportSize({ width: viewport.width, height: 600 });

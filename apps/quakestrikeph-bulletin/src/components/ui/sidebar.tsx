@@ -214,7 +214,7 @@ function Sidebar({
     <div
       className="group peer hidden text-sidebar-foreground min-[761px]:block"
       data-state={state}
-      inert={state === "collapsed"}
+      inert={state === "collapsed" && collapsible === "offcanvas"}
       data-collapsible={state === "collapsed" ? collapsible : ""}
       data-variant={variant}
       data-side={side}

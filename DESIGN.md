@@ -163,3 +163,5 @@ On mobile settings pages, downward scrolling slides the main header out and move
 The three account settings destinations share the Bulletin sidebar controls. Their standard sidebar starts collapsed on desktop and contains Earthquakes, Alert settings, About, and a user footer menu with Account and Sign-out. The desktop settings rail remains beside the form. The full-width header shows Back to Bulletin on desktop and a ChevronLeft link on mobile. Public Bulletin keeps its floating sidebar and header navigation.
 
 The settings user footer follows sidebar-07's NavUser structure: avatar, name, and email in both trigger and dropdown, with dividers before Account and Sign-out. The dropdown opens to the right on desktop and uses mobile placement with collision handling.
+
+On desktop, settings use a 48px icon gutter. Hover or keyboard focus expands the main sidebar over the page. Desktop settings have no sidebar toggles. The user dropdown keeps the sidebar expanded while open. Mobile retains the drawer.

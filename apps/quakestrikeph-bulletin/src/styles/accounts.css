@@ -541,3 +541,20 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
   .account-app .settings-bulletin-back svg { display: block; }
   .account-app .settings-bulletin-back span { display: none; }
 }
+
+@media (min-width: 761px) {
+  /* The sidebar expands over the page; its gutter keeps a constant width. */
+  .account-app .bulletin-settings-shell [data-slot="sidebar-gap"] { width: var(--sidebar-width-icon); }
+  .account-app .bulletin-settings-shell [data-slot="sidebar-container"] { z-index: 40; }
+  .bulletin-settings-shell .bulletin-mobile-nav a,
+  .bulletin-settings-shell .bulletin-brand-label { white-space: nowrap; }
+  .bulletin-settings-shell .bulletin-mobile-nav a span { flex-shrink: 0; }
+  .bulletin-settings-shell [data-collapsible="icon"] .bulletin-sidebar-head { padding: 16px 8px 12px; }
+  .bulletin-settings-shell [data-collapsible="icon"] .brand-mark { width: 32px; height: 32px; border-radius: 8px; }
+  .bulletin-settings-shell [data-collapsible="icon"] .bulletin-brand-label,
+  .bulletin-settings-shell [data-collapsible="icon"] .bulletin-mobile-nav a span,
+  .bulletin-settings-shell [data-collapsible="icon"] .settings-user-details,
+  .bulletin-settings-shell [data-collapsible="icon"] .settings-user-chevron { display: none; }
+  .bulletin-settings-shell [data-collapsible="icon"] .bulletin-mobile-nav { padding: 8px; }
+  .bulletin-settings-shell [data-collapsible="icon"] .bulletin-mobile-nav a { justify-content: center; padding: 8px; }
+}

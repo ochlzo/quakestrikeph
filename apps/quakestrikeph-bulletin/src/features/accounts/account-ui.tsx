@@ -15,8 +15,8 @@ import { screenAtPath } from "./routes";
 export const passwordRequirements =
   "Use at least 8 characters, including one lowercase letter, one uppercase letter, and one number.";
 export const passwordPattern = "(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{8,}";
-function SettingsUserMenu({ name, email, avatarUrl, isLoading, navigate, signOut }: {
-  name: string; email?: string; avatarUrl?: string; isLoading: boolean; navigate: (screen: Screen) => void; signOut?: () => void;
+function SettingsUserMenu({ name, email, avatarUrl, isLoading, navigate, signOut, onOpenChange }: {
+  name: string; email?: string; avatarUrl?: string; isLoading: boolean; navigate: (screen: Screen) => void; signOut?: () => void; onOpenChange: (open: boolean) => void;
 }) {
   const { isMobile, setOpenMobile } = useSidebar();
   const identity = (
@@ -25,7 +25,7 @@ function SettingsUserMenu({ name, email, avatarUrl, isLoading, navigate, signOut
         {name.slice(0, 1).toUpperCase()}
         {avatarUrl && <img src={avatarUrl} alt="" className="absolute inset-0 size-full object-cover" onError={(event) => { event.currentTarget.hidden = true; }} />}
       </span>
-      <span className="grid min-w-0 flex-1 text-left text-sm leading-tight">
+      <span className="settings-user-details grid min-w-0 flex-1 text-left text-sm leading-tight">
         <span className="truncate font-medium">{name || "Loading account…"}</span>
         <span className="truncate text-xs">{email}</span>
       </span>
@@ -34,9 +34,9 @@ function SettingsUserMenu({ name, email, avatarUrl, isLoading, navigate, signOut
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <MenuTrigger>
+        <MenuTrigger onOpenChange={onOpenChange}>
           <SidebarMenuButton size="lg" className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground" isDisabled={isLoading} aria-label="User menu">
-            {identity}<ChevronsUpDown className="ml-auto" aria-hidden="true" />
+            {identity}<ChevronsUpDown className="settings-user-chevron ml-auto" aria-hidden="true" />
           </SidebarMenuButton>
           <Popover placement={isMobile ? "bottom end" : "right bottom"} containerPadding={8} className="settings-user-popover">
             <div className="flex items-center gap-2 px-1 py-1.5">{identity}</div>
@@ -163,6 +163,7 @@ export function Shell({
   const wide = ["preferences", "location", "account"].includes(screen);
   const isMobile = useIsMobile();
   const [headerHidden, setHeaderHidden] = useState(false);
+  const [sidebarMenuOpen, setSidebarMenuOpen] = useState(false);
   useEffect(() => {
     setHeaderHidden(false);
     if (!wide || !isMobile) return;
@@ -274,8 +275,8 @@ export function Shell({
         if (event.target.closest(".header, .bulletin-header")) setHeaderHidden(false);
       }}>
       {wide ? (
-        <BulletinLayout settings filters={null} results={null}
-          sidebarFooter={<SettingsUserMenu name={name} email={email} avatarUrl={avatarUrl} isLoading={isLoading} navigate={navigate} signOut={signOut} />}>
+        <BulletinLayout settings filters={null} results={null} sidebarMenuOpen={sidebarMenuOpen}
+          sidebarFooter={<SettingsUserMenu name={name} email={email} avatarUrl={avatarUrl} isLoading={isLoading} navigate={navigate} signOut={signOut} onOpenChange={setSidebarMenuOpen} />}>
           {content}
         </BulletinLayout>
       ) : (

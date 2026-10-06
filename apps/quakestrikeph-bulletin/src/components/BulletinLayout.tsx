@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import { Activity, ChevronLeft, Earth, TextAlignStart, X } from "lucide-react";
 import AlertsButton from "./AlertsButton";
 import { Button } from "./ui/button";
@@ -7,15 +7,19 @@ import {
 } from "./ui/sidebar";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 
-function BulletinSidebar({ filters, results, settings = false, footer }: { filters: ReactNode; results: ReactNode; settings?: boolean; footer?: ReactNode }) {
+function BulletinSidebar({ filters, results, settings = false, footer, onHover, onFocus }: { filters: ReactNode; results: ReactNode; settings?: boolean; footer?: ReactNode; onHover?: (active: boolean) => void; onFocus?: (active: boolean) => void }) {
   const { isMobile, setOpenMobile } = useSidebar();
   return (
-    <Sidebar variant={settings ? "sidebar" : "floating"} collapsible="offcanvas" className="bulletin-sidebar">
+    <Sidebar variant={settings ? "sidebar" : "floating"} collapsible={settings ? "icon" : "offcanvas"} className="bulletin-sidebar"
+      onPointerEnter={() => { if (!isMobile) onHover?.(true); }}
+      onPointerLeave={() => onHover?.(false)}
+      onFocusCapture={() => { if (!isMobile) onFocus?.(true); }}
+      onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) onFocus?.(false); }}>
       <SidebarHeader className="bulletin-sidebar-head">
         <div className="bulletin-sidebar-brand">
           <a className="brand" href="/" aria-label="QuakeStrike PH Bulletin home">
             <span className="brand-mark"><Activity aria-hidden="true" /></span>
-            <span><strong>QuakeStrike PH</strong><small>Bulletin</small></span>
+            <span className="bulletin-brand-label"><strong>QuakeStrike PH</strong><small>Bulletin</small></span>
           </a>
           {isMobile && (
             <Button variant="ghost" size="icon" aria-label="Close navigation" onPress={() => setOpenMobile(false)}>
@@ -28,9 +32,9 @@ function BulletinSidebar({ filters, results, settings = false, footer }: { filte
       <SidebarContent className="bulletin-sidebar-content">
         {isMobile || settings ? (
           <nav className="bulletin-mobile-nav" aria-label="Main navigation">
-            <a href="/" aria-current={settings ? undefined : "page"} onClick={() => setOpenMobile(false)}><Earth aria-hidden="true" />Earthquakes</a>
+            <a href="/" aria-label="Earthquakes" aria-current={settings ? undefined : "page"} onClick={() => setOpenMobile(false)}><Earth aria-hidden="true" /><span>Earthquakes</span></a>
             <AlertsButton withinAccount={settings} />
-            <a href="/about"><TextAlignStart aria-hidden="true" />About</a>
+            <a href="/about" aria-label="About"><TextAlignStart aria-hidden="true" /><span>About</span></a>
           </nav>
         ) : results}
       </SidebarContent>
@@ -43,7 +47,7 @@ function BulletinHeader({ settings = false }: { settings?: boolean }) {
   const { isMobile, open, openMobile } = useSidebar();
   return (
     <header className="site-header bulletin-header">
-      <SidebarTrigger className="aria-expanded:bg-transparent hover:aria-expanded:bg-muted" aria-label="Toggle sidebar" aria-expanded={isMobile ? openMobile : open} />
+      {(!settings || isMobile) && <SidebarTrigger className="aria-expanded:bg-transparent hover:aria-expanded:bg-muted" aria-label="Toggle sidebar" aria-expanded={isMobile ? openMobile : open} />}
       <a className="bulletin-mobile-title" href="/" aria-label="QuakeStrike PH Bulletin home">QuakeStrike PH</a>
       {!isMobile && !settings && (
         <nav className="site-nav" aria-label="Main navigation">
@@ -64,12 +68,14 @@ function BulletinHeader({ settings = false }: { settings?: boolean }) {
   );
 }
 
-export default function BulletinLayout({ filters, results, children, settings = false, sidebarFooter }: {
-  filters: ReactNode; results: ReactNode; children: ReactNode; settings?: boolean; sidebarFooter?: ReactNode;
+export default function BulletinLayout({ filters, results, children, settings = false, sidebarFooter, sidebarMenuOpen = false }: {
+  filters: ReactNode; results: ReactNode; children: ReactNode; settings?: boolean; sidebarFooter?: ReactNode; sidebarMenuOpen?: boolean;
 }) {
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
   return (
-    <SidebarProvider defaultOpen={!settings} className={`bulletin-app bulletin-shell${settings ? " bulletin-settings-shell" : ""}`} style={{ "--sidebar-width": "var(--bulletin-sidebar-width, 16rem)" } as CSSProperties}>
-      <BulletinSidebar filters={filters} results={results} settings={settings} footer={sidebarFooter} />
+    <SidebarProvider defaultOpen={!settings} {...(settings ? { open: hovered || focused || sidebarMenuOpen, onOpenChange: () => {} } : {})} className={`bulletin-app bulletin-shell${settings ? " bulletin-settings-shell" : ""}`} style={{ "--sidebar-width": "var(--bulletin-sidebar-width, 16rem)" } as CSSProperties}>
+      <BulletinSidebar filters={filters} results={results} settings={settings} footer={sidebarFooter} onHover={setHovered} onFocus={setFocused} />
       <div className="bulletin-main">
         <BulletinHeader settings={settings} />
         <main className="dashboard">{children}</main>
