@@ -6,6 +6,8 @@ services:
       dockerfile: apps/quakestrikeph-bulletin/Dockerfile
       args:
         PUBLIC_CLERK_PUBLISHABLE_KEY: ${PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+      labels:
+        org.opencontainers.image.revision: ${BULLETIN_IMAGE_TAG:?Set BULLETIN_IMAGE_TAG to the tested Git commit SHA}
     networks: [backend-edge]
     restart: unless-stopped
     mem_limit: 256m

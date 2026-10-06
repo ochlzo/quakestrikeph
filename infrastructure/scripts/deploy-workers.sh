@@ -97,7 +97,7 @@ done
 if docker image inspect "quakestrike-bulletin:$sha" >/dev/null 2>&1; then
     [[ $(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "quakestrike-bulletin:$sha") == "$sha" ]]
 else
-    docker build --quiet --label "org.opencontainers.image.revision=$sha" -t "quakestrike-bulletin:$sha" -f apps/quakestrikeph-bulletin/Dockerfile .
+    web_compose build --quiet bulletin
 fi
 
 if docker image inspect "quakestrike-workers:$sha" >/dev/null 2>&1; then

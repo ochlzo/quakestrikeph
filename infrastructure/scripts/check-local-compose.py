@@ -42,6 +42,12 @@ production = configuration(
     "compose.yml", "compose.backend.yml", "compose.edge.yml", "compose.bulletin.yml"
 )
 assert {"traefik", "cloudflared"} <= set(production["services"])
+bulletin = production["services"]["bulletin"]
+assert set(bulletin["build"]["args"]) == {"PUBLIC_CLERK_PUBLISHABLE_KEY"}
+assert (
+    bulletin["build"]["labels"]["org.opencontainers.image.revision"]
+    == bulletin["image"].rsplit(":", 1)[1]
+)
 for service in ("backend-api", "bulletin", "postgres", "redis"):
     assert not production["services"][service].get("ports")
 print("Local isolation and explicit production edge checks passed.")
