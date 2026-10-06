@@ -61,6 +61,7 @@ export function FormField({
   label,
   labelAction,
   inputSuffix,
+  inputAction,
   error,
   type = "text",
   ...props
@@ -69,6 +70,7 @@ export function FormField({
   label: string;
   labelAction?: ReactNode;
   inputSuffix?: string;
+  inputAction?: ReactNode;
   error?: string;
 } & React.ComponentProps<typeof Input>) {
   const [visible, setVisible] = useState(false);
@@ -129,6 +131,7 @@ export function FormField({
           }
         />
         {inputSuffix && <span style={{ left: `calc(14px + ${String(props.value ?? "").length}ch + 6px)` }}>{inputSuffix}</span>}
+        {inputAction}
         {type === "password" && (
           <Button
             className="show-password"

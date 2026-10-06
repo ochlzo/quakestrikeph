@@ -6,6 +6,8 @@ import {
   Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarProvider, SidebarTrigger, useSidebar,
 } from "./ui/sidebar";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
+import { RouterProvider } from 'react-aria-components';
+import { navigate } from 'astro:transitions/client';
 
 function BulletinSidebar({ filters, results, settings = false, footer, onHover, onFocus }: { filters: ReactNode; results: ReactNode; settings?: boolean; footer?: ReactNode; onHover?: (active: boolean) => void; onFocus?: (active: boolean) => void }) {
   const { isMobile, setOpenMobile } = useSidebar();
@@ -74,6 +76,7 @@ export default function BulletinLayout({ filters, results, children, settings = 
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   return (
+    <RouterProvider navigate={(href) => void navigate(href)}>
     <SidebarProvider defaultOpen={!settings} {...(settings ? { open: hovered || focused || sidebarMenuOpen, onOpenChange: () => {} } : {})} className={`bulletin-app bulletin-shell${settings ? " bulletin-settings-shell" : ""}`} style={{ "--sidebar-width": "var(--bulletin-sidebar-width, 16rem)" } as CSSProperties}>
       <BulletinSidebar filters={filters} results={results} settings={settings} footer={sidebarFooter} onHover={setHovered} onFocus={setFocused} />
       <div className="bulletin-main">
@@ -81,5 +84,6 @@ export default function BulletinLayout({ filters, results, children, settings = 
         <main className="dashboard">{children}</main>
       </div>
     </SidebarProvider>
+    </RouterProvider>
   );
 }

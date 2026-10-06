@@ -1,4 +1,6 @@
 import { createRoot } from 'react-dom/client';
+import './resume-fixture';
+import './channels-fixture';
 import AccountApp from '../../src/features/accounts/AccountApp';
 import AlertsButton from '../../src/components/AlertsButton';
 import './styles.css';

@@ -1,80 +1,63 @@
-// Provisional choices never write alert preferences or contact a provider.
+// Isolated fake destinations only; no live Clerk or SMS requests.
 const assert = require('node:assert/strict');
-const { mkdir } = require('node:fs/promises');
 const { chromium } = require('playwright');
 const root = process.env.ACCOUNTS_FIXTURE_URL || 'http://127.0.0.1:4332';
 (async () => {
   const browser = await chromium.launch({ channel: 'msedge', headless: true });
   try {
-    await mkdir('.impeccable/review/accounts', { recursive: true });
-    for (const viewport of [{ width: 1528, height: 867 }, { width: 390, height: 827 }, { width: 390, height: 600 }]) {
-      const { width, height } = viewport;
-      const page = await browser.newPage({ viewport });
-      const writes = [], errors = [];
-      page.on('pageerror', error => errors.push(error.message));
-      await page.route('**/api/v1/account**', route => {
-        if (route.request().method() !== 'GET') writes.push(route.request().method());
-        return route.fulfill({ json: { account: {
-          userId: '11111111-1111-4111-8111-111111111111', displayName: 'Maria',
-          email: 'maria@example.com', phone: null, onboardingCompleted: false, status: 'active',
-          emailEnabled: false, smsEnabled: false, magnitude: 4.5, nearbyOnly: false,
-          latitude: null, longitude: null, distanceKm: null,
-        }, pending: null, nextStep: 'channels', deliveryAvailable: false } });
+    for (const mode of ['email', 'sms', 'both', 'none', 'skip', 'failure']) {
+      const page = await browser.newPage();
+      const writes = [];
+      page.on('console', message => {
+        if (message.text().startsWith('fixture:channels:saved:'))
+          writes.push(JSON.parse(message.text().slice('fixture:channels:saved:'.length)));
       });
-      const sms = page.getByRole('checkbox', { name: /^SMS/ });
-      const email = page.getByRole('checkbox', { name: /^Email/ });
-      const neither = page.getByRole('checkbox', { name: /^Neither for now/ });
-      const next = page.getByRole('button', { name: 'Continue', exact: true });
-      await page.goto(`${root}/?signed=1`);
-      await sms.waitFor();
-      assert.deepEqual(await page.locator('.choice strong').allTextContents(), ['SMS', 'Email', 'Neither for now']);
-      assert.equal(await sms.isChecked(), true);
-      assert.equal(await email.isChecked(), false);
-      assert.equal(await neither.isChecked(), false);
-      await page.evaluate(() => document.fonts.ready);
-      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-      assert.equal(await page.evaluate(() => getComputedStyle(document.body).overflow), 'hidden');
-      await page.evaluate(() => window.scrollTo(0, 500));
-      assert.equal(await page.evaluate(() => window.scrollY), 0);
-      assert.equal(await page.locator('.account').evaluate(el => el.scrollHeight > el.clientHeight), height === 600);
-      assert.equal(await page.locator('.account h2').evaluate(el => getComputedStyle(el).marginTop), '0px');
-      if (width === 390) {
-        assert.equal(await page.locator('.account').evaluate(el => getComputedStyle(el).borderRadius), '0px');
-        assert.equal(await page.locator('.account-app').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(255, 255, 255)');
-      } else {
-        assert.deepEqual(await page.locator('.account').evaluate(el => {
-          const style = getComputedStyle(el);
-          return [style.paddingTop, style.paddingBottom];
-        }), ['24px', '24px']);
+      await page.goto(`${root}/onboarding?signed=1&channel-test=${mode}`);
+      const sms = ['sms', 'both', 'skip'].includes(mode);
+      const email = ['email', 'both', 'skip', 'failure'].includes(mode);
+      await page.getByRole('checkbox', { name: 'SMS Verify a supported Philippine mobile number.' }).setChecked(sms);
+      await page.getByRole('checkbox', { name: 'Email Use your verified account email.' }).setChecked(email);
+      assert.equal(writes.length, 0, 'Draft choices must not write');
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
+      if (sms) await page.getByRole('heading', { name: 'Add your mobile number' }).waitFor();
+      else await page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
+      assert.equal(writes[0].emailEnabled, email);
+      assert.equal(writes[0].smsEnabled, false);
+      if (mode === 'skip') {
+        await page.getByRole('button', { name: 'Continue without SMS', exact: true }).click();
+      } else if (sms) {
+        await page.getByRole('textbox', { name: 'Mobile number', exact: true }).fill('09171234567');
+        await page.getByRole('button', { name: 'Send verification code', exact: true }).click();
+        assert.equal(writes.length, 1, 'Sending a code must not enable SMS');
+        await page.getByRole('textbox', { name: 'Verification code' }).fill('111111');
+        await page.getByRole('button', { name: 'Verify code', exact: true }).click();
       }
-      await page.screenshot({ path: `.impeccable/review/accounts/channels-${width}-${height}.png`, fullPage: true });
-      await next.click();
-      await page.getByRole('heading', { name: 'Add your mobile number' }).waitFor();
-      await page.goto(`${root}/?signed=1`);
-      await email.check();
-      assert.equal(await sms.isChecked(), true);
-      await neither.check();
-      assert.equal(await sms.isChecked(), false);
-      assert.equal(await email.isChecked(), false);
-      await email.focus();
-      await email.press('Space');
-      assert.equal(await neither.isChecked(), false);
-      await next.click();
       await page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
-      assert.equal(await page.getByRole('switch', { name: 'Email alerts', exact: true }).isChecked(), false);
-      await page.goto(`${root}/?signed=1`);
-      await email.check();
-      await next.click();
-      await page.getByRole('heading', { name: 'Add your mobile number' }).waitFor();
-      await page.goto(`${root}/?signed=1`);
-      await sms.uncheck();
-      assert.equal(await neither.isChecked(), true);
-      await next.click();
-      await page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
-      assert.deepEqual(writes, []);
-      assert.deepEqual(errors, []);
+      assert.equal(await page.getByRole('button', { name: 'Save preferences', exact: true }).count(), 0);
+      assert.equal(writes.at(-1).smsEnabled, sms && mode !== 'skip');
+      const emailSwitch = page.getByRole('switch', { name: 'Email alerts', exact: true });
+      await page.getByLabel('Alert me for earthquakes of magnitude:').fill('6.0');
+      await page.getByRole('button', { name: 'Discard magnitude changes' }).click();
+      assert.equal(await page.locator('#magnitude').inputValue(), '4.5');
+      await emailSwitch.click();
+      if (mode === 'failure') {
+        await page.getByText('Fixture save failed. Try again.', { exact: true }).waitFor();
+        assert.equal(await emailSwitch.isChecked(), email);
+        await emailSwitch.click();
+      }
+      await page.waitForTimeout(600);
+      assert.equal(writes.at(-1).emailEnabled, !email);
+      assert.equal(writes.at(-1).magnitude, 4.5);
+      await page.getByLabel('Alert me for earthquakes of magnitude:').fill('6.0');
+      await page.getByRole('button', { name: 'Save magnitude', exact: true }).click();
+      await page.waitForTimeout(200);
+      assert.equal(writes.at(-1).magnitude, 6);
+      await page.reload();
+      await emailSwitch.waitFor();
+      assert.equal(await emailSwitch.isChecked(), !email);
+      assert.equal(await page.locator('#magnitude').inputValue(), '6.0');
       await page.close();
     }
-    console.log('SMS default, independent choices, Neither exclusion, keyboard operation, routing, and desktop/mobile checks passed.');
+    console.log('Onboarding commits, verified SMS opt-in, background saves, discard and rollback passed.');
   } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exit(1); });
+})().catch(error => { console.error(error); process.exitCode = 1; });

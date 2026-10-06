@@ -66,6 +66,6 @@ export function writeAccountRoute(path: string, replace = false): void {
   const samePath = location.pathname === path;
   const index = typeof history.state?.accountIndex === "number" ? history.state.accountIndex : 0;
   history[replace || samePath ? "replaceState" : "pushState"](
-    { accountIndex: index + (replace || samePath ? 0 : 1) }, "", path,
+    { ...history.state, accountIndex: index + (replace || samePath ? 0 : 1) }, "", path,
   );
 }

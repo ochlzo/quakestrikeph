@@ -1,5 +1,7 @@
 ---
 import AccountApp from '../features/accounts/AccountApp';
+import { ClientRouter } from 'astro:transitions';
+import BackgroundToaster from '../components/BackgroundToaster';
 import '../styles/globals.css';
 import '../styles/account-reference.css';
 import '../styles/account-flow.css';
@@ -13,12 +15,14 @@ const { title, initial } = Astro.props;
 <!doctype html>
 <html lang="en">
   <head>
+    <ClientRouter />
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="robots" content="noindex" />
     <title>{title} · QuakeStrike PH Bulletin</title>
   </head>
   <body>
-    <AccountApp publishableKey={import.meta.env.PUBLIC_CLERK_PUBLISHABLE_KEY ?? ''} initial={initial} client:only="react" />
+    <AccountApp publishableKey={import.meta.env.PUBLIC_CLERK_PUBLISHABLE_KEY ?? ''} initial={initial} externalToaster client:only="react" />
+    <BackgroundToaster client:only="react" transition:persist="account-notifications" />
   </body>
 </html>

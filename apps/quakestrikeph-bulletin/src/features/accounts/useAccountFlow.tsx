@@ -15,15 +15,7 @@ import {
 } from "./api";
 import { usePlaces } from "./LocationPicker";
 import { initialScreen, isPublicAccountScreen, pathForScreen, screenAtPath, writeAccountRoute, type Screen } from "./routes";
-const preferences = (account: Account): Preferences => ({
-  emailEnabled: account.emailEnabled,
-  smsEnabled: account.smsEnabled,
-  magnitude: account.magnitude,
-  nearbyOnly: account.nearbyOnly,
-  latitude: account.latitude,
-  longitude: account.longitude,
-  distanceKm: account.distanceKm,
-});
+import { accountPreferences as preferences, preferenceSaves, clearPreferenceSaves, type PreferenceSaves } from './preference-saves';
 const blank: Preferences = {
   emailEnabled: false,
   smsEnabled: false,
@@ -46,7 +38,7 @@ function showAuthError(message: string, mode: "signin" | "signup") {
   });
 }
 export function useAccountFlow(initial: string) {
-  const { isLoaded, isSignedIn, getToken } = useAuth({
+  const { isLoaded, isSignedIn, getToken, userId, sessionId } = useAuth({
     treatPendingAsSignedOut: false,
   });
   const { user } = useUser();
@@ -62,6 +54,8 @@ export function useAccountFlow(initial: string) {
   const [account, setAccount] = useState<Account | null>(null);
   const [pending, setPending] = useState<PendingPhone | null>(null);
   const [draft, setDraft] = useState<Preferences>({ ...blank });
+  const [saves, setSaves] = useState<PreferenceSaves | null>(null);
+  const onboardingSms = useRef(false);
   const [name, setName] = useState(""),
     [email, setEmail] = useState(""),
     [password, setPassword] = useState("");
@@ -86,6 +80,7 @@ export function useAccountFlow(initial: string) {
   >("password");
   const heading = useRef<HTMLDivElement>(null),
     signedOnce = useRef(false);
+  const signupProfileName = useRef<string | null>(null);
   const { list } = usePlaces();
   const [locationEdit, setLocationEdit] = useState<Pick<Preferences, "latitude" | "longitude" | "distanceKm"> | null>(null);
   const [leaveAction, setLeaveAction] = useState<(() => void) | null>(null);
@@ -95,7 +90,7 @@ export function useAccountFlow(initial: string) {
   const allowLeave = useRef(false);
   const dirty =
     account &&
-    (locationEdit !== null || JSON.stringify(draft) !== JSON.stringify(preferences(account)) ||
+    (locationEdit !== null ||
       (screen === "account" && name !== account.displayName));
   const active = useRef(true);
   const historyIndex = useRef<number>(history.state?.accountIndex ?? 0);
@@ -178,7 +173,8 @@ export function useAccountFlow(initial: string) {
       event.returnValue = "";
     };
     const click = (event: MouseEvent) => {
-      const anchor = (event.target as Element).closest("a[href]");
+      if (allowLeave.current) return;
+      const anchor = (event.target as Element).closest<HTMLAnchorElement>("a[href]");
       if (!anchor || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey ||
         anchor.getAttribute("target") === "_blank" || anchor.hasAttribute("download") ||
         anchor.getAttribute("href")?.startsWith("#")) return;
@@ -188,7 +184,8 @@ export function useAccountFlow(initial: string) {
       if (!locationEdit && ["preferences", "location"].includes(screen) && next && ["preferences", "location"].includes(next)) return;
       event.preventDefault();
       event.stopPropagation();
-      confirmLeave(() => next && ["preferences", "location", "account"].includes(next) ? setScreen(next) : location.assign(destination.href));
+      confirmLeave(() => next && ["preferences", "location", "account"].includes(next)
+        ? setScreen(next) : destination.origin === location.origin ? anchor.click() : location.assign(destination.href));
     };
     window.addEventListener("beforeunload", beforeUnload);
     document.addEventListener("click", click, true);
@@ -204,7 +201,7 @@ export function useAccountFlow(initial: string) {
   }
   function discardAndLeave() {
     if (!leaveAction || savingBeforeLeave) return;
-    if (account) { setDraft(preferences(account)); setName(account.displayName); }
+    if (account) { setDraft(saves?.snapshot.preferences ?? preferences(account)); setName(account.displayName); }
     setLocationEdit(null);
     allowLeave.current = true;
     const action = leaveAction;
@@ -223,8 +220,7 @@ export function useAccountFlow(initial: string) {
     setLeaveError("");
     try {
       let next = account;
-      if (locationEdit || JSON.stringify(draft) !== JSON.stringify(preferences(account)))
-        next = await api<Account>("/preferences", "PUT", { ...draft, ...locationEdit });
+      if (locationEdit) saves?.save(locationEdit, 0);
       if (screen === "account" && name !== account.displayName)
         next = await api<Account>("/profile", "PUT", { displayName: name });
       updateAccount(next);
@@ -249,12 +245,67 @@ export function useAccountFlow(initial: string) {
     }
   }
   function updateAccount(next: Account) {
-    setAccount(next);
-    setDraft(preferences(next));
+    const queue = preferenceSaves(`${userId}:${sessionId}`, next, async (value) => {
+      const token = await getToken({ skipCache: true });
+      return accountRequest<Account>(token, '/preferences', 'PUT', value);
+    }, (message) => toast.add({ id: 'account-preference-save-error', type: 'error', title: message, timeout: 0 }));
+    setSaves(queue);
+    setAccount(queue.snapshot.account);
+    setDraft(queue.snapshot.preferences);
     setName(next.displayName);
   }
+  useEffect(() => {
+    if (!saves) return;
+    const sync = () => {
+      setAccount(saves.snapshot.account);
+      setDraft(saves.snapshot.preferences);
+    };
+    sync();
+    return saves.subscribe(sync);
+  }, [saves]);
+  function savePreferences(patch: Partial<Preferences>, delay = 400) {
+    if (!saves) return;
+    if (patch.nearbyOnly && (draft.latitude === null || draft.longitude === null || draft.distanceKm === null)) {
+      toast.add({ type: 'error', title: 'Choose an alert location and distance first.' });
+      return;
+    }
+    saves.save(patch, delay);
+  }
+  async function saveOnboardingChannels() {
+    if (!account) return;
+    const sms = channels.includes('sms');
+    const next = await api<Account>('/preferences', 'PUT', {
+      ...preferences(account), emailEnabled: channels.includes('email') && emailVerified,
+      smsEnabled: sms && phoneVerified,
+    });
+    updateAccount(next);
+    onboardingSms.current = sms && !phoneVerified;
+    setScreen(onboardingSms.current ? 'phone' : 'preferences', true,
+      onboardingSms.current ? '/onboarding' : '/alerts');
+  }
+  async function finishPhone(next: Account) {
+    updateAccount(next);
+    setScreen('preferences', true, '/alerts');
+    if (onboardingSms.current) {
+      // Destination proof must commit before the separate explicit SMS opt-in.
+      const enabled = await api<Account>('/preferences', 'PUT', { ...preferences(next), smsEnabled: true });
+      updateAccount(enabled);
+      onboardingSms.current = false;
+    }
+  }
+  async function skipPhone() {
+    if (pending) await api('/phone/attempts', 'DELETE');
+    onboardingSms.current = false;
+    setPending(null);
+    setScreen('preferences', true, '/alerts');
+  }
   async function resume() {
-    const state = await api<AccountState>();
+    let state = await api<AccountState>();
+    if (state.nextStep === "profile" && signupProfileName.current?.trim()) {
+      await api<Account>("/profile", "PUT", { displayName: signupProfileName.current });
+      signupProfileName.current = null;
+      state = await api<AccountState>();
+    }
     if (state.account) updateAccount(state.account);
     setPending(state.pending);
     if (state.nextStep === "complete") {
@@ -276,6 +327,7 @@ export function useAccountFlow(initial: string) {
       return;
     }
     if (!isSignedIn) {
+      clearPreferenceSaves();
       signedOnce.current = false;
       const requested = screenAtPath(location.pathname) ?? initialScreen(initial);
       const next = isPublicAccountScreen(requested) ? requested : "signin";
@@ -285,6 +337,7 @@ export function useAccountFlow(initial: string) {
     }
     if (signedOnce.current) return;
     signedOnce.current = true;
+    setLoading(true);
     resume()
       .catch((e) => {
         setError(
@@ -310,13 +363,16 @@ export function useAccountFlow(initial: string) {
   }
   function switchAuthMode(next: "signin" | "signup") {
     if (busy || next === screen) return;
+    signupProfileName.current = null;
     setPassword("");
     navigate(next);
   }
   function reportError(message: string) {
     if ((screen === "signin" || screen === "signup") && !session?.currentTask)
       showAuthError(message, screen);
-    else setError(message);
+    else if (isSignedIn && !account && screen !== "profile" && !session?.currentTask)
+      setError(message);
+    else toast.add({ id: `account-${screen}-error`, type: "error", title: message, timeout: 8000 });
   }
   async function action(work: () => Promise<void>, generic?: string) {
     if (busy) return;
@@ -604,7 +660,8 @@ export function useAccountFlow(initial: string) {
       error={fieldErrors.code}
     />
   );
-  const isAccountLoading = !isLoaded || loading;
+  const isAccountLoading = !isLoaded || loading ||
+    (isSignedIn && !session?.currentTask && !signedOnce.current);
   return {
     code,
     screen,
@@ -624,6 +681,7 @@ export function useAccountFlow(initial: string) {
     google,
     form,
     signUp,
+    signupProfileName,
     email,
     setPassword,
     setSentAt,
@@ -645,6 +703,10 @@ export function useAccountFlow(initial: string) {
     user,
     api,
     updateAccount,
+    savePreferences,
+    saveOnboardingChannels,
+    finishPhone,
+    skipPhone,
     clerk,
     channels,
     setChannels,

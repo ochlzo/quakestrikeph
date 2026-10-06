@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { toast, Toaster } from "./ui/toast";
+import { toast } from "./ui/toast";
 import { today } from "@internationalized/date";
 import { Dialog, type DateValue, type RangeValue } from "react-aria-components";
 import {
@@ -711,7 +711,6 @@ export default function Bulletin({ initialResults = null }: { initialResults?: c
 
   return (
     <BulletinLayout filters={filters} results={earthquakeList}>
-      <Toaster />
       <div className="content-grid">
         <div className="map-stage">
           <MapPanel

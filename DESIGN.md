@@ -120,6 +120,8 @@ At 760px and below, prefer fewer visible cards. Simple forms, including profile 
 
 Keep short forms near the top, below the header. Do not vertically center them by default. Allow scrolling when content or the open keyboard reduces available space. Empty space below a short form is acceptable.
 
+Apply the white mobile page to every account screen, including authentication, recovery, onboarding, phone verification, identity verification, and password forms. Hide the decorative story/map panel on mobile. Preserve desktop cards and the existing form controls.
+
 Use cards when their boundaries help users distinguish separate groups, selectable options, or independent items. Avoid wrapping an entire mobile task in a card merely to repeat the desktop layout. Desktop may retain its centered card.
 
 ## Elevation & Depth
@@ -143,6 +145,8 @@ Bulletin filters match the account fields: 52px height, 14px horizontal padding,
 - **Navigation:** Earthquakes and About use shadcn Tabs with native page links and manual keyboard activation. The tab list uses a neutral surface; the selected tab has a pale teal background and teal text. On desktop, the tabs sit at the horizontal center of the header, with the brand left and Receive alerts right. Receive alerts stays a separate teal action. Mobile tabs fill the navigation row with equal-width triggers, a 36px list, 30px triggers, and 14px Geist Variable at weight 600 (700 for the active item). Only public reading is available without an account; alert setup is labeled as planned.
 
 ### Error and success feedback
+
+The account name starts read-only. An Edit button beside the Name label enables editing. During editing, background-free Lucide Check and X buttons replace Edit. The green Check saves the name; the red X discards the draft and restores the saved name. The form has no separate Save profile button.
 
 These rules record the user's preferred behavior for new screens and related refinements. Existing screens may still need updates.
 

@@ -61,14 +61,30 @@ pnpm exec vite --config tests/accounts/vite.config.mjs
 node tests/accounts/flows.cjs
 node tests/accounts/signup.cjs
 node tests/accounts/passwords.cjs
+node tests/accounts/channels.cjs
+node --experimental-strip-types --test tests/accounts/preference-saves.test.mjs
 ```
 
 As with the existing Bulletin browser checks, expose the bundled Playwright
 package via `NODE_PATH` when it is not installed locally. The fixture server
-uses a test-only Clerk alias; Astro has no such alias, environment toggle or
-public fixture route. Screenshots and results go to the ignored
+uses a test-only Clerk alias. The production configuration has no fixture alias,
+environment toggle or public fixture route. Screenshots and results go to the ignored
 `.impeccable/review/accounts` folder. Fixtures validate UI transitions; they
 do not prove live Clerk or IPROG success.
+
+For saves across Astro navigation, start the isolated Astro configuration in
+another terminal, then run its browser regression:
+
+```powershell
+$env:PUBLIC_CLERK_PUBLISHABLE_KEY='FIXTURE_ONLY'
+pnpm exec astro dev --config tests/accounts/astro.config.mjs --host 127.0.0.1 --port 4333
+node tests/accounts/background-saves.cjs
+```
+
+This configuration aliases test adapters only. Onboarding Continue commits
+channel choices; selected SMS commits only after verification. Switch saves
+use a 400 ms debounce. Magnitude Check saves; X discards. Failed background
+writes restore confirmed values and show a dismissible error across navigation.
 
 ## Provider and release gates
 

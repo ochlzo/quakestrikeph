@@ -21,7 +21,7 @@ const root = process.env.ACCOUNTS_FIXTURE_URL || 'http://127.0.0.1:4332';
       const cancel = page.getByRole('button', { name: 'Cancel and sign out', exact: true });
       // Cancel works even when the required Name field is empty.
       await cancel.click();
-      await page.getByRole('alert').filter({ hasText: 'Sign-out could not be completed. Please try again.' }).waitFor();
+      await page.locator('[data-slot="toast"]').filter({ hasText: 'Sign-out could not be completed. Please try again.' }).waitFor();
       assert.equal(await cancel.isEnabled(), true);
       assert.deepEqual(writes, []);
       await page.goto(`${root}/?signed=1`);

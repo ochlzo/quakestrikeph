@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from "react";
+import { Check, Loader, Pencil, X } from "lucide-react";
 import { Button } from "../../../components/ui/button";
 import { toast } from "../../../components/ui/toast";
 import { FormField } from "../account-ui";
@@ -7,10 +9,18 @@ import type { AccountFlowState } from "../useAccountFlow";
 export function AccountScreen({ flow }: { flow: AccountFlowState; }) {
   const {
     title, form, api, name,
-    setAccount, setName, fieldErrors, submit,
+    setAccount, setName, fieldErrors, setFieldErrors, busy,
     account, navigate, action, sensitive,
     user, dirty, clerk,
   } = flow;
+  const [editing, setEditing] = useState(false);
+  const nameInput = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (editing) nameInput.current?.focus(); }, [editing]);
+  function discardName() {
+    setName(account?.displayName ?? "");
+    setFieldErrors({});
+    setEditing(false);
+  }
   return (
     <>
       {title(
@@ -19,24 +29,49 @@ export function AccountScreen({ flow }: { flow: AccountFlowState; }) {
       )}
       <form
         onSubmit={form(async () => {
+          if (!editing) return;
           const next = await api<Account>("/profile", "PUT", {
             displayName: name,
           });
           setAccount(next);
           setName(next.displayName);
+          setEditing(false);
           toast.add({ type: "success", title: "Profile saved." });
         })}
       >
         <FormField
+          key={editing ? "editing" : "saved"}
+          ref={nameInput}
           id="name"
           label="Name"
+          labelAction={
+            <div className="profile-name-actions">
+              {editing ? <>
+                <Button type="submit" variant="link" size="icon" className="profile-name-save"
+                  aria-label="Save name" aria-busy={busy} isDisabled={busy}>
+                  {busy ? <Loader className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Check aria-hidden="true" />}
+                </Button>
+                <Button type="button" variant="link" size="icon" className="profile-name-discard"
+                  aria-label="Discard name changes" isDisabled={busy} onPress={discardName}>
+                  <X aria-hidden="true" />
+                </Button>
+              </> : <Button type="button" variant="link" size="icon" aria-label="Edit name"
+                isDisabled={busy} onPress={() => setEditing(true)}>
+                <Pencil aria-hidden="true" />
+              </Button>}
+            </div>
+          }
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          readOnly={!editing}
+          disabled={busy && editing}
+          onChange={(e) => { setName(e.target.value); setFieldErrors({}); }}
+          onKeyDown={(event) => {
+            if (editing && !busy && event.key === "Escape") { event.preventDefault(); discardName(); }
+          }}
           maxLength={100}
           required
           error={fieldErrors.displayName}
         />
-        {submit("Save profile", false)}
       </form>
       <div className="account-row">
         <span>
@@ -76,7 +111,7 @@ export function AccountScreen({ flow }: { flow: AccountFlowState; }) {
           <small>
             {user?.passwordEnabled
               ? "Password sign-in enabled"
-              : "Continue with Google"}
+              : "You signed in with Google. Add a password to also sign in with email"}
           </small>
         </span>
         <Button
@@ -93,7 +128,7 @@ export function AccountScreen({ flow }: { flow: AccountFlowState; }) {
           className="text-button"
           onPress={() => {
             if (!dirty || window.confirm("Discard your unsaved changes?"))
-              void clerk.signOut({ redirectUrl: "/" });
+              void action(() => clerk.signOut({ redirectUrl: "/" }), "Sign-out could not be completed. Please try again.");
           }}
         >
           Sign out

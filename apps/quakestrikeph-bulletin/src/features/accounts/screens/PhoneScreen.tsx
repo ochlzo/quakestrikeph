@@ -10,9 +10,9 @@ export function PhoneScreen({ flow }: { flow: AccountFlowState; }) {
     code, back, account, title,
     screen, phoneVerified, pending, form,
     requestPhone, phone, setPending, setPhone,
-    setScreen, phoneExpired, updateAccount, api,
+    setScreen, phoneExpired, api,
     fieldErrors, codeField, busy, cooldown,
-    action, resendPhone, submit,
+    action, resendPhone, submit, finishPhone, skipPhone,
   } = flow;
   return (
     <>
@@ -49,14 +49,12 @@ export function PhoneScreen({ flow }: { flow: AccountFlowState; }) {
             setPhone(p.phone);
             setScreen("verify-phone");
           } else if (pending && !phoneExpired) {
-            updateAccount(
-              await api<Account>("/phone/verify", "POST", {
-                attemptId: pending.id,
-                code,
-              }),
-            );
+            const next = await api<Account>("/phone/verify", "POST", {
+              attemptId: pending.id,
+              code,
+            });
             setPending(null);
-            setScreen("preferences");
+            await finishPhone(next);
             toast.add({
               type: "success",
               title: "Mobile number verified.",
@@ -137,7 +135,8 @@ export function PhoneScreen({ flow }: { flow: AccountFlowState; }) {
           className={
             screen === "verify-phone" ? "text-button phone-skip" : "secondary"
           }
-          onPress={() => setScreen("preferences")}
+          isDisabled={busy}
+          onPress={() => void action(skipPhone)}
         >
           Continue without SMS
         </Button>

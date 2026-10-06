@@ -3,7 +3,6 @@ import { ArrowRight } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "../../components/ui/dialog";
 import { Button } from "../../components/ui/button";
-import { FieldError } from "../../components/ui/field";
 import { Toaster } from "../../components/ui/toast";
 import { Shell } from "./account-ui";
 import { AccountScreen, UnavailableActionScreen } from "./screens/AccountScreen";
@@ -22,9 +21,11 @@ import { isPublicAccountScreen } from "./routes";
 export default function AccountApp({
   publishableKey,
   initial = "alerts",
+  externalToaster = false,
 }: {
   publishableKey: string;
   initial?: string;
+  externalToaster?: boolean;
 }) {
   if (!publishableKey)
     return (
@@ -62,7 +63,7 @@ export default function AccountApp({
       ) : (
         <SessionAccountFlow initial={initial} />
       )}
-      <Toaster />
+      {!externalToaster && <Toaster />}
     </ClerkProvider>
   );
 }
@@ -91,7 +92,7 @@ function AccountFlow({ initial }: { initial: string; }) {
   const flow = useAccountFlow(initial);
   const {
     screen, account, isAccountLoading, heading,
-    busy, navigate, error, session,
+    busy, navigate, session,
     isSignedIn, isLoaded,
   } = flow;
   const loadingPreferences = screen === "preferences" ||
@@ -124,7 +125,7 @@ function AccountFlow({ initial }: { initial: string; }) {
       isLoading={isAccountLoading}
       navigate={navigate}
       signOut={() => {
-        flow.confirmLeave(() => void flow.clerk.signOut({ redirectUrl: "/" }));
+        flow.confirmLeave(() => void flow.action(() => flow.clerk.signOut({ redirectUrl: "/" }), "Sign-out could not be completed. Please try again."));
       }}
     >
       <div
@@ -135,11 +136,6 @@ function AccountFlow({ initial }: { initial: string; }) {
         aria-busy={busy || isAccountLoading}
       >
         {content}
-        {error &&
-          (session?.currentTask ||
-            !(isSignedIn && !account && screen !== "profile")) && (
-            <FieldError>{error}</FieldError>
-          )}
       </div>
       <UnsavedChangesDialog flow={flow} />
     </Shell>

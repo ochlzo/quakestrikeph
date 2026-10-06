@@ -17,6 +17,17 @@ test('configured Clerk session authentication rejects invalid tokens instead of 
 });
 const base = { emailEnabled: false, smsEnabled: false, magnitude: 4.5, nearbyOnly: false, latitude: null, longitude: null, distanceKm: null };
 const account: Account = { ...base, userId: randomUUID(), displayName: 'Test', email: identity.email, phone: null, onboardingCompleted: false, status: 'active' };
+test('profile completion depends on the saved name before other onboarding steps', async () => {
+  assert.equal((await fixture(null).service.read(identity)).nextStep, 'profile');
+  for (const name of [null, '', '   ']) {
+    const missingName = { ...account, displayName: name } as unknown as Account;
+    assert.equal((await fixture(missingName).service.read(identity)).nextStep, 'profile');
+    assert.equal((await fixture({ ...missingName, onboardingCompleted: true }).service.read(identity)).nextStep, 'profile');
+  }
+  assert.equal((await fixture(account).service.read(identity)).nextStep, 'channels');
+  assert.equal((await fixture({ ...account, phone: '+639171234567' }).service.read(identity)).nextStep, 'preferences');
+  assert.equal((await fixture({ ...account, onboardingCompleted: true }).service.read(identity)).nextStep, 'complete');
+});
 function fixture(initial: Account | null = account) {
   let current = initial ? { ...initial } : null, sends = 0, checks = 0, pauses = 0;
   let pending: PendingPhone | null = null, failures = 0;

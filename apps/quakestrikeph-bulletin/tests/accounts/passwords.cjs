@@ -88,7 +88,7 @@ const account = {
     await task.page.getByRole('heading', { name: 'Choose a new password' }).waitFor();
     await validate(task.page, task.writes, 'Save new password');
     await task.page.getByRole('button', { name: 'Save new password', exact: true }).click();
-    await task.page.getByText('The password could not be saved. Please try again.', { exact: true }).waitFor();
+    await task.page.locator('[data-slot="toast"]').getByText('The password could not be saved. Please try again.', { exact: true }).waitFor();
     assert.equal(task.writes.length, 0);
     await task.page.getByRole('button', { name: 'Save new password', exact: true }).click();
     await task.page.waitForURL('**/alerts');

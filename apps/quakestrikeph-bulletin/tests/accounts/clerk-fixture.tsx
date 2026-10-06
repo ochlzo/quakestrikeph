@@ -1,14 +1,15 @@
-// This module is reachable only from the separate test Vite configuration.
-// It is never imported or aliased by Astro or the production build.
+// This module is reachable only from the isolated Vite/Astro test configurations.
+// It is never imported or aliased by the production configuration.
 import { useSyncExternalStore, type ReactNode } from 'react';
-const query = new URLSearchParams(location.search);
-let signed = query.has('signed') ? query.get('signed') === '1' : sessionStorage.getItem('fixture:signed') === '1';
-sessionStorage.setItem('fixture:signed', signed ? '1' : '0');
+const query = new URLSearchParams(typeof location === 'undefined' ? '' : location.search);
+const fixtureStorage = typeof sessionStorage === 'undefined' ? { getItem: (_key: string) => null, setItem: (_key: string, _value: string) => {} } : sessionStorage;
+let signed = query.has('signed') ? query.get('signed') === '1' : fixtureStorage.getItem('fixture:signed') === '1';
+fixtureStorage.setItem('fixture:signed', signed ? '1' : '0');
 const listeners = new Set<() => void>();
 const subscribe = (callback: () => void) => { listeners.add(callback); return () => { listeners.delete(callback); }; };
 let userId = 'fixture-user', sessionId = 'fixture-session';
 const snapshot = () => signed ? `${userId}:${sessionId}` : 'signed-out';
-window.addEventListener('fixture:auth', event => {
+if (typeof window !== 'undefined') window.addEventListener('fixture:auth', event => {
   const next = (event as CustomEvent<{ userId: string | null; sessionId: string | null }>).detail;
   signed = !!next.userId && !!next.sessionId;
   sessionStorage.setItem('fixture:signed', signed ? '1' : '0');
@@ -21,7 +22,7 @@ export const AuthenticateWithRedirectCallback = () => <p>OAuth callback fixture<
 export const TaskSetupMFA = () => <p>Required multi-factor setup</p>;
 export const TaskChooseOrganization = () => <p>Required organization choice</p>;
 export function useAuth() {
-  const identity = useSyncExternalStore(subscribe, snapshot);
+  const identity = useSyncExternalStore(subscribe, snapshot, () => 'signed-out');
   const isSignedIn = identity !== 'signed-out';
   return { isLoaded: true, isSignedIn, userId: isSignedIn ? userId : null,
     sessionId: isSignedIn ? sessionId : null, getToken: async (options?: { skipCache?: boolean }) => {

@@ -155,6 +155,11 @@ export default function LocationPicker({
       : [draft.latitude, draft.longitude],
   );
   const [distance, setDistance] = useState(String(draft.distanceKm ?? 50));
+  useEffect(() => {
+    if (editing) return;
+    setPoint(draft.latitude === null || draft.longitude === null ? null : [draft.latitude, draft.longitude]);
+    setDistance(String(draft.distanceKm ?? 50));
+  }, [draft.latitude, draft.longitude, draft.distanceKm, editing]);
   const showMap = editing || point !== null;
   const [pinError, setPinError] = useState("");
   const [distanceError, setDistanceError] = useState("");

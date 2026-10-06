@@ -5,10 +5,14 @@ import { toast } from "../../../components/ui/toast";
 import { FormField, passwordPattern, passwordRequirements } from "../account-ui";
 import type { AccountFlowState } from "../useAccountFlow";
 
+function capitalizeNameWords(value: string) {
+  return value.replace(/(^|\s)\p{L}/gu, start => start.toUpperCase());
+}
+
 export function AuthScreen({ flow }: { flow: AccountFlowState; }) {
   const {
     screen, switchAuthMode, busy, title,
-    action, google, form, signUp,
+    action, google, form, signUp, signupProfileName,
     email, setPassword, setSentAt, setScreen,
     signIn, completeAuth, name, setName,
     fieldErrors, setEmail, setFieldErrors, password,
@@ -72,7 +76,9 @@ export function AuthScreen({ flow }: { flow: AccountFlowState; }) {
             async () => {
               if (screen === "signup") {
                 if (!signUp) return;
+                setName(capitalizeNameWords(name));
                 await signUp.create({ emailAddress: email, password });
+                signupProfileName.current = capitalizeNameWords(name);
                 await signUp.prepareEmailAddressVerification({
                   strategy: "email_code",
                 });
@@ -96,6 +102,7 @@ export function AuthScreen({ flow }: { flow: AccountFlowState; }) {
               autoComplete="name"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              onBlur={(e) => setName(capitalizeNameWords(e.target.value))}
               maxLength={100}
               required
             />
@@ -143,9 +150,9 @@ export function AuthScreen({ flow }: { flow: AccountFlowState; }) {
           {screen === "signup" && (
             <p className="support">{passwordRequirements}</p>
           )}
+          <div id="clerk-captcha" />
           {submit(screen === "signup" ? "Create account" : "Sign in")}
         </form>
-        <div id="clerk-captcha" />
         <a className="guest mobile-guest" href="/">
           View Bulletin without an account
           <ArrowRight />

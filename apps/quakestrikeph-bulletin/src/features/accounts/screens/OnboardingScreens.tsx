@@ -68,12 +68,12 @@ export function ProfileScreen({ flow }: { flow: AccountFlowState; }) {
 }
 
 export function ChannelsScreen({ flow }: { flow: AccountFlowState; }) {
-  const { title, channels, setChannels, setScreen, account } = flow;
+  const { title, channels, setChannels, action, busy, saveOnboardingChannels } = flow;
   return (
     <>
       {title(
         "How would you like to receive alerts?",
-        "Choose Email, SMS, or both. Alerts stay off until you save your preferences.",
+        "Choose Email, SMS, or both. Continue saves your choices. SMS is enabled after verification.",
       )}
       <fieldset className="choices">
         <legend>Receive options</legend>
@@ -120,13 +120,8 @@ export function ChannelsScreen({ flow }: { flow: AccountFlowState; }) {
       </fieldset>
       <Button
         className="primary"
-        onPress={() =>
-          setScreen(
-            channels.includes("sms") && !account?.phone
-              ? "phone"
-              : "preferences",
-          )
-        }
+        isDisabled={busy}
+        onPress={() => void action(saveOnboardingChannels)}
       >
         Continue
         <ArrowRight />

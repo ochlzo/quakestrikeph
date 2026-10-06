@@ -48,7 +48,7 @@ export class AccountService {
     return {
       account,
       pending,
-      nextStep: !account
+      nextStep: !account?.displayName?.trim()
         ? "profile"
         : account.onboardingCompleted
           ? "complete"

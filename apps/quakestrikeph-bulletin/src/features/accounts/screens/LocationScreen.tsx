@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import type { AccountFlowState } from "../useAccountFlow";
 
 export function LocationScreen({ flow }: { flow: AccountFlowState; }) {
-  const { draft, setDraft, setLocationEdit } = flow;
+  const { draft, savePreferences, setLocationEdit } = flow;
   useEffect(() => () => setLocationEdit(null), [setLocationEdit]);
   return (
     <LocationPicker
@@ -11,7 +11,7 @@ export function LocationScreen({ flow }: { flow: AccountFlowState; }) {
       onEditChange={setLocationEdit}
       validationAttempt={flow.locationValidation}
       onUse={(p) => {
-        setDraft((d) => ({ ...d, ...p }));
+        savePreferences(p, 0);
       }}
     />
   );

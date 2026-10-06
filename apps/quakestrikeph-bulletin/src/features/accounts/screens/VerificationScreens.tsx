@@ -7,7 +7,7 @@ export function SessionTaskScreen({ flow }: { flow: AccountFlowState; }) {
   const {
     title, session, form, password,
     confirmPassword, setFieldErrors, resetTaskPassword, setPassword,
-    setConfirmPassword, clerk, newPasswordFields, submit,
+    setConfirmPassword, clerk, newPasswordFields, submit, action,
   } = flow;
   if (!session?.currentTask) return null;
   return (
@@ -49,7 +49,7 @@ export function SessionTaskScreen({ flow }: { flow: AccountFlowState; }) {
       <Button
         className="secondary"
         onPress={() =>
-          void clerk.signOut({ redirectUrl: "/sign-in" })
+          void action(() => clerk.signOut({ redirectUrl: "/sign-in" }), "Sign-out could not be completed. Please try again.")
         }
       >
         Return to sign in

@@ -5,6 +5,7 @@ export default {
   cacheDir: path('../../node_modules/.vite-accounts'),
   root: path('./'), publicDir: path('../../public'), plugins: [tailwindcss()],
   resolve: { alias: [
+    { find: /^astro:transitions\/client$/, replacement: path('./navigation-fixture.ts') },
     { find: /^@clerk\/react\/legacy$/, replacement: path('./clerk-fixture.tsx') },
     { find: /^@clerk\/react$/, replacement: path('./clerk-fixture.tsx') },
     { find: '@', replacement: path('../../src') },

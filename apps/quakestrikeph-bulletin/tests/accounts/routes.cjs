@@ -27,7 +27,7 @@ const baseAccount = { userId: 'fixture-user', displayName: 'Maria Santos', email
         assert.equal(await page.locator('.settings-rail').count(), 0);
       }
       for (const [path, heading] of [
-        ['/alerts', 'Alert preferences'], ['/alerts/location', 'Choose your alert location'],
+        ['/alerts', 'Alert preferences'], ['/alerts/location', 'Alert location'],
         ['/account', 'Account settings'], ['/account/phone', 'Add your mobile number'],
         ['/account/password', 'Verify your identity again'],
       ]) {
@@ -90,13 +90,13 @@ const baseAccount = { userId: 'fixture-user', displayName: 'Maria Santos', email
       await page.locator('#magnitude').fill('6.2');
       const before = gets;
       await page.getByRole(viewport.width <= 760 ? 'tab' : 'button', { name: 'Alert location', exact: true }).click();
-      await page.getByRole('heading', { name: 'Choose your alert location', exact: true }).waitFor();
+      await page.getByRole('heading', { name: 'Alert location', exact: true }).waitFor();
       assert.equal(new URL(page.url()).pathname, '/alerts/location');
       await page.goBack();
       await page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
       assert.equal(await page.locator('#magnitude').inputValue(), '6.2');
       await page.goForward();
-      await page.getByRole('heading', { name: 'Choose your alert location', exact: true }).waitFor();
+      await page.getByRole('heading', { name: 'Alert location', exact: true }).waitFor();
       await page.getByRole(viewport.width <= 760 ? 'tab' : 'button', { name: 'Alert preferences', exact: true }).click();
       assert.equal(await page.locator('#magnitude').inputValue(), '6.2');
       assert.equal(gets, before, 'Local settings navigation must not reload the account');
@@ -106,6 +106,8 @@ const baseAccount = { userId: 'fixture-user', displayName: 'Maria Santos', email
       const dismiss = dialog => dialog.dismiss();
       page.on('dialog', dismiss);
       await page.getByRole(viewport.width <= 760 ? 'tab' : 'button', { name: 'Account', exact: true }).click();
+      await page.getByRole('dialog', { name: 'Save changes?' }).waitFor();
+      await page.keyboard.press('Escape');
       assert.equal(new URL(page.url()).pathname, '/alerts');
       page.off('dialog', dismiss);
       await page.getByRole('button', { name: 'Save preferences', exact: true }).click();
@@ -116,13 +118,16 @@ const baseAccount = { userId: 'fixture-user', displayName: 'Maria Santos', email
       await page.goBack();
       await page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
       await page.getByRole(viewport.width <= 760 ? 'tab' : 'button', { name: 'Account', exact: true }).click();
+      await page.getByRole('button', { name: 'Edit name', exact: true }).click();
       await page.locator('#name').fill('Unsaved name');
       page.on('dialog', dismiss);
       await page.goBack();
+      await page.getByRole('dialog', { name: 'Save changes?' }).waitFor();
+      await page.keyboard.press('Escape');
       await page.waitForURL('**/account');
       assert.equal(await page.locator('#name').inputValue(), 'Unsaved name');
       page.off('dialog', dismiss);
-      await page.locator('#name').fill(account.displayName);
+      await page.getByRole('button', { name: 'Discard name changes', exact: true }).click();
 
       // Completion routes return to preferences without a homepage redirect.
       for (const path of ['/sign-in', '/sign-up', '/forgot-password', '/onboarding', '/alerts?entry=1']) {

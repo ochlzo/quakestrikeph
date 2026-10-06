@@ -1,5 +1,7 @@
 ---
 import Bulletin from '../components/Bulletin';
+import { ClientRouter } from 'astro:transitions';
+import BackgroundToaster from '../components/BackgroundToaster';
 import '../styles/globals.css';
 import type { components } from '../lib/api/schema';
 import { getSecret } from 'astro:env/server';
@@ -23,6 +25,7 @@ try {
 <!doctype html>
 <html lang="en">
   <head>
+    <ClientRouter />
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>QuakeStrike PH Bulletin</title>
@@ -38,5 +41,6 @@ try {
   </head>
   <body>
     <Bulletin initialResults={initialResults} client:load />
+    <BackgroundToaster client:only="react" transition:persist="account-notifications" />
   </body>
 </html>

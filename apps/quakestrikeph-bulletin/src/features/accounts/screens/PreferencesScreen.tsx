@@ -1,42 +1,40 @@
-import { MapPin } from "lucide-react";
-import { useState } from "react";
+import { Check, MapPin, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Button } from "../../../components/ui/button";
 import { FieldError } from "../../../components/ui/field";
 import { Switch } from "../../../components/ui/switch";
 import { toast } from "../../../components/ui/toast";
 import { FormField } from "../account-ui";
-import { type Account } from "../api";
 import { locationLabel } from "../LocationPicker";
 import type { AccountFlowState } from "../useAccountFlow";
 
 export function PreferencesScreen({ flow }: { flow: AccountFlowState; }) {
   const {
-    title, form, account, api,
-    draft, emailVerified, phoneVerified, updateAccount,
-    setDraft, action, setPhone, sensitive,
+    title, account,
+    draft, emailVerified, phoneVerified,
+    action, setPhone, sensitive,
     navigate, fieldErrors, list, setScreen,
-    submit,
+    savePreferences,
   } = flow;
-  const [magnitudeText, setMagnitudeText] = useState(String(draft.magnitude));
+  const [magnitudeText, setMagnitudeText] = useState(draft.magnitude.toFixed(1));
+  const [magnitudeVersion, setMagnitudeVersion] = useState(0);
+  useEffect(() => setMagnitudeText(draft.magnitude.toFixed(1)), [draft.magnitude]);
+  const magnitudeChanged = magnitudeText !== draft.magnitude.toFixed(1);
+  function discardMagnitude() {
+    setMagnitudeText(draft.magnitude.toFixed(1));
+    setMagnitudeVersion(version => version + 1);
+  }
   return (
     <>
       {title(
         "Alert preferences",
-        "Choose your receive options and the earthquakes you want to hear about.",
+        "Switches save automatically. Use the check to save a magnitude change.",
       )}
       <form
-        onSubmit={form(async () => {
-          const finishing = !account?.onboardingCompleted;
-          const next = await api<Account>("/preferences", "PUT", {
-            ...draft,
-            emailEnabled: emailVerified && draft.emailEnabled,
-            smsEnabled: phoneVerified && draft.smsEnabled,
-          });
-          updateAccount(next);
-          setMagnitudeText(next.magnitude.toFixed(1));
-          if (finishing) setScreen("preferences", true, "/alerts");
-          toast.add({ type: "success", title: "Alert preferences saved." });
-        })}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (magnitudeChanged) savePreferences({ magnitude: Number(magnitudeText) }, 0);
+        }}
       >
         <div className="switch-row">
           <span>
@@ -47,7 +45,7 @@ export function PreferencesScreen({ flow }: { flow: AccountFlowState; }) {
             <Switch
               aria-label="Email alerts"
               isSelected={emailVerified && draft.emailEnabled}
-              onChange={(v) => setDraft((p) => ({ ...p, emailEnabled: v }))}
+              onChange={(v) => savePreferences({ emailEnabled: v })}
             />
           ) : (
             <Button
@@ -55,10 +53,7 @@ export function PreferencesScreen({ flow }: { flow: AccountFlowState; }) {
               aria-label={account?.email ? "Verify email" : "Add email"}
               onPress={() =>
                 action(async () => {
-                  toast.add({
-                    type: "info",
-                    title: "Email verification is not available here yet.",
-                  });
+                  toast.add({ type: 'info', title: 'Email verification is not available here yet.' });
                 })
               }
             >
@@ -77,7 +72,7 @@ export function PreferencesScreen({ flow }: { flow: AccountFlowState; }) {
             <Switch
               aria-label="SMS alerts"
               isSelected={phoneVerified && draft.smsEnabled}
-              onChange={(v) => setDraft((p) => ({ ...p, smsEnabled: v }))}
+              onChange={(v) => savePreferences({ smsEnabled: v })}
             />
           ) : (
             <Button
@@ -100,6 +95,7 @@ export function PreferencesScreen({ flow }: { flow: AccountFlowState; }) {
         )}
         <div className="settings-section">
           <FormField
+            key={magnitudeVersion}
             id="magnitude"
             label="Alert me for earthquakes of magnitude:"
             inputSuffix="or higher"
@@ -112,8 +108,20 @@ export function PreferencesScreen({ flow }: { flow: AccountFlowState; }) {
             onChange={(e) => {
               if (!/^\d*(?:\.\d?)?$/.test(e.target.value)) return;
               setMagnitudeText(e.target.value);
-              setDraft((p) => ({ ...p, magnitude: Number(e.target.value) }));
             }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') { event.preventDefault(); discardMagnitude(); }
+            }}
+            inputAction={magnitudeChanged ? (
+              <div className="profile-name-actions magnitude-actions">
+                <Button type="submit" variant="link" size="icon" className="profile-name-save" aria-label="Save magnitude">
+                  <Check aria-hidden="true" />
+                </Button>
+                <Button type="button" variant="link" size="icon" className="profile-name-discard" aria-label="Discard magnitude changes" onPress={discardMagnitude}>
+                  <X aria-hidden="true" />
+                </Button>
+              </div>
+            ) : undefined}
             required
             error={fieldErrors.magnitude}
           />
@@ -131,7 +139,7 @@ export function PreferencesScreen({ flow }: { flow: AccountFlowState; }) {
             <Switch
               aria-label="Only earthquakes near my location"
               isSelected={draft.nearbyOnly}
-              onChange={(v) => setDraft((p) => ({ ...p, nearbyOnly: v }))}
+              onChange={(v) => savePreferences({ nearbyOnly: v })}
             />
           </div>
           <div className="location-summary">
@@ -155,7 +163,6 @@ export function PreferencesScreen({ flow }: { flow: AccountFlowState; }) {
               </FieldError>
             )}
         </div>
-        {submit("Save preferences", false)}
       </form>
     </>
   );
