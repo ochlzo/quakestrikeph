@@ -7,6 +7,7 @@ export const accountPreferences = (account: Account): Preferences => ({
 });
 type Patch = Partial<Preferences>;
 type Snapshot = { account: Account; preferences: Preferences };
+type Completion = { resolve: (account: Account) => void; reject: (error: unknown) => void };
 
 // Tab-memory only. Serialized writes prevent full preference payloads from
 // overwriting newer changes. Subscribers may unmount without canceling a save.
@@ -19,6 +20,7 @@ export class PreferenceSaves {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private writing = false;
   private cancelled = false;
+  private completions = new Map<number, Completion>();
   private write: (preferences: Preferences) => Promise<Account>;
   private failed: (message: string) => void;
   snapshot: Snapshot;
@@ -49,17 +51,33 @@ export class PreferenceSaves {
     this.publish();
     clearTimeout(this.timer);
     this.timer = setTimeout(() => { this.timer = undefined; void this.flush(); }, delay);
+    return revision;
+  }
+  saveConfirmed(patch: Patch): Promise<Account> {
+    if (this.cancelled) return Promise.reject(new Error('The account session changed.'));
+    return new Promise((resolve, reject) => {
+      const revision = this.save(patch, 0)!;
+      this.completions.set(revision, { resolve, reject });
+    });
   }
   private async flush() {
     if (this.cancelled || this.writing || !this.versions.size) return;
     const versions = new Map(this.versions);
     const requested = { ...accountPreferences(this.confirmed), ...this.patch };
+    const completions = [...this.completions].filter(([revision]) => revision <= this.revision);
     this.writing = true;
     try {
-      this.confirmed = await this.write(requested);
+      const account = await this.write(requested);
+      if (this.cancelled) return;
+      this.confirmed = account;
+      completions.forEach(([, completion]) => completion.resolve(account));
     } catch (error) {
-      if (!this.cancelled) this.failed(error instanceof Error ? error.message : 'Your alert settings could not be saved. Try again.');
+      if (!this.cancelled) {
+        if (completions.length) completions.forEach(([, completion]) => completion.reject(error));
+        else this.failed(error instanceof Error ? error.message : 'Your alert settings could not be saved. Try again.');
+      }
     } finally {
+      completions.forEach(([revision]) => this.completions.delete(revision));
       // Roll back only the failed revision; keep newer user edits queued.
       for (const [key, version] of versions) {
         if (this.versions.get(key) === version) {
@@ -78,6 +96,8 @@ export class PreferenceSaves {
     this.listeners.clear();
     this.versions.clear();
     this.patch = {};
+    this.completions.forEach(completion => completion.reject(new Error('The account session changed.')));
+    this.completions.clear();
   }
 }
 

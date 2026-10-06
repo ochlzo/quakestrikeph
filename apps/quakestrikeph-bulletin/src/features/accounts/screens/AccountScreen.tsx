@@ -9,7 +9,7 @@ import type { AccountFlowState } from "../useAccountFlow";
 export function AccountScreen({ flow }: { flow: AccountFlowState; }) {
   const {
     title, form, api, name,
-    setAccount, setName, fieldErrors, setFieldErrors, busy,
+    updateAccount, setName, fieldErrors, setFieldErrors, busy,
     account, navigate, action, sensitive,
     user, dirty, clerk,
   } = flow;
@@ -33,8 +33,7 @@ export function AccountScreen({ flow }: { flow: AccountFlowState; }) {
           const next = await api<Account>("/profile", "PUT", {
             displayName: name,
           });
-          setAccount(next);
-          setName(next.displayName);
+          updateAccount(next);
           setEditing(false);
           toast.add({ type: "success", title: "Profile saved." });
         })}

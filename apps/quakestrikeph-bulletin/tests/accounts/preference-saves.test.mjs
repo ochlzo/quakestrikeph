@@ -67,3 +67,51 @@ test('changing identity cancels pending work and suppresses old account notifica
   await tick();
   assert.deepEqual(errors, []);
 });
+
+test('confirmed saves wait for the response and return failures without a duplicate toast', async () => {
+  const response = deferred(), errors = [];
+  const queue = new PreferenceSaves(account, () => response.promise, error => errors.push(error));
+  let settled = false;
+  const saving = queue.saveConfirmed({ distanceKm: 100 }).finally(() => { settled = true; });
+  const rejected = assert.rejects(saving, /Location save failed/);
+  await tick();
+  assert.equal(settled, false);
+  response.reject(new Error('Location save failed'));
+  await rejected;
+  assert.equal(queue.snapshot.preferences.distanceKm, 50);
+  assert.deepEqual(errors, []);
+
+  const retry = new PreferenceSaves(account, async body => ({ ...account, ...body }), assert.fail);
+  assert.equal((await retry.saveConfirmed({ distanceKm: 100 })).distanceKm, 100);
+});
+
+test('onboarding SMS opt-in shares the queue with later channel edits', async () => {
+  const response = deferred(), writes = [];
+  const queue = new PreferenceSaves({ ...account, phone: '+639171234567' }, body => {
+    writes.push(body);
+    return writes.length === 1 ? response.promise : Promise.resolve({ ...account, ...body });
+  }, assert.fail);
+  const optIn = queue.saveConfirmed({ smsEnabled: true });
+  await tick();
+  queue.save({ emailEnabled: true }, 0);
+  await tick();
+  assert.equal(writes.length, 1);
+  response.resolve({ ...account, ...writes[0] });
+  await optIn;
+  await tick();
+  assert.equal(writes.length, 2);
+  assert.equal(writes[1].smsEnabled, true);
+  assert.equal(writes[1].emailEnabled, true);
+});
+
+test('identity cancellation rejects a pending confirmation and ignores its late response', async () => {
+  const response = deferred();
+  const queue = new PreferenceSaves(account, () => response.promise, assert.fail);
+  const saving = assert.rejects(queue.saveConfirmed({ smsEnabled: true }), /session changed/);
+  await tick();
+  queue.cancel();
+  await saving;
+  response.resolve({ ...account, smsEnabled: true });
+  await tick();
+  assert.equal(queue.snapshot.account.smsEnabled, false);
+});

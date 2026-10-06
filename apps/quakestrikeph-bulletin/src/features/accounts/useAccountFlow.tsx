@@ -220,9 +220,13 @@ export function useAccountFlow(initial: string) {
     setLeaveError("");
     try {
       let next = account;
-      if (locationEdit) saves?.save(locationEdit, 0);
+      if (locationEdit) {
+        if (!saves) throw new Error("Alert settings could not be saved. Try again.");
+        next = await saves.saveConfirmed(locationEdit);
+      }
       if (screen === "account" && name !== account.displayName)
         next = await api<Account>("/profile", "PUT", { displayName: name });
+      if (!active.current) return;
       updateAccount(next);
       toast.add({ type: "success", title: screen === "account" ? "Changes saved." : "Alert preferences saved." });
       setLocationEdit(null);
@@ -231,6 +235,7 @@ export function useAccountFlow(initial: string) {
       setLeaveAction(null);
       action();
     } catch (failure) {
+      if (!active.current) return;
       setLeaveError(failure instanceof Error ? failure.message : "Changes could not be saved. Try again.");
     } finally { setSavingBeforeLeave(false); }
   }
@@ -253,6 +258,7 @@ export function useAccountFlow(initial: string) {
     setAccount(queue.snapshot.account);
     setDraft(queue.snapshot.preferences);
     setName(next.displayName);
+    return queue;
   }
   useEffect(() => {
     if (!saves) return;
@@ -272,23 +278,25 @@ export function useAccountFlow(initial: string) {
     saves.save(patch, delay);
   }
   async function saveOnboardingChannels() {
-    if (!account) return;
+    if (!account || !saves) return;
     const sms = channels.includes('sms');
-    const next = await api<Account>('/preferences', 'PUT', {
-      ...preferences(account), emailEnabled: channels.includes('email') && emailVerified,
+    const next = await saves.saveConfirmed({
+      emailEnabled: channels.includes('email') && emailVerified,
       smsEnabled: sms && phoneVerified,
     });
+    if (!active.current) return;
     updateAccount(next);
     onboardingSms.current = sms && !phoneVerified;
     setScreen(onboardingSms.current ? 'phone' : 'preferences', true,
       onboardingSms.current ? '/onboarding' : '/alerts');
   }
   async function finishPhone(next: Account) {
-    updateAccount(next);
+    const queue = updateAccount(next);
     setScreen('preferences', true, '/alerts');
     if (onboardingSms.current) {
       // Destination proof must commit before the separate explicit SMS opt-in.
-      const enabled = await api<Account>('/preferences', 'PUT', { ...preferences(next), smsEnabled: true });
+      const enabled = await queue.saveConfirmed({ smsEnabled: true });
+      if (!active.current) return;
       updateAccount(enabled);
       onboardingSms.current = false;
     }
@@ -382,6 +390,7 @@ export function useAccountFlow(initial: string) {
     try {
       await work();
     } catch (e) {
+      if (!active.current) return;
       if (
         screen === "signup" &&
         typeof e === "object" &&
