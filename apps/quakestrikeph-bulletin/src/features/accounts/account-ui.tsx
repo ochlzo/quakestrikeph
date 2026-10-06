@@ -1,18 +1,61 @@
-import { Eye, EyeOff, MapPin, Settings, UserRound } from "lucide-react";
+import { ChevronsUpDown, Eye, EyeOff, LogOut, MapPin, Settings, UserRound } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { RouterProvider } from "react-aria-components";
+import { Menu, MenuItem, MenuTrigger, RouterProvider, Separator } from "react-aria-components";
 import { Button } from "../../components/ui/button";
 import { Field, FieldError, FieldLabel } from "../../components/ui/field";
 import { Input } from "../../components/ui/input";
-import { Skeleton } from "../../components/ui/skeleton";
+import { Popover } from "../../components/ui/popover";
+import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "../../components/ui/sidebar";
 import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { useIsMobile } from "../../hooks/use-mobile";
+import BulletinLayout from "../../components/BulletinLayout";
 import AccountHeader from "./AccountHeader";
 import type { Screen } from "./routes";
 import { screenAtPath } from "./routes";
 export const passwordRequirements =
   "Use at least 8 characters, including one lowercase letter, one uppercase letter, and one number.";
 export const passwordPattern = "(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{8,}";
+function SettingsUserMenu({ name, email, avatarUrl, isLoading, navigate, signOut }: {
+  name: string; email?: string; avatarUrl?: string; isLoading: boolean; navigate: (screen: Screen) => void; signOut?: () => void;
+}) {
+  const { isMobile, setOpenMobile } = useSidebar();
+  const identity = (
+    <>
+      <span className="relative grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted" aria-hidden="true">
+        {name.slice(0, 1).toUpperCase()}
+        {avatarUrl && <img src={avatarUrl} alt="" className="absolute inset-0 size-full object-cover" onError={(event) => { event.currentTarget.hidden = true; }} />}
+      </span>
+      <span className="grid min-w-0 flex-1 text-left text-sm leading-tight">
+        <span className="truncate font-medium">{name || "Loading account…"}</span>
+        <span className="truncate text-xs">{email}</span>
+      </span>
+    </>
+  );
+  return (
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <MenuTrigger>
+          <SidebarMenuButton size="lg" className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground" isDisabled={isLoading} aria-label="User menu">
+            {identity}<ChevronsUpDown className="ml-auto" aria-hidden="true" />
+          </SidebarMenuButton>
+          <Popover placement={isMobile ? "bottom end" : "right bottom"} containerPadding={8} className="settings-user-popover">
+            <div className="flex items-center gap-2 px-1 py-1.5">{identity}</div>
+            <Menu aria-label="User options" className="settings-user-menu">
+              <Separator className="settings-user-separator" />
+              <MenuItem textValue="Account" onAction={() => { setOpenMobile(false); navigate("account"); }}>
+                <UserRound aria-hidden="true" />Account
+              </MenuItem>
+              <Separator className="settings-user-separator" />
+              <MenuItem textValue="Sign-out" onAction={signOut}>
+                <LogOut aria-hidden="true" />Sign-out
+              </MenuItem>
+            </Menu>
+          </Popover>
+        </MenuTrigger>
+      </SidebarMenuItem>
+    </SidebarMenu>
+  );
+}
 export function FormField({
   id,
   label,
@@ -101,15 +144,21 @@ export function FormField({
 export function Shell({
   screen,
   name,
+  email,
+  avatarUrl,
   isLoading = false,
   children,
   navigate,
+  signOut,
 }: {
   screen: Screen;
   name: string;
+  email?: string;
+  avatarUrl?: string;
   isLoading?: boolean;
   children: ReactNode;
   navigate: (screen: Screen) => void;
+  signOut?: () => void;
 }) {
   const wide = ["preferences", "location", "account"].includes(screen);
   const isMobile = useIsMobile();
@@ -120,7 +169,7 @@ export function Shell({
     let previousY = window.scrollY;
     function onScroll() {
       const y = Math.max(0, Math.min(window.scrollY, document.documentElement.scrollHeight - window.innerHeight));
-      if (y <= 78) setHeaderHidden(false);
+      if (y <= 56) setHeaderHidden(false);
       else if (Math.abs(y - previousY) < 8) return;
       else setHeaderHidden(y > previousY);
       previousY = y;
@@ -138,25 +187,8 @@ export function Shell({
     "device-code",
   ].includes(screen);
   const rootClass = `account-app map flow-screen ${wide ? "settings-workspace wide" : entry ? "account-entry" : "focused-shell"}`;
-  return (
-    <div className={rootClass} data-screen={screen} data-header-hidden={headerHidden || undefined}
-      onFocusCapture={(event) => {
-        if (event.target.closest(".header")) setHeaderHidden(false);
-      }}>
-      <AccountHeader
-        publicLink={
-          screen === "signin" || screen === "signup" || screen === "forgot"
-        }
-      />
-      <main className="layout">
-        {wide && (
+  const settingsRail = (
           <aside className="settings-rail">
-            <div className="rail-identity">
-              {isLoading ? <Skeleton className="loading-avatar" aria-hidden="true" /> : <span className="avatar">{name.slice(0, 1).toUpperCase()}</span>}
-              <div>
-                {isLoading ? <Skeleton className="loading-name" aria-hidden="true" /> : <strong>{name}</strong>}
-              </div>
-            </div>
             <RouterProvider navigate={(path) => {
               const next = screenAtPath(path);
               if (next) navigate(next);
@@ -196,7 +228,11 @@ export function Shell({
               </Button>
             </nav>
           </aside>
-        )}
+  );
+  const ContentTag = wide ? "div" : "main";
+  const content = (
+      <ContentTag className="layout">
+        {wide && settingsRail}
         <section className="story" aria-labelledby="story-title">
           <div className="story-copy">
             <h1 id="story-title">Earthquake alert settings</h1>
@@ -230,8 +266,25 @@ export function Shell({
             {children}
           </div>
         </section>
-      </main>
-      <footer />
+      </ContentTag>
+  );
+  return (
+    <div className={rootClass} data-screen={screen} data-header-hidden={headerHidden || undefined}
+      onFocusCapture={(event) => {
+        if (event.target.closest(".header, .bulletin-header")) setHeaderHidden(false);
+      }}>
+      {wide ? (
+        <BulletinLayout settings filters={null} results={null}
+          sidebarFooter={<SettingsUserMenu name={name} email={email} avatarUrl={avatarUrl} isLoading={isLoading} navigate={navigate} signOut={signOut} />}>
+          {content}
+        </BulletinLayout>
+      ) : (
+        <>
+          <AccountHeader publicLink={screen === "signin" || screen === "signup" || screen === "forgot"} />
+          {content}
+          <footer />
+        </>
+      )}
     </div>
   );
 }

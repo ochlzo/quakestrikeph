@@ -1,7 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import AccountApp from '../../src/features/accounts/AccountApp';
 import AlertsButton from '../../src/components/AlertsButton';
-import '../../src/styles/globals.css';
+import './styles.css';
 import '../../src/styles/account-reference.css';
 import '../../src/styles/account-flow.css';
 import '../../src/styles/accounts.css';

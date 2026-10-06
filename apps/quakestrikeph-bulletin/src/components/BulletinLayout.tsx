@@ -1,16 +1,16 @@
 import type { CSSProperties, ReactNode } from "react";
-import { Activity, Earth, TextAlignStart, X } from "lucide-react";
+import { Activity, ChevronLeft, Earth, TextAlignStart, X } from "lucide-react";
 import AlertsButton from "./AlertsButton";
 import { Button } from "./ui/button";
 import {
-  Sidebar, SidebarContent, SidebarHeader, SidebarProvider, SidebarTrigger, useSidebar,
+  Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarProvider, SidebarTrigger, useSidebar,
 } from "./ui/sidebar";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 
-function BulletinSidebar({ filters, results }: { filters: ReactNode; results: ReactNode }) {
+function BulletinSidebar({ filters, results, settings = false, footer }: { filters: ReactNode; results: ReactNode; settings?: boolean; footer?: ReactNode }) {
   const { isMobile, setOpenMobile } = useSidebar();
   return (
-    <Sidebar variant="floating" collapsible="offcanvas" className="bulletin-sidebar">
+    <Sidebar variant={settings ? "sidebar" : "floating"} collapsible="offcanvas" className="bulletin-sidebar">
       <SidebarHeader className="bulletin-sidebar-head">
         <div className="bulletin-sidebar-brand">
           <a className="brand" href="/" aria-label="QuakeStrike PH Bulletin home">
@@ -26,25 +26,26 @@ function BulletinSidebar({ filters, results }: { filters: ReactNode; results: Re
         {!isMobile && filters}
       </SidebarHeader>
       <SidebarContent className="bulletin-sidebar-content">
-        {isMobile ? (
+        {isMobile || settings ? (
           <nav className="bulletin-mobile-nav" aria-label="Main navigation">
-            <a href="/" aria-current="page" onClick={() => setOpenMobile(false)}><Earth aria-hidden="true" />Earthquakes</a>
-            <AlertsButton />
+            <a href="/" aria-current={settings ? undefined : "page"} onClick={() => setOpenMobile(false)}><Earth aria-hidden="true" />Earthquakes</a>
+            <AlertsButton withinAccount={settings} />
             <a href="/about"><TextAlignStart aria-hidden="true" />About</a>
           </nav>
         ) : results}
       </SidebarContent>
+      {footer && <SidebarFooter>{footer}</SidebarFooter>}
     </Sidebar>
   );
 }
 
-function BulletinHeader() {
+function BulletinHeader({ settings = false }: { settings?: boolean }) {
   const { isMobile, open, openMobile } = useSidebar();
   return (
     <header className="site-header bulletin-header">
       <SidebarTrigger className="aria-expanded:bg-transparent hover:aria-expanded:bg-muted" aria-label="Toggle sidebar" aria-expanded={isMobile ? openMobile : open} />
       <a className="bulletin-mobile-title" href="/" aria-label="QuakeStrike PH Bulletin home">QuakeStrike PH</a>
-      {!isMobile && (
+      {!isMobile && !settings && (
         <nav className="site-nav" aria-label="Main navigation">
           <Tabs selectedKey="/" keyboardActivation="manual">
             <TabsList aria-label="Main navigation">
@@ -54,19 +55,23 @@ function BulletinHeader() {
           </Tabs>
         </nav>
       )}
-      <AlertsButton />
+      {settings ? (
+        <a className="settings-bulletin-back" href="/" aria-label="Back to Bulletin">
+          <ChevronLeft aria-hidden="true" /><span>Back to Bulletin</span>
+        </a>
+      ) : <AlertsButton />}
     </header>
   );
 }
 
-export default function BulletinLayout({ filters, results, children }: {
-  filters: ReactNode; results: ReactNode; children: ReactNode;
+export default function BulletinLayout({ filters, results, children, settings = false, sidebarFooter }: {
+  filters: ReactNode; results: ReactNode; children: ReactNode; settings?: boolean; sidebarFooter?: ReactNode;
 }) {
   return (
-    <SidebarProvider className="bulletin-app bulletin-shell" style={{ "--sidebar-width": "var(--bulletin-sidebar-width, 16rem)" } as CSSProperties}>
-      <BulletinSidebar filters={filters} results={results} />
+    <SidebarProvider defaultOpen={!settings} className={`bulletin-app bulletin-shell${settings ? " bulletin-settings-shell" : ""}`} style={{ "--sidebar-width": "var(--bulletin-sidebar-width, 16rem)" } as CSSProperties}>
+      <BulletinSidebar filters={filters} results={results} settings={settings} footer={sidebarFooter} />
       <div className="bulletin-main">
-        <BulletinHeader />
+        <BulletinHeader settings={settings} />
         <main className="dashboard">{children}</main>
       </div>
     </SidebarProvider>

@@ -117,8 +117,14 @@ function AccountFlow({ initial }: { initial: string; }) {
         ? initial === "signup" ? "signup" : "signin"
         : screen}
       name={account?.displayName ?? ""}
+      email={account?.email ?? undefined}
+      avatarUrl={flow.user?.imageUrl}
       isLoading={isAccountLoading}
       navigate={navigate}
+      signOut={() => {
+        if (!flow.dirty || window.confirm("Discard your unsaved changes?"))
+          void flow.clerk.signOut({ redirectUrl: "/" });
+      }}
     >
       <div
         ref={heading}

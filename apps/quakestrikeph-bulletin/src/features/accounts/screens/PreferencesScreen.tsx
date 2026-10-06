@@ -38,7 +38,7 @@ export function PreferencesScreen({ flow }: { flow: AccountFlowState; }) {
         <div className="switch-row">
           <span>
             <strong>Email alerts</strong>
-            <small>{account?.email}</small>
+            <small>{account?.email || "Add an email address first."}</small>
           </span>
           {emailVerified ? (
             <Switch
@@ -49,7 +49,7 @@ export function PreferencesScreen({ flow }: { flow: AccountFlowState; }) {
           ) : (
             <Button
               className="secondary verify-destination"
-              aria-label="Verify email"
+              aria-label={account?.email ? "Verify email" : "Add email"}
               onPress={() =>
                 action(async () => {
                   toast.add({
@@ -59,7 +59,7 @@ export function PreferencesScreen({ flow }: { flow: AccountFlowState; }) {
                 })
               }
             >
-              Verify
+              {account?.email ? "Verify" : "Add email"}
             </Button>
           )}
         </div>
@@ -67,7 +67,7 @@ export function PreferencesScreen({ flow }: { flow: AccountFlowState; }) {
           <span>
             <strong>SMS alerts</strong>
             <small>
-              {account?.phone ?? "Verify a supported mobile number first."}
+              {account?.phone || "Add a supported mobile number first."}
             </small>
           </span>
           {phoneVerified ? (
@@ -79,7 +79,7 @@ export function PreferencesScreen({ flow }: { flow: AccountFlowState; }) {
           ) : (
             <Button
               className="secondary verify-destination"
-              aria-label="Verify mobile number"
+              aria-label={account?.phone ? "Verify mobile number" : "Add number"}
               onPress={() =>
                 action(async () => {
                   setPhone(account?.phone ?? "");
@@ -88,7 +88,7 @@ export function PreferencesScreen({ flow }: { flow: AccountFlowState; }) {
                 })
               }
             >
-              Verify
+              {account?.phone ? "Verify" : "Add number"}
             </Button>
           )}
         </div>

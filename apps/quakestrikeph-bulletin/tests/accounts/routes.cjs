@@ -38,6 +38,19 @@ const baseAccount = { userId: 'fixture-user', displayName: 'Maria Santos', email
         await page.getByRole('heading', { name: heading, exact: true }).waitFor();
       }
       await page.goto(`${root}/alerts?signed=1`);
+      await page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
+      assert.equal(await page.getByRole('button', { name: 'Toggle sidebar' }).getAttribute('aria-expanded'), 'false');
+      assert.equal(await page.locator('.site-nav').count(), 0);
+      assert.equal(await page.getByRole('link', { name: 'Back to Bulletin', exact: true }).getAttribute('href'), '/');
+      await page.getByRole('button', { name: 'Toggle sidebar' }).click();
+      await page.getByRole('link', { name: 'Earthquakes', exact: true }).waitFor();
+      await page.getByRole('link', { name: 'About', exact: true }).waitFor();
+      await page.getByRole('button', { name: 'User menu', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Account', exact: true }).waitFor();
+      await page.getByRole('menuitem', { name: 'Sign-out', exact: true }).waitFor();
+      await page.getByRole('menuitem', { name: 'Account', exact: true }).press('Escape');
+      if (viewport.width <= 760) await page.getByRole('button', { name: 'Close navigation', exact: true }).click();
+      else await page.getByRole('button', { name: 'Toggle sidebar' }).click();
       if (viewport.width <= 760) {
         await page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
         await page.setViewportSize({ width: viewport.width, height: 600 });
@@ -46,10 +59,10 @@ const baseAccount = { userId: 'fixture-user', displayName: 'Maria Santos', email
         assert.equal(await page.locator('.settings-rail').evaluate(el => el.getBoundingClientRect().top), 0);
         await page.evaluate(() => window.scrollTo(0, 120));
         await page.waitForFunction(() => !document.querySelector('.account-app').hasAttribute('data-header-hidden'));
-        assert.equal(await page.locator('.settings-rail').evaluate(el => el.getBoundingClientRect().top), 78);
+        assert.equal(await page.locator('.settings-rail').evaluate(el => el.getBoundingClientRect().top), 56);
         await page.evaluate(() => window.scrollTo(0, 160));
         await page.waitForFunction(() => document.querySelector('.account-app').hasAttribute('data-header-hidden'));
-        await page.locator('.header .back').focus();
+        await page.locator('.bulletin-header .bulletin-mobile-title').focus();
         await page.waitForFunction(() => !document.querySelector('.account-app').hasAttribute('data-header-hidden'));
         await page.evaluate(() => window.scrollTo(0, 0));
         await page.setViewportSize(viewport);

@@ -158,4 +158,8 @@ Bulletin filters match the account fields: 52px height, 14px horizontal padding,
 
 The account settings navigation uses the shared shadcn Tabs on mobile (760px and below). Alert preferences, Alert location, and Account retain native page links, their icons, and the selected destination. Arrow keys move focus; Enter opens the focused destination through the existing account navigation to preserve drafts and unsaved-change confirmation. Desktop retains the settings rail.
 
-On mobile settings pages, downward scrolling slides the main header out and moves the sticky tabs to the top. Upward scrolling restores the header and places the tabs below its 78px height. Keyboard focus on a header link also restores the header. Reduced motion disables these transitions.
+On mobile settings pages, downward scrolling slides the main header out and moves the sticky tabs to the top. Upward scrolling restores the header and places the tabs below its 56px height. Keyboard focus on a header link also restores the header. Reduced motion disables these transitions.
+
+The three account settings destinations share the Bulletin sidebar controls. Their standard sidebar starts collapsed on desktop and contains Earthquakes, Alert settings, About, and a user footer menu with Account and Sign-out. The desktop settings rail remains beside the form. The full-width header shows Back to Bulletin on desktop and a ChevronLeft link on mobile. Public Bulletin keeps its floating sidebar and header navigation.
+
+The settings user footer follows sidebar-07's NavUser structure: avatar, name, and email in both trigger and dropdown, with dividers before Account and Sign-out. The dropdown opens to the right on desktop and uses mobile placement with collision handling.

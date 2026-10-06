@@ -25,16 +25,16 @@
 .account-app .settings-rail .avatar { background: white; }
 .account-app .settings-mobile-tabs { display: none; }
 @media (max-width: 760px) {
-  .account-app.settings-workspace .header {
+  .account-app.settings-workspace .bulletin-header {
     transition: transform 180ms ease-out;
   }
-  .account-app.settings-workspace[data-header-hidden] .header {
+  .account-app.settings-workspace[data-header-hidden] .bulletin-header {
     transform: translateY(-100%);
   }
   .account-app.settings-workspace[data-header-hidden] .settings-rail { top: 0; }
   .account-app .settings-rail {
     position: sticky;
-    top: 78px;
+    top: 56px;
     z-index: 19;
     flex-shrink: 0;
     background: white;
@@ -258,7 +258,7 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
   100% { scale: 1 1; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .account-app.settings-workspace .header,
+  .account-app.settings-workspace .bulletin-header,
   .account-app.settings-workspace .settings-rail { transition: none; }
   .account-app .auth-tabs .mode-switch:has([data-key][data-selected])::before { transition: none; animation: none; }
   .account-app .auth-tabs .mode-switch [data-slot="tabs-trigger"] { transition: none; }
@@ -486,4 +486,58 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
   .account-app:is([data-screen="signin"], [data-screen="signup"]) form > .field {
     animation: none;
   }
+}
+
+/* Account settings share the Bulletin shell and use document scrolling. */
+.account-app .bulletin-settings-shell {
+  --bulletin-sidebar-width: 16rem;
+  min-height: 100svh;
+  height: auto;
+  overflow: visible;
+}
+.account-app .bulletin-settings-shell .bulletin-main { overflow: visible; }
+.account-app .bulletin-settings-shell .bulletin-header { position: sticky; top: 0; z-index: 20; background: white; }
+.account-app .bulletin-settings-shell .dashboard { padding: 0; }
+/* Keep settings navigation beside the form, outside the main sidebar. */
+.account-app.settings-workspace .layout {
+  display: grid;
+  grid-template-columns: 244px minmax(0, 1fr);
+  width: calc(100% - 96px);
+  max-width: 1120px;
+  margin: 40px auto 54px;
+  gap: 48px;
+}
+.account-app .bulletin-settings-shell .bulletin-main { margin: 0; }
+.account-app .bulletin-settings-shell [data-slot="sidebar-inner"] { border: 0; border-radius: 0; }
+.account-app .bulletin-settings-shell .bulletin-header {
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  height: 64px;
+  padding-inline: 24px;
+  border-bottom: 1px solid var(--line);
+}
+.account-app .settings-bulletin-back {
+  grid-column: 3;
+  display: flex;
+  align-items: center;
+  justify-self: end;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 550;
+}
+.account-app .settings-bulletin-back svg { display: none; }
+.settings-user-popover { width: max(var(--trigger-width), 14rem); gap: 0; padding: 4px; }
+.settings-user-separator { height: 1px; margin: 4px -4px; background: var(--border); }
+.settings-user-menu { outline: none; }
+.settings-user-menu [role="menuitem"] { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 12px; border-radius: 6px; cursor: pointer; outline: none; }
+.settings-user-menu [role="menuitem"][data-focused] { background: var(--accent); color: var(--primary); }
+@media (max-width: 1000px) and (min-width: 761px) {
+  .account-app.settings-workspace .layout { width: calc(100% - 48px); grid-template-columns: 210px minmax(0, 1fr); gap: 24px; }
+}
+@media (max-width: 760px) {
+  .account-app.settings-workspace .layout { display: flex; width: 100%; margin: 0; max-width: none; gap: 0; }
+  .account-app .bulletin-settings-shell .bulletin-header { height: 56px; padding-inline: 12px; grid-template-columns: 44px minmax(0, 1fr) 44px; }
+  .account-app .settings-bulletin-back { width: 44px; justify-content: center; }
+  .account-app .settings-bulletin-back svg { display: block; }
+  .account-app .settings-bulletin-back span { display: none; }
 }

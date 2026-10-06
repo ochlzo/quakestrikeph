@@ -16,7 +16,8 @@ function SessionAlertsLink() {
   return <AlertsLink signedIn={isSignedIn} />;
 }
 
-export default function AlertsButton() {
+export default function AlertsButton({ withinAccount = false }: { withinAccount?: boolean } = {}) {
+  if (withinAccount) return <SessionAlertsLink />;
   const publishableKey = import.meta.env.PUBLIC_CLERK_PUBLISHABLE_KEY;
   return publishableKey ? (
     <ClerkProvider publishableKey={publishableKey}>
