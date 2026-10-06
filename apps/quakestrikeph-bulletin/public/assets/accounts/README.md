@@ -5,8 +5,9 @@ Map & sheet mockup. Geist Variable is redistributed with `Geist-LICENSE`.
 
 `philippine-places.json` is a compact derived [GeoNames](https://www.geonames.org/)
 Philippine place index, licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
-It contains 46,766 populated and named places, including selected mountains,
-beaches and airports. Rows contain name, province/district context, latitude,
+It contains 1,663 administrative places: 17 regions (`ADM1`) and 1,646 cities
+and municipalities (`ADM3`). Barangays, other settlements, mountains, beaches,
+and airports are excluded. Rows contain name, province/district context, latitude,
 longitude and search aliases. Coordinates are internal; the interface displays
 place names and map pins. This is neither an address directory nor complete
 barangay coverage. Administrative context is the source context, not a claim

@@ -60,6 +60,7 @@ export function FormField({
   id,
   label,
   labelAction,
+  inputSuffix,
   error,
   type = "text",
   ...props
@@ -67,6 +68,7 @@ export function FormField({
   id: string;
   label: string;
   labelAction?: ReactNode;
+  inputSuffix?: string;
   error?: string;
 } & React.ComponentProps<typeof Input>) {
   const [visible, setVisible] = useState(false);
@@ -85,7 +87,7 @@ export function FormField({
       ) : (
         <FieldLabel htmlFor={id}>{label}</FieldLabel>
       )}
-      <div className={type === "password" ? "password-wrap" : undefined}>
+      <div className={type === "password" ? "password-wrap" : inputSuffix ? "input-with-suffix" : undefined}>
         <Input
           {...props}
           onInvalid={(event) => {
@@ -126,6 +128,7 @@ export function FormField({
             fieldError ? `${id}-error` : props["aria-describedby"]
           }
         />
+        {inputSuffix && <span style={{ left: `calc(14px + ${String(props.value ?? "").length}ch + 6px)` }}>{inputSuffix}</span>}
         {type === "password" && (
           <Button
             className="show-password"

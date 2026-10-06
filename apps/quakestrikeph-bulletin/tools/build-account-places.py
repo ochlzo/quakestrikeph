@@ -17,9 +17,11 @@ def main() -> None:
     regions = {r[10]: r[1] for r in rows if r[7] == "ADM1"}
     places = {}
     for r in rows:
-        if r[6] != "P" and r[7] not in {"MT", "MTS", "PK", "BCH", "AIRP"}:
+        if r[7] not in {"ADM1", "ADM3"}:
             continue
-        context = provinces.get((r[10], r[11]), regions.get(r[10], "Philippines"))
+        context = "Philippines" if r[7] == "ADM1" else provinces.get(
+            (r[10], r[11]), regions.get(r[10], "Philippines")
+        )
         latitude, longitude = float(r[4]), float(r[5])
         aliases = sorted({r[1], r[2], *r[3].split(",")} - {""})[:10]
         places[(r[1], latitude, longitude)] = [

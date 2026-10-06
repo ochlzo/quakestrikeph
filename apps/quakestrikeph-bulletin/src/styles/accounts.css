@@ -1,5 +1,13 @@
+/* React Aria positions portalled overlays against the document, including top placement. */
+body:has(.account-app){position:static}
 .account-app{min-height:100svh;display:flex;flex-direction:column;background:#eaf2f4;color:#1a2c30;--account-muted:#5f6b6e}
 .account-app .screen-focus{outline:none}.account-app .screen-focus:focus-visible{outline:none}
+.unsaved-dialog{width:min(480px,calc(100vw - 32px));padding:24px;border:0;border-radius:16px;background:white;color:var(--ink);box-shadow:0 12px 36px #1a2c3026}
+
+.unsaved-dialog h3{margin:0 0 12px;font-size:24px;font-weight:600}
+.unsaved-dialog p{margin:0;font-size:15px;line-height:1.5;color:var(--account-muted)}
+.unsaved-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:12px;margin-top:24px}
+.unsaved-actions [data-slot="button"]{width:auto;max-width:none;min-height:44px;margin:0;padding:10px 16px}
 .account-app .header {
   position: sticky;
   top: 0;
@@ -14,9 +22,14 @@
 .account-app[data-screen="preferences"] .settings-section { margin-top: 24px; }
 .account-app[data-screen="preferences"] .settings-section .field { margin-bottom: 12px; }
 .account-app[data-screen="preferences"] .settings-section .support { margin: 0; }
+.account-app .input-with-suffix { position: relative; }
+.account-app .input-with-suffix [data-slot="input"] { padding-right: 100px; font-variant-numeric: tabular-nums; }
+.account-app .input-with-suffix > span { position: absolute; top: 50%; transform: translateY(-50%); font-size: 14px; pointer-events: none; }
 .account-app[data-screen="preferences"] .nearby-section { margin-top: 24px; }
 .account-app[data-screen="preferences"] .nearby-section .switch-row { padding: 20px 0 16px; }
 .account-app[data-screen="preferences"] .location-summary { padding: 8px 0 0; }
+.account-app .alert-location-link { display: inline-flex; align-items: center; min-height: 44px; }
+.account-app .alert-location-link:hover { text-decoration: underline; text-underline-offset: 4px; }
 .account-app[data-screen="preferences"] form > .primary { margin-top: 24px; }
 @media (min-width: 761px) {
   .account-app[data-screen="preferences"] .account { padding: 32px 40px; }
@@ -24,6 +37,33 @@
 .account-app[data-screen="preferences"] .location-summary { border-bottom: 0; }
 .account-app .settings-rail .avatar { background: white; }
 .account-app .settings-mobile-tabs { display: none; }
+.account-app.settings-workspace { --settings-tab-index: 0; }
+.account-app.settings-workspace[data-screen="location"] { --settings-tab-index: 1; }
+.account-app.settings-workspace[data-screen="account"] { --settings-tab-index: 2; }
+.account-app .settings-desktop-nav,
+.account-app .settings-mobile-tabs [data-slot="tabs-list"] { position: relative; isolation: isolate; }
+.account-app .settings-desktop-nav::before,
+.account-app .settings-mobile-tabs [data-slot="tabs-list"]::before {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  transition: transform 320ms cubic-bezier(.16, 1, .3, 1);
+}
+.account-app .settings-desktop-nav::before {
+  inset: 0 0 auto;
+  height: calc((100% - 16px) / 3);
+  border-radius: 10px;
+  background: var(--pale);
+  transform: translateY(calc(var(--settings-tab-index) * (100% + 8px)));
+}
+.account-app .settings-desktop-nav button,
+.account-app .settings-mobile-tabs [data-slot="tabs-trigger"] {
+  position: relative;
+  z-index: 1;
+  transition: color 180ms ease-out;
+}
+.account-app .settings-rail .settings-desktop-nav button[aria-current] { background: transparent; }
+.account-app.settings-workspace .screen-focus { animation: auth-field-entry 320ms cubic-bezier(.16, 1, .3, 1) both; }
 @media (max-width: 760px) {
   .account-app.settings-workspace .bulletin-header {
     transition: transform 180ms ease-out;
@@ -48,6 +88,7 @@
     min-height: 50px;
   }
   .account-app .settings-mobile-tabs [data-slot="tabs-trigger"] {
+    flex: 1 1 0;
     min-width: 0;
     min-height: 44px;
     height: auto;
@@ -58,7 +99,28 @@
   }
   .account-app .settings-mobile-tabs [data-slot="tabs-trigger"][data-selected] {
     color: var(--teal);
+    background: transparent;
+    box-shadow: none;
   }
+  .account-app .settings-mobile-tabs [data-slot="tabs-list"]::before {
+    inset: 3px auto 3px 3px;
+    width: calc((100% - 6px) / 3);
+    border-radius: 7px;
+    background: white;
+    box-shadow: 0 2px 4px #1a2c3010;
+    transform: translateX(calc(var(--settings-tab-index) * 100%));
+  }
+  .account-app[data-screen="preferences"] .settings-mobile-tabs [data-slot="tabs-list"]::before { animation: tab-stretch-signin 320ms cubic-bezier(.16, 1, .3, 1); }
+  .account-app[data-screen="location"] .settings-mobile-tabs [data-slot="tabs-list"]::before { animation: tab-stretch-signup 320ms cubic-bezier(.16, 1, .3, 1); }
+  .account-app[data-screen="account"] .settings-mobile-tabs [data-slot="tabs-list"]::before { animation: settings-tab-stretch 320ms cubic-bezier(.16, 1, .3, 1); }
+}
+@keyframes settings-tab-stretch { 0%, 100% { scale: 1 1; } 30% { scale: 1.1 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .account-app .settings-desktop-nav::before,
+  .account-app[data-screen] .settings-mobile-tabs [data-slot="tabs-list"]::before,
+  .account-app.settings-workspace .screen-focus { transition: none; animation: none; }
+  .account-app .settings-desktop-nav button,
+  .account-app .settings-mobile-tabs [data-slot="tabs-trigger"] { transition: none; }
 }
 @media (min-width: 761px) {
   .account-app:is([data-screen="preferences"], [data-screen="account"]) form > .primary {
@@ -320,10 +382,52 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
 .account-app .switch-row input{width:1px;height:1px;padding:0}
 .account-app .switch-row .verify-destination { width: auto; min-height: 44px; margin: 0; padding: 8px 16px; flex-shrink: 0; }
 .account-app .delivery-note{font-size:13px;line-height:1.55;color:#36585d;background:#edf6f6;border-radius:10px;padding:14px 16px;margin:0 0 22px}
-.location-map{height:310px;margin-top:18px;border-radius:10px;overflow:hidden;background:#e7f2f3}
+.location-map{position:relative;height:310px;margin-top:18px;border-radius:10px;overflow:hidden;background:#e7f2f3}
+.account-app .location-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.account-app .location-heading h2{min-width:0;margin:0}
+.account-app .location-heading .location-heading-edit{display:inline-flex;align-items:center;justify-content:center;gap:8px;flex-shrink:0;width:auto;max-width:none;min-height:44px;margin:0;padding:10px 14px}
+.account-app .location-heading-edit svg{width:16px;height:16px}
+.account-app .location-empty{padding:40px 16px}
+.account-app .location-empty [data-slot="empty-icon"]{color:var(--teal)}
+.account-app .location-empty [data-slot="empty-title"]{font-size:18px;font-weight:600}
+.account-app .location-empty .secondary{width:auto;min-height:44px;margin:0;padding:10px 20px}
 .location-map .maplibregl-marker{cursor:grab}.location-map .maplibregl-marker svg{width:27px;height:41px}
 .location-map .maplibregl-ctrl button{width:36px;height:36px}.location-map canvas{max-width:100%}
 .location-search-label{display:block;font-size:13px;font-weight:600;margin-bottom:8px}
+.account-app .location-search-field{height:52px;border-radius:var(--radius-lg);border-color:#dce3e4;background:white}
+.account-app .location-search-field [data-slot=input-group-control]{height:100%;padding:0 8px;border:0;border-radius:0;background:transparent;font-size:15px;outline:none;box-shadow:none}
+.account-app .location-search-field [data-slot=input-group-addon]{color:var(--teal)}
+.account-app .location-controls{margin-top:24px;container-type:inline-size}
+.account-app .location-search-row{display:flex;flex-direction:column;align-items:flex-start;gap:12px;margin-top:24px}
+.account-app .location-search-combobox{width:100%;min-width:0}
+.account-app .location-locate{width:auto;max-width:none;height:52px;margin:0;padding:0 16px;flex-shrink:0}
+.account-app .location-controls .location-summary{display:flex;align-items:flex-start;gap:12px;margin:0;padding:0;border:0;font-size:20px;line-height:1.4}
+.account-app .location-controls .location-summary strong{font-weight:600}
+.account-app .location-view-distance{display:block;margin-top:4px;font-size:14px;font-weight:400;color:var(--account-muted)}
+.account-app .location-controls .location-summary:not([data-selected]){font-size:16px}
+.account-app .location-controls .location-summary svg{width:24px;height:24px;margin-top:2px;color:var(--teal)}
+.account-app .location-controls .location-distance{width:220px;max-width:100%;margin:24px 0 0}
+.account-app .location-controls .location-distance-help{margin:8px 0 0}
+.account-app .location-actions{display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-top:28px}
+.account-app .location-actions .primary,.account-app .location-actions .secondary{width:auto;max-width:none;height:52px;margin:0;padding:0 20px}
+.account-app .location-controls .quiet-note{text-align:left;margin:16px 0 0}
+@container(min-width:560px){.account-app .location-search-row{flex-direction:row;align-items:flex-end}.account-app .location-search-combobox{flex:1}}
+@media(max-width:760px){
+  .account-app .location-controls{margin-top:20px}
+  .account-app .location-controls .location-summary{font-size:18px;gap:10px}
+  .account-app .location-controls .location-summary svg{width:22px;height:22px}
+  .account-app .location-search-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;margin-top:20px;gap:4px 12px}
+  .account-app .location-search-combobox{display:contents}
+  .account-app .location-search-label{grid-column:1;grid-row:1;margin-bottom:0}
+  .account-app .location-search-combobox > div{grid-column:1 / -1;grid-row:2}
+  .account-app .location-search-field [data-slot=input-group-control]{font-size:16px}
+  .account-app .location-locate{grid-column:2;grid-row:1;height:44px;min-height:44px;padding:0;border:0;background:transparent;border-radius:4px}
+  .account-app .location-locate:hover{background:transparent;text-decoration:underline;text-underline-offset:4px}
+  .account-app .location-controls .location-distance{width:100%;margin-top:16px}
+  .account-app.settings-workspace .field:has(#distance){max-width:none}
+  .account-app .location-actions{margin-top:24px}
+  .account-app .location-actions .primary{flex:1}
+}
 .place-context{display:block;font-size:12px;color:#5f6b6e}
 .account-app .location-summary{overflow-wrap:anywhere}.account-app .location-summary svg{flex-shrink:0}
 .account-app .settings-rail nav button{justify-content:flex-start;font-size:14px;height:auto}
@@ -526,6 +630,7 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
   font-weight: 550;
 }
 .account-app .settings-bulletin-back svg { display: none; }
+.account-app .settings-bulletin-back:hover { text-decoration: underline; text-underline-offset: 4px; }
 .settings-user-popover { width: max(var(--trigger-width), 14rem); gap: 0; padding: 4px; }
 .settings-user-separator { height: 1px; margin: 4px -4px; background: var(--border); }
 .settings-user-menu { outline: none; }
@@ -549,12 +654,32 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
   .bulletin-settings-shell .bulletin-mobile-nav a,
   .bulletin-settings-shell .bulletin-brand-label { white-space: nowrap; }
   .bulletin-settings-shell .bulletin-mobile-nav a span { flex-shrink: 0; }
-  .bulletin-settings-shell [data-collapsible="icon"] .bulletin-sidebar-head { padding: 16px 8px 12px; }
-  .bulletin-settings-shell [data-collapsible="icon"] .brand-mark { width: 32px; height: 32px; border-radius: 8px; }
+  .bulletin-settings-shell .bulletin-sidebar-head { height: 64px; flex-shrink: 0; padding: 10px 8px; gap: 0; }
+  .bulletin-settings-shell .brand-mark { width: 32px; height: 32px; border-radius: 8px; }
+  .bulletin-settings-shell .bulletin-mobile-nav { padding: 8px; }
+  .bulletin-settings-shell .bulletin-mobile-nav a { padding: 8px; border: 0; }
   .bulletin-settings-shell [data-collapsible="icon"] .bulletin-brand-label,
   .bulletin-settings-shell [data-collapsible="icon"] .bulletin-mobile-nav a span,
   .bulletin-settings-shell [data-collapsible="icon"] .settings-user-details,
   .bulletin-settings-shell [data-collapsible="icon"] .settings-user-chevron { display: none; }
-  .bulletin-settings-shell [data-collapsible="icon"] .bulletin-mobile-nav { padding: 8px; }
-  .bulletin-settings-shell [data-collapsible="icon"] .bulletin-mobile-nav a { justify-content: center; padding: 8px; }
+  .bulletin-settings-shell [data-collapsible="icon"] .bulletin-mobile-nav a { width: 32px; justify-content: center; }
 }
+
+.location-map-canvas{width:100%;height:100%}
+.location-map-error{position:absolute;inset:0;z-index:3;background:#e7f2f3;padding:20px}
+.account-app .location-search-field-wrapper{gap:0}
+.account-app .location-search-field-wrapper [data-slot="field-error"]{margin-top:8px}
+.account-app .location-search-field:has([aria-invalid="true"]){border-color:var(--destructive)}
+@media(max-width:760px){.account-app .location-search-field-wrapper{display:contents}.account-app .location-search-field-wrapper > div{grid-column:1 / -1;grid-row:2}.account-app .location-search-field-wrapper [data-slot="field-error"]{grid-row:3}}
+.unsaved-dialog{gap:16px}
+.unsaved-dialog [data-slot="dialog-title"]{font-size:22px;line-height:1.3;font-weight:600}
+.unsaved-dialog [data-slot="dialog-description"]{font-size:15px;line-height:1.5}
+.unsaved-actions{margin:0;padding-top:16px}
+.unsaved-dialog [data-slot="dialog-footer"]{display:flex;flex-direction:row;flex-wrap:nowrap;justify-content:flex-end;gap:8px;margin:0;padding:0;border:0;background:transparent;border-radius:0}
+.unsaved-dialog [data-slot="dialog-footer"] [data-slot="button"]{flex:none;width:auto;white-space:nowrap}
+.account-app .location-controls .location-summary[data-missing="true"] svg{color:var(--destructive)}
+.account-app .location-search-field:has([aria-invalid="true"]) [data-slot="input-group-addon"]:first-of-type{color:var(--destructive)}
+
+.account-app .location-search-row:has(#location-search-error) .location-locate{align-self:flex-start;margin-top:28px}
+.location-map-error [data-slot="button"]{min-height:44px;padding-inline:16px}
+@media(max-width:760px){.account-app .location-search-row:has(#location-search-error) .location-locate{margin-top:0;align-self:center}}

@@ -87,9 +87,15 @@ export function useAccountFlow(initial: string) {
   const heading = useRef<HTMLDivElement>(null),
     signedOnce = useRef(false);
   const { list } = usePlaces();
+  const [locationEdit, setLocationEdit] = useState<Pick<Preferences, "latitude" | "longitude" | "distanceKm"> | null>(null);
+  const [leaveAction, setLeaveAction] = useState<(() => void) | null>(null);
+  const [leaveError, setLeaveError] = useState("");
+  const [locationValidation, setLocationValidation] = useState(0);
+  const [savingBeforeLeave, setSavingBeforeLeave] = useState(false);
+  const allowLeave = useRef(false);
   const dirty =
     account &&
-    (JSON.stringify(draft) !== JSON.stringify(preferences(account)) ||
+    (locationEdit !== null || JSON.stringify(draft) !== JSON.stringify(preferences(account)) ||
       (screen === "account" && name !== account.displayName));
   const active = useRef(true);
   const historyIndex = useRef<number>(history.state?.accountIndex ?? 0);
@@ -112,11 +118,12 @@ export function useAccountFlow(initial: string) {
   }, []);
   const previousScreen = useRef(screen);
   useEffect(() => {
+    allowLeave.current = false;
     const wasAuth =
       previousScreen.current === "signin" ||
       previousScreen.current === "signup";
     const isAuth = screen === "signin" || screen === "signup";
-    if (!(wasAuth && isAuth)) heading.current?.focus();
+    if (!(wasAuth && isAuth)) heading.current?.focus({ preventScroll: screen === "location" });
     previousScreen.current = screen;
     setCode("");
   }, [screen]);
@@ -135,14 +142,14 @@ export function useAccountFlow(initial: string) {
       const target = screenAtPath(location.pathname);
       if (!target) return;
       const keepsDraft = ["preferences", "location"].includes(screen) && ["preferences", "location"].includes(target);
-      if (dirty && !keepsDraft) {
-        if (!window.confirm("Discard your unsaved changes?")) {
-          undoingHistory.current = true;
-          history.go(historyIndex.current - nextIndex);
-          return;
-        }
-        if (account) { setDraft(preferences(account)); setName(account.displayName); }
+      if (dirty && (!keepsDraft || locationEdit) && !allowLeave.current) {
+        const delta = nextIndex - historyIndex.current;
+        undoingHistory.current = true;
+        history.go(-delta);
+        confirmLeave(() => history.go(delta));
+        return;
       }
+      allowLeave.current = false;
       historyIndex.current = nextIndex;
       setError("");
       setFieldErrors({});
@@ -162,20 +169,26 @@ export function useAccountFlow(initial: string) {
     };
     window.addEventListener("popstate", restoreRoute);
     return () => window.removeEventListener("popstate", restoreRoute);
-  }, [isSignedIn, screen, dirty, account, pending]);
+  }, [isSignedIn, screen, dirty, account, pending, locationEdit]);
   useEffect(() => {
     if (!dirty) return;
     const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (allowLeave.current) return;
       event.preventDefault();
+      event.returnValue = "";
     };
     const click = (event: MouseEvent) => {
       const anchor = (event.target as Element).closest("a[href]");
-      if (
-        anchor &&
-        !anchor.getAttribute("href")?.startsWith("#") &&
-        !window.confirm("Leave without saving your changes?")
-      )
-        event.preventDefault();
+      if (!anchor || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey ||
+        anchor.getAttribute("target") === "_blank" || anchor.hasAttribute("download") ||
+        anchor.getAttribute("href")?.startsWith("#")) return;
+      const destination = new URL(anchor.getAttribute("href")!, location.href);
+      if (destination.href === location.href) return;
+      const next = destination.origin === location.origin ? screenAtPath(destination.pathname) : null;
+      if (!locationEdit && ["preferences", "location"].includes(screen) && next && ["preferences", "location"].includes(next)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      confirmLeave(() => next && ["preferences", "location", "account"].includes(next) ? setScreen(next) : location.assign(destination.href));
     };
     window.addEventListener("beforeunload", beforeUnload);
     document.addEventListener("click", click, true);
@@ -183,7 +196,48 @@ export function useAccountFlow(initial: string) {
       window.removeEventListener("beforeunload", beforeUnload);
       document.removeEventListener("click", click, true);
     };
-  }, [dirty]);
+  }, [dirty, screen, locationEdit]);
+  function confirmLeave(action: () => void) {
+    if (!dirty) { action(); return; }
+    setLeaveError("");
+    setLeaveAction(() => action);
+  }
+  function discardAndLeave() {
+    if (!leaveAction || savingBeforeLeave) return;
+    if (account) { setDraft(preferences(account)); setName(account.displayName); }
+    setLocationEdit(null);
+    allowLeave.current = true;
+    const action = leaveAction;
+    setLeaveAction(null);
+    action();
+  }
+  async function saveAndLeave() {
+    if (!account || !leaveAction || savingBeforeLeave) return;
+    if (locationEdit && (locationEdit.latitude === null || locationEdit.longitude === null ||
+      !Number.isInteger(locationEdit.distanceKm) || locationEdit.distanceKm! < 1 || locationEdit.distanceKm! > 1000)) {
+      setLeaveAction(null);
+      setLocationValidation(attempt => attempt + 1);
+      return;
+    }
+    setSavingBeforeLeave(true);
+    setLeaveError("");
+    try {
+      let next = account;
+      if (locationEdit || JSON.stringify(draft) !== JSON.stringify(preferences(account)))
+        next = await api<Account>("/preferences", "PUT", { ...draft, ...locationEdit });
+      if (screen === "account" && name !== account.displayName)
+        next = await api<Account>("/profile", "PUT", { displayName: name });
+      updateAccount(next);
+      toast.add({ type: "success", title: screen === "account" ? "Changes saved." : "Alert preferences saved." });
+      setLocationEdit(null);
+      allowLeave.current = true;
+      const action = leaveAction;
+      setLeaveAction(null);
+      action();
+    } catch (failure) {
+      setLeaveError(failure instanceof Error ? failure.message : "Changes could not be saved. Try again.");
+    } finally { setSavingBeforeLeave(false); }
+  }
   async function api<T>(path = "", method = "GET", body?: unknown) {
     const token = await getToken({ skipCache: method !== "GET" });
     if (!active.current) throw new Error("The account session changed.");
@@ -240,13 +294,14 @@ export function useAccountFlow(initial: string) {
       .finally(() => setLoading(false));
   }, [isLoaded, isSignedIn, session?.currentTask?.key]);
   function navigate(next: Screen) {
+    if (next === screen) return;
     setError("");
     setFieldErrors({});
-    if (["preferences", "location"].includes(screen) && ["preferences", "location"].includes(next)) {
+    if (!locationEdit && ["preferences", "location"].includes(screen) && ["preferences", "location"].includes(next)) {
       setScreen(next);
       return;
     }
-    if (dirty && !window.confirm("Discard your unsaved changes?")) return;
+    if (dirty) { confirmLeave(() => setScreen(next)); return; }
     if (account) {
       setDraft(preferences(account));
       setName(account.displayName);
@@ -395,7 +450,13 @@ export function useAccountFlow(initial: string) {
     setScreen("reverify", false, pathForScreen(target));
   }
   async function sensitive(next: Screen) {
-    if (dirty && !window.confirm("Discard your unsaved changes?")) return;
+    if (dirty) {
+      confirmLeave(() => void action(async () => {
+        setReturnAction(next);
+        await prepareReverification(next);
+      }));
+      return;
+    }
     if (account) {
       setDraft(preferences(account));
       setName(account.displayName);
@@ -603,6 +664,15 @@ export function useAccountFlow(initial: string) {
     list,
     setAccount,
     dirty,
+    setLocationEdit,
+    locationValidation,
+    leaveAction,
+    leaveError,
+    savingBeforeLeave,
+    saveAndLeave,
+    discardAndLeave,
+    stay: () => { if (!savingBeforeLeave) setLeaveAction(null); },
+    confirmLeave,
     resetTaskPassword,
     setConfirmPassword,
     reverifyMethod,

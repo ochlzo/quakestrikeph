@@ -1,6 +1,8 @@
 import { AuthenticateWithRedirectCallback, ClerkProvider, useAuth } from "@clerk/react";
 import { ArrowRight } from "lucide-react";
 import { useState, type ReactNode } from "react";
+import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "../../components/ui/dialog";
+import { Button } from "../../components/ui/button";
 import { FieldError } from "../../components/ui/field";
 import { Toaster } from "../../components/ui/toast";
 import { Shell } from "./account-ui";
@@ -122,11 +124,11 @@ function AccountFlow({ initial }: { initial: string; }) {
       isLoading={isAccountLoading}
       navigate={navigate}
       signOut={() => {
-        if (!flow.dirty || window.confirm("Discard your unsaved changes?"))
-          void flow.clerk.signOut({ redirectUrl: "/" });
+        flow.confirmLeave(() => void flow.clerk.signOut({ redirectUrl: "/" }));
       }}
     >
       <div
+        key={["preferences", "location", "account"].includes(screen) ? screen : "account-flow"}
         ref={heading}
         tabIndex={-1}
         className="screen-focus"
@@ -139,6 +141,25 @@ function AccountFlow({ initial }: { initial: string; }) {
             <FieldError>{error}</FieldError>
           )}
       </div>
+      <UnsavedChangesDialog flow={flow} />
     </Shell>
   );
+}
+function UnsavedChangesDialog({ flow }: { flow: ReturnType<typeof useAccountFlow> }) {
+  return <Dialog className="unsaved-dialog" isOpen={!!flow.leaveAction}
+    onOpenChange={open => { if (!open) flow.stay(); }}
+    isDismissable={!flow.savingBeforeLeave} isKeyboardDismissDisabled={flow.savingBeforeLeave} showCloseButton={!flow.savingBeforeLeave}>
+    <DialogHeader>
+      <DialogTitle>{flow.leaveError ? "Changes could not be saved" : "Save changes?"}</DialogTitle>
+      <DialogDescription>{flow.leaveError || "You have unsaved changes. Save them before leaving?"}</DialogDescription>
+    </DialogHeader>
+    <DialogFooter className="unsaved-actions">
+      <Button variant="outline" onPress={flow.leaveError ? flow.stay : flow.discardAndLeave} isDisabled={flow.savingBeforeLeave}>
+        {flow.leaveError ? "Cancel" : "No, discard it"}
+      </Button>
+      <Button onPress={() => void flow.saveAndLeave()} isDisabled={flow.savingBeforeLeave}>
+        {flow.savingBeforeLeave ? "Saving…" : flow.leaveError ? "Retry" : "Yes"}
+      </Button>
+    </DialogFooter>
+  </Dialog>;
 }

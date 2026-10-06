@@ -1,6 +1,7 @@
-import { MapPin } from "lucide-react";
+import { CircleX, MapPin } from "lucide-react";
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription, EmptyContent } from "../../../components/ui/empty";
 import { Button } from "../../../components/ui/button";
-import { Field, FieldError } from "../../../components/ui/field";
+import { Field } from "../../../components/ui/field";
 import { Skeleton } from "../../../components/ui/skeleton";
 import type { AccountFlowState } from "../useAccountFlow";
 
@@ -103,17 +104,17 @@ export function AuthLoading({ flow }: { flow: AccountFlowState; }) {
 }
 
 export function UnavailableAccountScreen({ flow }: { flow: AccountFlowState; }) {
-  const { title, error, action, resume } = flow;
+  const { action, resume, busy } = flow;
   return (
-    <>
-      {title(
-        "Account settings unavailable",
-        "Your account could not be loaded. You can still read the Bulletin.",
-      )}
-      <FieldError>{error}</FieldError>
-      <Button className="primary" onPress={() => void action(resume)}>
+    <Empty className="location-empty" role="alert">
+      <EmptyHeader>
+        <EmptyMedia variant="icon"><CircleX aria-hidden="true" /></EmptyMedia>
+        <EmptyTitle>Account settings unavailable</EmptyTitle>
+        <EmptyDescription>Your account could not be loaded. You can still read the Bulletin.</EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent><Button className="secondary" isDisabled={busy} onPress={() => void action(resume)}>
         Try again
-      </Button>
-    </>
+      </Button></EmptyContent>
+    </Empty>
   );
 }
