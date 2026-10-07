@@ -13,7 +13,7 @@ const root = process.env.ACCOUNTS_ASTRO_FIXTURE_URL || 'http://127.0.0.1:4333';
     await page.getByRole('checkbox', { name: 'Email Use your verified account email.' }).check();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
-    await page.getByRole('switch', { name: 'Email alerts', exact: true }).click();
+    await page.getByRole('switch', { name: 'Email alerts', exact: true }).press('Space');
     await page.getByRole('link', { name: 'Back to Bulletin' }).click();
     await page.waitForURL(`${root}/`);
     await page.getByText('Fixture save failed. Try again.', { exact: true }).waitFor();

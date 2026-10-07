@@ -1,10 +1,10 @@
 import { useAuth, useClerk, useReverification, useSession, useUser } from "@clerk/react";
 import { useSignIn, useSignUp } from "@clerk/react/legacy";
 import { ArrowLeft, ArrowRight, Loader } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, } from "react";
 import { Button } from "../../components/ui/button";
 import { toast } from "../../components/ui/toast";
-import { FormField } from "./account-ui";
+import { capitalizeNameWords, FormField, passwordRequirements } from "./account-ui";
 import {
   AccountFailure,
   accountRequest,
@@ -25,6 +25,40 @@ const blank: Preferences = {
   longitude: null,
   distanceKm: null,
 };
+// Failures are already presented. Ignored operations are busy or belong to an inactive session.
+export type ProfileOutcome = "saved" | "failed" | "ignored";
+export type ProfileFlow = {
+  name: string;
+  savedName: string;
+  busy: boolean;
+  fieldError: string | undefined;
+  setName: (name: string) => void;
+  clearErrors: () => void;
+  saveName: () => Promise<ProfileOutcome>;
+  continueProfile: () => Promise<ProfileOutcome>;
+};
+export type PhoneFlow = {
+  verifying: boolean;
+  phone: string;
+  setPhone: (phone: string) => void;
+  hasPhone: boolean;
+  verified: boolean;
+  destination: string;
+  expired: boolean;
+  cooldown: number;
+  busy: boolean;
+  fieldError: string | undefined;
+  backTo: "account" | "channels";
+  sendCode: () => Promise<void>;
+  resendCode: () => Promise<void>;
+  verifyCode: () => Promise<void>;
+  useAnotherNumber: () => Promise<void>;
+  continueWithoutSms: () => Promise<void>;
+};
+// Keep the original failure available to the shared authorization and field handling.
+class SmsOptInFailure extends Error {
+  constructor(readonly failure: unknown) { super("SMS alerts could not be enabled."); }
+}
 function showAuthError(message: string, mode: "signin" | "signup") {
   return toast.add({
     id: "account-auth-error",
@@ -44,9 +78,16 @@ export function useAccountFlow(initial: string) {
   const { user } = useUser();
   const { session } = useSession();
   const clerk = useClerk();
-  const resetTaskPassword = useReverification(async (newPassword: string) => {
+  const resetTaskPassword = useReverification(async (newPassword: string, isCurrent: () => boolean) => {
+    // Clerk can invoke this callback again after its interactive proof completes.
+    if (!isCurrent()) return;
     if (!user) throw new Error("Sign in again");
-    await user.updatePassword({ newPassword, signOutOfOtherSessions: true });
+    try {
+      await user.updatePassword({ newPassword, signOutOfOtherSessions: true });
+    } catch (failure) {
+      // A late proof requirement must not open a modal for a different session.
+      if (isCurrent()) throw failure;
+    }
   });
   const { signIn } = useSignIn();
   const { signUp } = useSignUp();
@@ -93,6 +134,8 @@ export function useAccountFlow(initial: string) {
     (locationEdit !== null ||
       (screen === "account" && name !== account.displayName));
   const active = useRef(true);
+  const authenticationIdentity = useRef("");
+  authenticationIdentity.current = isSignedIn ? `${userId}:${sessionId}` : "signed-out";
   const historyIndex = useRef<number>(history.state?.accountIndex ?? 0);
   const undoingHistory = useRef(false);
   function setScreen(next: Screen, replace = false, path?: string) {
@@ -225,7 +268,7 @@ export function useAccountFlow(initial: string) {
         next = await saves.saveConfirmed(locationEdit);
       }
       if (screen === "account" && name !== account.displayName)
-        next = await api<Account>("/profile", "PUT", { displayName: name });
+        next = await writeProfile(name);
       if (!active.current) return;
       updateAccount(next);
       toast.add({ type: "success", title: screen === "account" ? "Changes saved." : "Alert preferences saved." });
@@ -248,6 +291,28 @@ export function useAccountFlow(initial: string) {
       // Ignore old successes and errors before state changes or reverification.
       if (!active.current) throw new Error("The account session changed.");
     }
+  }
+  function writeProfile(displayName: string) {
+    return api<Account>("/profile", "PUT", { displayName });
+  }
+  async function submitProfile(intent: "name" | "onboarding"): Promise<ProfileOutcome> {
+    let outcome: ProfileOutcome = "ignored";
+    await action(async () => {
+      outcome = "failed";
+      const next = await writeProfile(name);
+      if (!active.current) return;
+      updateAccount(next);
+      if (intent === "name") toast.add({ type: "success", title: "Profile saved." });
+      else setScreen("channels");
+      outcome = "saved";
+    });
+    return active.current ? outcome : "ignored";
+  }
+  function saveName() {
+    return submitProfile("name");
+  }
+  function continueProfile() {
+    return submitProfile("onboarding");
   }
   function updateAccount(next: Account) {
     const queue = preferenceSaves(`${userId}:${sessionId}`, next, async (value) => {
@@ -292,25 +357,33 @@ export function useAccountFlow(initial: string) {
   }
   async function finishPhone(next: Account) {
     const queue = updateAccount(next);
+    toast.add({ type: "success", title: "Mobile number verified." });
     setScreen('preferences', true, '/alerts');
     if (onboardingSms.current) {
       // Destination proof must commit before the separate explicit SMS opt-in.
-      const enabled = await queue.saveConfirmed({ smsEnabled: true });
-      if (!active.current) return;
-      updateAccount(enabled);
-      onboardingSms.current = false;
+      try {
+        const enabled = await queue.saveConfirmed({ smsEnabled: true });
+        if (!active.current) return;
+        updateAccount(enabled);
+        onboardingSms.current = false;
+        if (enabled.smsEnabled && queue.snapshot.preferences.smsEnabled)
+          toast.add({ type: "success", title: "SMS alerts enabled." });
+      } catch (failure) { throw new SmsOptInFailure(failure); }
     }
   }
-  async function skipPhone() {
-    if (pending) await api('/phone/attempts', 'DELETE');
-    onboardingSms.current = false;
-    setPending(null);
-    setScreen('preferences', true, '/alerts');
+  async function continueWithoutSms() {
+    await action(async () => {
+      if (pending) await api('/phone/attempts', 'DELETE');
+      if (!active.current) return;
+      onboardingSms.current = false;
+      setPending(null);
+      setScreen('preferences', true, '/alerts');
+    });
   }
   async function resume() {
     let state = await api<AccountState>();
     if (state.nextStep === "profile" && signupProfileName.current?.trim()) {
-      await api<Account>("/profile", "PUT", { displayName: signupProfileName.current });
+      await writeProfile(signupProfileName.current);
       signupProfileName.current = null;
       state = await api<AccountState>();
     }
@@ -382,15 +455,23 @@ export function useAccountFlow(initial: string) {
       setError(message);
     else toast.add({ id: `account-${screen}-error`, type: "error", title: message, timeout: 8000 });
   }
-  async function action(work: () => Promise<void>, generic?: string) {
+  async function action(work: () => Promise<void>, generic?: string, isCurrent = () => active.current) {
     if (busy) return;
     setBusy(true);
     setError("");
     setFieldErrors({});
     try {
       await work();
-    } catch (e) {
-      if (!active.current) return;
+    } catch (failure) {
+      if (!isCurrent()) return;
+      const e = failure instanceof SmsOptInFailure ? failure.failure : failure;
+      const reportFailure = (message: string) => {
+        if (!isCurrent()) return;
+        if (failure instanceof SmsOptInFailure) {
+          if (!active.current) return;
+          toast.add({ id: "account-sms-opt-in-error", type: "error", title: failure.message, description: message, timeout: 0 });
+        } else reportError(message);
+      };
       if (
         screen === "signup" &&
         typeof e === "object" &&
@@ -422,8 +503,9 @@ export function useAccountFlow(initial: string) {
           setReturnAction(screen === "password" ? "password" : "phone");
           try {
             await prepareReverification(screen === "password" ? "password" : "phone");
+            if (active.current && failure instanceof SmsOptInFailure) reportFailure(e.message);
           } catch {
-            reportError(
+            reportFailure(
               "Identity verification is unavailable. Please sign in again.",
             );
           }
@@ -433,31 +515,37 @@ export function useAccountFlow(initial: string) {
           setAccount(null);
           setScreen("signin");
         }
-        if (e.field) setFieldErrors({ [e.field]: e.message });
-        else reportError(e.message);
+        if (e.field) {
+          setFieldErrors({ [e.field]: e.message });
+          if (failure instanceof SmsOptInFailure) reportFailure(e.message);
+        } else reportFailure(e.message);
         if (e.code === "ATTEMPT_EXPIRED") {
           setPending(null);
           setScreen("phone");
-          reportError(e.message);
+          reportFailure(e.message);
         }
       } else
-        reportError(
+        reportFailure(
           generic ?? "This request could not be completed. Please try again.",
         );
     } finally {
       setBusy(false);
     }
   }
-  function form(work: () => Promise<void>, generic?: string) {
-    return (event: FormEvent) => {
-      event.preventDefault();
-      void action(work, generic);
-    };
+  function authenticationGuard() {
+    const identity = authenticationIdentity.current;
+    return () => active.current && authenticationIdentity.current === identity;
+  }
+  async function authenticationOperation(work: (isCurrent: () => boolean) => Promise<void>, generic?: string) {
+    const isCurrent = authenticationGuard();
+    if (!isCurrent()) return;
+    await action(() => work(isCurrent), generic, isCurrent);
   }
   async function completeAuth(attempt: {
     status: string | null;
     createdSessionId: string | null;
-  }) {
+  }, isCurrent: () => boolean) {
+    if (!isCurrent()) return;
     setPassword("");
     setCurrentPassword("");
     setCode("");
@@ -476,24 +564,105 @@ export function useAccountFlow(initial: string) {
         strategy: "email_code",
         emailAddressId: factor.emailAddressId,
       });
+      if (!isCurrent()) return;
       setSentAt(Date.now());
       setScreen("device-code");
     } else throw new Error("Additional account information is needed");
   }
-  async function google() {
-    if (!signIn) return;
-    await signIn.authenticateWithRedirect({
-      strategy: "oauth_google",
-      redirectUrl: "/sso-callback",
-      redirectUrlComplete: "/alerts",
-      oidcPrompt: "select_account",
+  async function signInWithPassword() {
+    await authenticationOperation(async isCurrent => {
+      if (signIn) await completeAuth(await signIn.create({ identifier: email, password }), isCurrent);
+    }, "Check your email and password, then try again.");
+  }
+  async function createAccount() {
+    await authenticationOperation(async isCurrent => {
+      if (!signUp) return;
+      const displayName = capitalizeNameWords(name);
+      setName(displayName);
+      await signUp.create({ emailAddress: email, password });
+      if (!isCurrent()) return;
+      signupProfileName.current = displayName;
+      await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
+      if (!isCurrent()) return;
+      setPassword("");
+      setSentAt(Date.now());
+      setScreen("verify-email");
+    }, "The account could not be created. Check the password requirements, or try sign-in and recovery.");
+  }
+  async function signInWithGoogle() {
+    await authenticationOperation(async () => {
+      if (!signIn) return;
+      await signIn.authenticateWithRedirect({
+        strategy: "oauth_google", redirectUrl: "/sso-callback",
+        redirectUrlComplete: "/alerts", oidcPrompt: "select_account",
+      });
+    }, "Google sign-in was not completed. Try again or use your password.");
+  }
+  async function verifyEmailCode() {
+    await authenticationOperation(async isCurrent => {
+      if (screen === "verify-email" && signUp)
+        await completeAuth(await signUp.attemptEmailAddressVerification({ code }), isCurrent);
+      else if (signIn)
+        await completeAuth(await signIn.attemptSecondFactor({ strategy: "email_code", code }), isCurrent);
+    }, "That code did not work. Check it or request a new code.");
+  }
+  async function resendEmailCode() {
+    await authenticationOperation(async isCurrent => {
+      if (screen === "verify-email") await signUp?.prepareEmailAddressVerification({ strategy: "email_code" });
+      else {
+        const factor = signIn?.supportedSecondFactors?.find(f => f.strategy === "email_code");
+        if (factor) await signIn?.prepareSecondFactor({ strategy: "email_code", emailAddressId: factor.emailAddressId });
+      }
+      if (!isCurrent()) return;
+      setSentAt(Date.now());
+      toast.add({ type: "success", title: "A new email code was requested." });
     });
   }
-  async function prepareReverification(target: Screen = returnAction) {
+  async function requestRecoveryCode() {
+    await authenticationOperation(async isCurrent => {
+      if (!signIn) return;
+      try {
+        await signIn.create({ strategy: "reset_password_email_code", identifier: email });
+      } catch { /* Same public result for existing, Google-only and unknown addresses. */ }
+      if (!isCurrent()) return;
+      setSentAt(Date.now());
+      setScreen("recovery-code");
+    }, "Recovery could not be completed. Check your code or request a new one.");
+  }
+  async function verifyRecoveryCode() {
+    await authenticationOperation(async isCurrent => {
+      if (!signIn) return;
+      await signIn.attemptFirstFactor({ strategy: "reset_password_email_code", code });
+      if (isCurrent()) setScreen("reset");
+    }, "Recovery could not be completed. Check your code or request a new one.");
+  }
+  function passwordsMatch() {
+    if (password === confirmPassword) return true;
+    setFieldErrors({ confirmPassword: "The passwords do not match." });
+    return false;
+  }
+  async function saveRecoveredPassword() {
+    await authenticationOperation(async isCurrent => {
+      if (!signIn || !passwordsMatch()) return;
+      await completeAuth(await signIn.resetPassword({ password, signOutOfOtherSessions: true }), isCurrent);
+    }, "Recovery could not be completed. Check your code or request a new one.");
+  }
+  async function resendRecoveryCode() {
+    await authenticationOperation(async isCurrent => {
+      try {
+        await signIn?.create({ strategy: "reset_password_email_code", identifier: email });
+      } catch { /* Enumeration-safe resend result. */ }
+      if (!isCurrent()) return;
+      setSentAt(Date.now());
+      toast.add({ type: "success", title: "Recovery code requested, if available." });
+    });
+  }
+  async function prepareReverification(target: Screen = returnAction, isCurrent = authenticationGuard()) {
     if (!session) throw new Error("Sign in again");
     const verification = await session.startVerification({
       level: "first_factor",
     });
+    if (!isCurrent()) return;
     if (
       user?.passwordEnabled &&
       verification.supportedFirstFactors?.some((f) => f.strategy === "password")
@@ -509,11 +678,71 @@ export function useAccountFlow(initial: string) {
         strategy: "email_code",
         emailAddressId: factor.emailAddressId,
       });
+      if (!isCurrent()) return;
       setReverifyMethod("email_code");
       setSentAt(Date.now());
     }
     setScreen("reverify", false, pathForScreen(target));
   }
+  async function verifyIdentity() {
+    await authenticationOperation(async isCurrent => {
+      if (!session) return;
+      const verification = await session.attemptFirstFactorVerification(
+        reverifyMethod === "password"
+          ? { strategy: "password", password: currentPassword }
+          : { strategy: "email_code", code },
+      );
+      if (!isCurrent()) return;
+      if (verification.status !== "complete") throw new Error("Verification is incomplete");
+      await getToken({ skipCache: true });
+      if (!isCurrent()) return;
+      setCurrentPassword("");
+      setScreen(returnAction);
+    }, "Identity verification did not work. Check your password or code and try again.");
+  }
+  async function resendIdentityCode() {
+    await authenticationOperation(isCurrent => prepareReverification(returnAction, isCurrent));
+  }
+  async function savePassword() {
+    await authenticationOperation(async isCurrent => {
+      if (!passwordsMatch()) return;
+      await user?.updatePassword({
+        newPassword: password,
+        ...(user.passwordEnabled ? { currentPassword } : {}),
+        signOutOfOtherSessions: true,
+      });
+      if (!isCurrent()) return;
+      setPassword("");
+      setConfirmPassword("");
+      setCurrentPassword("");
+      setScreen("account");
+      toast.add({ type: "success", title: "Password saved." });
+    }, `The password could not be saved. Check your current password. ${passwordRequirements}`);
+  }
+  async function openPasswordSettings() {
+    await authenticationOperation(() => sensitive("password"));
+  }
+  async function openPhoneSettings() {
+    await authenticationOperation(() => account?.phone ? sensitive("phone") : Promise.resolve(navigate("phone")));
+  }
+  async function saveTaskPassword() {
+    await authenticationOperation(async isCurrent => {
+      if (!passwordsMatch()) return;
+      await resetTaskPassword(password, isCurrent);
+      if (!isCurrent()) return;
+      setPassword("");
+      setConfirmPassword("");
+      await clerk.setActive({ session });
+      if (isCurrent()) location.assign("/alerts");
+    }, "The password could not be saved. Please try again.");
+  }
+  async function endSession(redirectUrl: "/" | "/sign-in") {
+    await authenticationOperation(async () => {
+      await clerk.signOut({ redirectUrl });
+    }, "Sign-out could not be completed. Please try again.");
+  }
+  function signOut() { return endSession("/"); }
+  function signOutTask() { return endSession("/sign-in"); }
   async function sensitive(next: Screen) {
     if (dirty) {
       confirmLeave(() => void action(async () => {
@@ -545,6 +774,41 @@ export function useAccountFlow(initial: string) {
         }
       }
     }
+  }
+  async function sendCode() {
+    await action(async () => {
+      const next = await requestPhone(phone);
+      if (!active.current) return;
+      setPending(next);
+      setPhone(next.phone);
+      setScreen("verify-phone");
+    });
+  }
+  async function resendCode() {
+    await action(async () => {
+      const next = await requestPhone(pending?.phone ?? phone);
+      if (!active.current) return;
+      setPending(next);
+      setCode("");
+      toast.add({ type: "success", title: "A new SMS code was requested." });
+    });
+  }
+  async function verifyCode() {
+    await action(async () => {
+      if (!pending || phoneExpired) return;
+      const next = await api<Account>("/phone/verify", "POST", { attemptId: pending.id, code });
+      if (!active.current) return;
+      setPending(null);
+      await finishPhone(next);
+    });
+  }
+  async function useAnotherNumber() {
+    await action(async () => {
+      await api("/phone/attempts", "DELETE");
+      if (!active.current) return;
+      setPending(null);
+      setScreen("phone");
+    });
   }
   const submit = (label: string, showArrow = true) => (
     <Button
@@ -616,26 +880,20 @@ export function useAccountFlow(initial: string) {
         1000,
       ),
     ) || 0;
-  const resend = (work: () => Promise<void>) => (
+  const renderResend = (work: () => Promise<void>) => (
     <div className="resend">
       <span>Didn't get a code?</span>
       <Button
         variant="link"
         className="text-button"
         isDisabled={busy || cooldown > 0}
-        onPress={() => void action(work)}
+        onPress={() => void work()}
       >
         {cooldown ? `Resend in ${cooldown}s` : "Resend code"}
       </Button>
     </div>
   );
   const phoneExpired = !!pending && Date.parse(pending.expiresAt) <= now;
-  const resendPhone = async () => {
-    const p = await requestPhone(pending?.phone ?? phone);
-    setPending(p);
-    setCode("");
-    toast.add({ type: "success", title: "A new SMS code was requested." });
-  };
   const codeField = (
     <FormField
       id="code"
@@ -652,7 +910,7 @@ export function useAccountFlow(initial: string) {
                 ? `Resend code available in ${cooldown} seconds`
                 : "Resend code"
             }
-            onPress={() => void action(resendPhone)}
+            onPress={() => void resendCode()}
           >
             {cooldown ? `${cooldown}s` : "Resend"}
           </Button>
@@ -671,8 +929,52 @@ export function useAccountFlow(initial: string) {
   );
   const isAccountLoading = !isLoaded || loading ||
     (isSignedIn && !session?.currentTask && !signedOnce.current);
+  const profile: ProfileFlow = {
+    name, savedName: account?.displayName ?? "", busy,
+    fieldError: fieldErrors.displayName,
+    setName, clearErrors: () => setFieldErrors({}),
+    saveName, continueProfile,
+  };
+  const phoneFlow: PhoneFlow = {
+    verifying: screen === "verify-phone", phone, setPhone,
+    hasPhone: Boolean(account?.phone), verified: phoneVerified,
+    destination: pending?.phone ?? "your phone", expired: phoneExpired, cooldown, busy,
+    fieldError: fieldErrors.phone, backTo: account?.onboardingCompleted ? "account" : "channels",
+    sendCode, resendCode, verifyCode, useAnotherNumber, continueWithoutSms,
+  };
+  const authEntry = {
+    mode: screen === "signup" ? "signup" as const : "signin" as const,
+    busy, name, setName, email, password,
+    fieldErrors: { email: fieldErrors.email, password: fieldErrors.password },
+    setEmail: (value: string) => { setEmail(value); setFieldErrors(errors => ({ ...errors, email: "" })); },
+    setPassword: (value: string) => { setPassword(value); setFieldErrors(errors => ({ ...errors, password: "" })); },
+    switchAuthMode, signInWithPassword, createAccount, signInWithGoogle,
+    openRecovery: () => setScreen("forgot"),
+  };
+  const emailProof = {
+    deviceVerification: screen === "device-code", email,
+    verifyCode: verifyEmailCode, resendCode: resendEmailCode,
+  };
+  const recoveryFlow = {
+    stage: screen === "forgot" ? "request" as const : screen === "recovery-code" ? "code" as const : "password" as const,
+    email, setEmail, requestCode: requestRecoveryCode, verifyCode: verifyRecoveryCode,
+    savePassword: saveRecoveredPassword, resendCode: resendRecoveryCode,
+  };
+  const passwordFlow = {
+    hasPassword: Boolean(user?.passwordEnabled), currentPassword, setCurrentPassword, savePassword,
+  };
+  const reverification = { method: reverifyMethod, currentPassword, setCurrentPassword, verifyIdentity, resendCode: resendIdentityCode };
+  const identityView = {
+    hasPassword: Boolean(user?.passwordEnabled), email: user?.primaryEmailAddress?.emailAddress,
+    avatarUrl: user?.imageUrl,
+  };
+  const taskFlow = { task: session?.currentTask?.key ?? null, savePassword: saveTaskPassword, signOut: signOutTask };
   return {
-    code,
+    authEntry, emailProof, recoveryFlow, renderResend,
+    passwordFlow, reverification, openPasswordSettings, openPhoneSettings,
+    identityView, taskFlow, signOut,
+    profile,
+    phoneFlow,
     screen,
     account,
     isAccountLoading,
@@ -680,60 +982,28 @@ export function useAccountFlow(initial: string) {
     busy,
     navigate,
     error,
-    session,
     isSignedIn,
     isLoaded,
     title,
     action,
     resume,
-    switchAuthMode,
-    google,
-    form,
-    signUp,
-    signupProfileName,
-    email,
-    setPassword,
-    setSentAt,
     setScreen,
-    signIn,
-    completeAuth,
-    name,
-    setName,
     fieldErrors,
-    setEmail,
-    setFieldErrors,
-    password,
     submit,
     back,
     codeField,
-    resend,
-    confirmPassword,
     newPasswordFields,
-    user,
-    api,
-    updateAccount,
     savePreferences,
     saveOnboardingChannels,
-    finishPhone,
-    skipPhone,
-    clerk,
     channels,
     setChannels,
     phoneVerified,
-    pending,
-    requestPhone,
-    phone,
-    setPending,
     setPhone,
-    phoneExpired,
-    cooldown,
-    resendPhone,
     draft,
     emailVerified,
     setDraft,
     sensitive,
     list,
-    setAccount,
     dirty,
     setLocationEdit,
     locationValidation,
@@ -744,14 +1014,6 @@ export function useAccountFlow(initial: string) {
     discardAndLeave,
     stay: () => { if (!savingBeforeLeave) setLeaveAction(null); },
     confirmLeave,
-    resetTaskPassword,
-    setConfirmPassword,
-    reverifyMethod,
-    currentPassword,
-    getToken,
-    setCurrentPassword,
-    returnAction,
-    prepareReverification,
   };
 }
 export type AccountFlowState = ReturnType<typeof useAccountFlow>;

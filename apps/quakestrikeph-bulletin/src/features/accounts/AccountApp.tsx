@@ -92,7 +92,7 @@ function AccountFlow({ initial }: { initial: string; }) {
   const flow = useAccountFlow(initial);
   const {
     screen, account, isAccountLoading, heading,
-    busy, navigate, session,
+    busy, navigate, taskFlow,
     isSignedIn, isLoaded,
   } = flow;
   const loadingPreferences = screen === "preferences" ||
@@ -100,7 +100,7 @@ function AccountFlow({ initial }: { initial: string; }) {
   let content: ReactNode;
   if (isAccountLoading && loadingPreferences) content = <PreferencesLoading flow={flow} />;
   else if (isAccountLoading) content = <AuthLoading flow={flow} />;
-  else if (session?.currentTask) content = <SessionTaskScreen flow={flow} />;
+  else if (taskFlow.task) content = <SessionTaskScreen flow={flow} />;
   else if (isSignedIn && !account && !["profile"].includes(screen)) content = <UnavailableAccountScreen flow={flow} />;
   else if (screen === "signin" || screen === "signup") content = <AuthScreen flow={flow} />;
   else if (screen === "verify-email" || screen === "device-code") content = <EmailCodeScreen flow={flow} />;
@@ -121,11 +121,11 @@ function AccountFlow({ initial }: { initial: string; }) {
         : screen}
       name={account?.displayName ?? ""}
       email={account?.email ?? undefined}
-      avatarUrl={flow.user?.imageUrl}
+      avatarUrl={flow.identityView.avatarUrl}
       isLoading={isAccountLoading}
       navigate={navigate}
       signOut={() => {
-        flow.confirmLeave(() => void flow.action(() => flow.clerk.signOut({ redirectUrl: "/" }), "Sign-out could not be completed. Please try again."));
+        flow.confirmLeave(() => void flow.signOut());
       }}
     >
       <div

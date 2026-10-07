@@ -1,25 +1,24 @@
 import { ArrowRight, Mail, Phone } from "lucide-react";
 import { Button } from "../../../components/ui/button";
 import { FormField } from "../account-ui";
-import { type Account } from "../api";
 import type { AccountFlowState } from "../useAccountFlow";
 
-export function ProfileScreen({ flow }: { flow: AccountFlowState; }) {
+type ProfileScreenFlow = Pick<AccountFlowState, "title" | "identityView" | "profile" | "submit" | "signOut">;
+
+export function ProfileScreen({ flow }: { flow: ProfileScreenFlow; }) {
   const {
-    title, user, form, api,
-    name, updateAccount, setScreen, setName,
-    fieldErrors, submit, busy, action,
-    clerk,
+    title, identityView, profile, submit, signOut,
   } = flow;
+  const { name, setName, fieldError, busy, continueProfile } = profile;
   return (
     <>
       {title(
         "Complete your profile",
-        user?.primaryEmailAddress?.emailAddress ? (
+        identityView.email ? (
           <>
             Choose the name for your personal settings for{" "}
             <strong className="profile-email">
-              {user.primaryEmailAddress.emailAddress}
+              {identityView.email}
             </strong>
             .
           </>
@@ -28,13 +27,10 @@ export function ProfileScreen({ flow }: { flow: AccountFlowState; }) {
         ),
       )}
       <form
-        onSubmit={form(async () => {
-          const next = await api<Account>("/profile", "PUT", {
-            displayName: name,
-          });
-          updateAccount(next);
-          setScreen("channels");
-        })}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void continueProfile();
+        }}
       >
         <FormField
           id="name"
@@ -44,7 +40,7 @@ export function ProfileScreen({ flow }: { flow: AccountFlowState; }) {
           maxLength={100}
           autoComplete="name"
           required
-          error={fieldErrors.displayName}
+          error={fieldError}
         />
         <div className="profile-actions">
           {submit("Continue")}
@@ -52,12 +48,7 @@ export function ProfileScreen({ flow }: { flow: AccountFlowState; }) {
             type="button"
             className="secondary"
             isDisabled={busy}
-            onPress={() =>
-              void action(
-                () => clerk.signOut({ redirectUrl: "/" }),
-                "Sign-out could not be completed. Please try again.",
-              )
-            }
+            onPress={() => void signOut()}
           >
             Cancel and sign out
           </Button>

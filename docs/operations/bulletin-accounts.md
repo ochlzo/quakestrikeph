@@ -58,12 +58,47 @@ For browser checks, start the separate fixture server in the Bulletin:
 
 ```powershell
 pnpm exec vite --config tests/accounts/vite.config.mjs
-node tests/accounts/flows.cjs
-node tests/accounts/signup.cjs
-node tests/accounts/passwords.cjs
-node tests/accounts/channels.cjs
+```
+
+In another terminal, run every Vite account check. Stop the sequence if a check fails.
+
+```powershell
+foreach ($accountCheckPath in (rg --files tests/accounts -g '*.cjs' -g '!background-saves.cjs')) {
+    node $accountCheckPath
+    if ($LASTEXITCODE -ne 0) { throw "Account check failed: $accountCheckPath" }
+}
 node --experimental-strip-types --test tests/accounts/preference-saves.test.mjs
 ```
+
+The checks include profile operations, phone operations, authentication,
+routes, session isolation, preferences, location, and motion. Phone checks
+cover replacement refresh failures, attempt deletion retries, partial success,
+and responses from former sessions. Authentication checks cover account entry,
+email/device codes, enumeration-safe recovery, sensitive credentials, session
+tasks, sign-out confirmations, and delayed Clerk successes and failures.
+The test-only Clerk adapter can delay or reject individual provider stages and
+record their ordering. Unused fixture branches and obsolete
+positive actions must not remain in fixture scripts.
+
+Authentication screens use specific views and named workflow operations.
+The workflow owns Clerk requests, activation, credential clearing, notifications,
+and operation-specific transitions. Form and resend controls invoke an operation
+directly; each operation owns busy/error handling exactly once. Clerk task
+widgets retain their configured `/alerts` destination. The existing native
+account sign-out confirmation, shell departure dialog, and immediate profile
+cancellation remain distinct.
+
+Authentication continuations check both workflow lifetime and Clerk identity.
+When the user or session changes, former operations cannot submit follow-up
+requests, clear credentials, notify, or navigate. A provider request already
+submitted may still complete. This fixes the characterized former-session
+password-save notification defect. General navigation restructuring remains
+separate work.
+Required-task password callbacks also check identity before each request.
+This includes Clerk's automatic retry after interactive proof. A former
+request's late proof requirement cannot open a new proof dialog. Browser
+checks cover successful proof, cancellation, and identity changes before or
+during that proof.
 
 As with the existing Bulletin browser checks, expose the bundled Playwright
 package via `NODE_PATH` when it is not installed locally. The fixture server
@@ -85,6 +120,14 @@ This configuration aliases test adapters only. Onboarding Continue commits
 channel choices; selected SMS commits only after verification. Switch saves
 use a 400 ms debounce. Magnitude Check saves; X discards. Failed background
 writes restore confirmed values and show a dismissible error across navigation.
+
+Phone binding and SMS opt-in are separate transactions and have separate
+notifications. Successful binding shows "Mobile number verified." immediately.
+Selected onboarding SMS then shows "SMS alerts enabled." after its save succeeds.
+An opt-in failure shows "SMS alerts could not be enabled." with the Backend reason.
+The verified phone remains linked; the existing SMS switch can retry opt-in.
+A newer SMS-off edit suppresses the enabled notification. Settings-only phone
+verification does not enable SMS.
 
 ## Provider and release gates
 

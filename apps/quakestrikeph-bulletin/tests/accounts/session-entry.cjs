@@ -68,9 +68,11 @@ const root = process.env.ACCOUNTS_FIXTURE_URL || 'http://127.0.0.1:4332';
       await page.goto(`${root}/?signed=1`);
       await page.getByRole('status').filter({ hasText: 'Loading alert settings' }).waitFor();
       assert.equal(await page.locator('.preferences-loading [data-slot="skeleton"]').count(), 9);
-      assert.equal(await page.getByRole('button', { name: 'Alert preferences', exact: true }).isEnabled(), false);
-      assert.equal(await page.getByRole('button', { name: 'Alert location', exact: true }).isEnabled(), false);
-      assert.equal(await page.getByRole('button', { name: 'Account', exact: true }).isEnabled(), false);
+      const settingsNavigation = page.locator(viewport.width <= 760 ? '.settings-mobile-tabs' : '.settings-desktop-nav');
+      const navigationRole = viewport.width <= 760 ? 'tab' : 'button';
+      assert.equal(await settingsNavigation.getByRole(navigationRole, { name: 'Alert preferences', exact: true }).isEnabled(), false);
+      assert.equal(await settingsNavigation.getByRole(navigationRole, { name: 'Alert location', exact: true }).isEnabled(), false);
+      assert.equal(await settingsNavigation.getByRole(navigationRole, { name: 'Account', exact: true }).isEnabled(), false);
       await mkdir('.impeccable/review/alerts-skeleton', { recursive: true });
       await page.screenshot({ path: `.impeccable/review/alerts-skeleton/loading-${viewport.width}.png`, fullPage: true });
       assert.equal(await page.locator('.loading-tab, .loading-forgot, .google').count(), 0);
@@ -80,12 +82,19 @@ const root = process.env.ACCOUNTS_FIXTURE_URL || 'http://127.0.0.1:4332';
       await page.locator('.preferences-loading').waitFor({ state: 'detached' });
       await page.screenshot({ path: `.impeccable/review/alerts-skeleton/preferences-${viewport.width}.png`, fullPage: true });
       assert.deepEqual(tokenModes, ['fixture:token-mode:cached']);
-      await page.route('**/api/v1/account/preferences', route => route.fulfill({ json: {
-        ...route.request().postDataJSON(), userId: 'fixture-user', displayName: 'Maria Santos',
+      await page.route('**/api/v1/account/profile', route => route.fulfill({ json: {
+        userId: 'fixture-user', displayName: 'Maria Santos',
         email: 'maria@example.invalid', phone: null, onboardingCompleted: true, status: 'active',
+        emailEnabled: false, smsEnabled: false, magnitude: 4.5, nearbyOnly: false,
+        latitude: null, longitude: null, distanceKm: null,
+        ...route.request().postDataJSON(),
       } }));
-      await page.getByRole('button', { name: 'Save preferences', exact: true }).click();
-      await page.getByText('Alert preferences saved.', { exact: true }).waitFor();
+      await page.locator(viewport.width <= 760 ? '.settings-mobile-tabs' : '.settings-desktop-nav')
+        .getByRole(viewport.width <= 760 ? 'tab' : 'button', { name: 'Account', exact: true }).click();
+      await page.getByRole('button', { name: 'Edit name', exact: true }).click();
+      await page.locator('#name').fill('Maria Reyes');
+      await page.getByRole('button', { name: 'Save name', exact: true }).click();
+      await page.getByText('Profile saved.', { exact: true }).waitFor();
       assert.deepEqual(tokenModes, ['fixture:token-mode:cached', 'fixture:token-mode:fresh']);
       await page.goto(`${root}/?signed=0`);
       await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();

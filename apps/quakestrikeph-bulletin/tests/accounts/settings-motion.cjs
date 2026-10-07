@@ -14,16 +14,12 @@ const account = { userId: 'fixture-user', displayName: 'Maria', email: 'maria@ex
         const page = await browser.newPage({ viewport, reducedMotion });
         let reads = 0;
         await page.route('**/api/v1/account**', route => {
+          assert.equal(route.request().method(), 'GET', 'Motion checks must not submit settings');
           reads++;
           return route.fulfill({ json: { account, nextStep: 'complete' } });
         });
         await page.goto(`${root}/alerts?signed=1`);
-        await page.locator('#magnitude').fill('5');
         for (const [screen, label, index] of [['location', 'Alert location', 1], ['preferences', 'Alert preferences', 0], ['account', 'Account', 2], ['preferences', 'Alert preferences', 0]]) {
-          if (screen === 'account') {
-            assert.equal(await page.locator('#magnitude').inputValue(), '5', 'Switching settings must preserve the draft');
-            await page.locator('#magnitude').fill('4.5');
-          }
           const nav = page.locator(viewport.width <= 760 ? '.settings-mobile-tabs' : '.settings-desktop-nav');
           await nav.getByRole(viewport.width <= 760 ? 'tab' : 'button', { name: label, exact: true }).click();
           await page.locator(`.account-app[data-screen="${screen}"]`).waitFor();
@@ -50,7 +46,7 @@ const account = { userId: 'fixture-user', displayName: 'Maria', email: 'maria@ex
         }
         assert.equal(reads, 1, 'Tab transitions must not reload account data');
         await page.close();
-        console.log(`PASS ${viewport.width}x${viewport.height}, ${reducedMotion}: indicator, content, draft, requests`);
+        console.log(`PASS ${viewport.width}x${viewport.height}, ${reducedMotion}: indicator, content, requests`);
       }
     }
   } finally { await browser.close(); }

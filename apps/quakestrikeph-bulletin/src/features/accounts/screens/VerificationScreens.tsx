@@ -3,54 +3,39 @@ import { Button } from "../../../components/ui/button";
 import { FormField, passwordRequirements } from "../account-ui";
 import type { AccountFlowState } from "../useAccountFlow";
 
-export function SessionTaskScreen({ flow }: { flow: AccountFlowState; }) {
-  const {
-    title, session, form, password,
-    confirmPassword, setFieldErrors, resetTaskPassword, setPassword,
-    setConfirmPassword, clerk, newPasswordFields, submit, action,
-  } = flow;
-  if (!session?.currentTask) return null;
+type SessionTaskScreenFlow = Pick<AccountFlowState, "taskFlow" | "title" | "newPasswordFields" | "submit">;
+
+export function SessionTaskScreen({ flow }: { flow: SessionTaskScreenFlow; }) {
+  const { title, taskFlow, newPasswordFields, submit } = flow;
+  const { task, savePassword, signOut } = taskFlow;
+  if (!task) return null;
   return (
     <>
       {title(
-        session.currentTask.key === "reset-password"
+        task === "reset-password"
           ? "Choose a new password"
           : "Complete account verification",
-        session.currentTask.key === "reset-password"
+        task === "reset-password"
           ? `${passwordRequirements} Other sessions will be signed out.`
           : "Complete this required step to access your saved settings.",
       )}
-      {session.currentTask.key === "reset-password" ? (
+      {task === "reset-password" ? (
         <form
-          onSubmit={form(async () => {
-            if (password !== confirmPassword) {
-              setFieldErrors({
-                confirmPassword: "The passwords do not match.",
-              });
-              return;
-            }
-            await resetTaskPassword(password);
-            setPassword("");
-            setConfirmPassword("");
-            await clerk.setActive({ session });
-            location.assign("/alerts");
-          }, "The password could not be saved. Please try again.")}
+          onSubmit={event => { event.preventDefault(); void savePassword(); }}
         >
           {newPasswordFields}
           {submit("Save new password")}
         </form>
-      ) : session.currentTask.key === "setup-mfa" ? (
+      ) : task === "setup-mfa" ? (
         <TaskSetupMFA redirectUrlComplete="/alerts" />
-      ) : session.currentTask.key === "choose-organization" ? (
+      ) : task === "choose-organization" ? (
         <TaskChooseOrganization redirectUrlComplete="/alerts" />
       ) : (
         <p>Please sign in again to complete account verification.</p>
       )}
       <Button
         className="secondary"
-        onPress={() =>
-          void action(() => clerk.signOut({ redirectUrl: "/sign-in" }), "Sign-out could not be completed. Please try again.")
-        }
+        onPress={() => void signOut()}
       >
         Return to sign in
       </Button>
@@ -58,13 +43,11 @@ export function SessionTaskScreen({ flow }: { flow: AccountFlowState; }) {
   );
 }
 
-export function ReverificationScreen({ flow }: { flow: AccountFlowState; }) {
-  const {
-    code, back, title, reverifyMethod,
-    form, session, currentPassword, getToken,
-    setCurrentPassword, setScreen, returnAction, codeField,
-    submit, resend, prepareReverification,
-  } = flow;
+type ReverificationScreenFlow = Pick<AccountFlowState, "reverification" | "back" | "title" | "codeField" | "submit" | "renderResend">;
+
+export function ReverificationScreen({ flow }: { flow: ReverificationScreenFlow; }) {
+  const { reverification, back, title, codeField, submit, renderResend } = flow;
+  const { method: reverifyMethod, currentPassword, setCurrentPassword, verifyIdentity, resendCode } = reverification;
   return (
     <>
       {back("account")}
@@ -75,19 +58,7 @@ export function ReverificationScreen({ flow }: { flow: AccountFlowState; }) {
           : "Enter the verification code sent to your account email.",
       )}
       <form
-        onSubmit={form(async () => {
-          if (!session) return;
-          const verification = await session.attemptFirstFactorVerification(
-            reverifyMethod === "password"
-              ? { strategy: "password", password: currentPassword }
-              : { strategy: "email_code", code },
-          );
-          if (verification.status !== "complete")
-            throw new Error("Verification is incomplete");
-          await getToken({ skipCache: true });
-          setCurrentPassword("");
-          setScreen(returnAction);
-        }, "Identity verification did not work. Check your password or code and try again.")}
+        onSubmit={event => { event.preventDefault(); void verifyIdentity(); }}
       >
         {reverifyMethod === "password" ? (
           <FormField
@@ -104,7 +75,7 @@ export function ReverificationScreen({ flow }: { flow: AccountFlowState; }) {
         )}
         {submit("Verify identity")}
       </form>
-      {reverifyMethod === "email_code" && resend(prepareReverification)}
+      {reverifyMethod === "email_code" && renderResend(resendCode)}
     </>
   );
 }

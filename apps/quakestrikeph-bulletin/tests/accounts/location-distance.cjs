@@ -11,7 +11,12 @@ const account = { userId: 'fixture-user', displayName: 'Maria', email: 'maria@ex
   try {
     for (const viewport of [{ width: 1559, height: 884 }, { width: 384, height: 824 }]) {
       const page = await browser.newPage({ viewport, reducedMotion: 'reduce' });
-      await page.route('**/api/v1/account**', route => route.fulfill({ json: { account, nextStep: 'complete' } }));
+      let saved = { ...account };
+      await page.route('**/api/v1/account**', route => {
+        if (route.request().method() === 'GET') return route.fulfill({ json: { account: saved, nextStep: 'complete' } });
+        saved = { ...saved, ...route.request().postDataJSON() };
+        return route.fulfill({ json: saved });
+      });
       await page.goto(`${root}/alerts/location?signed=1`);
       await page.getByRole('button', { name: 'Edit', exact: true }).click();
       const input = page.getByRole('textbox', { name: 'Nearby distance (km)' });
@@ -35,7 +40,8 @@ const account = { userId: 'fixture-user', displayName: 'Maria', email: 'maria@ex
       await page.getByRole('button', { name: 'Use this location', exact: true }).click();
       await page.getByRole('button', { name: 'Edit', exact: true }).waitFor();
       assert.ok(new URL(page.url()).pathname.endsWith('/alerts/location'));
-      assert.equal(await page.locator('.location-view-distance').innerText(), 'Within 1000 km');
+      await page.getByText('Within 1000 km', { exact: true }).waitFor();
+      assert.equal(saved.distanceKm, 1000);
       await page.close();
       console.log(`PASS ${viewport.width}x${viewport.height}: numeric input, no stepping, range validation, draft update`);
     }

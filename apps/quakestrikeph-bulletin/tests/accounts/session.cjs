@@ -26,8 +26,10 @@ const original = {
       return route.fulfill({ json: original });
     });
     await page.goto(`${root}/?signed=1`);
-    await page.getByText(original.email, { exact: false }).waitFor();
-    await page.getByRole('button', { name: 'Save preferences', exact: true }).click();
+    await page.locator('small').filter({ hasText: original.email }).waitFor();
+    const emailAlerts = page.getByRole('switch', { name: 'Email alerts', exact: true });
+    await emailAlerts.focus();
+    await emailAlerts.press('Space');
     await writeReady;
     const changeAuth = identity => page.evaluate(detail => {
       window.dispatchEvent(new CustomEvent('fixture:auth', { detail }));
@@ -39,23 +41,23 @@ const original = {
     current = { ...original, displayName: 'Second reader', email: 'second@example.invalid', phone: null,
       latitude: null, longitude: null, distanceKm: null };
     await changeAuth({ userId: 'second-user', sessionId: 'second-session' });
-    await page.getByText(current.email, { exact: false }).waitFor();
+    await page.locator('small').filter({ hasText: current.email }).waitFor();
     const oldResponse = page.waitForResponse(response => response.request().method() === 'PUT');
     releaseWrite();
     await oldResponse;
     // Allow the old response body and its promise handlers to finish.
     await page.waitForTimeout(300);
     assert.equal(await page.getByText(original.email, { exact: false }).count(), 0);
-    assert.equal(await page.getByText('Alert preferences saved.', { exact: true }).count(), 0);
-    await page.getByText(current.email, { exact: false }).waitFor();
+    assert.equal(await page.locator('[data-slot="toast"]').count(), 0);
+    await page.locator('small').filter({ hasText: current.email }).waitFor();
     current = { ...current, email: 'third@example.invalid' };
     await changeAuth({ userId: 'third-user', sessionId: 'third-session' });
-    await page.getByText(current.email, { exact: false }).waitFor();
+    await page.locator('small').filter({ hasText: current.email }).waitFor();
     assert.equal(await page.getByText('second@example.invalid', { exact: false }).count(), 0);
     current = { ...current, magnitude: 6.2 };
     await changeAuth({ userId: 'third-user', sessionId: 'renewed-session' });
-    await page.getByRole('spinbutton', { name: 'Minimum earthquake magnitude' }).waitFor();
-    assert.equal(await page.getByRole('spinbutton', { name: 'Minimum earthquake magnitude' }).inputValue(), '6.2');
+    await page.locator('#magnitude').waitFor();
+    assert.equal(await page.locator('#magnitude').inputValue(), '6.2');
     assert.deepEqual(errors, []);
     console.log('Sign-out, identity switch, session switch and delayed write isolation passed.');
   } finally { await browser.close(); }

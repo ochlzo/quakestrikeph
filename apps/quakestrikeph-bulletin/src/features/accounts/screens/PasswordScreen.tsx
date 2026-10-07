@@ -1,44 +1,26 @@
-import { toast } from "../../../components/ui/toast";
 import { FormField, passwordRequirements } from "../account-ui";
 import type { AccountFlowState } from "../useAccountFlow";
 
-export function PasswordScreen({ flow }: { flow: AccountFlowState; }) {
+type PasswordScreenFlow = Pick<AccountFlowState, "passwordFlow" | "back" | "title" | "newPasswordFields" | "submit">;
+
+export function PasswordScreen({ flow }: { flow: PasswordScreenFlow; }) {
   const {
-    back, title, user, form,
-    password, confirmPassword, setFieldErrors, setPassword,
-    setConfirmPassword, setCurrentPassword, setScreen, currentPassword,
-    newPasswordFields, submit,
+    passwordFlow, back, title, newPasswordFields, submit,
   } = flow;
+  const { hasPassword, currentPassword, setCurrentPassword, savePassword } = passwordFlow;
   return (
     <>
       {back("account")}
       {title(
-        user?.passwordEnabled
+        hasPassword
           ? "Change your password"
           : "Add password sign-in",
         `${passwordRequirements} Other sessions will be signed out.`,
       )}
       <form
-        onSubmit={form(async () => {
-          if (password !== confirmPassword) {
-            setFieldErrors({
-              confirmPassword: "The passwords do not match.",
-            });
-            return;
-          }
-          await user?.updatePassword({
-            newPassword: password,
-            ...(user.passwordEnabled ? { currentPassword } : {}),
-            signOutOfOtherSessions: true,
-          });
-          setPassword("");
-          setConfirmPassword("");
-          setCurrentPassword("");
-          setScreen("account");
-          toast.add({ type: "success", title: "Password saved." });
-        }, `The password could not be saved. Check your current password. ${passwordRequirements}`)}
+        onSubmit={event => { event.preventDefault(); void savePassword(); }}
       >
-        {user?.passwordEnabled && (
+        {hasPassword && (
           <FormField
             id="current-password"
             label="Current password"

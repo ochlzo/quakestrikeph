@@ -1,89 +1,71 @@
 import { ArrowRight } from "lucide-react";
 import { Button } from "../../../components/ui/button";
-import { toast } from "../../../components/ui/toast";
 import { FormField } from "../account-ui";
-import { type Account } from "../api";
 import type { AccountFlowState } from "../useAccountFlow";
 
-export function PhoneScreen({ flow }: { flow: AccountFlowState; }) {
+type PhoneScreenFlow = Pick<AccountFlowState, "phoneFlow" | "back" | "title" | "codeField" | "submit">;
+
+export function PhoneScreen({ flow }: { flow: PhoneScreenFlow; }) {
+  const { phoneFlow, back, title, codeField, submit } = flow;
   const {
-    code, back, account, title,
-    screen, phoneVerified, pending, form,
-    requestPhone, phone, setPending, setPhone,
-    setScreen, phoneExpired, api,
-    fieldErrors, codeField, busy, cooldown,
-    action, resendPhone, submit, finishPhone, skipPhone,
-  } = flow;
+    verifying, phone, setPhone, hasPhone, verified, destination, expired, cooldown, busy, fieldError, backTo,
+    sendCode, resendCode, verifyCode, useAnotherNumber, continueWithoutSms,
+  } = phoneFlow;
   return (
     <>
-      {back(account?.onboardingCompleted ? "account" : "channels")}
+      {back(backTo)}
       {title(
-        screen === "phone"
-          ? phoneVerified
+        !verifying
+          ? verified
             ? "Change your mobile number"
             : "Add your mobile number"
           : "Verify your mobile number",
-        screen === "phone" ? (
+        !verifying ? (
           "We check ordinary-alert network support before requesting a code."
         ) : (
           <>
             Enter the code sent to{" "}
             <strong className="phone-destination">
-              {pending?.phone ?? "your phone"}
+              {destination}
             </strong>
             .
           </>
         ),
       )}
-      {phoneVerified && (
+      {verified && (
         <p className="support">
           Your current number remains linked while you verify its replacement.
           SMS is paused when you start the replacement.
         </p>
       )}
       <form
-        onSubmit={form(async () => {
-          if (screen === "phone") {
-            const p = await requestPhone(phone);
-            setPending(p);
-            setPhone(p.phone);
-            setScreen("verify-phone");
-          } else if (pending && !phoneExpired) {
-            const next = await api<Account>("/phone/verify", "POST", {
-              attemptId: pending.id,
-              code,
-            });
-            setPending(null);
-            await finishPhone(next);
-            toast.add({
-              type: "success",
-              title: "Mobile number verified.",
-            });
-          }
-        })}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void (verifying ? verifyCode() : sendCode());
+        }}
       >
-        {screen === "phone" ? (
+        {!verifying ? (
           <FormField
             id="phone"
-            label={account?.phone ? "New mobile number" : "Mobile number"}
+            label={hasPhone ? "New mobile number" : "Mobile number"}
             type="tel"
             autoComplete="tel"
             placeholder="0917 123 4567"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             required
-            error={fieldErrors.phone}
+            error={fieldError}
           />
         ) : (
           codeField
         )}
-        {screen === "verify-phone" && phoneExpired ? (
+        {verifying && expired ? (
           <Button
             className="primary"
             type="button"
             isDisabled={busy || cooldown > 0}
             aria-busy={busy}
-            onPress={() => void action(resendPhone)}
+            onPress={() => void resendCode()}
           >
             {busy
               ? "Please wait..."
@@ -94,49 +76,43 @@ export function PhoneScreen({ flow }: { flow: AccountFlowState; }) {
           </Button>
         ) : (
           submit(
-            screen === "phone" ? "Send verification code" : "Verify code",
+            !verifying ? "Send verification code" : "Verify code",
           )
         )}
       </form>
-      {screen === "verify-phone" && (
+      {verifying && (
         <>
           <div className="phone-recovery">
             <p className="support" role="status">
-              {phoneExpired
+              {expired
                 ? "This code has expired. Request a new code."
                 : "The code expires after five minutes."}
             </p>
           </div>
         </>
       )}
-      {screen === "phone" && (
+      {!verifying && (
         <p className="support">
           Smart and TNT numbers are currently unsupported.
         </p>
       )}
       <div className="phone-alternatives">
-        {screen === "verify-phone" && (
+        {verifying && (
           <Button
             variant="link"
             className="text-button phone-change"
-            onPress={() =>
-              void action(async () => {
-                await api("/phone/attempts", "DELETE");
-                setPending(null);
-                setScreen("phone");
-              })
-            }
+            onPress={() => void useAnotherNumber()}
           >
             Use another number
           </Button>
         )}
         <Button
-          variant={screen === "verify-phone" ? "link" : "default"}
+          variant={verifying ? "link" : "default"}
           className={
-            screen === "verify-phone" ? "text-button phone-skip" : "secondary"
+            verifying ? "text-button phone-skip" : "secondary"
           }
           isDisabled={busy}
-          onPress={() => void action(skipPhone)}
+          onPress={() => void continueWithoutSms()}
         >
           Continue without SMS
         </Button>

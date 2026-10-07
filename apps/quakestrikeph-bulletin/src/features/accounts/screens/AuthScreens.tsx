@@ -1,23 +1,19 @@
 import { ArrowRight } from "lucide-react";
 import { Button } from "../../../components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger, } from "../../../components/ui/tabs";
-import { toast } from "../../../components/ui/toast";
-import { FormField, passwordPattern, passwordRequirements } from "../account-ui";
+import { capitalizeNameWords, FormField, passwordPattern, passwordRequirements } from "../account-ui";
 import type { AccountFlowState } from "../useAccountFlow";
 
-function capitalizeNameWords(value: string) {
-  return value.replace(/(^|\s)\p{L}/gu, start => start.toUpperCase());
-}
+type AuthScreenFlow = Pick<AccountFlowState, "authEntry" | "title" | "submit">;
+type EmailCodeScreenFlow = Pick<AccountFlowState, "emailProof" | "back" | "title" | "codeField" | "submit" | "renderResend">;
 
-export function AuthScreen({ flow }: { flow: AccountFlowState; }) {
+export function AuthScreen({ flow }: { flow: AuthScreenFlow; }) {
+  const { authEntry, title, submit } = flow;
   const {
-    screen, switchAuthMode, busy, title,
-    action, google, form, signUp, signupProfileName,
-    email, setPassword, setSentAt, setScreen,
-    signIn, completeAuth, name, setName,
-    fieldErrors, setEmail, setFieldErrors, password,
-    submit,
-  } = flow;
+    mode: screen, switchAuthMode, busy, email, setPassword,
+    name, setName, fieldErrors, setEmail, password,
+    signInWithPassword, createAccount, signInWithGoogle, openRecovery,
+  } = authEntry;
   return (
     <Tabs
       className="auth-tabs"
@@ -41,12 +37,7 @@ export function AuthScreen({ flow }: { flow: AccountFlowState; }) {
         <Button
           className="google"
           isDisabled={busy}
-          onPress={() =>
-            void action(
-              google,
-              "Google sign-in was not completed. Try again or use your password.",
-            )
-          }
+          onPress={() => void signInWithGoogle()}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path
@@ -72,28 +63,10 @@ export function AuthScreen({ flow }: { flow: AccountFlowState; }) {
           <span>or use your email</span>
         </div>
         <form
-          onSubmit={form(
-            async () => {
-              if (screen === "signup") {
-                if (!signUp) return;
-                setName(capitalizeNameWords(name));
-                await signUp.create({ emailAddress: email, password });
-                signupProfileName.current = capitalizeNameWords(name);
-                await signUp.prepareEmailAddressVerification({
-                  strategy: "email_code",
-                });
-                setPassword("");
-                setSentAt(Date.now());
-                setScreen("verify-email");
-              } else if (signIn)
-                await completeAuth(
-                  await signIn.create({ identifier: email, password }),
-                );
-            },
-            screen === "signin"
-              ? "Check your email and password, then try again."
-              : "The account could not be created. Check the password requirements, or try sign-in and recovery.",
-          )}
+          onSubmit={event => {
+            event.preventDefault();
+            void (screen === "signup" ? createAccount() : signInWithPassword());
+          }}
         >
           {screen === "signup" && (
             <FormField
@@ -114,10 +87,7 @@ export function AuthScreen({ flow }: { flow: AccountFlowState; }) {
             autoComplete="email"
             error={fieldErrors.email}
             value={email}
-            onChange={(e) => {
-              setEmail(e.target.value);
-              setFieldErrors((errors) => ({ ...errors, email: "" }));
-            }}
+            onChange={(e) => setEmail(e.target.value)}
             required
           />
           <FormField
@@ -128,7 +98,7 @@ export function AuthScreen({ flow }: { flow: AccountFlowState; }) {
                 <Button
                   className="text-button"
                   variant="link"
-                  onPress={() => setScreen("forgot")}
+                  onPress={openRecovery}
                 >
                   Forgot password?
                 </Button>
@@ -141,10 +111,7 @@ export function AuthScreen({ flow }: { flow: AccountFlowState; }) {
             minLength={screen === "signup" ? 8 : undefined}
             error={fieldErrors.password}
             value={password}
-            onChange={(e) => {
-              setPassword(e.target.value);
-              setFieldErrors((errors) => ({ ...errors, password: "" }));
-            }}
+            onChange={(e) => setPassword(e.target.value)}
             required
           />
           {screen === "signup" && (
@@ -162,61 +129,25 @@ export function AuthScreen({ flow }: { flow: AccountFlowState; }) {
   );
 }
 
-export function EmailCodeScreen({ flow }: { flow: AccountFlowState; }) {
-  const {
-    code, back, title, screen,
-    email, form, signUp, completeAuth,
-    signIn, codeField, submit, resend,
-    setSentAt,
-  } = flow;
+export function EmailCodeScreen({ flow }: { flow: EmailCodeScreenFlow; }) {
+  const { emailProof, back, title, codeField, submit, renderResend } = flow;
+  const { deviceVerification, email, verifyCode, resendCode } = emailProof;
   return (
     <>
       {back("signin")}
       {title(
         "Verify your email",
-        screen === "device-code"
+        deviceVerification
           ? "Enter the code sent to your email to confirm this device."
           : `Enter the code sent to ${email}.`,
       )}
       <form
-        onSubmit={form(async () => {
-          if (screen === "verify-email" && signUp)
-            await completeAuth(
-              await signUp.attemptEmailAddressVerification({ code }),
-            );
-          else if (signIn)
-            await completeAuth(
-              await signIn.attemptSecondFactor({
-                strategy: "email_code",
-                code,
-              }),
-            );
-        }, "That code did not work. Check it or request a new code.")}
+        onSubmit={event => { event.preventDefault(); void verifyCode(); }}
       >
         {codeField}
         {submit("Verify email")}
       </form>
-      {resend(async () => {
-        if (screen === "verify-email")
-          await signUp?.prepareEmailAddressVerification({
-            strategy: "email_code",
-          });
-        else {
-          const factor = signIn?.supportedSecondFactors?.find(
-            (f) => f.strategy === "email_code",
-          );
-          if (factor)
-            await signIn?.prepareSecondFactor({
-              strategy: "email_code",
-              emailAddressId: factor.emailAddressId,
-            });
-        }
-        setSentAt(Date.now());
-        toast.add({
-          type: "success",
-          title: "A new email code was requested.",
-        });
-      })}
+      {renderResend(resendCode)}
     </>
   );
 }

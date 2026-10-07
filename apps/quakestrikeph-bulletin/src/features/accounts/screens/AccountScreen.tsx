@@ -1,24 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Loader, Pencil, X } from "lucide-react";
 import { Button } from "../../../components/ui/button";
-import { toast } from "../../../components/ui/toast";
 import { FormField } from "../account-ui";
-import { type Account } from "../api";
 import type { AccountFlowState } from "../useAccountFlow";
 
-export function AccountScreen({ flow }: { flow: AccountFlowState; }) {
+type AccountScreenFlow = Pick<AccountFlowState,
+  "title" | "profile" | "account" | "navigate" | "identityView" | "dirty" | "signOut" | "openPasswordSettings" | "openPhoneSettings">;
+
+export function AccountScreen({ flow }: { flow: AccountScreenFlow; }) {
   const {
-    title, form, api, name,
-    updateAccount, setName, fieldErrors, setFieldErrors, busy,
-    account, navigate, action, sensitive,
-    user, dirty, clerk,
+    title, profile,
+    account, navigate, identityView, dirty, signOut, openPasswordSettings, openPhoneSettings,
   } = flow;
+  const { name, savedName, setName, fieldError, clearErrors, busy, saveName } = profile;
   const [editing, setEditing] = useState(false);
   const nameInput = useRef<HTMLInputElement>(null);
   useEffect(() => { if (editing) nameInput.current?.focus(); }, [editing]);
   function discardName() {
-    setName(account?.displayName ?? "");
-    setFieldErrors({});
+    setName(savedName);
+    clearErrors();
     setEditing(false);
   }
   return (
@@ -28,15 +28,10 @@ export function AccountScreen({ flow }: { flow: AccountFlowState; }) {
         "Manage your profile, verified destinations and sign-in settings.",
       )}
       <form
-        onSubmit={form(async () => {
-          if (!editing) return;
-          const next = await api<Account>("/profile", "PUT", {
-            displayName: name,
-          });
-          updateAccount(next);
-          setEditing(false);
-          toast.add({ type: "success", title: "Profile saved." });
-        })}
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (editing && (await saveName()) === "saved") setEditing(false);
+        }}
       >
         <FormField
           key={editing ? "editing" : "saved"}
@@ -63,13 +58,13 @@ export function AccountScreen({ flow }: { flow: AccountFlowState; }) {
           value={name}
           readOnly={!editing}
           disabled={busy && editing}
-          onChange={(e) => { setName(e.target.value); setFieldErrors({}); }}
+          onChange={(e) => { setName(e.target.value); clearErrors(); }}
           onKeyDown={(event) => {
             if (editing && !busy && event.key === "Escape") { event.preventDefault(); discardName(); }
           }}
           maxLength={100}
           required
-          error={fieldErrors.displayName}
+          error={fieldError}
         />
       </form>
       <div className="account-row">
@@ -93,13 +88,7 @@ export function AccountScreen({ flow }: { flow: AccountFlowState; }) {
         <Button
           variant="link"
           className="text-button"
-          onPress={() =>
-            void action(() =>
-              account?.phone
-                ? sensitive("phone")
-                : Promise.resolve(navigate("phone")),
-            )
-          }
+          onPress={() => void openPhoneSettings()}
         >
           {account?.phone ? "Change" : "Add"}
         </Button>
@@ -108,7 +97,7 @@ export function AccountScreen({ flow }: { flow: AccountFlowState; }) {
         <span>
           <strong>Password</strong>
           <small>
-            {user?.passwordEnabled
+            {identityView.hasPassword
               ? "Password sign-in enabled"
               : "You signed in with Google. Add a password to also sign in with email"}
           </small>
@@ -116,9 +105,9 @@ export function AccountScreen({ flow }: { flow: AccountFlowState; }) {
         <Button
           variant="link"
           className="text-button"
-          onPress={() => void action(() => sensitive("password"))}
+          onPress={() => void openPasswordSettings()}
         >
-          {user?.passwordEnabled ? "Change password" : "Add password"}
+          {identityView.hasPassword ? "Change password" : "Add password"}
         </Button>
       </div>
       <div className="account-links">
@@ -127,7 +116,7 @@ export function AccountScreen({ flow }: { flow: AccountFlowState; }) {
           className="text-button"
           onPress={() => {
             if (!dirty || window.confirm("Discard your unsaved changes?"))
-              void action(() => clerk.signOut({ redirectUrl: "/" }), "Sign-out could not be completed. Please try again.");
+              void signOut();
           }}
         >
           Sign out

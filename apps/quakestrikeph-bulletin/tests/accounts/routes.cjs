@@ -88,6 +88,9 @@ const baseAccount = { userId: 'fixture-user', displayName: 'Maria Santos', email
         await page.setViewportSize(viewport);
       }
       await page.locator('#magnitude').fill('6.2');
+      const magnitudeSaved = page.waitForResponse(response => response.request().method() === 'PUT');
+      await page.getByRole('button', { name: 'Save magnitude', exact: true }).click();
+      await (await magnitudeSaved).finished();
       const before = gets;
       await page.getByRole(viewport.width <= 760 ? 'tab' : 'button', { name: 'Alert location', exact: true }).click();
       await page.getByRole('heading', { name: 'Alert location', exact: true }).waitFor();
@@ -103,15 +106,6 @@ const baseAccount = { userId: 'fixture-user', displayName: 'Maria Santos', email
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       await mkdir('.impeccable/review/account-routes', { recursive: true });
       await page.screenshot({ path: `.impeccable/review/account-routes/preferences-${viewport.width}.png`, fullPage: true });
-      const dismiss = dialog => dialog.dismiss();
-      page.on('dialog', dismiss);
-      await page.getByRole(viewport.width <= 760 ? 'tab' : 'button', { name: 'Account', exact: true }).click();
-      await page.getByRole('dialog', { name: 'Save changes?' }).waitFor();
-      await page.keyboard.press('Escape');
-      assert.equal(new URL(page.url()).pathname, '/alerts');
-      page.off('dialog', dismiss);
-      await page.getByRole('button', { name: 'Save preferences', exact: true }).click();
-      await page.getByText('Alert preferences saved.', { exact: true }).waitFor();
       await page.getByRole(viewport.width <= 760 ? 'tab' : 'button', { name: 'Account', exact: true }).click();
       assert.equal(new URL(page.url()).pathname, '/account');
       await page.screenshot({ path: `.impeccable/review/account-routes/account-${viewport.width}.png`, fullPage: true });
@@ -120,13 +114,11 @@ const baseAccount = { userId: 'fixture-user', displayName: 'Maria Santos', email
       await page.getByRole(viewport.width <= 760 ? 'tab' : 'button', { name: 'Account', exact: true }).click();
       await page.getByRole('button', { name: 'Edit name', exact: true }).click();
       await page.locator('#name').fill('Unsaved name');
-      page.on('dialog', dismiss);
       await page.goBack();
       await page.getByRole('dialog', { name: 'Save changes?' }).waitFor();
       await page.keyboard.press('Escape');
       await page.waitForURL('**/account');
       assert.equal(await page.locator('#name').inputValue(), 'Unsaved name');
-      page.off('dialog', dismiss);
       await page.getByRole('button', { name: 'Discard name changes', exact: true }).click();
 
       // Completion routes return to preferences without a homepage redirect.
@@ -150,8 +142,6 @@ const baseAccount = { userId: 'fixture-user', displayName: 'Maria Santos', email
       await page.getByRole('checkbox', { name: /^SMS/ }).uncheck();
       await page.getByRole('button', { name: 'Continue', exact: true }).click();
       await page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
-      assert.equal(new URL(page.url()).pathname, '/onboarding');
-      await page.getByRole('button', { name: 'Save preferences', exact: true }).click();
       await page.waitForURL('**/alerts');
       assert.equal(account.onboardingCompleted, true);
       await page.close();

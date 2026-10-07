@@ -15,6 +15,9 @@ import { screenAtPath } from "./routes";
 export const passwordRequirements =
   "Use at least 8 characters, including one lowercase letter, one uppercase letter, and one number.";
 export const passwordPattern = "(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{8,}";
+export function capitalizeNameWords(value: string) {
+  return value.replace(/(^|\s)\p{L}/gu, start => start.toUpperCase());
+}
 function SettingsUserMenu({ name, email, avatarUrl, isLoading, navigate, signOut, onOpenChange }: {
   name: string; email?: string; avatarUrl?: string; isLoading: boolean; navigate: (screen: Screen) => void; signOut?: () => void; onOpenChange: (open: boolean) => void;
 }) {

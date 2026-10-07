@@ -12,32 +12,19 @@ const output = '.impeccable/review/accounts';
   await mkdir(output, { recursive: true });
   const browser = await chromium.launch({ channel: 'msedge', headless: true });
   const evidence = [], errors = [];
-  async function setup(viewport, initialAccount = account, phoneFixture = false) {
+  async function setup(viewport, initialAccount = account) {
     const page = await browser.newPage({ viewport, reducedMotion: 'reduce' });
     page.on('pageerror', e => errors.push(e.message));
-    let current = initialAccount ? { ...initialAccount } : null;
-    const writes = []; let failNext = false;
+    let current = { ...initialAccount };
     await page.route('**/api/v1/account**', async route => {
       const request = route.request(), path = new URL(request.url()).pathname.replace('/api/v1/account', ''), method = request.method();
-      if (method === 'GET') return route.fulfill({ json: { account: current, pending: null, nextStep: !current ? 'profile' : current.onboardingCompleted ? 'complete' : 'channels', deliveryAvailable: false } });
-      const body = request.postDataJSON(); writes.push({ path, method, body });
-      if (failNext) { failNext = false; return route.fulfill({ status: 503, json: { error: { code: 'UNAVAILABLE', message: 'Please try saving again.' } } }); }
-      if (phoneFixture && path === '/phone/attempts') {
-        if (current.phone) current = { ...current, smsEnabled: false };
-        return route.fulfill({ status: 201, json: { id: 'fixture-attempt', phone: '+639171234567',
-          expiresAt: new Date(Date.now() + 300000).toISOString(), resendAt: new Date(Date.now() + 60000).toISOString() } });
-      }
-      if (phoneFixture && path === '/phone/verify') {
-        if (body.code !== '111111') return route.fulfill({ status: 400, json: { error: { code: 'INVALID_CODE', field: 'code', message: 'That code did not work.' } } });
-        current = { ...current, phone: '+639171234567', smsEnabled: false };
-        return route.fulfill({ json: current });
-      }
-      if (path === '/profile') current = { ...(current || account), displayName: body.displayName, onboardingCompleted: current?.onboardingCompleted ?? false };
-      else if (path === '/preferences') current = { ...current, ...body, onboardingCompleted: true };
-      else return route.fulfill({ status: 503, json: { error: { code: 'SMS_UNAVAILABLE', message: 'SMS verification unavailable.' } } });
+      if (method === 'GET') return route.fulfill({ json: { account: current, pending: null, nextStep: 'complete', deliveryAvailable: false } });
+      assert.equal(path, '/preferences');
+      assert.equal(method, 'PUT');
+      current = { ...current, ...request.postDataJSON() };
       return route.fulfill({ json: current });
     });
-    return { page, writes, fail: () => { failNext = true; } };
+    return { page };
   }
   async function capture(page, name) {
     await page.evaluate(() => document.fonts.ready);
@@ -104,58 +91,6 @@ const output = '.impeccable/review/accounts';
       await a.getByRole('heading', { name: 'Change your password' }).waitFor();
       await capture(a, `password-${size}`); await a.close();
     }
-    const phoneFlow = await setup({ width: 390, height: 844 }, { ...account, phone: '+639181234567', smsEnabled: true }, true);
-    await phoneFlow.page.goto(`${root}/?signed=1&initial=account`);
-    await phoneFlow.page.getByRole('button', { name: 'Change', exact: true }).nth(1).click();
-    await phoneFlow.page.getByRole('textbox', { name: 'Current password', exact: true }).fill('fixture-password');
-    await phoneFlow.page.getByRole('button', { name: 'Verify identity', exact: true }).click();
-    await phoneFlow.page.getByRole('textbox', { name: 'New mobile number', exact: true }).fill('09171234567');
-    await phoneFlow.page.getByRole('button', { name: 'Send verification code', exact: true }).click();
-    await phoneFlow.page.getByRole('textbox', { name: 'Verification code' }).fill('999999');
-    await phoneFlow.page.getByRole('button', { name: 'Verify code', exact: true }).click();
-    await phoneFlow.page.getByRole('alert').filter({ hasText: 'That code did not work.' }).waitFor();
-    await phoneFlow.page.getByRole('textbox', { name: 'Verification code' }).fill('111111');
-    await phoneFlow.page.getByRole('button', { name: 'Verify code', exact: true }).click();
-    await phoneFlow.page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
-    assert.equal(await phoneFlow.page.getByRole('switch', { name: 'SMS alerts', exact: true }).isChecked(), false);
-    await phoneFlow.page.getByRole('button', { name: 'Save preferences', exact: true }).click();
-    await phoneFlow.page.getByText('Alert preferences saved.', { exact: true }).waitFor();
-    assert.equal(phoneFlow.writes.at(-1).body.smsEnabled, false);
-    await phoneFlow.page.close();
-    const f = await setup({ width: 390, height: 844 });
-    await f.page.goto(`${root}/?signed=1`);
-    await f.page.getByRole('switch', { name: 'Email alerts', exact: true }).focus();
-    await f.page.getByRole('switch', { name: 'Email alerts', exact: true }).press('Space');
-    f.fail(); await f.page.getByRole('button', { name: 'Save preferences' }).click();
-    await f.page.locator('[data-slot="toast"]').filter({ hasText: 'Please try saving again.' }).waitFor();
-    assert.equal(await f.page.getByRole('switch', { name: 'Email alerts', exact: true }).isChecked(), true);
-    await f.page.getByRole('button', { name: 'Save preferences' }).click();
-    await f.page.getByText('Alert preferences saved.', { exact: true }).waitFor();
-    assert.equal(f.writes.filter(x => x.path === '/preferences').length, 2);
-    await f.page.close();
-    const signup = await setup({ width: 390, height: 844 }, null);
-    await signup.page.goto(`${root}/?initial=signup`);
-    await signup.page.getByRole('textbox', { name: 'Name', exact: true }).fill('New Reader');
-    await signup.page.getByRole('textbox', { name: 'Email address' }).fill('new@example.invalid');
-    await signup.page.getByRole('textbox', { name: 'Password', exact: true }).fill('Fixture-password-long1');
-    await signup.page.getByRole('button', { name: 'Create account' }).click();
-    await signup.page.getByRole('textbox', { name: 'Verification code' }).fill('999999');
-    await signup.page.getByRole('button', { name: 'Verify email' }).click();
-    await signup.page.locator('[data-slot="toast"]').filter({ hasText: 'That code did not work' }).waitFor();
-    await signup.page.getByRole('textbox', { name: 'Verification code' }).fill('111111');
-    await signup.page.getByRole('button', { name: 'Verify email' }).click();
-    await signup.page.getByRole('heading', { name: 'Complete your profile' }).waitFor();
-    await signup.page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await signup.page.getByRole('heading', { name: 'How would you like to receive alerts?' }).waitFor();
-    await signup.page.getByRole('checkbox', { name: /^Email/ }).check();
-    await signup.page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await signup.page.getByRole('heading', { name: 'Add your mobile number' }).waitFor();
-    await signup.page.getByRole('button', { name: 'Continue without SMS' }).click();
-    assert.equal(await signup.page.getByRole('switch', { name: 'Email alerts', exact: true }).isChecked(), false);
-    await signup.page.getByRole('button', { name: 'Save preferences' }).click();
-    await signup.page.waitForURL('**/alerts');
-    assert.equal(signup.writes.at(-1).body.emailEnabled, false); assert.equal(signup.writes.at(-1).body.smsEnabled, false);
-    await signup.page.close();
     assert.deepEqual(errors, []);
     await writeFile(`${output}/checks.json`, JSON.stringify({ status: 'passed', evidence, errors, providerMode: 'isolated fixtures; no live provider sends' }, null, 2));
     console.log('Account browser transitions and desktop/mobile captures passed.');

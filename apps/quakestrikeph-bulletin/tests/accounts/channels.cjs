@@ -39,11 +39,11 @@ const root = process.env.ACCOUNTS_FIXTURE_URL || 'http://127.0.0.1:4332';
       await page.getByLabel('Alert me for earthquakes of magnitude:').fill('6.0');
       await page.getByRole('button', { name: 'Discard magnitude changes' }).click();
       assert.equal(await page.locator('#magnitude').inputValue(), '4.5');
-      await emailSwitch.click();
+      await emailSwitch.press('Space');
       if (mode === 'failure') {
         await page.getByText('Fixture save failed. Try again.', { exact: true }).waitFor();
         assert.equal(await emailSwitch.isChecked(), email);
-        await emailSwitch.click();
+        await emailSwitch.press('Space');
       }
       await page.waitForTimeout(600);
       assert.equal(writes.at(-1).emailEnabled, !email);
