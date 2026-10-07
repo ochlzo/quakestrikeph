@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Forecast clustering experiment</title>
+    <style>
+      body { font: 16px/1.5 system-ui, sans-serif; max-width: 1000px; margin: 40px auto; padding: 0 20px; color: #18242c; }
+      h1 { line-height: 1.15; } label { display: block; margin-bottom: 6px; }
+      select, button { font: inherit; padding: 8px 12px; margin-bottom: 16px; }
+      button { margin-left: 8px; } p { max-width: 76ch; }
+      table { width: 100%; border-collapse: collapse; font-size: 14px; }
+      th, td { text-align: left; border-bottom: 1px solid #d4dce1; padding: 8px; }
+      .table-wrap { overflow: auto; } .research { font-weight: 600; color: #75531c; }
+    </style>
+  </head>
+  <body>
+    <p class="research">Research prototype · synthetic sample data</p>
+    <h1>Which earthquakes enter the playback?</h1>
+    <p>This experiment runs the grouping rules in a browser Web Worker. Groups indicate possible relationships within the supplied sample.</p>
+    <p>This page does not provide a forecast, confirmed aftershocks, or a complete earthquake catalog.</p>
+    <label for="scenario">Sample case</label>
+    <select id="scenario"></select><button id="run" type="button">Run clustering</button>
+    <p id="description"></p>
+    <p id="status" role="status" aria-live="polite">Choose a case and run clustering.</p>
+    <p id="window"></p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Earthquake</th><th>Selected parent</th><th>Link</th><th>Sample group</th><th>In 24-hour playback</th></tr></thead>
+        <tbody id="assignments"></tbody>
+      </table>
+    </div>
+    <script type="module" src="./experiment.ts"></script>
+  </body>
+</html>

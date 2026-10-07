@@ -1,0 +1,110 @@
+{
+  "scope": "Synthetic sample parity only. No full-catalog equivalence or physical phone performance claim.",
+  "fixtureSha256": "2437fab543b4a69a09b741bde5b44672c72849e14b01714faf6f33b183b08080",
+  "referenceSourceSha256": {
+    "bulletin/scripts/forecast-clustering/reference.cpp": "4fd12793eafa8df37d01f11ed6f27198eae6a25d6429ba848504fa5a9bc945e8",
+    "corrected-clustering/diagnose/src/diagnose.cpp": "492fabefc7ddec6fb4e47db3d123e4bf892bbfe0ba7acffc51ebe1d3bf464e26",
+    "corrected-clustering/cluster/src/cluster.cpp": "7003a8b768605ac422fae9178d32cb07f87e4c9cd6dd3358ed4a530b6b05d229",
+    "corrected-clustering/common/include/zaliapin/common/event.hpp": "250a37b073108c24eede50e622b00edef514a42adaa3da51e2b35d83b35c961e",
+    "corrected-clustering/diagnose/include/zaliapin/diagnose/diagnose.hpp": "14b18f89f739f107c331899a2fc1162587cbec02409ac12c87892e78fbaceb87",
+    "corrected-clustering/cluster/include/zaliapin/cluster/cluster.hpp": "7920de3c1e384c8ba2c82a0f69927e17915706076d9afba7dc30e2d3391b4178"
+  },
+  "settings": {
+    "minimumMagnitude": 1,
+    "b": 0.8,
+    "fractalDimension": 1.58,
+    "distanceFloorKm": 1,
+    "eta0": 0.00008132167353718293
+  },
+  "nodeVersion": "v22.23.2",
+  "browser": {
+    "version": "151.0.7922.34",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.7922.34 Safari/537.36",
+    "physicalPhoneTested": false
+  },
+  "maxLog10ScoreDifference": 1.7763568394002505e-15,
+  "cases": [
+    {
+      "scenario": "branches-and-boundaries",
+      "inputEvents": 8,
+      "includedEvents": 7,
+      "windowEventIds": [
+        "later-b",
+        "later-c",
+        "at-window-end"
+      ],
+      "nodeComputationMs": 1.1841999999996915,
+      "browserComputationMs": 1.8999999985098839
+    },
+    {
+      "scenario": "mixed-precision-and-ties",
+      "inputEvents": 6,
+      "includedEvents": 6,
+      "windowEventIds": [
+        "next-minute",
+        "later-minute"
+      ],
+      "nodeComputationMs": 0.0830999999998312,
+      "browserComputationMs": 1
+    },
+    {
+      "scenario": "raw-zero-distance",
+      "inputEvents": 3,
+      "includedEvents": 3,
+      "windowEventIds": [
+        "raw-next",
+        "raw-third"
+      ],
+      "nodeComputationMs": 0.03809999999975844,
+      "browserComputationMs": 1.1000000014901161
+    },
+    {
+      "scenario": "threshold-equality",
+      "inputEvents": 2,
+      "includedEvents": 2,
+      "windowEventIds": [],
+      "nodeComputationMs": 0.05360000000018772,
+      "browserComputationMs": 1
+    },
+    {
+      "scenario": "empty-window",
+      "inputEvents": 2,
+      "includedEvents": 2,
+      "windowEventIds": [],
+      "nodeComputationMs": 0.08469999999942956,
+      "browserComputationMs": 1.1000000014901161
+    },
+    {
+      "scenario": "deterministic-catalog",
+      "inputEvents": 128,
+      "includedEvents": 128,
+      "windowEventIds": [
+        "generated-031",
+        "generated-032",
+        "generated-033",
+        "generated-034",
+        "generated-035",
+        "generated-038",
+        "generated-039",
+        "generated-054",
+        "generated-096",
+        "generated-098"
+      ],
+      "nodeComputationMs": 6.9507000000003245,
+      "browserComputationMs": 8.400000002235174
+    }
+  ],
+  "generatedRawComparisonPassed": true,
+  "missingHistoryCounterexample": {
+    "fullCount": 3,
+    "shortenedCount": 0
+  },
+  "chronologicalAppendCheckPassed": true,
+  "lateArrivalFullRecomputePassed": true,
+  "correctionFullRecomputePassed": true,
+  "implementationSourceSha256": {
+    "clustering.ts": "98c8a8405a532990c24d4ad4d6f9c0e5a9f2b9529aaf09e6e5f424c2ecc0965d",
+    "clustering.worker.ts": "c516a6b75930db0d314e84f9ec980dba313b70cce0ca5eb17fcaf8ac230feac0",
+    "experiment.ts": "6129a9afe92114573864ad9c850330736f27a8dd7a6bcbdbd7e941af5003d4fc"
+  }
+}

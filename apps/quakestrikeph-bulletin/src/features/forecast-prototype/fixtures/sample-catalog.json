@@ -1,0 +1,1425 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Synthetic research fixtures, not PHIVOLCS observations or forecast output.",
+  "settings": {
+    "minimumMagnitude": 1,
+    "b": 0.8,
+    "fractalDimension": 1.58,
+    "distanceFloorKm": 1,
+    "eta0": 0.00008132167353718293
+  },
+  "scenarios": [
+    {
+      "id": "branches-and-boundaries",
+      "description": "Later members share an earlier parent. A nearby separate group, a sub-M1 event, and the event after 24 hours are excluded.",
+      "anchorId": "selected-a",
+      "expectedWindowEventIds": [
+        "later-b",
+        "later-c",
+        "at-window-end"
+      ],
+      "events": [
+        {
+          "eventId": "after-window-end",
+          "timeSeconds": 1790935201,
+          "timePrecision": "second",
+          "latitude": 17,
+          "longitude": 121,
+          "depthKm": 10,
+          "magnitude": 1.4
+        },
+        {
+          "eventId": "later-b",
+          "timeSeconds": 1790852400,
+          "timePrecision": "second",
+          "latitude": 17,
+          "longitude": 121,
+          "depthKm": 10,
+          "magnitude": 4
+        },
+        {
+          "eventId": "earlier-p",
+          "timeSeconds": 1790845200,
+          "timePrecision": "second",
+          "latitude": 17,
+          "longitude": 121,
+          "depthKm": 10,
+          "magnitude": 3
+        },
+        {
+          "eventId": "nearby-other-group",
+          "timeSeconds": 1790850600,
+          "timePrecision": "second",
+          "latitude": 17.35,
+          "longitude": 121.35,
+          "depthKm": 10,
+          "magnitude": 1.2
+        },
+        {
+          "eventId": "selected-a",
+          "timeSeconds": 1790848800,
+          "timePrecision": "second",
+          "latitude": 17.1,
+          "longitude": 121.1,
+          "depthKm": 10,
+          "magnitude": 1.3
+        },
+        {
+          "eventId": "later-c",
+          "timeSeconds": 1790856000,
+          "timePrecision": "second",
+          "latitude": 17.002,
+          "longitude": 121.002,
+          "depthKm": 10,
+          "magnitude": 2
+        },
+        {
+          "eventId": "below-cutoff",
+          "timeSeconds": 1790859600,
+          "timePrecision": "second",
+          "latitude": 17,
+          "longitude": 121,
+          "depthKm": 10,
+          "magnitude": 0.9
+        },
+        {
+          "eventId": "at-window-end",
+          "timeSeconds": 1790935200,
+          "timePrecision": "second",
+          "latitude": 17,
+          "longitude": 121,
+          "depthKm": 10,
+          "magnitude": 1.1
+        }
+      ]
+    },
+    {
+      "id": "mixed-precision-and-ties",
+      "description": "Same-minute mixed-precision links and equal-time links are excluded. Equal scores keep the first ASCII event ID.",
+      "anchorId": "minute-anchor",
+      "expectedWindowEventIds": [
+        "next-minute",
+        "later-minute"
+      ],
+      "events": [
+        {
+          "eventId": "second-b",
+          "timeSeconds": 1790848830,
+          "timePrecision": "second",
+          "latitude": 17,
+          "longitude": 121,
+          "depthKm": 10,
+          "magnitude": 2
+        },
+        {
+          "eventId": "minute-anchor",
+          "timeSeconds": 1790848800,
+          "timePrecision": "minute",
+          "latitude": 17,
+          "longitude": 121,
+          "depthKm": 10,
+          "magnitude": 6
+        },
+        {
+          "eventId": "second-a",
+          "timeSeconds": 1790848830,
+          "timePrecision": "second",
+          "latitude": 17,
+          "longitude": 121,
+          "depthKm": 10,
+          "magnitude": 2
+        },
+        {
+          "eventId": "second-child",
+          "timeSeconds": 1790848850,
+          "timePrecision": "second",
+          "latitude": 17,
+          "longitude": 121,
+          "depthKm": 10,
+          "magnitude": 1
+        },
+        {
+          "eventId": "next-minute",
+          "timeSeconds": 1790848860,
+          "timePrecision": "second",
+          "latitude": 17,
+          "longitude": 121,
+          "depthKm": 10,
+          "magnitude": 1
+        },
+        {
+          "eventId": "later-minute",
+          "timeSeconds": 1790848920,
+          "timePrecision": "second",
+          "latitude": 17,
+          "longitude": 121,
+          "depthKm": 10,
+          "magnitude": 1
+        }
+      ]
+    },
+    {
+      "id": "raw-zero-distance",
+      "description": "Raw zero distance yields negative infinity in log space; the first earlier candidate wins the exact tie.",
+      "anchorId": "raw-old",
+      "settings": {
+        "minimumMagnitude": 1,
+        "b": 0.8,
+        "fractalDimension": 1.58,
+        "distanceFloorKm": 0,
+        "eta0": 0.00008252215477113915
+      },
+      "expectedWindowEventIds": [
+        "raw-next",
+        "raw-third"
+      ],
+      "events": [
+        {
+          "eventId": "raw-third",
+          "timeSeconds": 1790848800,
+          "timePrecision": "second",
+          "latitude": 17,
+          "longitude": 121,
+          "depthKm": 10,
+          "magnitude": 1
+        },
+        {
+          "eventId": "raw-old",
+          "timeSeconds": 1790845200,
+          "timePrecision": "second",
+          "latitude": 17,
+          "longitude": 121,
+          "depthKm": 10,
+          "magnitude": 1
+        },
+        {
+          "eventId": "raw-next",
+          "timeSeconds": 1790847000,
+          "timePrecision": "second",
+          "latitude": 17,
+          "longitude": 121,
+          "depthKm": 10,
+          "magnitude": 2
+        }
+      ]
+    },
+    {
+      "id": "threshold-equality",
+      "description": "A score exactly at eta0 is weak. One year uses 365.25 days.",
+      "anchorId": "threshold-parent",
+      "settings": {
+        "minimumMagnitude": 1,
+        "b": 0.8,
+        "fractalDimension": 1.58,
+        "distanceFloorKm": 1,
+        "eta0": 0.00001
+      },
+      "expectedWindowEventIds": [],
+      "events": [
+        {
+          "eventId": "threshold-parent",
+          "timeSeconds": 1790845200,
+          "timePrecision": "second",
+          "latitude": 17,
+          "longitude": 121,
+          "depthKm": 10,
+          "magnitude": 6.25
+        },
+        {
+          "eventId": "threshold-child",
+          "timeSeconds": 1822402800,
+          "timePrecision": "second",
+          "latitude": 17,
+          "longitude": 121,
+          "depthKm": 10,
+          "magnitude": 1
+        }
+      ]
+    },
+    {
+      "id": "empty-window",
+      "description": "The selected earthquake has no qualifying later group members.",
+      "anchorId": "isolated",
+      "expectedWindowEventIds": [],
+      "events": [
+        {
+          "eventId": "isolated",
+          "timeSeconds": 1790845200,
+          "timePrecision": "second",
+          "latitude": 17,
+          "longitude": 121,
+          "depthKm": 10,
+          "magnitude": 1
+        },
+        {
+          "eventId": "far-away",
+          "timeSeconds": 1790848800,
+          "timePrecision": "second",
+          "latitude": -20,
+          "longitude": -100,
+          "depthKm": 10,
+          "magnitude": 1
+        }
+      ]
+    },
+    {
+      "id": "deterministic-catalog",
+      "description": "Seeded synthetic catalog spanning the Philippine region. Verifies all parent and membership assignments against C++.",
+      "anchorId": "generated-030",
+      "events": [
+        {
+          "eventId": "generated-127",
+          "timeSeconds": 1790959500,
+          "timePrecision": "second",
+          "latitude": 12.235789440572262,
+          "longitude": 125.6711990959011,
+          "depthKm": 10,
+          "magnitude": 4.439976017689332
+        },
+        {
+          "eventId": "generated-126",
+          "timeSeconds": 1790958600,
+          "timePrecision": "minute",
+          "latitude": 10.597992930561304,
+          "longitude": 117.58985135518014,
+          "depthKm": 10,
+          "magnitude": 5.412904924247414
+        },
+        {
+          "eventId": "generated-125",
+          "timeSeconds": 1790957700,
+          "timePrecision": "second",
+          "latitude": 10.230554223060608,
+          "longitude": 122.03957408340648,
+          "depthKm": 10,
+          "magnitude": 2.706087595084682
+        },
+        {
+          "eventId": "generated-124",
+          "timeSeconds": 1790956800,
+          "timePrecision": "second",
+          "latitude": 18.255356889218092,
+          "longitude": 119.11522414628416,
+          "depthKm": 10,
+          "magnitude": 4.266134760342538
+        },
+        {
+          "eventId": "generated-123",
+          "timeSeconds": 1790955900,
+          "timePrecision": "second",
+          "latitude": 19.34633532911539,
+          "longitude": 126.89193544117734,
+          "depthKm": 10,
+          "magnitude": 4.244371999753639
+        },
+        {
+          "eventId": "generated-122",
+          "timeSeconds": 1790955000,
+          "timePrecision": "second",
+          "latitude": 14.447647798806429,
+          "longitude": 123.51322135701776,
+          "depthKm": 10,
+          "magnitude": 5.647477071266621
+        },
+        {
+          "eventId": "generated-121",
+          "timeSeconds": 1790954100,
+          "timePrecision": "second",
+          "latitude": 5.840409770607948,
+          "longitude": 120.99419516557828,
+          "depthKm": 10,
+          "magnitude": 1.4361088492441922
+        },
+        {
+          "eventId": "generated-120",
+          "timeSeconds": 1790953200,
+          "timePrecision": "second",
+          "latitude": 20.509205278009176,
+          "longitude": 121.7309075659141,
+          "depthKm": 10,
+          "magnitude": 1.3906301595270634
+        },
+        {
+          "eventId": "generated-119",
+          "timeSeconds": 1790952300,
+          "timePrecision": "minute",
+          "latitude": 5.9010123535990715,
+          "longitude": 116.19434180250391,
+          "depthKm": 10,
+          "magnitude": 3.2300380596425384
+        },
+        {
+          "eventId": "generated-118",
+          "timeSeconds": 1790951400,
+          "timePrecision": "second",
+          "latitude": 7.647267047315836,
+          "longitude": 127.21414333768189,
+          "depthKm": 10,
+          "magnitude": 5.082218438852578
+        },
+        {
+          "eventId": "generated-117",
+          "timeSeconds": 1790950500,
+          "timePrecision": "second",
+          "latitude": 15.92849412560463,
+          "longitude": 118.02882091002539,
+          "depthKm": 10,
+          "magnitude": 4.931645505363122
+        },
+        {
+          "eventId": "generated-116",
+          "timeSeconds": 1790949600,
+          "timePrecision": "second",
+          "latitude": 9.455915462225676,
+          "longitude": 124.15411766339093,
+          "depthKm": 10,
+          "magnitude": 1.8852196345105767
+        },
+        {
+          "eventId": "generated-115",
+          "timeSeconds": 1790948700,
+          "timePrecision": "second",
+          "latitude": 13.546217150986195,
+          "longitude": 118.39529125345871,
+          "depthKm": 10,
+          "magnitude": 3.3855913791339844
+        },
+        {
+          "eventId": "generated-114",
+          "timeSeconds": 1790947800,
+          "timePrecision": "second",
+          "latitude": 9.350190062075853,
+          "longitude": 125.40389382839203,
+          "depthKm": 10,
+          "magnitude": 4.85386232053861
+        },
+        {
+          "eventId": "generated-113",
+          "timeSeconds": 1790946900,
+          "timePrecision": "second",
+          "latitude": 13.522826239466667,
+          "longitude": 126.48291884222999,
+          "depthKm": 10,
+          "magnitude": 2.483532228739932
+        },
+        {
+          "eventId": "generated-112",
+          "timeSeconds": 1790946000,
+          "timePrecision": "minute",
+          "latitude": 13.250444259494543,
+          "longitude": 117.19460737984627,
+          "depthKm": 10,
+          "magnitude": 2.43542836420238
+        },
+        {
+          "eventId": "generated-111",
+          "timeSeconds": 1790945100,
+          "timePrecision": "second",
+          "latitude": 6.990663252770901,
+          "longitude": 122.46191779291257,
+          "depthKm": 10,
+          "magnitude": 3.9344704595860094
+        },
+        {
+          "eventId": "generated-110",
+          "timeSeconds": 1790944200,
+          "timePrecision": "second",
+          "latitude": 12.23764929547906,
+          "longitude": 118.47431424073875,
+          "depthKm": 10,
+          "magnitude": 2.7772464104928076
+        },
+        {
+          "eventId": "generated-109",
+          "timeSeconds": 1790943300,
+          "timePrecision": "second",
+          "latitude": 16.173214614391327,
+          "longitude": 117.47896887781098,
+          "depthKm": 10,
+          "magnitude": 2.653710404643789
+        },
+        {
+          "eventId": "generated-108",
+          "timeSeconds": 1790942400,
+          "timePrecision": "second",
+          "latitude": 19.415973585098982,
+          "longitude": 122.18272139225155,
+          "depthKm": 10,
+          "magnitude": 5.637826601974666
+        },
+        {
+          "eventId": "generated-107",
+          "timeSeconds": 1790941500,
+          "timePrecision": "second",
+          "latitude": 5.2876076474785805,
+          "longitude": 127.15944349346682,
+          "depthKm": 10,
+          "magnitude": 5.272007875842974
+        },
+        {
+          "eventId": "generated-106",
+          "timeSeconds": 1790940600,
+          "timePrecision": "second",
+          "latitude": 6.859590578824282,
+          "longitude": 124.43714192137122,
+          "depthKm": 10,
+          "magnitude": 1.202063291799277
+        },
+        {
+          "eventId": "generated-105",
+          "timeSeconds": 1790939700,
+          "timePrecision": "minute",
+          "latitude": 10.366296365857124,
+          "longitude": 116.95603265846148,
+          "depthKm": 10,
+          "magnitude": 1.95107042347081
+        },
+        {
+          "eventId": "generated-104",
+          "timeSeconds": 1790938800,
+          "timePrecision": "second",
+          "latitude": 5.286293264478445,
+          "longitude": 116.81400060560554,
+          "depthKm": 10,
+          "magnitude": 3.4842215701937675
+        },
+        {
+          "eventId": "generated-103",
+          "timeSeconds": 1790937900,
+          "timePrecision": "second",
+          "latitude": 7.4452023431658745,
+          "longitude": 122.18142752489075,
+          "depthKm": 10,
+          "magnitude": 1.2276983426418155
+        },
+        {
+          "eventId": "generated-102",
+          "timeSeconds": 1790937000,
+          "timePrecision": "second",
+          "latitude": 13.991118434816599,
+          "longitude": 123.04107558168471,
+          "depthKm": 10,
+          "magnitude": 3.3315249872393906
+        },
+        {
+          "eventId": "generated-101",
+          "timeSeconds": 1790936100,
+          "timePrecision": "second",
+          "latitude": 14.893701285123825,
+          "longitude": 126.29511976288632,
+          "depthKm": 10,
+          "magnitude": 2.809051778400317
+        },
+        {
+          "eventId": "generated-100",
+          "timeSeconds": 1790935200,
+          "timePrecision": "second",
+          "latitude": 6.588808845728636,
+          "longitude": 121.84339602012187,
+          "depthKm": 10,
+          "magnitude": 3.878075917251408
+        },
+        {
+          "eventId": "generated-099",
+          "timeSeconds": 1790934300,
+          "timePrecision": "second",
+          "latitude": 6.614970929920673,
+          "longitude": 117.85618705255911,
+          "depthKm": 10,
+          "magnitude": 4.418287093518302
+        },
+        {
+          "eventId": "generated-098",
+          "timeSeconds": 1790933400,
+          "timePrecision": "minute",
+          "latitude": 10.254566390067339,
+          "longitude": 122.78532510250807,
+          "depthKm": 10,
+          "magnitude": 3.706066572573036
+        },
+        {
+          "eventId": "generated-097",
+          "timeSeconds": 1790932500,
+          "timePrecision": "second",
+          "latitude": 19.423340901732445,
+          "longitude": 128.38010079273954,
+          "depthKm": 10,
+          "magnitude": 3.7556259755510837
+        },
+        {
+          "eventId": "generated-096",
+          "timeSeconds": 1790931600,
+          "timePrecision": "second",
+          "latitude": 7.418174412101507,
+          "longitude": 125.09784197341651,
+          "depthKm": 10,
+          "magnitude": 1.511277737095952
+        },
+        {
+          "eventId": "generated-095",
+          "timeSeconds": 1790930700,
+          "timePrecision": "second",
+          "latitude": 7.108410142362118,
+          "longitude": 116.02314001088962,
+          "depthKm": 10,
+          "magnitude": 5.707303572213277
+        },
+        {
+          "eventId": "generated-094",
+          "timeSeconds": 1790929800,
+          "timePrecision": "second",
+          "latitude": 20.25719228759408,
+          "longitude": 127.04839571379125,
+          "depthKm": 10,
+          "magnitude": 4.805213852319866
+        },
+        {
+          "eventId": "generated-093",
+          "timeSeconds": 1790928900,
+          "timePrecision": "second",
+          "latitude": 18.52382254600525,
+          "longitude": 122.43791733356193,
+          "depthKm": 10,
+          "magnitude": 5.916287256637588
+        },
+        {
+          "eventId": "generated-092",
+          "timeSeconds": 1790928000,
+          "timePrecision": "second",
+          "latitude": 14.850550394505262,
+          "longitude": 124.77593875769526,
+          "depthKm": 10,
+          "magnitude": 5.679387151263654
+        },
+        {
+          "eventId": "generated-091",
+          "timeSeconds": 1790927100,
+          "timePrecision": "minute",
+          "latitude": 10.491716422140598,
+          "longitude": 128.17281975178048,
+          "depthKm": 10,
+          "magnitude": 5.0366654365789145
+        },
+        {
+          "eventId": "generated-090",
+          "timeSeconds": 1790926200,
+          "timePrecision": "second",
+          "latitude": 12.49449859932065,
+          "longitude": 115.0508565492928,
+          "depthKm": 10,
+          "magnitude": 2.970740098040551
+        },
+        {
+          "eventId": "generated-089",
+          "timeSeconds": 1790925300,
+          "timePrecision": "second",
+          "latitude": 13.391988411545753,
+          "longitude": 120.50183879071847,
+          "depthKm": 10,
+          "magnitude": 1.2406761341262609
+        },
+        {
+          "eventId": "generated-088",
+          "timeSeconds": 1790924400,
+          "timePrecision": "second",
+          "latitude": 13.448486384004354,
+          "longitude": 115.50349461194128,
+          "depthKm": 10,
+          "magnitude": 3.86348445340991
+        },
+        {
+          "eventId": "generated-087",
+          "timeSeconds": 1790923500,
+          "timePrecision": "second",
+          "latitude": 5.008637480437756,
+          "longitude": 126.44431156804785,
+          "depthKm": 10,
+          "magnitude": 2.1459778749849647
+        },
+        {
+          "eventId": "generated-086",
+          "timeSeconds": 1790922600,
+          "timePrecision": "second",
+          "latitude": 8.269177738577127,
+          "longitude": 128.87084357626736,
+          "depthKm": 10,
+          "magnitude": 3.104236849118024
+        },
+        {
+          "eventId": "generated-085",
+          "timeSeconds": 1790921700,
+          "timePrecision": "second",
+          "latitude": 17.533579617738724,
+          "longitude": 125.84151610033587,
+          "depthKm": 10,
+          "magnitude": 4.093460738891736
+        },
+        {
+          "eventId": "generated-084",
+          "timeSeconds": 1790920800,
+          "timePrecision": "minute",
+          "latitude": 10.906428944319487,
+          "longitude": 124.11367708910257,
+          "depthKm": 10,
+          "magnitude": 1.156744816340506
+        },
+        {
+          "eventId": "generated-083",
+          "timeSeconds": 1790919900,
+          "timePrecision": "second",
+          "latitude": 12.58144886046648,
+          "longitude": 124.57386109186336,
+          "depthKm": 10,
+          "magnitude": 1.945153235225007
+        },
+        {
+          "eventId": "generated-082",
+          "timeSeconds": 1790919000,
+          "timePrecision": "second",
+          "latitude": 16.87568237259984,
+          "longitude": 127.23104690015316,
+          "depthKm": 10,
+          "magnitude": 2.842223776038736
+        },
+        {
+          "eventId": "generated-081",
+          "timeSeconds": 1790918100,
+          "timePrecision": "second",
+          "latitude": 10.647025272250175,
+          "longitude": 117.20358231524006,
+          "depthKm": 10,
+          "magnitude": 4.1001009803730994
+        },
+        {
+          "eventId": "generated-080",
+          "timeSeconds": 1790917200,
+          "timePrecision": "second",
+          "latitude": 6.086854424327612,
+          "longitude": 125.62052379827946,
+          "depthKm": 10,
+          "magnitude": 1.8638645615428686
+        },
+        {
+          "eventId": "generated-079",
+          "timeSeconds": 1790916300,
+          "timePrecision": "second",
+          "latitude": 11.640055499970913,
+          "longitude": 127.38840456819162,
+          "depthKm": 10,
+          "magnitude": 5.555975965922698
+        },
+        {
+          "eventId": "generated-078",
+          "timeSeconds": 1790915400,
+          "timePrecision": "second",
+          "latitude": 6.300420735031366,
+          "longitude": 124.27593244425952,
+          "depthKm": 10,
+          "magnitude": 3.1619226061739028
+        },
+        {
+          "eventId": "generated-077",
+          "timeSeconds": 1790914500,
+          "timePrecision": "minute",
+          "latitude": 12.960356533527374,
+          "longitude": 122.20655006589368,
+          "depthKm": 10,
+          "magnitude": 4.388120519230142
+        },
+        {
+          "eventId": "generated-076",
+          "timeSeconds": 1790913600,
+          "timePrecision": "second",
+          "latitude": 18.697026770561934,
+          "longitude": 121.35456252191216,
+          "depthKm": 10,
+          "magnitude": 5.851463991217315
+        },
+        {
+          "eventId": "generated-075",
+          "timeSeconds": 1790912700,
+          "timePrecision": "second",
+          "latitude": 6.029218293726444,
+          "longitude": 124.93777100322768,
+          "depthKm": 10,
+          "magnitude": 4.288237870438024
+        },
+        {
+          "eventId": "generated-074",
+          "timeSeconds": 1790911800,
+          "timePrecision": "second",
+          "latitude": 10.687576938420534,
+          "longitude": 127.05794800445437,
+          "depthKm": 10,
+          "magnitude": 3.6208201120607555
+        },
+        {
+          "eventId": "generated-073",
+          "timeSeconds": 1790910900,
+          "timePrecision": "second",
+          "latitude": 8.271245673298836,
+          "longitude": 116.7337558963336,
+          "depthKm": 10,
+          "magnitude": 5.614511552499607
+        },
+        {
+          "eventId": "generated-072",
+          "timeSeconds": 1790910000,
+          "timePrecision": "second",
+          "latitude": 19.856380339711905,
+          "longitude": 118.72929070796818,
+          "depthKm": 10,
+          "magnitude": 3.477591782808304
+        },
+        {
+          "eventId": "generated-071",
+          "timeSeconds": 1790909100,
+          "timePrecision": "second",
+          "latitude": 18.243905656039715,
+          "longitude": 128.8593061878346,
+          "depthKm": 10,
+          "magnitude": 5.0660686732735485
+        },
+        {
+          "eventId": "generated-070",
+          "timeSeconds": 1790908200,
+          "timePrecision": "minute",
+          "latitude": 15.820556286722422,
+          "longitude": 116.95146367885172,
+          "depthKm": 10,
+          "magnitude": 1.6831451621837914
+        },
+        {
+          "eventId": "generated-069",
+          "timeSeconds": 1790907300,
+          "timePrecision": "second",
+          "latitude": 7.940170139074326,
+          "longitude": 120.66810147510841,
+          "depthKm": 10,
+          "magnitude": 2.4198974112514406
+        },
+        {
+          "eventId": "generated-068",
+          "timeSeconds": 1790906400,
+          "timePrecision": "second",
+          "latitude": 6.804527711123228,
+          "longitude": 119.60726433712989,
+          "depthKm": 10,
+          "magnitude": 4.178455946035683
+        },
+        {
+          "eventId": "generated-067",
+          "timeSeconds": 1790905500,
+          "timePrecision": "second",
+          "latitude": 13.242770083248615,
+          "longitude": 126.06866859598085,
+          "depthKm": 10,
+          "magnitude": 2.0700868989806622
+        },
+        {
+          "eventId": "generated-066",
+          "timeSeconds": 1790904600,
+          "timePrecision": "second",
+          "latitude": 19.869055587798357,
+          "longitude": 127.71319667249918,
+          "depthKm": 10,
+          "magnitude": 1.8363848342560232
+        },
+        {
+          "eventId": "generated-065",
+          "timeSeconds": 1790903700,
+          "timePrecision": "second",
+          "latitude": 8.08670161664486,
+          "longitude": 121.81234168121591,
+          "depthKm": 10,
+          "magnitude": 5.200077970745042
+        },
+        {
+          "eventId": "generated-064",
+          "timeSeconds": 1790902800,
+          "timePrecision": "second",
+          "latitude": 20.999892499297857,
+          "longitude": 115.73454616498202,
+          "depthKm": 10,
+          "magnitude": 5.040506342425942
+        },
+        {
+          "eventId": "generated-063",
+          "timeSeconds": 1790901900,
+          "timePrecision": "minute",
+          "latitude": 19.089749716222286,
+          "longitude": 122.37054715817794,
+          "depthKm": 10,
+          "magnitude": 5.610996063565835
+        },
+        {
+          "eventId": "generated-062",
+          "timeSeconds": 1790901000,
+          "timePrecision": "second",
+          "latitude": 14.651758465915918,
+          "longitude": 126.40787047706544,
+          "depthKm": 10,
+          "magnitude": 1.4509645910002291
+        },
+        {
+          "eventId": "generated-061",
+          "timeSeconds": 1790900100,
+          "timePrecision": "second",
+          "latitude": 12.238920092582703,
+          "longitude": 121.33866956504062,
+          "depthKm": 10,
+          "magnitude": 1.3355828730855137
+        },
+        {
+          "eventId": "generated-060",
+          "timeSeconds": 1790899200,
+          "timePrecision": "second",
+          "latitude": 8.858967166393995,
+          "longitude": 121.21226333919913,
+          "depthKm": 10,
+          "magnitude": 1.9359937673434615
+        },
+        {
+          "eventId": "generated-059",
+          "timeSeconds": 1790898300,
+          "timePrecision": "second",
+          "latitude": 10.673794902861118,
+          "longitude": 116.0830509099178,
+          "depthKm": 10,
+          "magnitude": 5.500251178396866
+        },
+        {
+          "eventId": "generated-058",
+          "timeSeconds": 1790897400,
+          "timePrecision": "second",
+          "latitude": 20.664655674248934,
+          "longitude": 120.91785842552781,
+          "depthKm": 10,
+          "magnitude": 1.5862175184302032
+        },
+        {
+          "eventId": "generated-057",
+          "timeSeconds": 1790896500,
+          "timePrecision": "second",
+          "latitude": 7.685952916741371,
+          "longitude": 121.61134818429127,
+          "depthKm": 10,
+          "magnitude": 1.2698575623799115
+        },
+        {
+          "eventId": "generated-056",
+          "timeSeconds": 1790895600,
+          "timePrecision": "minute",
+          "latitude": 20.386195834726095,
+          "longitude": 121.47402439173311,
+          "depthKm": 10,
+          "magnitude": 2.050130594521761
+        },
+        {
+          "eventId": "generated-055",
+          "timeSeconds": 1790894700,
+          "timePrecision": "second",
+          "latitude": 6.756719760596752,
+          "longitude": 125.26952051511034,
+          "depthKm": 10,
+          "magnitude": 2.4334205666091293
+        },
+        {
+          "eventId": "generated-054",
+          "timeSeconds": 1790893800,
+          "timePrecision": "second",
+          "latitude": 9.124990407377481,
+          "longitude": 123.25556162185967,
+          "depthKm": 10,
+          "magnitude": 2.195767626632005
+        },
+        {
+          "eventId": "generated-053",
+          "timeSeconds": 1790892900,
+          "timePrecision": "second",
+          "latitude": 11.78363886475563,
+          "longitude": 118.72613931493834,
+          "depthKm": 10,
+          "magnitude": 1.0767071323934942
+        },
+        {
+          "eventId": "generated-052",
+          "timeSeconds": 1790892000,
+          "timePrecision": "second",
+          "latitude": 12.94448209926486,
+          "longitude": 115.73794560600072,
+          "depthKm": 10,
+          "magnitude": 2.877977983094752
+        },
+        {
+          "eventId": "generated-051",
+          "timeSeconds": 1790891100,
+          "timePrecision": "second",
+          "latitude": 18.59917873889208,
+          "longitude": 115.67151166452095,
+          "depthKm": 10,
+          "magnitude": 2.15186799201183
+        },
+        {
+          "eventId": "generated-050",
+          "timeSeconds": 1790890200,
+          "timePrecision": "second",
+          "latitude": 12.28082861378789,
+          "longitude": 119.397271245718,
+          "depthKm": 10,
+          "magnitude": 2.4354522130452096
+        },
+        {
+          "eventId": "generated-049",
+          "timeSeconds": 1790889300,
+          "timePrecision": "minute",
+          "latitude": 20.463317200541496,
+          "longitude": 123.61027903715149,
+          "depthKm": 10,
+          "magnitude": 4.407622986705974
+        },
+        {
+          "eventId": "generated-048",
+          "timeSeconds": 1790888400,
+          "timePrecision": "second",
+          "latitude": 19.416321840137243,
+          "longitude": 125.40203675907105,
+          "depthKm": 10,
+          "magnitude": 4.019184647127986
+        },
+        {
+          "eventId": "generated-047",
+          "timeSeconds": 1790887500,
+          "timePrecision": "second",
+          "latitude": 20.414768181741238,
+          "longitude": 127.93670034920797,
+          "depthKm": 10,
+          "magnitude": 3.3983801004942507
+        },
+        {
+          "eventId": "generated-046",
+          "timeSeconds": 1790886600,
+          "timePrecision": "second",
+          "latitude": 7.236254308372736,
+          "longitude": 115.85726523213089,
+          "depthKm": 10,
+          "magnitude": 3.026908288244158
+        },
+        {
+          "eventId": "generated-045",
+          "timeSeconds": 1790885700,
+          "timePrecision": "second",
+          "latitude": 15.193741738796234,
+          "longitude": 127.02675019623712,
+          "depthKm": 10,
+          "magnitude": 2.959617311367765
+        },
+        {
+          "eventId": "generated-044",
+          "timeSeconds": 1790884800,
+          "timePrecision": "second",
+          "latitude": 20.005561035126448,
+          "longitude": 128.35169623885304,
+          "depthKm": 10,
+          "magnitude": 4.348702187649906
+        },
+        {
+          "eventId": "generated-043",
+          "timeSeconds": 1790883900,
+          "timePrecision": "second",
+          "latitude": 19.90225289016962,
+          "longitude": 122.23546000896022,
+          "depthKm": 10,
+          "magnitude": 1.932364173932001
+        },
+        {
+          "eventId": "generated-042",
+          "timeSeconds": 1790883000,
+          "timePrecision": "minute",
+          "latitude": 10.542189884930849,
+          "longitude": 126.72088932618499,
+          "depthKm": 10,
+          "magnitude": 3.8799480642192066
+        },
+        {
+          "eventId": "generated-041",
+          "timeSeconds": 1790882100,
+          "timePrecision": "second",
+          "latitude": 12.64611990749836,
+          "longitude": 123.32660173857585,
+          "depthKm": 10,
+          "magnitude": 5.854190360056236
+        },
+        {
+          "eventId": "generated-040",
+          "timeSeconds": 1790881200,
+          "timePrecision": "second",
+          "latitude": 12.929778572171926,
+          "longitude": 120.64806553628296,
+          "depthKm": 10,
+          "magnitude": 3.391601987183094
+        },
+        {
+          "eventId": "generated-039",
+          "timeSeconds": 1790880300,
+          "timePrecision": "second",
+          "latitude": 7.105917684733868,
+          "longitude": 125.85986055573449,
+          "depthKm": 10,
+          "magnitude": 4.12024119659327
+        },
+        {
+          "eventId": "generated-038",
+          "timeSeconds": 1790879400,
+          "timePrecision": "second",
+          "latitude": 8.802841428667307,
+          "longitude": 122.35537251271307,
+          "depthKm": 10,
+          "magnitude": 1.4268485051579773
+        },
+        {
+          "eventId": "generated-037",
+          "timeSeconds": 1790878500,
+          "timePrecision": "second",
+          "latitude": 17.31227681040764,
+          "longitude": 115.29306492256,
+          "depthKm": 10,
+          "magnitude": 4.568055551731959
+        },
+        {
+          "eventId": "generated-036",
+          "timeSeconds": 1790877600,
+          "timePrecision": "second",
+          "latitude": 15.253294061869383,
+          "longitude": 118.56599311251193,
+          "depthKm": 10,
+          "magnitude": 1.9801186667755246
+        },
+        {
+          "eventId": "generated-035",
+          "timeSeconds": 1790876700,
+          "timePrecision": "minute",
+          "latitude": 11.85404396802187,
+          "longitude": 124.89883927209303,
+          "depthKm": 10,
+          "magnitude": 4.866659234045073
+        },
+        {
+          "eventId": "generated-034",
+          "timeSeconds": 1790875800,
+          "timePrecision": "second",
+          "latitude": 10.547769028693438,
+          "longitude": 118.5171268209815,
+          "depthKm": 10,
+          "magnitude": 1.371679940726608
+        },
+        {
+          "eventId": "generated-033",
+          "timeSeconds": 1790874900,
+          "timePrecision": "second",
+          "latitude": 13.325944289565086,
+          "longitude": 123.92121640453115,
+          "depthKm": 10,
+          "magnitude": 1.3062473807949573
+        },
+        {
+          "eventId": "generated-032",
+          "timeSeconds": 1790874000,
+          "timePrecision": "second",
+          "latitude": 17.11080064997077,
+          "longitude": 127.45035764109343,
+          "depthKm": 10,
+          "magnitude": 3.5210451055318117
+        },
+        {
+          "eventId": "generated-031",
+          "timeSeconds": 1790873100,
+          "timePrecision": "second",
+          "latitude": 8.025511287152767,
+          "longitude": 124.58329358464107,
+          "depthKm": 10,
+          "magnitude": 5.902152124559507
+        },
+        {
+          "eventId": "generated-030",
+          "timeSeconds": 1790872200,
+          "timePrecision": "second",
+          "latitude": 12.61958209052682,
+          "longitude": 126.07428150437772,
+          "depthKm": 10,
+          "magnitude": 3.807798741851002
+        },
+        {
+          "eventId": "generated-029",
+          "timeSeconds": 1790871300,
+          "timePrecision": "second",
+          "latitude": 7.737174987792969,
+          "longitude": 118.47693819971755,
+          "depthKm": 10,
+          "magnitude": 4.958237139740959
+        },
+        {
+          "eventId": "generated-028",
+          "timeSeconds": 1790870400,
+          "timePrecision": "minute",
+          "latitude": 12.57162282988429,
+          "longitude": 121.35950062517077,
+          "depthKm": 10,
+          "magnitude": 3.45160402264446
+        },
+        {
+          "eventId": "generated-027",
+          "timeSeconds": 1790869500,
+          "timePrecision": "second",
+          "latitude": 14.89452389627695,
+          "longitude": 120.3948457124643,
+          "depthKm": 10,
+          "magnitude": 1.6928684830199927
+        },
+        {
+          "eventId": "generated-026",
+          "timeSeconds": 1790868600,
+          "timePrecision": "second",
+          "latitude": 14.32725964859128,
+          "longitude": 119.06320159509778,
+          "depthKm": 10,
+          "magnitude": 3.906629058998078
+        },
+        {
+          "eventId": "generated-025",
+          "timeSeconds": 1790867700,
+          "timePrecision": "second",
+          "latitude": 13.489881411194801,
+          "longitude": 121.6789245181717,
+          "depthKm": 10,
+          "magnitude": 5.027681454317644
+        },
+        {
+          "eventId": "generated-024",
+          "timeSeconds": 1790866800,
+          "timePrecision": "second",
+          "latitude": 10.394599255174398,
+          "longitude": 122.96451838966459,
+          "depthKm": 10,
+          "magnitude": 5.711921121925116
+        },
+        {
+          "eventId": "generated-023",
+          "timeSeconds": 1790865900,
+          "timePrecision": "second",
+          "latitude": 13.803462319076061,
+          "longitude": 117.53202919056639,
+          "depthKm": 10,
+          "magnitude": 1.4879960173275322
+        },
+        {
+          "eventId": "generated-022",
+          "timeSeconds": 1790865000,
+          "timePrecision": "second",
+          "latitude": 8.615095678716898,
+          "longitude": 126.29774083383381,
+          "depthKm": 10,
+          "magnitude": 2.630858622957021
+        },
+        {
+          "eventId": "generated-021",
+          "timeSeconds": 1790864100,
+          "timePrecision": "minute",
+          "latitude": 8.35249999165535,
+          "longitude": 118.3474854757078,
+          "depthKm": 10,
+          "magnitude": 5.176428631180897
+        },
+        {
+          "eventId": "generated-020",
+          "timeSeconds": 1790863200,
+          "timePrecision": "second",
+          "latitude": 11.923590552061796,
+          "longitude": 126.6731634484604,
+          "depthKm": 10,
+          "magnitude": 1.312224798835814
+        },
+        {
+          "eventId": "generated-019",
+          "timeSeconds": 1790862300,
+          "timePrecision": "second",
+          "latitude": 6.413859911262989,
+          "longitude": 115.82764726830646,
+          "depthKm": 10,
+          "magnitude": 2.2705061573069543
+        },
+        {
+          "eventId": "generated-018",
+          "timeSeconds": 1790861400,
+          "timePrecision": "second",
+          "latitude": 11.497269410640001,
+          "longitude": 121.24997897446156,
+          "depthKm": 10,
+          "magnitude": 3.175173608120531
+        },
+        {
+          "eventId": "generated-017",
+          "timeSeconds": 1790860500,
+          "timePrecision": "second",
+          "latitude": 6.05178014934063,
+          "longitude": 127.36389767983928,
+          "depthKm": 10,
+          "magnitude": 4.273407818051055
+        },
+        {
+          "eventId": "generated-016",
+          "timeSeconds": 1790859600,
+          "timePrecision": "second",
+          "latitude": 11.373612131923437,
+          "longitude": 115.44710524659604,
+          "depthKm": 10,
+          "magnitude": 5.322897410020232
+        },
+        {
+          "eventId": "generated-015",
+          "timeSeconds": 1790858700,
+          "timePrecision": "second",
+          "latitude": 16.785504423081875,
+          "longitude": 120.71105318283662,
+          "depthKm": 10,
+          "magnitude": 3.626843996113166
+        },
+        {
+          "eventId": "generated-014",
+          "timeSeconds": 1790857800,
+          "timePrecision": "minute",
+          "latitude": 19.008040640503168,
+          "longitude": 116.42119346372783,
+          "depthKm": 10,
+          "magnitude": 5.0876575582660735
+        },
+        {
+          "eventId": "generated-013",
+          "timeSeconds": 1790856900,
+          "timePrecision": "second",
+          "latitude": 11.859698355197906,
+          "longitude": 128.2840516907163,
+          "depthKm": 10,
+          "magnitude": 4.089025976369157
+        },
+        {
+          "eventId": "generated-012",
+          "timeSeconds": 1790856000,
+          "timePrecision": "second",
+          "latitude": 13.757592003792524,
+          "longitude": 117.28130027744919,
+          "depthKm": 10,
+          "magnitude": 4.865503105334938
+        },
+        {
+          "eventId": "generated-011",
+          "timeSeconds": 1790855100,
+          "timePrecision": "second",
+          "latitude": 19.53366456180811,
+          "longitude": 118.30910230753943,
+          "depthKm": 10,
+          "magnitude": 1.8011885441374034
+        },
+        {
+          "eventId": "generated-010",
+          "timeSeconds": 1790854200,
+          "timePrecision": "second",
+          "latitude": 8.917570043355227,
+          "longitude": 115.92181549593806,
+          "depthKm": 10,
+          "magnitude": 4.27497937483713
+        },
+        {
+          "eventId": "generated-009",
+          "timeSeconds": 1790853300,
+          "timePrecision": "second",
+          "latitude": 6.883497193455696,
+          "longitude": 125.4501463570632,
+          "depthKm": 10,
+          "magnitude": 4.025697666453198
+        },
+        {
+          "eventId": "generated-008",
+          "timeSeconds": 1790852400,
+          "timePrecision": "second",
+          "latitude": 5.703753586858511,
+          "longitude": 124.81422157492489,
+          "depthKm": 10,
+          "magnitude": 1.9329172223806381
+        },
+        {
+          "eventId": "generated-007",
+          "timeSeconds": 1790851500,
+          "timePrecision": "minute",
+          "latitude": 20.314441554248333,
+          "longitude": 124.27952617546543,
+          "depthKm": 10,
+          "magnitude": 1.4499082954134792
+        },
+        {
+          "eventId": "generated-006",
+          "timeSeconds": 1790850600,
+          "timePrecision": "second",
+          "latitude": 12.463364485651255,
+          "longitude": 115.47912044264376,
+          "depthKm": 10,
+          "magnitude": 3.3444953677244484
+        },
+        {
+          "eventId": "generated-005",
+          "timeSeconds": 1790849700,
+          "timePrecision": "second",
+          "latitude": 13.308849424123764,
+          "longitude": 117.94418002711609,
+          "depthKm": 10,
+          "magnitude": 4.525132645154372
+        },
+        {
+          "eventId": "generated-004",
+          "timeSeconds": 1790848800,
+          "timePrecision": "second",
+          "latitude": 10.4136235229671,
+          "longitude": 125.037697580643,
+          "depthKm": 10,
+          "magnitude": 1.1166822435334325
+        },
+        {
+          "eventId": "generated-003",
+          "timeSeconds": 1790847900,
+          "timePrecision": "second",
+          "latitude": 6.8882457092404366,
+          "longitude": 125.47047837777063,
+          "depthKm": 10,
+          "magnitude": 4.861837106524035
+        },
+        {
+          "eventId": "generated-002",
+          "timeSeconds": 1790847000,
+          "timePrecision": "second",
+          "latitude": 13.34734733775258,
+          "longitude": 118.59140265733004,
+          "depthKm": 10,
+          "magnitude": 2.9863903685472906
+        },
+        {
+          "eventId": "generated-001",
+          "timeSeconds": 1790846100,
+          "timePrecision": "second",
+          "latitude": 8.846147045493126,
+          "longitude": 125.22698863456026,
+          "depthKm": 10,
+          "magnitude": 2.0430062760133296
+        },
+        {
+          "eventId": "generated-000",
+          "timeSeconds": 1790845200,
+          "timePrecision": "minute",
+          "latitude": 10.010664489120245,
+          "longitude": 125.57511038612574,
+          "depthKm": 10,
+          "magnitude": 3.56971531547606
+        }
+      ]
+    }
+  ]
+}

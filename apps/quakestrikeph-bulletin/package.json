@@ -9,6 +9,8 @@
   },
   "scripts": {
     "dev": "astro dev",
+    "prototype:forecast-clustering": "vite src/features/forecast-prototype --host 127.0.0.1 --port 4340 --strictPort",
+    "check:forecast-clustering": "node --experimental-strip-types scripts/forecast-clustering/compare-reference.mjs",
     "check": "astro check",
     "build": "astro build",
     "generate:api": "openapi-typescript ../../packages/contracts/openapi.yaml -o src/lib/api/schema.d.ts",
