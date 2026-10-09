@@ -1,0 +1,44 @@
+---
+import { getSecret } from 'astro:env/server';
+import ForecastPage from '../../components/ForecastPage.astro';
+import type { components } from '../../lib/api/schema';
+import { bulletinHref, readBulletinState, validEventId } from '../../lib/bulletin-navigation';
+
+const eventId = (Astro.params.eventId ?? '').toLowerCase();
+if (Astro.url.searchParams.has('selected')) {
+  const url = new URL(Astro.url);
+  url.searchParams.delete('selected');
+  return Astro.redirect(`${url.pathname}${url.search}`);
+}
+let event: components['schemas']['EarthquakeDetail'] | null = null;
+let error: 'invalid' | 'missing' | 'unavailable' | null = null;
+if (!validEventId(eventId)) {
+  Astro.response.status = 400;
+  error = 'invalid';
+} else {
+  try {
+    const response = await fetch(new URL(`/api/v1/earthquakes/${encodeURIComponent(eventId)}`,
+      getSecret('API_TARGET') || 'https://quakestrikeph.qzz.io'), {
+      signal: AbortSignal.timeout(2500),
+    });
+    if (response.status === 404) {
+      Astro.response.status = 404;
+      error = 'missing';
+    } else if (!response.ok) {
+      Astro.response.status = 503;
+      error = 'unavailable';
+    } else {
+      const data = await response.json();
+      if (!data.item || data.item.eventId !== eventId) throw new Error('Invalid earthquake response');
+      event = data.item;
+    }
+  } catch {
+    Astro.response.status = 503;
+    error = 'unavailable';
+  }
+}
+const backHref = bulletinHref({ ...readBulletinState(Astro.url.searchParams),
+  selectedId: validEventId(eventId) ? eventId : null });
+---
+<!doctype html>
+<ForecastPage event={event} error={error} backHref={backHref} />

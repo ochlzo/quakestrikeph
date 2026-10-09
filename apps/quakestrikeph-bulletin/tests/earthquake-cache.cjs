@@ -32,7 +32,7 @@ const fixtures = Array.from({ length: 60 }, (_, index) => ({
       });
       const rows = page.locator('.event-row-v2:not(.event-row-skeleton)');
       const showList = async () => {
-        await page.locator('astro-island[ssr]').waitFor({ state: 'detached' });
+        await page.waitForFunction(() => document.querySelectorAll('astro-island[ssr]').length === 0);
         if (viewport.width < 760) await page.getByRole('button', { name: 'Show earthquakes', exact: true }).click();
       };
       const cachedCount = () => page.evaluate(key => JSON.parse(sessionStorage.getItem(key)).items.length, key);

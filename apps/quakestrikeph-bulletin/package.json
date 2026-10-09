@@ -11,6 +11,8 @@
     "dev": "astro dev",
     "check": "astro check",
     "build": "astro build",
+    "test:forecast": "node tests/forecast-page.mjs",
+    "test:forecast-navigation": "node tests/forecast-navigation.cjs",
     "generate:api": "openapi-typescript ../../packages/contracts/openapi.yaml -o src/lib/api/schema.d.ts",
     "start": "node ./dist/server/entry.mjs"
   },

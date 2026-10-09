@@ -63,8 +63,9 @@ const response = { items, fetchedAt: '2026-10-05T05:00:00Z', nextCursor: null, h
         await route.fulfill({ json: { ...response, items: [{ ...items[0], locationDescription: 'Updated server result' }, ...items.slice(1)] } });
       });
       await page.goto(root, { waitUntil: 'domcontentloaded' });
-      await page.locator('astro-island[ssr]').waitFor({ state: 'detached' });
+      await page.waitForFunction(() => document.querySelectorAll('astro-island[ssr]').length === 0);
       if (viewport.width < 760) await page.getByRole('button', { name: 'Show earthquakes', exact: true }).click();
+      await page.getByText('Server result 0', { exact: true }).waitFor();
       assert.equal(await page.getByText('Server result 0', { exact: true }).count(), 1);
       assert.equal(await page.getByText('Older cached result', { exact: true }).count(), 0,
         'Fresh server results must not be replaced by older browser data');

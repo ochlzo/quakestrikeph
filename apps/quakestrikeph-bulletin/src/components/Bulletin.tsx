@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "./ui/toast";
-import { today } from "@internationalized/date";
+import { parseDate, today } from "@internationalized/date";
 import { Dialog, type DateValue, type RangeValue } from "react-aria-components";
 import {
   ArrowRight,
@@ -21,6 +21,7 @@ import { magnitudeBand, magnitudeRangesForBands } from "../lib/magnitude";
 import { bulletinApi } from "../lib/api/client";
 import type { components } from "../lib/api/schema";
 import { readEarthquakeCache, writeEarthquakeCache, type EarthquakeSearch } from "../lib/earthquake-cache";
+import { bulletinParams, matchesBulletinFilters, type BulletinState, type DateFilter } from "../lib/bulletin-navigation";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
 import { RangeCalendar } from "@/components/ui/calendar";
@@ -59,8 +60,6 @@ const dateOptions = [
   { label: "Last 30 days", value: "30" },
 ];
 
-type DateFilter = { value: string; from?: string; to?: string };
-
 function formatDate(date: Date, year = true) {
   return new Intl.DateTimeFormat("en-PH", {
     timeZone: "Asia/Manila",
@@ -93,7 +92,10 @@ function phtDayBoundary(date: DateValue, nextDay = false) {
   ).toISOString();
 }
 
-export default function Bulletin({ initialResults = null }: { initialResults?: components["schemas"]["SearchResponse"] | null }) {
+export default function Bulletin({ initialResults = null, initialState = { query: '', date: { value: 'all' }, magnitudes: [], selectedId: null } }: {
+  initialResults?: components["schemas"]["SearchResponse"] | null;
+  initialState?: BulletinState;
+}) {
   const initialPage = useRef(initialResults);
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -105,21 +107,27 @@ export default function Bulletin({ initialResults = null }: { initialResults?: c
   const mobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerSnap, setDrawerSnap] = useState<number | string | null>(0.65);
-  const [query, setQuery] = useState("");
-  const [dateFilter, setDateFilter] = useState<DateFilter>({ value: "all" });
+  const [query, setQuery] = useState(initialState.query);
+  const [dateFilter, setDateFilter] = useState<DateFilter>(initialState.date);
   const [settledDateFilter, setSettledDateFilter] =
     useState<DateFilter>(dateFilter);
   const [customRange, setCustomRange] = useState<RangeValue<DateValue>>(() => {
+    if (initialState.date.value === 'custom' && initialState.date.from && initialState.date.to) {
+      return {
+        start: parseDate(new Date(Date.parse(initialState.date.from) + 8 * 3600000).toISOString().slice(0, 10)),
+        end: parseDate(new Date(Date.parse(initialState.date.to) - 1 + 8 * 3600000).toISOString().slice(0, 10)),
+      };
+    }
     const end = today("Asia/Manila");
     return { start: end.subtract({ days: 30 }), end };
   });
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [calendarMonths, setCalendarMonths] = useState(1);
-  const [magnitudeFilter, setMagnitudeFilter] = useState<string[]>([]);
+  const [magnitudeFilter, setMagnitudeFilter] = useState<string[]>(initialState.magnitudes);
   const [settledMagnitudeFilter, setSettledMagnitudeFilter] = useState(magnitudeFilter);
   const [events, setEvents] = useState<Earthquake[]>(initialResults?.items ?? []);
-  const [settledLocation, setSettledLocation] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [settledLocation, setSettledLocation] = useState(initialState.query.trim());
+  const [selectedId, setSelectedId] = useState<string | null>(initialState.selectedId);
   const [focusRequest, setFocusRequest] = useState(0);
   const [previousId, setPreviousId] = useState<string | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<EarthquakeDetail | null>(
@@ -144,6 +152,23 @@ export default function Bulletin({ initialResults = null }: { initialResults?: c
   const pendingMapSelection = useRef<string | null>(null);
   const [requestAttempt, setRequestAttempt] = useState(0);
   const location = query.trim();
+  const previousFilters = useRef({ location, dateFilter, magnitudeFilter });
+
+  useEffect(() => {
+    const previous = previousFilters.current;
+    if (previous.location !== location || previous.dateFilter !== dateFilter || previous.magnitudeFilter !== magnitudeFilter) {
+      setSelectedId(null);
+      setPreviousId(null);
+    }
+    previousFilters.current = { location, dateFilter, magnitudeFilter };
+  }, [location, dateFilter, magnitudeFilter]);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    for (const key of ['q', 'date', 'from', 'to', 'magnitudes', 'selected']) url.searchParams.delete(key);
+    bulletinParams({ query, date: dateFilter, magnitudes: magnitudeFilter, selectedId }).forEach((value, key) => url.searchParams.set(key, value));
+    window.history.replaceState(window.history.state, '', url);
+  }, [query, dateFilter, magnitudeFilter, selectedId]);
 
   useEffect(() => () => pageController.current?.abort(), []);
   useEffect(() => {
@@ -211,9 +236,6 @@ export default function Bulletin({ initialResults = null }: { initialResults?: c
         setSettledDateFilter(dateFilter);
         setSettledMagnitudeFilter(magnitudeFilter);
         setPreviousId(null);
-        setSelectedId((current) =>
-          data.items.some((item) => item.eventId === current) ? current : null,
-        );
         setStatus("ready");
       } catch {
         if (!controller.signal.aborted) {
@@ -314,7 +336,12 @@ export default function Bulletin({ initialResults = null }: { initialResults?: c
     settledLocation === location &&
     settledDateFilter === dateFilter &&
     settledMagnitudeFilter === magnitudeFilter;
-  const visible = resultsCurrent ? events : [];
+  // A restored selection can be older than the first search page.
+  const restoredSelection = selectedDetail && selectedDetail.eventId === selectedId &&
+    !events.some(event => event.eventId === selectedId) &&
+    matchesBulletinFilters(selectedDetail, { query, date: dateFilter, magnitudes: magnitudeFilter, selectedId })
+      ? selectedDetail : null;
+  const visible = resultsCurrent ? (restoredSelection ? [...events, restoredSelection] : events) : [];
   const searching =
     location.length !== 1 &&
     (status === "loading" ||
@@ -341,9 +368,10 @@ export default function Bulletin({ initialResults = null }: { initialResults?: c
     /^https?:\/\//i.test(selectedDetail.source?.url ?? "")
       ? selectedDetail.source?.url
       : undefined;
+  const forecastQuery = bulletinParams({ query, date: dateFilter, magnitudes: magnitudeFilter, selectedId: null }).toString();
   const forecastHref = selected
-    ? `/forecasts?event=${encodeURIComponent(selected.eventId)}`
-    : "/forecasts";
+    ? `/forecasts/${encodeURIComponent(selected.eventId)}${forecastQuery ? `?${forecastQuery}` : ''}`
+    : "/";
   const chooseDateOption = (value: string | number | null) => {
     if (value === null) return;
     if (value === "custom") {
@@ -439,7 +467,7 @@ export default function Bulletin({ initialResults = null }: { initialResults?: c
                 )}
               </span>
             </div>
-            <a className="forecast-link" href={forecastHref}>
+            <a className="forecast-link" href={forecastHref} data-astro-reload>
               View forecast <ArrowRight size={22} aria-hidden="true" />
             </a>
           </div>

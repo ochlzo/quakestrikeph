@@ -1,0 +1,184 @@
+---
+import type { components } from '../lib/api/schema';
+import { displayTime, likelihoodLevel, locationLabel, magnitude } from '../lib/events';
+import { magnitudeBand } from '../lib/magnitude';
+import '../styles/globals.css';
+import '../styles/forecast.css';
+
+interface Props {
+  event: components['schemas']['EarthquakeDetail'] | null;
+  error: 'invalid' | 'missing' | 'unavailable' | null;
+  backHref: string;
+}
+const { event, error, backHref } = Astro.props;
+const forecast = event?.forecast;
+const percent = (value: number) => `${Math.round(value * 100)}%`;
+const forecastLabel = forecast ? likelihoodLevel(forecast.probabilityM1Plus24h) : 'Forecast unavailable';
+const start = forecast ? displayTime(forecast.windowStart) : '';
+const end = forecast ? displayTime(forecast.windowEnd) : '';
+const activityMapData = event && forecast ? {
+  eventId: event.eventId,
+  anchor: { latitude: event.latitude, longitude: event.longitude, magnitude: magnitude(event.magnitude),
+    magnitudeClass: magnitudeBand(event.magnitude).className, location: locationLabel(event.locationDescription) },
+  windowStart: forecast.windowStart,
+  windowEnd: forecast.windowEnd,
+} : null;
+
+---
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{event ? `Forecast · ${magnitude(event.magnitude)} · QuakeStrike PH` : 'Forecast · QuakeStrike PH'}</title>
+    <meta name="description" content="A 24-hour earthquake activity forecast from QuakeStrike PH." />
+  </head>
+  <body class="forecast-page">
+    <header class="forecast-header">
+      <a class="forecast-brand" href={backHref} aria-label="Back to QuakeStrike PH Bulletin">
+        <span class="forecast-brand-mark">⌁</span>
+        <span><strong>QuakeStrike PH</strong><small>Bulletin</small></span>
+      </a>
+      <a class="forecast-back" href={backHref}>Back to earthquakes <span aria-hidden="true">↗</span></a>
+    </header>
+
+    <main class="forecast-main">
+      {error || !event ? (
+        <section class="forecast-empty" aria-labelledby="forecast-error-title">
+          <p class="eyebrow">Forecast unavailable</p>
+          <h1 id="forecast-error-title">{error === 'invalid' ? 'This earthquake link is invalid.' : error === 'missing' ? 'This earthquake was not found.' : 'This earthquake could not be loaded.'}</h1>
+          <p>{error === 'unavailable' ? 'The earthquake service is temporarily unavailable. Reload the page to try again.' : 'Return to the Bulletin to choose an earthquake.'}</p>
+          <a class="forecast-button" href={backHref}>Back to earthquakes</a>
+        </section>
+      ) : (
+        <>
+          <section class="forecast-hero" aria-labelledby="forecast-title">
+            <div class="forecast-hero-copy">
+              <a class="forecast-breadcrumb" href={backHref}>← Earthquakes</a>
+              <p class="eyebrow">Observed earthquake · {event.source.provider}</p>
+              <h1 id="forecast-title"><span class:list={['forecast-big-magnitude', magnitudeBand(event.magnitude).className]}>{magnitude(event.magnitude)}</span><span class="forecast-big-label">forecast</span></h1>
+              <p class="forecast-location">{locationLabel(event.locationDescription)}</p>
+              <div class="forecast-observation-grid">
+                <div><span>Occurred</span><strong>{displayTime(event.eventTime)}</strong></div>
+                <div><span>Depth</span><strong>{event.depthKm} km</strong></div>
+                <div><span>Source</span><a href={event.source.url} target="_blank" rel="noreferrer">PHIVOLCS ↗</a></div>
+              </div>
+            </div>
+            <div class="forecast-hero-side">
+              {forecast && <div class="forecast-activity-replay" aria-label="Earthquake activity replay">
+                <div class="activity-map" data-activity-map></div>
+                <div class="activity-map-overlay"><span class="activity-map-title">Activity replay</span><span data-activity-status>Loading observations</span></div>
+                <div class="activity-map-legend"><span><i class="legend-anchor"></i>Anchor</span><span><i class="legend-forecast"></i>Forecast window</span><span><i class="legend-later"></i>Later</span></div>
+                <script type="application/json" id="activity-map-data" set:html={JSON.stringify(activityMapData).replaceAll('<', '\\u003c')}></script>
+                <div class="activity-replay-controls">
+                  <button type="button" class="activity-play" data-activity-play disabled aria-label="Play earthquake activity replay">▶</button>
+                  <div class="activity-timeline-wrap"><div class="activity-timeline-labels"><span>Start</span><span>24h forecast</span><span>Later events</span></div><div class="activity-timeline"><span class="activity-timeline-forecast"></span><span class="activity-timeline-later"></span><div class="activity-timeline-playhead" data-activity-playhead></div><input type="range" min="0" max="2880" step="1" value="0" data-activity-range disabled aria-label="Replay earthquake activity over 48 hours" /></div></div>
+                </div>
+              </div>}
+              {forecast && <p class="section-note" role="status" data-observations-warning hidden>Some observations could not be loaded. The activity replay is incomplete.</p>}
+              <div class="forecast-hero-note">
+                <span class="forecast-kicker">24-hour forecast</span>
+                {forecast ? <><strong>{forecastLabel}</strong><span>for further earthquake activity</span></> : <strong>No forecast available</strong>}
+              </div>
+            </div>
+          </section>
+          {!forecast ? (
+            <section class="forecast-empty forecast-empty-inline" aria-labelledby="no-forecast-title">
+              <h2 id="no-forecast-title">Forecast details are not available for this event.</h2>
+              <p>The observed earthquake and its PHIVOLCS source remain available above.</p>
+            </section>
+          ) : (
+            <>
+              <section class="forecast-window" aria-labelledby="window-title">
+                <div class="section-heading"><div><p class="eyebrow">Forecast window</p><h2 id="window-title">The original 24-hour period</h2></div><span class:list={['status-pill', { expired: forecast.expired }]}>{forecast.expired ? 'Ended' : 'Active'}</span></div>
+                <div class="window-line" aria-hidden="true"><span></span><i></i><span></span></div>
+                <div class="window-times"><div><span>Started</span><strong>{start}</strong></div><div><span>Ends</span><strong>{end}</strong></div></div>
+                <div class="earthquake-timeline" data-timeline-root>
+                  <div class="timeline-heading"><div><p class="eyebrow">Observed earthquakes</p><h3>What appeared during this window?</h3></div><span data-observations-count role="status">Loading</span></div>
+                  <div class="timeline-event-list" role="list" aria-busy="true" aria-label="Earthquakes observed during the forecast window">
+                    <p class="timeline-empty">Loading observed earthquakes…</p>
+                  </div>
+                  <p class="timeline-note" data-observations-note hidden>All observed earthquakes during the forecast window are listed above in chronological order.</p>
+                  <noscript><p class="timeline-empty">Enable JavaScript to load observed earthquakes and the activity replay.</p></noscript>
+                </div>
+              </section>
+
+              <section class="forecast-explorer" aria-labelledby="explorer-title">
+                <div class="section-heading"><div><h2 id="explorer-title">Explore this forecast</h2><p class="section-note">Select a view for more detail.</p></div></div>
+                <div class="forecast-tabs" role="tablist" aria-label="Forecast detail views">
+                  <button class="forecast-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="forecast-panel-activity" data-forecast-tab="activity"><span class="tab-glyph tab-glyph-pulse" aria-hidden="true"></span><span><strong>Activity</strong><small>{percent(forecast.probabilityM1Plus24h)} chance of M1.0+</small></span><b aria-hidden="true">›</b></button>
+                  <button class="forecast-tab" type="button" role="tab" aria-selected="false" aria-controls="forecast-panel-magnitude" data-forecast-tab="magnitude"><span class="tab-glyph tab-glyph-bars" aria-hidden="true"></span><span><strong>Magnitude</strong><small>{forecast.maximumMagnitudeQ50_24h === null ? 'No estimate' : `${magnitude(forecast.maximumMagnitudeQ50_24h)} median estimate`}</small></span><b aria-hidden="true">›</b></button>
+                  <button class="forecast-tab" type="button" role="tab" aria-selected="false" aria-controls="forecast-panel-related" data-forecast-tab="related"><span class="tab-glyph tab-glyph-cluster" aria-hidden="true"></span><span><strong>Related activity</strong><small>Cluster view coming soon</small></span><b aria-hidden="true">›</b></button>
+                </div>
+                <div class="forecast-focus-panel">
+                  <article id="forecast-panel-activity" data-forecast-panel="activity"><div class="focus-panel-copy"><p class="eyebrow">Activity outlook</p><h3>Further activity is {forecastLabel.toLowerCase()}</h3><p>The model estimates a {percent(forecast.probabilityM1Plus24h)} chance of one or more M1.0+ events during this fixed forecast window.</p></div><div class="focus-panel-number"><strong>{percent(forecast.probabilityM1Plus24h)}</strong><span>M1.0+ activity</span></div></article>
+                  <article id="forecast-panel-magnitude" data-forecast-panel="magnitude" hidden><div class="focus-panel-copy"><p class="eyebrow">Magnitude outlook</p><h3>{forecast.maximumMagnitudeQ50_24h === null ? 'No maximum magnitude estimate' : `${magnitude(forecast.maximumMagnitudeQ50_24h)} is the median estimate`}</h3><p>The lower and upper estimates show the model's range of possible maximum magnitudes, not a guaranteed result.</p></div><div class="focus-panel-number"><strong>{forecast.maximumMagnitudeQ50_24h === null ? '—' : magnitude(forecast.maximumMagnitudeQ50_24h)}</strong><span>median estimate</span></div></article>
+                  <article id="forecast-panel-related" data-forecast-panel="related" hidden><div class="focus-panel-copy"><p class="eyebrow">Related activity</p><h3>Cluster relationships are not available yet</h3><p>When the public feed provides relationship data, this view will show the anchor earthquake, confirmed or possible related events, and their elapsed time.</p></div><div class="focus-panel-number"><strong>—</strong><span>cluster data</span></div></article>
+                </div>
+              </section>
+
+              <section class="forecast-section" aria-labelledby="probability-title">
+                <div class="section-heading"><div><p class="eyebrow">At a glance</p><h2 id="probability-title">What could happen next?</h2></div><p class="section-note">Model estimates, not exact predictions.</p></div>
+                <div class="metric-grid">
+                  <article class="metric-card metric-card-primary"><span class="metric-label">M1.0+ activity</span><strong>{percent(forecast.probabilityM1Plus24h)}</strong><span class="metric-caption">{likelihoodLevel(forecast.probabilityM1Plus24h)}</span><div class="metric-bar"><i style={`width:${Math.max(4, forecast.probabilityM1Plus24h * 100)}%`}></i></div><small>Chance of further activity</small></article>
+                  <article class="metric-card"><span class="metric-label">M4.0+ activity</span><strong>{percent(forecast.probabilityM4Plus24h)}</strong><span class="metric-caption">{likelihoodLevel(forecast.probabilityM4Plus24h)}</span><div class="metric-bar"><i style={`width:${Math.max(4, forecast.probabilityM4Plus24h * 100)}%`}></i></div></article>
+                  <article class="metric-card"><span class="metric-label">M5.0+ activity</span><strong>{percent(forecast.probabilityM5Plus24h)}</strong><span class="metric-caption">{likelihoodLevel(forecast.probabilityM5Plus24h)}</span><div class="metric-bar"><i style={`width:${Math.max(4, forecast.probabilityM5Plus24h * 100)}%`}></i></div></article>
+                </div>
+                <aside class="forecast-signal"><span class="signal-orbit" aria-hidden="true"><i></i><b></b></span><div><p class="eyebrow">Forecast signal</p><strong>{percent(forecast.probabilityM1Plus24h)}</strong><p>The model sees {forecastLabel.toLowerCase()} of further activity during this fixed window.</p></div></aside>
+              </section>
+
+              <section class="forecast-detail-grid" aria-label="Forecast estimates">
+                <article class="forecast-panel"><p class="eyebrow">Expected activity</p><strong class="panel-number">{forecast.expectedM1PlusCount24h.toFixed(1)}</strong><h2>events</h2><p>Model-estimated further events of M1.0 or greater during the forecast window.</p></article>
+                <article class="forecast-panel"><p class="eyebrow">Maximum magnitude</p><div class="magnitude-range"><div><span>Lower</span><strong>{forecast.maximumMagnitudeQ05_24h === null ? '—' : magnitude(forecast.maximumMagnitudeQ05_24h)}</strong></div><div class="magnitude-range-main"><span>Median</span><strong>{forecast.maximumMagnitudeQ50_24h === null ? '—' : magnitude(forecast.maximumMagnitudeQ50_24h)}</strong></div><div><span>Upper</span><strong>{forecast.maximumMagnitudeQ95_24h === null ? '—' : magnitude(forecast.maximumMagnitudeQ95_24h)}</strong></div></div><div class="magnitude-rail" aria-hidden="true"><i></i><b></b><i></i></div><p>Estimated maximum magnitude during this forecast window.</p></article>
+                <article class="forecast-panel"><p class="eyebrow">Activity radius</p><strong class="panel-number">{forecast.activityRadiusMedianKm24h === null ? '—' : `${forecast.activityRadiusMedianKm24h.toFixed(0)} km`}</strong><h2>estimated reach</h2><p>This is not a guaranteed shaking or damage area.</p></article>
+              </section>
+
+              <section class="related-panel" aria-labelledby="related-title"><div><p class="eyebrow">Observed activity</p><h2 id="related-title">Related earthquake activity</h2><p>Cluster relationships are not available from the public feed yet. When available, this area will identify the anchor earthquake and show confirmed or possible related events on a timeline and map.</p></div><span class="related-count">Coming soon</span></section>
+
+              <section class="explanation-panel" aria-labelledby="read-title"><div class="explanation-icon" aria-hidden="true">i</div><div><h2 id="read-title">How to read this forecast</h2><p>This forecast describes probabilities of further earthquake activity after the observed event. It is not an exact prediction. A low probability does not mean further activity is impossible, and a higher probability does not mean it is certain.</p></div></section>
+              <footer class="forecast-footer"><span>Forecast ID: {forecast.forecastId}</span><span>Model release: {forecast.modelReleaseId}</span><time datetime={forecast.windowStart}>Window begins {start}</time></footer>
+            </>
+          )}
+        </>
+      )}
+    </main>
+    <script>
+      const tabs = [...document.querySelectorAll<HTMLButtonElement>('[data-forecast-tab]')];
+      const panels = [...document.querySelectorAll<HTMLElement>('[data-forecast-panel]')];
+      const selectTab = (tab: HTMLButtonElement) => {
+        const selected = tab.dataset.forecastTab;
+        tabs.forEach((item) => {
+          const active = item === tab;
+          item.classList.toggle('is-active', active);
+          item.setAttribute('aria-selected', String(active));
+          item.tabIndex = active ? 0 : -1;
+        });
+        panels.forEach((panel) => { panel.hidden = panel.dataset.forecastPanel !== selected; });
+      };
+      tabs.forEach((tab, index) => {
+        tab.id = `forecast-tab-${tab.dataset.forecastTab}`;
+        tab.tabIndex = index === 0 ? 0 : -1;
+        tab.addEventListener('click', () => selectTab(tab));
+        tab.addEventListener('keydown', (event) => {
+          let next = index;
+          if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+          else if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length;
+          else if (event.key === 'Home') next = 0;
+          else if (event.key === 'End') next = tabs.length - 1;
+          else return;
+          event.preventDefault();
+          const target = tabs[next];
+          target.focus();
+          selectTab(target);
+        });
+      });
+      panels.forEach(panel => {
+        panel.setAttribute('role', 'tabpanel');
+        panel.setAttribute('aria-labelledby', `forecast-tab-${panel.dataset.forecastPanel}`);
+      });
+    </script>
+    <script>
+      import { initForecastActivity } from '../lib/forecast-activity';
+      void initForecastActivity();
+    </script>
+  </body>
+</html>

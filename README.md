@@ -20,6 +20,14 @@ from that API, supports inline list and map selection, and links observations
 to their PHIVOLCS sources. Bulletin account screens, the Operations Console,
 automatic alert delivery, and production monitoring are still planned.
 
+Forecasts open at `/forecasts/<eventId>`. The URL preserves location, date,
+and magnitude filters. The return link derives the Bulletin selection from the
+event ID in the forecast path.
+The forecast renders before browser requests load observations and the replay.
+Invalid IDs return HTTP 400, missing earthquakes return HTTP 404, and Backend
+failures return HTTP 503. Existing `/?earthquake=<eventId>` links redirect to the
+forecast route.
+
 The main flow is:
 
 ```text
@@ -53,7 +61,7 @@ server. See the
 | `packages/contracts/queue/` | Versioned ingestion and prediction command schemas. |
 | `packages/contracts/openapi.yaml` | Public Backend HTTP contract. |
 | `apps/backend-api/` | Read-only Node/Express/TypeScript earthquake and forecast API. |
-| `apps/quakestrikeph-bulletin/` | Astro/React/TypeScript public Bulletin with an API-backed root event view. |
+| `apps/quakestrikeph-bulletin/` | Astro/React/TypeScript public Bulletin with API-backed event and forecast views. |
 | `infrastructure/` | Compose files and operator scripts. |
 | `docs/adr/` | Accepted decisions that govern implementation. |
 | `docs/system-design/` | Intended architecture, database design, and data flows. |

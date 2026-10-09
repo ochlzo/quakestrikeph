@@ -5,13 +5,24 @@ import BackgroundToaster from '../components/BackgroundToaster';
 import '../styles/globals.css';
 import type { components } from '../lib/api/schema';
 import { getSecret } from 'astro:env/server';
+import { bulletinParams, readBulletinState } from '../lib/bulletin-navigation';
+import { magnitudeRangesForBands } from '../lib/magnitude';
 
+const earthquakeId = Astro.url.searchParams.get('earthquake');
+const initialState = readBulletinState(Astro.url.searchParams);
+if (earthquakeId !== null) {
+  if (!earthquakeId) return Astro.redirect('/');
+  const query = bulletinParams({ ...initialState, selectedId: null }).toString();
+  return Astro.redirect(`/forecasts/${encodeURIComponent(earthquakeId)}${query ? `?${query}` : ''}`);
+}
 let initialResults: components['schemas']['SearchResponse'] | null = null;
-try {
+if (initialState.query.trim().length !== 1) try {
   const response = await fetch(new URL('/api/v1/earthquakes/search', getSecret('API_TARGET') || 'https://quakestrikeph.qzz.io'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ limit: 30 }),
+    body: JSON.stringify({ limit: 30, location: initialState.query.trim() || undefined,
+      dateFrom: initialState.date.from, dateTo: initialState.date.to,
+      magnitudeRanges: magnitudeRangesForBands(initialState.magnitudes) }),
     signal: AbortSignal.timeout(1500),
   });
   if (response.ok) {
@@ -40,7 +51,7 @@ try {
     </script>
   </head>
   <body>
-    <Bulletin initialResults={initialResults} client:load />
+    <Bulletin initialResults={initialResults} initialState={initialState} client:load />
     <BackgroundToaster client:only="react" transition:persist="account-notifications" />
   </body>
 </html>
