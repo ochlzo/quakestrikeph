@@ -16,6 +16,13 @@ const expectedCount = forecast?.expectedM1PlusCount24h ?? 0;
 const countStepBase = 10 ** Math.floor(Math.log10(Math.max(1, expectedCount / 3)));
 const countStep = [1, 2, 5, 10].find(step => step * countStepBase >= expectedCount / 3)! * countStepBase;
 const countPosition = expectedCount / (countStep * 3) * 100;
+const magnitudeEstimates = forecast && forecast.maximumMagnitudeQ05_24h !== null && forecast.maximumMagnitudeQ50_24h !== null && forecast.maximumMagnitudeQ95_24h !== null
+  ? [forecast.maximumMagnitudeQ05_24h, forecast.maximumMagnitudeQ50_24h, forecast.maximumMagnitudeQ95_24h] : [];
+const magnitudeMinimum = Math.floor((magnitudeEstimates[0] ?? 1) - 1);
+const magnitudeMaximum = Math.ceil((magnitudeEstimates[2] ?? 1) + 1);
+const magnitudePosition = (value: number) => (value - magnitudeMinimum) / (magnitudeMaximum - magnitudeMinimum) * 100;
+const magnitudeMiddlePosition = Math.max(20, Math.min(80, magnitudePosition(magnitudeEstimates[1] ?? 1)));
+const magnitudeTicks = Array.from({ length: 5 }, (_, index) => magnitudeMinimum + index * (magnitudeMaximum - magnitudeMinimum) / 4);
 const modelVersion = forecast?.modelReleaseId === 'a7f2286b-13a2-4708-a04d-4139281a4e1f' ? 'SEIS 1.0.1' : null;
 const probabilities = forecast ? [ { threshold: '1.0', value: forecast.probabilityM1Plus24h }, { threshold: '4.0', value: forecast.probabilityM4Plus24h }, { threshold: '5.0', value: forecast.probabilityM5Plus24h } ] : [];
 let chanceBounds = { x: 0, y: 0, width: 416, height: 296 };
@@ -281,18 +288,29 @@ return <>
 <div>
 <h3>Largest earthquake magnitude</h3>
 <div class="visual magnitude-visual">
-<div class="range-choices" role="group" aria-label="Explore magnitude estimates">{[forecast.maximumMagnitudeQ05_24h,forecast.maximumMagnitudeQ50_24h,forecast.maximumMagnitudeQ95_24h].map((value,index) => <button class="range-choice" aria-pressed={index === 1 ? 'true' : 'false'} data-range-label={['Lower estimate','Middle estimate','Upper estimate'][index]}>{['Lower estimate','Middle estimate','Upper estimate'][index]}<strong class:list={{'unavailable-value':value === null}}>{value === null ? 'Unavailable' : magnitude(value)}</strong>
-</button>)}</div>
+{magnitudeEstimates.length === 3 ? <div class="magnitude-ruler" role="img" aria-label={`Largest earthquake magnitude estimates: lower ${magnitude(magnitudeEstimates[0])}, middle ${magnitude(magnitudeEstimates[1])}, upper ${magnitude(magnitudeEstimates[2])}. These estimates apply if further activity of magnitude 1.0 or higher occurs during the 24-hour forecast window.`}>
+<div class="magnitude-reading magnitude-middle" style={`left: ${magnitudeMiddlePosition}%;`} aria-hidden="true">
+<strong>{magnitude(magnitudeEstimates[1])}</strong><span>Middle estimate</span>
 </div>
-<div class="range-reading">
-<h3 id="range-reading-title">Middle estimate</h3>
-<p id="range-reading-copy">The middle estimate sits between the lower and upper estimates. The actual largest magnitude may differ.</p>
+<svg class="magnitude-axis" viewBox="0 0 1000 96" preserveAspectRatio="none" aria-hidden="true">
+<rect class="magnitude-band" x={magnitudePosition(magnitudeEstimates[0]) * 10} y="12" width={(magnitudePosition(magnitudeEstimates[2]) - magnitudePosition(magnitudeEstimates[0])) * 10} height="24" />
+<path d="M0 24h1000M8 18l-8 6 8 6m984-12 8 6-8 6" />
+{magnitudeTicks.map((_, index) => <path d={`M${index * 250} 36v6`} />)}
+{[0, 2].map(index => <path d={`M${magnitudePosition(magnitudeEstimates[index]) * 10} 12V44H${index === 0 ? 200 : 800}V94`} />)}
+<path class="magnitude-middle-marker" d={`M${magnitudeMiddlePosition * 10} -10L${magnitudePosition(magnitudeEstimates[1]) * 10} 12v24`} />
+</svg>
+<div class="magnitude-ticks" aria-hidden="true">{magnitudeTicks.map((value, index) => <span style={`left: ${index * 25}%;`}>{count(value)}</span>)}</div>
+{[0, 2].map(index => <div class="magnitude-reading magnitude-bound" style={`left: ${index === 0 ? 20 : 80}%;`} aria-hidden="true"><strong>{magnitude(magnitudeEstimates[index])}</strong><span>{index === 0 ? 'Lower estimate' : 'Upper estimate'}</span></div>)}
+</div> : <p>The magnitude estimates are unavailable.</p>}
 </div>
 </div>
 <div>
 <h3>What the estimates tell you</h3>
-<p>{magnitudeCopy}</p>
-<p>Lower and upper values express uncertainty. They do not form a guaranteed range; an actual earthquake can fall outside them.</p>
+{magnitudeEstimates.length === 3 ? <>
+<p>If further earthquakes of magnitude 1.0 or higher occur during the 24-hour period, the model’s middle estimate for the largest is magnitude {magnitudeEstimates[1].toFixed(1)}.</p>
+<p>The lower estimate of {magnitudeEstimates[0].toFixed(1)} and upper estimate of {magnitudeEstimates[2].toFixed(1)} show uncertainty around that estimate. The largest earthquake could fall outside these values.</p>
+<p>These estimates do not mean an earthquake will occur.</p>
+</> : <p>{magnitudeCopy}</p>}
 </div>
 </div>
 </div>

@@ -62,28 +62,6 @@ export function initForecastDetails() {
   });
   if (tablist) new ResizeObserver(align).observe(tablist);
   align();
-  const rangeCopy: Record<string, string> = {
-    "Lower estimate":
-      "This is the lower estimate of the largest magnitude if qualifying activity occurs. It is not a minimum guaranteed magnitude.",
-    "Middle estimate":
-      "The middle estimate sits between the lower and upper estimates. The actual largest magnitude may differ.",
-    "Upper estimate":
-      "This is the upper estimate of the largest magnitude if qualifying activity occurs. A larger earthquake remains possible.",
-  };
-  const choices = [
-    ...document.querySelectorAll<HTMLButtonElement>(".range-choice"),
-  ];
-  choices.forEach((button) =>
-    button.addEventListener("click", () => {
-      choices.forEach((item) =>
-        item.setAttribute("aria-pressed", String(item === button)),
-      );
-      document.getElementById("range-reading-title")!.textContent =
-        button.dataset.rangeLabel!;
-      document.getElementById("range-reading-copy")!.textContent =
-        rangeCopy[button.dataset.rangeLabel!];
-    }),
-  );
   const links = [
     ...document.querySelectorAll<HTMLAnchorElement>(".navigation a"),
   ];
