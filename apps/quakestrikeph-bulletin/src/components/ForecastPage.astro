@@ -231,6 +231,10 @@ return <>
         </div>
 <span class="replay-load-status" id="replay-load-status" role="status">Loading observations…</span>
 <noscript>Enable JavaScript to use the map and replay.</noscript>
+<div class="replay-note">
+<p>Playback shows recorded earthquakes within the selected time range. These earthquakes are not necessarily aftershocks of the original earthquake. Moving the timeline does not change the forecast’s original 24-hour period.</p>
+<p>Reports can arrive late or change. An empty map does not prove that no earthquakes occurred.</p>
+</div>
 </section>}
 </div>
 {forecast && <section class="details-section" id="forecast-details" aria-labelledby="details-title">
@@ -238,7 +242,7 @@ return <>
 <h2 id="details-title">Understand the forecast</h2>
 <span>What the estimates mean and how to read them</span>
 </div>
-<div class="tablist" role="tablist" aria-label="Forecast explanations">{['Chance and count', 'Magnitude', 'Area', 'How to read'].map((label,index) => <button class="tab" id={'tab-' + index} role="tab" aria-selected={index === 0 ? 'true' : 'false'} aria-controls={'forecast-panel-' + ['activity','magnitude','area','reading'][index]} tabindex={index === 0 ? 0 : -1}>{label}</button>)}<span class="tab-indicator" aria-hidden="true">
+<div class="tablist" role="tablist" aria-label="Forecast explanations">{['Chance and count', 'Magnitude', 'Area'].map((label,index) => <button class="tab" id={'tab-' + index} role="tab" aria-selected={index === 0 ? 'true' : 'false'} aria-controls={'forecast-panel-' + ['activity','magnitude','area'][index]} tabindex={index === 0 ? 0 : -1}>{label}</button>)}<span class="tab-indicator" aria-hidden="true">
 </span>
 </div>
 <div class="tab-panel" id="forecast-panel-activity" role="tabpanel" aria-labelledby="tab-0" tabindex="0">
@@ -337,44 +341,6 @@ return <>
 <p>If further earthquakes of magnitude 1.0 or higher occur during the 24-hour period, the model estimates their typical spread from the original earthquake’s epicenter.</p>
 {forecast.activityRadiusMedianKm24h !== null && <p>The estimated radius is <strong>{count(forecast.activityRadiusMedianKm24h)} km</strong>. Further earthquakes may occur beyond this distance.</p>}
 <p>This radius does not show how far shaking reaches, where damage occurs, or where people are safe.</p>
-</div>
-</div>
-</div>
-<div class="tab-panel" id="forecast-panel-reading" role="tabpanel" aria-labelledby="tab-3" tabindex="0" hidden>
-<div class="panel-columns visual-columns">
-<div>
-<h3>Forecast time and replay time</h3>
-<div class="visual time-visual">
-<div class="time-axis">
-<span>Earlier</span>
-<span>Forecast starts</span>
-<span>Later</span>
-</div>
-<div class="time-row">
-<span>Fixed 24-hour forecast window</span>
-<span class="time-bar forecast-duration" style="margin-left:25%">
-</span>
-</div>
-<p>
-<time datetime={forecast.windowStart}>{displayTime(forecast.windowStart)}</time> to <time datetime={forecast.windowEnd}>{displayTime(forecast.windowEnd)}</time>
-</p>
-</div>
-<p>Seeking and playback change the observation period. They never move or renew the forecast window. Include earlier earthquakes keeps the history cutoff fixed while playback advances.</p>
-</div>
-<div>
-<h3>Observations and estimates</h3>
-<div class="observation-key">
-<span>
-<i class="observed-symbol">
-</i>Observed earthquake</span>
-<span>
-<i class="estimated-symbol">
-</i>Forecast estimate</span>
-</div>
-<p>The map shows recorded catalog observations, not predicted earthquake positions or confirmed aftershocks.</p>
-<p>The shaded circle shows the estimated activity radius around the anchor earthquake. The circle is uncertain; observed earthquakes can occur outside it.</p>
-<p>Catalog reports can arrive late or change. An empty response does not prove no earthquakes occurred. Times beyond the present have no observations yet.</p>
-<p>Qualifying activity means later earthquakes assigned to the same historical family in the training records. The map does not identify those relationships. A shared time period alone does not establish that map observations match the forecast targets.</p>
 </div>
 </div>
 </div>

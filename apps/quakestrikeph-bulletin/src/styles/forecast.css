@@ -417,6 +417,15 @@ details[open] .disclosure-body {
 .map-column {
   min-width: 0;
 }
+.replay-note {
+  margin-top: 12px;
+  max-width: 70ch;
+  color: var(--forecast-muted);
+  font-size: 13px;
+}
+.replay-note p + p {
+  margin-top: 8px;
+}
 .map-placeholder {
   position: relative;
   display: grid;
@@ -1024,54 +1033,6 @@ details[open] .disclosure-body {
   color: var(--forecast-muted);
   font-size: 13px;
   text-align: center;
-}
-.time-visual {
-  gap: 18px;
-}
-.time-axis {
-  display: flex;
-  justify-content: space-between;
-  font-size: 13px;
-  color: var(--forecast-muted);
-}
-.time-row {
-  display: grid;
-  gap: 8px;
-  font-size: 13px;
-}
-.time-bar {
-  height: 18px;
-  background: var(--shape);
-  border-radius: 3px;
-}
-.time-bar.forecast-duration {
-  width: 50%;
-  background: #c3d9dc;
-}
-.observation-key {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 24px;
-  align-items: center;
-  margin-block: 30px 18px;
-  font-size: 13px;
-}
-.observation-key span {
-  display: inline-flex;
-  gap: 10px;
-  align-items: center;
-}
-.observed-symbol {
-  width: 12px;
-  height: 12px;
-  border: 2px solid #a8b9bc;
-  border-radius: 50%;
-}
-.estimated-symbol {
-  width: 36px;
-  height: 18px;
-  border: 1px dashed #a8b9bc;
-  border-radius: 3px;
 }
 .disclaimer {
   --shape: #4c686d;
