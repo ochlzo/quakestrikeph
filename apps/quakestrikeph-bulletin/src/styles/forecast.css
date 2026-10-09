@@ -888,10 +888,11 @@ details[open] .disclosure-body {
 }
 .magnitude-visual {
   margin-bottom: 0;
+  padding-inline: clamp(16px, 4%, 28px);
 }
 .magnitude-ruler {
   position: relative;
-  height: 272px;
+  height: 256px;
 }
 .magnitude-reading {
   position: absolute;
@@ -899,14 +900,16 @@ details[open] .disclosure-body {
   text-align: center;
   white-space: nowrap;
 }
-.magnitude-reading strong {
+.magnitude-reading strong,
+.magnitude-bound strong {
   display: block;
   font-size: 24px;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
   color: var(--teal);
 }
-.magnitude-reading span {
+.magnitude-reading span,
+.magnitude-bound span {
   display: block;
   margin-top: 8px;
   font-size: 13px;
@@ -918,8 +921,17 @@ details[open] .disclosure-body {
 .magnitude-middle strong {
   font-size: 40px;
 }
-.magnitude-bound {
-  top: 210px;
+.magnitude-bounds {
+  position: absolute;
+  inset: 194px 0 auto;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.magnitude-bound:last-child {
+  text-align: right;
 }
 .magnitude-axis {
   position: absolute;
@@ -934,12 +946,16 @@ details[open] .disclosure-body {
   vector-effect: non-scaling-stroke;
   stroke-width: 1px;
 }
+.magnitude-axis .magnitude-end-marker {
+  stroke: var(--teal);
+  stroke-width: 2px;
+}
 .magnitude-axis .magnitude-middle-marker {
   stroke: var(--teal);
   stroke-width: 2px;
 }
 .magnitude-band {
-  fill: var(--tint);
+  fill: color-mix(in srgb, var(--teal) 18%, white);
   stroke: none;
 }
 .magnitude-ticks {
@@ -961,19 +977,53 @@ details[open] .disclosure-body {
   transform: translateX(-100%);
 }
 .area-visual {
-  min-height: 210px;
+  container-type: inline-size;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px 20px;
+  min-height: 0;
+  margin-bottom: 0;
 }
 .area-visual svg {
   display: block;
   width: 100%;
-  max-width: 340px;
-  height: 200px;
+  height: auto;
 }
-.area-visual text {
-  fill: var(--forecast-muted);
-  font:
-    16px "Geist Variable",
-    sans-serif;
+.area-boundary {
+  fill: var(--tint);
+  stroke: var(--forecast-muted);
+  stroke-dasharray: 5 5;
+}
+.area-radius {
+  fill: none;
+  stroke: var(--teal);
+  stroke-width: 2;
+}
+.area-epicenter {
+  fill: var(--teal);
+}
+.area-reading strong {
+  display: block;
+  color: var(--teal);
+  font-size: clamp(24px, 7cqi, 40px);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.area-reading strong span {
+  font-size: 16px;
+}
+.area-reading > span {
+  display: block;
+  margin-top: 8px;
+  color: var(--forecast-muted);
+  font-size: 13px;
+}
+.area-origin {
+  grid-column: 1;
+  color: var(--forecast-muted);
+  font-size: 13px;
+  text-align: center;
 }
 .time-visual {
   gap: 18px;
@@ -1026,28 +1076,28 @@ details[open] .disclosure-body {
 .disclaimer {
   --shape: #4c686d;
   --forecast-muted: #c6dadd;
-  padding-block: 44px 48px;
+  padding-block: 48px;
   background: #163f45;
   color: #f1f7f7;
 }
 .disclaimer-intro {
   max-width: 75ch;
-  margin-top: 14px;
+  margin-top: 16px;
 }
 .disclaimer-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 48px;
-  margin-top: 24px;
+  margin-top: 32px;
 }
 .disclaimer-grid h3 {
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 .disclaimer-grid p + p {
-  margin-top: 12px;
+  margin-top: 16px;
 }
 .model-reference {
-  margin-top: 20px;
+  margin-block: 24px;
 }
 .model-reference .shape {
   width: 150px;
@@ -1154,11 +1204,11 @@ details[open] .disclosure-body {
     white-space: nowrap;
   }
   .disclaimer {
-    padding-block: 32px 36px;
+    padding-block: 36px;
   }
   .disclaimer-grid {
     grid-template-columns: minmax(0, 1fr);
-    gap: 24px;
+    gap: 32px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1263,7 +1313,7 @@ details[open] .disclosure-body {
   color: #d4eeee;
 }
 .disclaimer .field-label {
-  margin-bottom: 5px;
+  margin-bottom: 8px;
 }
 .model-reference {
   font-size: 13px;

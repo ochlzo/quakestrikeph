@@ -293,14 +293,14 @@ return <>
 <strong>{magnitude(magnitudeEstimates[1])}</strong><span>Middle estimate</span>
 </div>
 <svg class="magnitude-axis" viewBox="0 0 1000 96" preserveAspectRatio="none" aria-hidden="true">
-<rect class="magnitude-band" x={magnitudePosition(magnitudeEstimates[0]) * 10} y="12" width={(magnitudePosition(magnitudeEstimates[2]) - magnitudePosition(magnitudeEstimates[0])) * 10} height="24" />
+<rect class="magnitude-band" x={magnitudePosition(magnitudeEstimates[0]) * 10} y="14" width={(magnitudePosition(magnitudeEstimates[2]) - magnitudePosition(magnitudeEstimates[0])) * 10} height="20" rx="4" />
 <path d="M0 24h1000M8 18l-8 6 8 6m984-12 8 6-8 6" />
 {magnitudeTicks.map((_, index) => <path d={`M${index * 250} 36v6`} />)}
-{[0, 2].map(index => <path d={`M${magnitudePosition(magnitudeEstimates[index]) * 10} 12V44H${index === 0 ? 200 : 800}V94`} />)}
-<path class="magnitude-middle-marker" d={`M${magnitudeMiddlePosition * 10} -10L${magnitudePosition(magnitudeEstimates[1]) * 10} 12v24`} />
+{[0, 2].map(index => <path class="magnitude-end-marker" d={`M${magnitudePosition(magnitudeEstimates[index]) * 10} 10v28`} />)}
+<path class="magnitude-middle-marker" d={`M${magnitudeMiddlePosition * 10} -10L${magnitudePosition(magnitudeEstimates[1]) * 10} 14v24`} />
 </svg>
 <div class="magnitude-ticks" aria-hidden="true">{magnitudeTicks.map((value, index) => <span style={`left: ${index * 25}%;`}>{count(value)}</span>)}</div>
-{[0, 2].map(index => <div class="magnitude-reading magnitude-bound" style={`left: ${index === 0 ? 20 : 80}%;`} aria-hidden="true"><strong>{magnitude(magnitudeEstimates[index])}</strong><span>{index === 0 ? 'Lower estimate' : 'Upper estimate'}</span></div>)}
+<div class="magnitude-bounds" aria-hidden="true">{[0, 2].map(index => <div class="magnitude-bound"><strong>{magnitude(magnitudeEstimates[index])}</strong><span>{index === 0 ? 'Lower estimate' : 'Upper estimate'}</span></div>)}</div>
 </div> : <p>The magnitude estimates are unavailable.</p>}
 </div>
 </div>
@@ -320,20 +320,23 @@ return <>
 <h3>Distance from the observed earthquake</h3>{forecast.activityRadiusMedianKm24h === null ? <div class="visual">
 <p>The activity radius is unavailable.</p>
 </div> : <div class="visual area-visual">
-<svg viewBox="0 0 340 200" role="img" aria-label={'Conceptual radius diagram, ' + count(forecast.activityRadiusMedianKm24h) + ' kilometres; not a geographic map'}>
-<circle cx="100" cy="100" r="70" fill="#edf6f6" stroke="#789ea3" stroke-dasharray="5 5" />
-<circle cx="100" cy="100" r="6" fill="#0e6873" />
-<path d="M106 100h64" stroke="#0e6873" stroke-width="2" />
-<text x="184" y="94">Estimated radius</text>
-<text x="184" y="121">{count(forecast.activityRadiusMedianKm24h)} km</text>
-<text x="20" y="193">Observed earthquake</text>
+<svg viewBox="0 0 300 300" role="img" aria-label={'Conceptual radius diagram: ' + count(forecast.activityRadiusMedianKm24h) + ' kilometres from the original earthquake’s epicenter to the dashed boundary; not a geographic map'}>
+<circle class="area-boundary" cx="150" cy="150" r="138" />
+<path class="area-radius" d="M150 150h138m0-6v12" />
+<circle class="area-epicenter" cx="150" cy="150" r="6" />
 </svg>
-</div>}<p>{radiusCopy}</p>
+<div class="area-reading">
+<strong>{count(forecast.activityRadiusMedianKm24h)} <span>km</span></strong>
+<span>Estimated activity radius</span>
+</div>
+<span class="area-origin">Original earthquake’s epicenter</span>
+</div>}
 </div>
 <div>
-<h3>What the area estimate means</h3>
-<p>The diagram explains distance and is not drawn to scale. The radius does not describe shaking or damage.</p>
-<p>The occurrence probabilities are not restricted to this radius. The replay shows catalog observations, which may include unrelated earthquakes.</p>
+<h3>What the radius means</h3>
+<p>If further earthquakes of magnitude 1.0 or higher occur during the 24-hour period, the model estimates their typical spread from the original earthquake’s epicenter.</p>
+{forecast.activityRadiusMedianKm24h !== null && <p>The estimated radius is <strong>{count(forecast.activityRadiusMedianKm24h)} km</strong>. Further earthquakes may occur beyond this distance.</p>}
+<p>This radius does not show how far shaking reaches, where damage occurs, or where people are safe.</p>
 </div>
 </div>
 </div>
