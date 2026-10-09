@@ -203,7 +203,7 @@ section,
   width: 91%;
 }
 .event-details {
-  margin-top: 14px;
+  margin-top: 16px;
 }
 details {
   border-bottom: 1px solid var(--line);
@@ -249,7 +249,7 @@ details[open] .disclosure-body {
 }
 .window {
   margin-top: 24px;
-  padding-bottom: 22px;
+  padding-bottom: 24px;
   border-bottom: 1px solid var(--line);
 }
 .window-head {
@@ -277,30 +277,77 @@ details[open] .disclosure-body {
   flex: 1;
   min-width: 0;
 }
+.window-times .field-label {
+  margin-bottom: 8px;
+}
 .window-times .shape {
   width: 135px;
   height: 12px;
 }
 .forecast-facts {
-  margin-top: 24px;
+  margin-top: 8px;
+  container-type: inline-size;
 }
 .forecast-facts h2 {
-  margin-bottom: 14px;
+  margin: 0;
   font-size: 18px;
 }
 .probability {
   width: 100%;
   min-height: 64px;
   display: grid;
-  grid-template-columns: 1fr auto 18px;
+  grid-template-columns: minmax(0, 1fr) auto 18px;
   align-items: center;
-  gap: 20px;
-  padding: 12px 10px;
+  gap: 16px;
+  padding: 12px 0;
   background: transparent;
   border: 0;
   border-bottom: 1px solid var(--line);
   text-align: left;
   transition: background-color 180ms ease-out;
+}
+.probability-label {
+  min-width: 0;
+}
+.probability-label > span {
+  display: block;
+}
+.probability-primary {
+  min-height: 88px;
+  padding-block: 20px;
+}
+.probability-title {
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.probability-primary .probability-label {
+  color: var(--forecast-muted);
+  font-size: 14px;
+  font-weight: 400;
+}
+.probability-primary .fact-value {
+  font-size: 40px;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+.probability-level {
+  margin-inline-start: 4px;
+  font-size: 20px;
+  font-weight: 550;
+  letter-spacing: normal;
+}
+@container (max-width: 360px) {
+  .probability-primary {
+    gap: 8px;
+  }
+  .probability-primary .fact-value {
+    font-size: 32px;
+  }
+  .probability-primary .probability-level {
+    font-size: 16px;
+  }
 }
 .probability:hover,
 .probability[aria-expanded="true"] {
@@ -310,7 +357,7 @@ details[open] .disclosure-body {
   transform: rotate(180deg);
 }
 .probability-explanation {
-  padding: 16px 10px 20px;
+  padding: 16px 0 20px;
   background: var(--tint);
   animation: reveal 240ms cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -321,7 +368,7 @@ details[open] .disclosure-body {
   margin-top: 24px;
 }
 .supporting-estimates h2 {
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   font-size: 16px;
 }
 .supporting-estimates summary {
@@ -329,7 +376,7 @@ details[open] .disclosure-body {
   grid-template-columns: minmax(0, 1fr) auto 18px;
   gap: 16px;
   min-height: 64px;
-  padding: 12px 10px;
+  padding: 12px 0;
   font-size: 14px;
   font-weight: 450;
   transition: background-color 180ms ease-out;
@@ -344,19 +391,19 @@ details[open] .disclosure-body {
 }
 .estimate-threshold {
   display: block;
-  margin-top: 3px;
+  margin-top: 4px;
   color: var(--forecast-muted);
   font-size: 13px;
 }
 .supporting-estimates .disclosure-body {
-  padding: 16px 10px 20px;
+  padding: 16px 0 20px;
   background: var(--tint);
 }
 .supporting-estimates .disclosure-body .field-label {
   color: var(--teal);
 }
 .essential-note {
-  margin-top: 20px;
+  margin-top: 24px;
   display: flex;
   gap: 10px;
   align-items: center;
@@ -655,7 +702,7 @@ details[open] .disclosure-body {
 }
 .tab-indicator {
   position: absolute;
-  top: 0;
+  bottom: 0;
   left: 0;
   height: 2px;
   width: 0;
@@ -690,16 +737,69 @@ details[open] .disclosure-body {
   align-content: center;
   margin-bottom: 20px;
 }
-.chance-grid {
+.chance-visual {
+  container-type: inline-size;
   display: grid;
-  grid-template-columns: repeat(10, minmax(0, 1fr));
-  gap: 6px;
-  max-width: 280px;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  align-items: center;
+  gap: 20px;
 }
-.chance-dot {
-  aspect-ratio: 1;
-  border-radius: 50%;
-  background: var(--shape);
+.chance-chart {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+.chance-tier-0 {
+  --chance-color: #cde5e5;
+  --chance-label: var(--ink);
+}
+.chance-tier-1 {
+  --chance-color: #76b4bc;
+  --chance-label: var(--ink);
+}
+.chance-tier-2 {
+  --chance-color: var(--teal);
+  --chance-label: #fff;
+}
+.chance-chart rect {
+  fill: var(--chance-color);
+  stroke: var(--teal);
+  stroke-width: 1;
+}
+.chance-chart text {
+  fill: var(--chance-label);
+  font-size: 26px;
+  font-weight: 650;
+}
+.chance-legend {
+  display: grid;
+  gap: 16px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 13px;
+}
+.chance-legend li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.chance-swatch {
+  flex: 0 0 12px;
+  height: 12px;
+  margin-top: 4px;
+  border: 1px solid var(--teal);
+  border-radius: 2px;
+  background: var(--chance-color);
+}
+.chance-explanation p + p {
+  margin-top: 12px;
+}
+@container (max-width: 460px) {
+  .chance-chart,
+  .chance-legend {
+    grid-column: 1 / -1;
+  }
 }
 .visual-caption {
   display: flex;
@@ -981,7 +1081,7 @@ details[open] .disclosure-body {
 
 .forecast-location {
   color: var(--forecast-muted);
-  margin-top: 14px;
+  margin-top: 8px;
 }
 .forecast-header .brand {
   color: var(--ink);
@@ -1042,9 +1142,6 @@ details[open] .disclosure-body {
   border-radius: 8px;
   color: var(--ink);
   font-size: 20px;
-}
-.chance-dot.is-filled {
-  background: var(--teal);
 }
 .count-value {
   font-size: 58px;

@@ -4,7 +4,7 @@ import ForecastActivity from './ForecastActivity';
 import BackgroundToaster from './BackgroundToaster';
 import ForecastErrorToast from './ForecastErrorToast';
 import type { EarthquakeDetail } from '../lib/events';
-import { displayTime, locationLabel, magnitude } from '../lib/events';
+import { displayTime, likelihoodLevel, locationLabel, magnitude } from '../lib/events';
 import '../styles/globals.css';
 import '../styles/forecast.css';
 interface Props { event: EarthquakeDetail | null; error: 'invalid' | 'missing' | 'unavailable' | null; backHref: string; }
@@ -14,10 +14,21 @@ const percent = (value: number) => value > 0 && value < .005 ? '<1%' :   value <
 const count = (value: number) => new Intl.NumberFormat('en-PH', { maximumFractionDigits: 2 }).format(value);
 const modelVersion = forecast?.modelReleaseId === 'a7f2286b-13a2-4708-a04d-4139281a4e1f' ? 'SEIS 1.0.1' : null;
 const probabilities = forecast ? [ { threshold: '1.0', value: forecast.probabilityM1Plus24h }, { threshold: '4.0', value: forecast.probabilityM4Plus24h }, { threshold: '5.0', value: forecast.probabilityM5Plus24h } ] : [];
+let chanceBounds = { x: 0, y: 0, width: 416, height: 296 };
+const chanceBoxes = probabilities.map((item, index) => {
+  const scale = Math.sqrt(item.value);
+  // Keep labels readable for small probabilities and separated for similar probabilities.
+  const width = Math.min(Math.max([240, 156, 96][index], 400 * scale), chanceBounds.width - 16);
+  const height = Math.min(Math.max([176, 112, 60][index], 280 * scale), chanceBounds.height - (index === 0 ? 16 : 48));
+  const x = chanceBounds.x + chanceBounds.width - width - 8;
+  const y = chanceBounds.y + chanceBounds.height - height - 8;
+  chanceBounds = { x, y, width, height };
+  return { ...item, ...chanceBounds };
+});
 const errorMessage = error === 'invalid' ? 'This earthquake link is invalid.' : error === 'missing' ? 'This earthquake was not found.' : 'The earthquake service is temporarily unavailable.';
 const magnitudeCopy = 'These estimates describe the largest qualifying earthquake if further activity of magnitude 1.0 or higher occurs. They do not mean an earthquake is certain.';
-const countCopy = 'This is the average expected count of qualifying earthquakes of magnitude 1.0 or higher during the forecast window. The estimate can be fractional, such as 2.5. Actual earthquakes occur in whole numbers, and the observed count may differ.';
-const radiusCopy = 'If qualifying further activity occurs, this estimates its typical spread from the observed epicenter. The training target covers 90% of qualifying events. The estimate is uncertain and does not guarantee containment.';
+const countCopy = forecast ? `The model estimates an average of ${count(forecast.expectedM1PlusCount24h)} earthquakes of magnitude 1.0 or higher during the 24-hour forecast window. The estimate can include decimals because it is an average. The actual number of earthquakes will be a whole number and may differ from the estimate.` : '';
+const radiusCopy = forecast && forecast.activityRadiusMedianKm24h !== null ? `The model estimates a typical spread of ${count(forecast.activityRadiusMedianKm24h)} km from the original earthquake’s epicenter during the 24-hour forecast window. This assumes an earthquake of magnitude 1.0 or higher occurs. Earthquakes may occur beyond this radius. The radius does not show shaking, damage, or a safe boundary.` : 'The activity radius estimate is unavailable.';
 ---
 <html lang="en">
 <head>
@@ -105,21 +116,26 @@ const radiusCopy = 'If qualifying further activity occurs, this estimates its ty
 </div>
 </div>
 </div>
-<div class="forecast-facts">
-<h2>Chance of further activity</h2>{probabilities.map(item => <>
-<button class="probability" aria-expanded="false" aria-controls={'explain-m' + item.threshold[0]}>
-<span>Magnitude {item.threshold} or higher</span>
-<strong class="fact-value">{percent(item.value)}</strong>
+<section class="forecast-facts" aria-labelledby="activity-chance-title">
+{probabilities.map((item, index) => {
+const Wrapper = index === 0 ? 'h2' : 'div';
+return <>
+<Wrapper>
+<button class:list={['probability', { 'probability-primary': index === 0 }]} aria-expanded="false" aria-controls={'explain-m' + item.threshold[0]}>
+<span class="probability-label">{index === 0 ? <span class="probability-title" id="activity-chance-title">Chance of any further activity</span> : <span>Chance of further activity</span>}<span class="estimate-threshold">Magnitude {item.threshold} or higher</span></span>
+<strong class="fact-value">{percent(item.value)}{index === 0 && <span class="probability-level"> ({likelihoodLevel(item.value).replace(' likelihood', '')})</span>}</strong>
 <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
 <path d="m6 9 6 6 6-6"/>
 </svg>
 </button>
+</Wrapper>
 <div class="probability-explanation" id={'explain-m' + item.threshold[0]} hidden>
-<p>This is the estimated chance of at least one qualifying earthquake of magnitude {item.threshold} or higher during the forecast window: {percent(item.value)}. A higher chance does not make an earthquake certain. A lower chance does not rule one out.</p>
+{index === 0 ? <p>The model estimates a {percent(item.value)} chance of at least one earthquake of magnitude {item.threshold} or higher during the 24-hour forecast window. This estimate does not guarantee that an earthquake will occur.</p> : <p>The “any further activity” estimate includes earthquakes of magnitude 1.0 or higher. This row focuses on magnitude {item.threshold} or higher, with a {percent(item.value)} chance of at least one during the same 24-hour window. These earthquakes are also included in the broader estimate, so the percentages should not be added together.</p>}
 </div>
-</>)}</div>
+</>;
+})}</section>
 <div class="supporting-estimates">
-<h2>Possible further activity</h2>
+<h2>Activity estimates</h2>
 <details name="possible-activity">
 <summary>
 <span>Expected number of earthquakes<span class="estimate-threshold">Magnitude 1.0 or higher</span>
@@ -142,7 +158,7 @@ const radiusCopy = 'If qualifying further activity occurs, this estimates its ty
 </svg>
 </summary>
 <div class="disclosure-body">
-<p>This is the middle estimate. {magnitudeCopy}</p>
+{forecast.maximumMagnitudeQ50_24h === null ? <p>The middle estimate is unavailable. {magnitudeCopy}</p> : <p>The model’s middle estimate for the largest earthquake during the 24-hour forecast window is magnitude {forecast.maximumMagnitudeQ50_24h.toFixed(1)}. This assumes an earthquake of magnitude 1.0 or higher occurs. The largest earthquake could be smaller or larger; magnitude {forecast.maximumMagnitudeQ50_24h.toFixed(1)} is not an upper limit.</p>}
 </div>
 </details>
 <details name="possible-activity">
@@ -154,7 +170,7 @@ const radiusCopy = 'If qualifying further activity occurs, this estimates its ty
 </svg>
 </summary>
 <div class="disclosure-body">
-<p>{radiusCopy} The radius does not describe shaking, damage, or a safe boundary.</p>
+<p>{radiusCopy}</p>
 </div>
 </details>
 </div>
@@ -218,14 +234,22 @@ const radiusCopy = 'If qualifying further activity occurs, this estimates its ty
 <div class="panel-columns visual-columns">
 <div>
 <h3>Chance of at least one earthquake</h3>
-<div class="visual">
-<div class="chance-grid" role="img" aria-label={percent(forecast.probabilityM1Plus24h) + ' chance of magnitude 1.0 or higher; dots rounded to the nearest whole percentage point'}>{Array.from({length:100},(_,index) => <span class:list={['chance-dot', {'is-filled': index < Math.round(forecast.probabilityM1Plus24h * 100)}]} />)}</div>
-<div class="visual-caption">
-<span>Magnitude 1.0 or higher · fixed 24-hour window</span>
-<strong>{percent(forecast.probabilityM1Plus24h)}</strong>
+<div class="visual chance-visual">
+<svg class="chance-chart" viewBox="0 0 416 296" role="img" aria-label={'Chance of at least one earthquake during the same 24-hour period: ' + probabilities.map(item => `magnitude ${item.threshold} or higher, ${percent(item.value)}`).join('; ')}>
+{chanceBoxes.map((box, index) => <g class={'chance-tier-' + index}>
+<rect x={box.x} y={box.y} width={box.width} height={box.height} rx="12" />
+<text x={box.x + 16} y={box.y + 34}>{percent(box.value)}</text>
+</g>)}
+</svg>
+<ul class="chance-legend" aria-label="Magnitude thresholds">
+{probabilities.map((item, index) => <li><span class={'chance-swatch chance-tier-' + index} aria-hidden="true" /><span>Magnitude {item.threshold} or higher</span></li>)}
+</ul>
 </div>
+<div class="chance-explanation">
+<p>Each percentage shows the chance of at least one earthquake of that magnitude or higher during the same 24-hour period.</p>
+<p>Earthquakes of magnitude 5.0 or higher also count toward the chances for magnitude 4.0 and 1.0 or higher. The chances overlap, so do not add the percentages together.</p>
+<p>These are estimates. Even a high chance does not mean an earthquake is certain, and a low chance does not rule one out.</p>
 </div>
-<p>Each dot represents one percentage point. Filled dots show the estimated chance, rounded to the nearest whole percentage point.</p>
 </div>
 <div>
 <h3>Expected number of earthquakes</h3>
