@@ -12,6 +12,10 @@ const { event, error, backHref } = Astro.props;
 const forecast = event?.forecast;
 const percent = (value: number) => value > 0 && value < .005 ? '<1%' :   value < 1 && value >= .995 ? '>99%' :   String(Math.round(value * 100)) + '%';
 const count = (value: number) => new Intl.NumberFormat('en-PH', { maximumFractionDigits: 2 }).format(value);
+const expectedCount = forecast?.expectedM1PlusCount24h ?? 0;
+const countStepBase = 10 ** Math.floor(Math.log10(Math.max(1, expectedCount / 3)));
+const countStep = [1, 2, 5, 10].find(step => step * countStepBase >= expectedCount / 3)! * countStepBase;
+const countPosition = expectedCount / (countStep * 3) * 100;
 const modelVersion = forecast?.modelReleaseId === 'a7f2286b-13a2-4708-a04d-4139281a4e1f' ? 'SEIS 1.0.1' : null;
 const probabilities = forecast ? [ { threshold: '1.0', value: forecast.probabilityM1Plus24h }, { threshold: '4.0', value: forecast.probabilityM4Plus24h }, { threshold: '5.0', value: forecast.probabilityM5Plus24h } ] : [];
 let chanceBounds = { x: 0, y: 0, width: 416, height: 296 };
@@ -231,7 +235,7 @@ return <>
 </span>
 </div>
 <div class="tab-panel" id="forecast-panel-activity" role="tabpanel" aria-labelledby="tab-0" tabindex="0">
-<div class="panel-columns visual-columns">
+<div class="panel-columns visual-columns activity-columns">
 <div>
 <h3>Chance of at least one earthquake</h3>
 <div class="visual chance-visual">
@@ -254,10 +258,21 @@ return <>
 <div>
 <h3>Expected number of earthquakes</h3>
 <div class="visual count-visual">
+<div class="count-ruler" role="img" aria-label={`Estimated average: ${count(expectedCount)} earthquakes of magnitude 1.0 or higher during the 24-hour forecast window.`}>
+<div class="count-reading" style={`left: ${countPosition}%; transform: translateX(${countPosition < 25 ? '0' : countPosition > 75 ? '-100%' : '-50%'});`} aria-hidden="true">
 <strong class="count-value">{count(forecast.expectedM1PlusCount24h)}</strong>
+<span>Estimated average</span>
+</div>
+<div class="count-axis" aria-hidden="true">
+<span class="count-axis-line" />
+{[0, 1, 2, 3].map(index => <span class="count-tick" style={`left: ${index / 3 * 100}%;`}><span>{count(index * countStep)}</span></span>)}
+<svg class="count-continuation" viewBox="0 0 24 16" fill="none" stroke="currentColor" stroke-width="1"><path d="m16 2 6 6-6 6" /></svg>
+<svg class="count-marker" style={`left: ${countPosition}%;`} viewBox="0 0 16 36" fill="none"><path d="M8 0v26" stroke="currentColor" stroke-width="2" /><path d="m1 26 7 9 7-9Z" fill="currentColor" /></svg>
+</div>
+</div>
 <span>Magnitude 1.0 or higher · 24-hour window</span>
 </div>
-<p>{countCopy}</p>
+<p>The model estimates an average of {count(expectedCount)} earthquakes during this 24-hour period. Actual earthquakes occur in whole numbers, so the total could be lower or higher.</p>
 </div>
 </div>
 </div>
