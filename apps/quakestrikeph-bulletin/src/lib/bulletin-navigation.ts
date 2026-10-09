@@ -49,11 +49,6 @@ export function bulletinParams(state: BulletinState): URLSearchParams {
   return params;
 }
 
-export function bulletinHref(state: BulletinState): string {
-  const query = bulletinParams(state).toString();
-  return query ? `/?${query}` : '/';
-}
-
 export function matchesBulletinFilters(event: Earthquake, state: BulletinState): boolean {
   const time = Date.parse(event.eventTime);
   const ranges = magnitudeRangesForBands(state.magnitudes);

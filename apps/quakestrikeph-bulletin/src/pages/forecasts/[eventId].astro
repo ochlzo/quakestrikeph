@@ -2,13 +2,11 @@
 import { getSecret } from 'astro:env/server';
 import ForecastPage from '../../components/ForecastPage.astro';
 import type { components } from '../../lib/api/schema';
-import { bulletinHref, readBulletinState, validEventId } from '../../lib/bulletin-navigation';
+import { validEventId } from '../../lib/bulletin-navigation';
 
 const eventId = (Astro.params.eventId ?? '').toLowerCase();
-if (Astro.url.searchParams.has('selected')) {
-  const url = new URL(Astro.url);
-  url.searchParams.delete('selected');
-  return Astro.redirect(`${url.pathname}${url.search}`);
+if (Astro.url.search) {
+  return Astro.redirect(Astro.url.pathname);
 }
 let event: components['schemas']['EarthquakeDetail'] | null = null;
 let error: 'invalid' | 'missing' | 'unavailable' | null = null;
@@ -37,8 +35,7 @@ if (!validEventId(eventId)) {
     error = 'unavailable';
   }
 }
-const backHref = bulletinHref({ ...readBulletinState(Astro.url.searchParams),
-  selectedId: validEventId(eventId) ? eventId : null });
+const backHref = validEventId(eventId) ? `/?selected=${eventId}` : '/';
 ---
 <!doctype html>
 <ForecastPage event={event} error={error} backHref={backHref} />

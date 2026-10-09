@@ -1,7 +1,22 @@
 // Build first: pnpm build && pnpm test:forecast
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { ForecastObservationCache } from '../src/lib/forecast-observation-cache.ts';
 import { loadObservationWindow } from '../src/lib/forecast-observations.ts';
+import { occurrenceRelativeTo } from '../src/lib/events.ts';
+
+const triggerTime = '2026-10-01T12:00:00.000Z';
+for (const [time, expected] of [
+  ['2026-10-02T00:00:00.000Z', 'Occurred 12 hours after the trigger earthquake'],
+  ['2026-10-01T00:00:00.000Z', 'Occurred 12 hours before the trigger earthquake'],
+  ['2026-10-01T13:00:00.000Z', 'Occurred 1 hour after the trigger earthquake'],
+  ['2026-10-01T10:30:00.000Z', 'Occurred 1.5 hours before the trigger earthquake'],
+  ['2026-10-01T12:15:00.000Z', 'Occurred 15 minutes after the trigger earthquake'],
+  ['2026-10-01T11:59:00.000Z', 'Occurred 1 minute before the trigger earthquake'],
+  ['2026-10-01T12:00:30.000Z', 'Occurred less than 1 minute after the trigger earthquake'],
+  [triggerTime, 'Occurred at the same time as the trigger earthquake'],
+  ['2026-10-01T20:00:00+08:00', 'Occurred at the same time as the trigger earthquake'],
+]) assert.equal(occurrenceRelativeTo(time, triggerTime), expected);
 
 process.env.ASTRO_NODE_AUTOSTART = 'disabled';
 process.env.API_TARGET = 'http://forecast-fixture.invalid';
@@ -61,32 +76,37 @@ async function page(path = `/forecasts/${eventId}`, status = 200) {
   assert.equal(response.status, status);
   return response.text();
 }
-function mapData(html) {
-  return JSON.parse(html.match(/<script[^>]+id="activity-map-data"[^>]*>([\s\S]*?)<\/script>/)[1]);
-}
+
 try {
   mode = 'blocked';
   const html = await page();
   assert.match(html, /80%/);
-  assert.match(html, /Loading observed earthquakes/);
+  assert.match(html, /Loading observations/);
+  assert.doesNotMatch(html, /data-timeline-root|timeline-event-list|What appeared during this window/);
+  assert.doesNotMatch(html, /include-history|Start from previous earthquakes/);
+  assert.match(html, /lucide-play/);
+  assert.match(html, /lucide-pause/);
+  assert.match(html, /lucide-rotate-ccw/);
   assert.equal(searches.length, 0, 'Forecast rendering must not wait for observation requests');
   mode = 'normal';
   assert.doesNotMatch(await page('/'), /<body class="forecast-page"/);
   const params = new URLSearchParams({ q: 'Test', date: 'custom', from: forecast.windowStart,
     to: forecast.windowEnd, magnitudes: 'mag-3' });
-  const contextual = await page(`/forecasts/${eventId}?${params}`);
-  assert.match(contextual, /class="forecast-back" href="\/\?q=Test&amp;date=custom/);
-  assert.match(contextual, new RegExp(`selected=${eventId}`), 'The return link derives selection from the forecast path');
+  assert.match(html, new RegExp(`class="forecast-back" href="/\\?selected=${eventId}"`),
+    'The return link selects the forecast event without Bulletin filters');
+  const filtered = await nativeFetch(`${base}/forecasts/${eventId}?${params}`, { redirect: 'manual' });
+  assert.equal(filtered.status, 302);
+  assert.equal(filtered.headers.get('location'), `/forecasts/${eventId}`);
   const duplicate = await nativeFetch(`${base}/forecasts/${eventId}?${params}&selected=00000000-0000-4000-8000-000000000002`, { redirect: 'manual' });
   assert.equal(duplicate.status, 302);
-  assert.equal(duplicate.headers.get('location'), `/forecasts/${eventId}?${params}`);
+  assert.equal(duplicate.headers.get('location'), `/forecasts/${eventId}`);
   searches.length = 0;
   await page(`/?${params}`);
   assert.deepEqual(searches[0], { limit: 30, location: 'Test', dateFrom: forecast.windowStart,
     dateTo: forecast.windowEnd, magnitudeRanges: [{ from: 3, below: 4 }] });
   const legacy = await nativeFetch(`${base}/?earthquake=${eventId}&${params}&selected=${eventId}`, { redirect: 'manual' });
   assert.equal(legacy.status, 302);
-  assert.equal(legacy.headers.get('location'), `/forecasts/${eventId}?${params}`);
+  assert.equal(legacy.headers.get('location'), `/forecasts/${eventId}`);
   assert.equal((await nativeFetch(`${base}/?earthquake=`, { redirect: 'manual' })).headers.get('location'), '/');
   const before = details;
   assert.match(await page('/forecasts/not-a-uuid', 400), /earthquake link is invalid/);
@@ -103,7 +123,7 @@ try {
   mode = 'xss';
   const safe = await page();
   assert.doesNotMatch(safe, /<script>window\.injected=true<\/script>/);
-  assert.equal(mapData(safe).anchor.location, injection);
+  assert.match(safe, /&lt;\/script&gt;/, 'Astro must escape the event passed to the React island');
 
   mode = 'paginated'; searches.length = 0;
   const observations = await loadObservationWindow(forecast.windowStart, forecast.windowEnd);
@@ -116,7 +136,65 @@ try {
   await assert.rejects(loadObservationWindow(forecast.windowStart, forecast.windowEnd), /unavailable/);
   mode = 'bad-cursor';
   await assert.rejects(loadObservationWindow(forecast.windowStart, forecast.windowEnd), /cursor/);
-  console.log('Forecast routes, HTTP statuses, return context, deferred observations, pagination, and JSON escaping passed.');
+
+  const origin = Date.parse(forecast.windowStart), day = 86400000;
+  const calls = [];
+  const cache = new ForecastObservationCache(origin, async (from, to) => {
+    calls.push({ from, to });
+    return [event, { ...event, eventId: 'boundary', eventTime: new Date(origin + day).toISOString() },
+      { ...event, eventId: 'one-hour', eventTime: new Date(origin + 3600000).toISOString() }];
+  });
+  assert.equal(cache.covered(origin, origin), false);
+  await Promise.all([cache.ensure(origin, origin + day - 1, origin + 3 * day),
+    cache.ensure(origin, origin + 3600000, origin + 3 * day)]);
+  assert.equal(calls.length, 1, 'Concurrent loads share one chunk request');
+  assert.equal(cache.observations(origin, origin + 3599999, eventId).length, 0);
+  assert.equal(cache.observations(origin, origin + 3600000, eventId).length, 1, 'Replay includes the exact observation instant');
+  assert.equal(cache.covered(origin, origin + day), false, 'Exclusive search end requires the next chunk at the boundary');
+  await cache.ensure(origin, origin + day, origin + 3 * day);
+  assert.equal(calls.length, 2);
+  assert.equal(cache.observations(origin, origin + day, eventId).length, 2, 'Duplicate IDs across chunks count once');
+  await cache.ensure(origin, origin + day, origin + 3 * day);
+  assert.equal(calls.length, 2, 'Cached playback does not issue new requests');
+  await cache.ensure(origin + 4 * day, origin + 5 * day, origin + 3 * day);
+  assert.equal(calls.length, 2, 'Future-only periods never fetch');
+  const emptyCache = new ForecastObservationCache(origin, async () => []);
+  await emptyCache.ensure(origin, origin, origin + day);
+  assert.equal(emptyCache.covered(origin, origin), true, 'Loaded empty periods are distinct from pending periods');
+  let failures = 0;
+  const retryCache = new ForecastObservationCache(origin, async () => {
+    if (++failures === 1) throw new Error('offline');
+    return [];
+  });
+  await assert.rejects(retryCache.ensure(origin, origin, origin + day), /offline/);
+  assert.equal(retryCache.covered(origin, origin), false);
+  await retryCache.ensure(origin, origin, origin + day);
+  assert.equal(retryCache.covered(origin, origin), true);
+  const recentCalls = [];
+  const recentCache = new ForecastObservationCache(origin, async (_from, to) => { recentCalls.push(to); return []; });
+  await recentCache.ensure(origin, origin + day, origin + 1000);
+  assert.equal(recentCalls[0], new Date(origin + 1001).toISOString(), 'Requests stop at the available time');
+  await recentCache.ensure(origin, origin + day, origin + 2000);
+  assert.equal(recentCalls.length, 2, 'A fresh play can extend a recently loaded chunk');
+
+  let active = true, loads = 0;
+  const staleCache = new ForecastObservationCache(origin, async () => { loads++; active = false; return []; });
+  await staleCache.ensure(origin, origin + 3 * day, origin + 5 * day, () => active);
+  assert.equal(loads, 1, 'A superseded selection does not continue loading older chunks');
+  let releaseRecent;
+  const concurrentCalls = [];
+  const concurrentRecent = new ForecastObservationCache(origin, async (_from, to) => {
+    concurrentCalls.push(to);
+    if (concurrentCalls.length === 1) await new Promise(resolve => { releaseRecent = resolve; });
+    return [];
+  });
+  const older = concurrentRecent.ensure(origin, origin + day, origin + 1000);
+  const newer = concurrentRecent.ensure(origin, origin + day, origin + 2000);
+  releaseRecent();
+  await Promise.all([older, newer]);
+  assert.equal(concurrentCalls.length, 2, 'A newer available cutoff extends an already pending chunk');
+  assert.equal(concurrentRecent.covered(origin, origin + day, origin + 2000), true);
+  console.log('Forecast routes, HTTP statuses, clean URLs, deferred observations, pagination, and JSON escaping passed.');
 } finally {
   globalThis.fetch = nativeFetch;
   await new Promise(resolve => server.close(resolve));

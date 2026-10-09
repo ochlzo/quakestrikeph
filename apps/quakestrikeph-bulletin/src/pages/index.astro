@@ -5,15 +5,14 @@ import BackgroundToaster from '../components/BackgroundToaster';
 import '../styles/globals.css';
 import type { components } from '../lib/api/schema';
 import { getSecret } from 'astro:env/server';
-import { bulletinParams, readBulletinState } from '../lib/bulletin-navigation';
+import { readBulletinState } from '../lib/bulletin-navigation';
 import { magnitudeRangesForBands } from '../lib/magnitude';
 
 const earthquakeId = Astro.url.searchParams.get('earthquake');
 const initialState = readBulletinState(Astro.url.searchParams);
 if (earthquakeId !== null) {
   if (!earthquakeId) return Astro.redirect('/');
-  const query = bulletinParams({ ...initialState, selectedId: null }).toString();
-  return Astro.redirect(`/forecasts/${encodeURIComponent(earthquakeId)}${query ? `?${query}` : ''}`);
+  return Astro.redirect(`/forecasts/${encodeURIComponent(earthquakeId)}`);
 }
 let initialResults: components['schemas']['SearchResponse'] | null = null;
 if (initialState.query.trim().length !== 1) try {

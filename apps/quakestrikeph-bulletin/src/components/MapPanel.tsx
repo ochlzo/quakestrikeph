@@ -2,14 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CircleQuestionMark, LocateFixed, Minus, Plus, X } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
-import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
+import type { GeoJSONSource, Map as MapLibreMap, Marker, Popup } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Earthquake, Forecast } from "../lib/events";
-import { likelihoodLevel } from "../lib/events";
+import { likelihoodLevel, occurrenceRelativeTo } from "../lib/events";
 import { magnitudeBand, magnitudeBands } from "../lib/magnitude";
 import { addLandmarkLabels } from "../lib/map-landmarks";
 import { cleanMapStyle, transformLabelRequest } from "../lib/map-labels";
 import { loadMapRuntime } from "../lib/map-runtime";
+import { toast } from "./ui/toast";
 
 type Props = {
   events: Earthquake[];
@@ -18,6 +19,8 @@ type Props = {
   forecast: Forecast | null;
   forecastStatus: "loading" | "ready" | "error";
   onSelect: (id: string) => void;
+  showForecastOverview?: boolean;
+  forecastAnchor?: Earthquake;
 };
 
 const emptyRadius = { type: "FeatureCollection" as const, features: [] };
@@ -96,6 +99,21 @@ function set3DInteractions(instance: MapLibreMap, enabled: boolean) {
   }
 }
 
+function applyTerrain(instance: MapLibreMap, enabled: boolean) {
+  instance.setTerrain(
+    enabled ? { source: "terrain", exaggeration: 1.3 } : null,
+  );
+  instance.setSky({
+    "sky-color": enabled ? "#eaf2f8" : "transparent",
+    "horizon-color": enabled ? "#ffffff" : "transparent",
+    "sky-horizon-blend": 0.35,
+    "fog-color": "transparent",
+    "fog-ground-blend": 1,
+    "atmosphere-blend": 0,
+  });
+  set3DInteractions(instance, enabled);
+}
+
 export default function MapPanel({
   events,
   selectedId,
@@ -103,12 +121,15 @@ export default function MapPanel({
   forecast,
   forecastStatus,
   onSelect,
+  showForecastOverview = true,
+  forecastAnchor,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const markers = useRef(new Map<string, Marker>());
   const previousSelectedId = useRef<string | null>(null);
   const annotationMarker = useRef<Marker | null>(null);
+  const observationPopup = useRef<{ id: string; popup: Popup } | null>(null);
   const onSelectRef = useRef(onSelect);
   const selectedIdRef = useRef(selectedId);
   const [annotationHost, setAnnotationHost] = useState<HTMLDivElement | null>(
@@ -125,6 +146,7 @@ export default function MapPanel({
   onSelectRef.current = onSelect;
   selectedIdRef.current = selectedId;
   const selectedEvent = events.find((event) => event.eventId === selectedId);
+  const areaEvent = forecastAnchor ?? selectedEvent;
   const forecastDismissed =
     dismissedForecast?.id === selectedId &&
     dismissedForecast.focusRequest === focusRequest;
@@ -142,21 +164,43 @@ export default function MapPanel({
   useEffect(() => {
     if (!legendOpen) return;
     const listeners = new AbortController();
-    document.addEventListener("pointerdown", (event) => {
-      if (event.target instanceof Node && !legendControl.current?.contains(event.target)) {
-        setLegendOpen(false);
-      }
-    }, { capture: true, signal: listeners.signal });
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") setLegendOpen(false);
-    }, { signal: listeners.signal });
+    document.addEventListener(
+      "pointerdown",
+      (event) => {
+        if (
+          event.target instanceof Node &&
+          !legendControl.current?.contains(event.target)
+        ) {
+          setLegendOpen(false);
+        }
+      },
+      { capture: true, signal: listeners.signal },
+    );
+    document.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "Escape") setLegendOpen(false);
+      },
+      { signal: listeners.signal },
+    );
     return () => listeners.abort();
   }, [legendOpen]);
 
   useEffect(() => {
     if (!container.current) return;
+    setMapReady(false);
+    setTerrain(false);
     let disposed = false;
     const attributionListeners = new AbortController();
+    container.current.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || !observationPopup.current) return;
+      const { id, popup } = observationPopup.current;
+      if (popup.getElement().contains(document.activeElement)) {
+        markers.current.get(id)?.getElement().focus({ preventScroll: true });
+      }
+      popup.remove();
+      observationPopup.current = null;
+    }, { signal: attributionListeners.signal });
     loadMapRuntime()
       .then((ml) => {
         if (disposed || !container.current) return;
@@ -168,17 +212,36 @@ export default function MapPanel({
           transformRequest: transformLabelRequest,
           maxBounds: philippinesBounds,
           minZoom: 3.25,
-          center: compact ? [123.1, 11.7] : [123.3, 10.8],
-          zoom: compact ? 4.15 : 5.55,
+          center: forecastAnchor
+            ? [forecastAnchor.longitude, forecastAnchor.latitude]
+            : compact
+              ? [123.1, 11.7]
+              : [123.3, 10.8],
+          zoom: forecastAnchor ? 7.2 : compact ? 4.15 : 5.55,
           pitch: 0,
+          maxPitch: 0,
           bearing: 0,
         });
         set3DInteractions(instance, false);
         map.current = instance;
+        let reportedError = false;
+        instance.on("error", () => {
+          if (disposed || reportedError) return;
+          reportedError = true;
+          toast.add({
+            id: "map-load-error",
+            type: "error",
+            title: "Some map details could not be loaded.",
+            description: "Reload the page to try again.",
+          });
+        });
         instance.on("dragstart", () => setLegendOpen(false));
         instance.on("load", () => {
           if (disposed) return;
-          const nativeWaterColor = instance.getPaintProperty("water", "fill-color");
+          const nativeWaterColor = instance.getPaintProperty(
+            "water",
+            "fill-color",
+          );
           if (typeof nativeWaterColor === "string") {
             instance.setPaintProperty("water", "fill-color", [
               "case",
@@ -221,21 +284,34 @@ export default function MapPanel({
             unit: "metric",
           });
           instance.addControl(scale, "bottom-left");
-          mobileControls.addEventListener("change", () => {
-            instance.removeControl(scale);
-            scale = new ml.ScaleControl({
-              maxWidth: mobileControls.matches ? 96 : 192,
-              unit: "metric",
-            });
-            instance.addControl(scale, "bottom-left");
-          }, { signal: attributionListeners.signal });
+          mobileControls.addEventListener(
+            "change",
+            () => {
+              instance.removeControl(scale);
+              scale = new ml.ScaleControl({
+                maxWidth: mobileControls.matches ? 96 : 192,
+                unit: "metric",
+              });
+              instance.addControl(scale, "bottom-left");
+            },
+            { signal: attributionListeners.signal },
+          );
           setMapReady(true);
         });
         instance.setStyle("https://tiles.openfreemap.org/styles/liberty", {
           transformStyle: (_previous, next) => cleanMapStyle(next),
         });
       })
-      .catch(() => setMapReady(false));
+      .catch(() => {
+        if (disposed) return;
+        setMapReady(false);
+        toast.add({
+          id: "map-load-error",
+          type: "error",
+          title: "The map could not be loaded.",
+          description: "Reload the page to try again.",
+        });
+      });
     return () => {
       disposed = true;
       attributionListeners.abort();
@@ -243,6 +319,8 @@ export default function MapPanel({
       markers.current.clear();
       annotationMarker.current?.remove();
       annotationMarker.current = null;
+      observationPopup.current?.popup.remove();
+      observationPopup.current = null;
       map.current?.remove();
       map.current = null;
     };
@@ -255,12 +333,18 @@ export default function MapPanel({
     const shell = element.closest(".bulletin-shell");
     const sidebarGap = shell?.querySelector('[data-slot="sidebar-gap"]');
     let transitionCenter: [number, number] | null = null;
-    const resizeWithoutMovingImage = (width: number, changeLayout: () => void) => {
+    const resizeWithoutMovingImage = (
+      width: number,
+      changeLayout: () => void,
+    ) => {
       const instance = map.current;
       if (!instance) return;
       const canvas = instance.getCanvas();
       // Preserve the geography at the right edge while the clipping area changes.
-      const center = instance.unproject([canvas.clientWidth - width / 2, canvas.clientHeight / 2]);
+      const center = instance.unproject([
+        canvas.clientWidth - width / 2,
+        canvas.clientHeight / 2,
+      ]);
       changeLayout();
       instance.resize().jumpTo({ center }).redraw();
     };
@@ -279,8 +363,13 @@ export default function MapPanel({
       if (!instance || !shell) return;
       instance.stop();
       transitionCenter = instance.getCenter().toArray();
-      const inset = parseFloat(getComputedStyle(element.closest(".dashboard")!).paddingLeft);
-      const width = viewport.getBoundingClientRect().right - shell.getBoundingClientRect().left - inset;
+      const inset = parseFloat(
+        getComputedStyle(element.closest(".dashboard")!).paddingLeft,
+      );
+      const width =
+        viewport.getBoundingClientRect().right -
+        shell.getBoundingClientRect().left -
+        inset;
       resizeWithoutMovingImage(width, () => {
         element.style.setProperty("--map-transition-width", `${width}px`);
         element.classList.add("map-sidebar-transition");
@@ -311,6 +400,10 @@ export default function MapPanel({
     import("maplibre-gl").then((ml) => {
       if (cancelled || !map.current) return;
       const eventIds = new Set(events.map((event) => event.eventId));
+      if (observationPopup.current && !eventIds.has(observationPopup.current.id)) {
+        observationPopup.current.popup.remove();
+        observationPopup.current = null;
+      }
       for (const [id, marker] of markers.current) {
         if (eventIds.has(id)) continue;
         marker.remove();
@@ -318,6 +411,49 @@ export default function MapPanel({
       }
       for (const event of events) {
         const band = magnitudeBand(event.magnitude);
+        const inspect = (click: MouseEvent) => {
+          observationPopup.current?.popup.remove();
+          observationPopup.current = null;
+          if (!forecastAnchor || event.eventId === forecastAnchor.eventId) {
+            onSelectRef.current(event.eventId);
+            return;
+          }
+          click.stopPropagation();
+          const instance = map.current;
+          if (!instance) return;
+          const position = new ml.LngLat(event.longitude, event.latitude);
+          const distanceKm = position.distanceTo(new ml.LngLat(
+            forecastAnchor.longitude, forecastAnchor.latitude,
+          )) / 1000;
+          const content = document.createElement("div");
+          content.className = "forecast-observation-info";
+          content.setAttribute("role", "status");
+          const magnitude = document.createElement("strong");
+          magnitude.textContent = `M${event.magnitude.toFixed(1)}`;
+          const distance = document.createElement("span");
+          distance.textContent = `${Math.round(distanceKm)} km from the trigger epicenter`;
+          const occurrence = document.createElement("span");
+          occurrence.textContent = occurrenceRelativeTo(event.eventTime, forecastAnchor.eventTime);
+          content.append(magnitude, distance, occurrence);
+          const popup = new ml.Popup({
+            className: "forecast-observation-popup",
+            maxWidth: "300px",
+            offset: 12,
+            padding: { top: 56, right: 8, bottom: 28, left: 8 },
+            focusAfterOpen: false,
+          }).setLngLat(position).setDOMContent(content).addTo(instance);
+          observationPopup.current = { id: event.eventId, popup };
+          popup.on("close", () => {
+            if (observationPopup.current?.popup === popup) observationPopup.current = null;
+          });
+          popup.getElement().querySelector("button")?.addEventListener("click", () => {
+            markers.current.get(event.eventId)?.getElement().focus({ preventScroll: true });
+          });
+          instance.flyTo({
+            center: position,
+            duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 700,
+          });
+        };
         const existing = markers.current.get(event.eventId);
         if (existing) {
           const position = existing.getLngLat();
@@ -328,6 +464,7 @@ export default function MapPanel({
             existing.setLngLat([event.longitude, event.latitude]);
           }
           const button = existing.getElement();
+          button.onclick = inspect;
           button.classList.remove(
             ...magnitudeBands.map((item) => item.className),
           );
@@ -347,9 +484,7 @@ export default function MapPanel({
           `Magnitude ${event.magnitude.toFixed(1)}, ${band.label}, ${event.locationDescription}`,
         );
         button.title = `M${event.magnitude.toFixed(1)} · ${event.locationDescription}`;
-        button.addEventListener("click", () =>
-          onSelectRef.current(event.eventId),
-        );
+        button.onclick = inspect;
         markers.current.set(
           event.eventId,
           new ml.Marker({ element: button, anchor: "center" })
@@ -361,7 +496,7 @@ export default function MapPanel({
     return () => {
       cancelled = true;
     };
-  }, [events, mapReady]);
+  }, [events, mapReady, forecastAnchor]);
 
   useEffect(() => {
     if (previousSelectedId.current !== selectedId) {
@@ -381,30 +516,46 @@ export default function MapPanel({
   }, [events, selectedId, mapReady]);
 
   useEffect(() => {
+    const source = mapReady
+      ? (map.current?.getSource("forecast-radius") as GeoJSONSource | undefined)
+      : undefined;
+    const coordinates =
+      areaEvent &&
+      radiusKm &&
+      (forecastAnchor || (showForecastOverview && !forecastDismissed))
+        ? radiusCoordinates(areaEvent, radiusKm)
+        : null;
+    void source?.setData(
+      coordinates
+        ? {
+            type: "Feature",
+            properties: {},
+            geometry: { type: "Polygon", coordinates: [coordinates] },
+          }
+        : emptyRadius,
+    );
+  }, [
+    mapReady,
+    areaEvent,
+    radiusKm,
+    forecastAnchor,
+    showForecastOverview,
+    forecastDismissed,
+  ]);
+
+  useEffect(() => {
     const instance = map.current;
     if (!mapReady || !instance) return;
-    const source = instance.getSource("forecast-radius") as
-      GeoJSONSource | undefined;
     annotationMarker.current?.remove();
     annotationMarker.current = null;
     setAnnotationHost(null);
-    if (!selectedEvent || forecastDismissed) {
-      void source?.setData(emptyRadius);
+    if (!selectedEvent || forecastDismissed || !showForecastOverview) {
       return;
     }
 
     const coordinates = radiusKm
       ? radiusCoordinates(selectedEvent, radiusKm)
       : null;
-    void source?.setData(
-      coordinates
-        ? {
-            type: "Feature" as const,
-            properties: {},
-            geometry: { type: "Polygon" as const, coordinates: [coordinates] },
-          }
-        : emptyRadius,
-    );
 
     let cancelled = false;
     import("maplibre-gl").then((ml) => {
@@ -433,7 +584,8 @@ export default function MapPanel({
         .addTo(instance);
       setAnnotationHost(host);
 
-      if (forecastStatus === "loading" || !instance.getContainer().clientHeight) return;
+      if (forecastStatus === "loading" || !instance.getContainer().clientHeight)
+        return;
       const duration = window.matchMedia("(prefers-reduced-motion: reduce)")
         .matches
         ? 0
@@ -484,12 +636,73 @@ export default function MapPanel({
     forecastStatus,
     focusRequest,
     forecastDismissed,
+    showForecastOverview,
   ]);
+
+  useEffect(() => {
+    if (
+      showForecastOverview ||
+      (forecastAnchor && !focusRequest) ||
+      !mapReady ||
+      !map.current ||
+      !selectedEvent
+    )
+      return;
+    map.current.flyTo({
+      center: [selectedEvent.longitude, selectedEvent.latitude],
+      zoom: forecastAnchor ? map.current.getZoom() : 7.2,
+      duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? 0
+        : 700,
+    });
+  }, [
+    showForecastOverview,
+    forecastAnchor,
+    mapReady,
+    selectedEvent,
+    focusRequest,
+  ]);
+
+  useEffect(() => {
+    const instance = map.current;
+    if (!mapReady || !instance || !forecastAnchor) return;
+    let cancelled = false;
+    import("maplibre-gl").then((ml) => {
+      if (cancelled || map.current !== instance) return;
+      const coordinates = radiusKm
+        ? radiusCoordinates(forecastAnchor, radiusKm)
+        : null;
+      const bounds = coordinates?.reduce(
+        (bounds, point) => bounds.extend(point),
+        new ml.LngLatBounds(coordinates[0], coordinates[0]),
+      );
+      const camera = bounds
+        ? instance.cameraForBounds(bounds, { padding: 50, maxZoom: 9.2 })
+        : null;
+      instance.jumpTo({
+        center: [forecastAnchor.longitude, forecastAnchor.latitude],
+        zoom: camera?.zoom ?? 7.2,
+        pitch: 0,
+        bearing: 0,
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mapReady, forecastAnchor, radiusKm]);
 
   function zoom(delta: number) {
     map.current?.zoomTo(map.current.getZoom() + delta, { duration: 350 });
   }
   function recenter() {
+    if (forecastAnchor) {
+      observationPopup.current?.popup.remove();
+      map.current?.flyTo({
+        center: [forecastAnchor.longitude, forecastAnchor.latitude],
+        duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 700,
+      });
+      return;
+    }
     const compact = window.matchMedia("(max-width: 600px)").matches;
     map.current?.flyTo({
       center: compact ? [123.1, 11.7] : [123.3, 10.8],
@@ -501,18 +714,7 @@ export default function MapPanel({
   function toggleTerrain() {
     if (!mapReady || !map.current) return;
     const next = !terrain;
-    map.current.setTerrain(
-      next ? { source: "terrain", exaggeration: 1.3 } : null,
-    );
-    map.current.setSky({
-      "sky-color": next ? "#eaf2f8" : "transparent",
-      "horizon-color": next ? "#ffffff" : "transparent",
-      "sky-horizon-blend": 0.35,
-      "fog-color": "transparent",
-      "fog-ground-blend": 1, // Keep haze above the horizon; preserve native terrain colors.
-      "atmosphere-blend": 0,
-    });
-    set3DInteractions(map.current, next);
+    applyTerrain(map.current, next);
     map.current.easeTo({
       pitch: next
         ? window.matchMedia("(max-width: 600px)").matches
@@ -527,144 +729,162 @@ export default function MapPanel({
 
   return (
     <div className="map-region">
-    <section
-      id="earthquake-map"
-      className="map-panel"
-      aria-label="Earthquakes on the Philippine map"
-    >
-      {!mapReady && (
-        <img
-          className="map-plate"
-          src="/assets/plates/relief-map.webp"
-          alt=""
-          fetchPriority="high"
-        />
-      )}
-      <div className="map-canvas" ref={container} />
-      {annotationHost &&
-        selectedEvent &&
-        !forecastDismissed &&
-        createPortal(
-          <div
-            className="forecast-map-annotation"
-            role="status"
-            aria-live="polite"
-          >
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="forecast-map-close"
-              aria-label="Close forecast overview"
-              onPress={() => {
-                setDismissedForecast({ id: selectedEvent.eventId, focusRequest });
-                markers.current.get(selectedEvent.eventId)?.getElement().focus({ preventScroll: true });
-              }}
-            >
-              <X aria-hidden="true" />
-            </Button>
-            {forecastStatus === "loading" ? (
-              <span>Loading forecast…</span>
-            ) : forecastStatus === "error" ? (
-              <span>Forecast details are unavailable right now.</span>
-            ) : forecast ? (
-              <>
-                <h3 className="forecast-map-heading">Forecast Overview</h3>
-                <span className="forecast-map-period">
-                  24-hour forecast {forecast.expired ? "ended" : "through"}{" "}
-                  {forecastEnd(forecast.windowEnd)}
-                </span>
-                <div className="forecast-map-occurrence">
-                  <span className="forecast-map-metric">
-                    <strong>{likelihoodLevel(forecast.probabilityM1Plus24h)}</strong>{" "}
-                    <strong>({chance(forecast.probabilityM1Plus24h)})</strong>
-                  </span>
-                  <p>
-                    Chance of at least one further earthquake near the epicenter.
-                  </p>
-                </div>
-                <div className="forecast-map-distance">
-                  <strong className="forecast-map-metric">
-                    {reportedRadiusKm === null
-                      ? "Estimated activity radius unavailable"
-                      : `Estimated activity radius: ${Math.round(reportedRadiusKm)} km`}
-                  </strong>
-                  {radiusKm !== null && (
-                    <p>
-                      The circle shows the system’s estimated reach of further
-                      activity from this earthquake over the 24-hour forecast window.
-                    </p>
-                  )}
-                </div>
-              </>
-            ) : (
-              <span>No forecast is available for this earthquake.</span>
-            )}
-          </div>,
-          annotationHost,
-        )}
-      <Button
-        variant="outline"
-        className="terrain-button"
-        onPress={toggleTerrain}
-        isDisabled={!mapReady}
-        aria-pressed={terrain}
-        aria-label="3D terrain"
-        aria-description="In 3D, right-drag or use Shift + arrow keys to tilt and rotate. On touchscreens, move two fingers together to tilt; pinch to zoom."
+      <section
+        id="earthquake-map"
+        className="map-panel"
+        aria-label="Earthquakes on the Philippine map"
       >
-        <span className="terrain-switch" aria-hidden="true">
-          <span className="terrain-thumb" />
-        </span>
-        <span className="terrain-label">3D terrain</span>
-      </Button>
-      <div className="map-tools">
+        {!mapReady && (
+          <img
+            className="map-plate"
+            src="/assets/plates/relief-map.webp"
+            alt=""
+            fetchPriority="high"
+          />
+        )}
+        <div className="map-canvas" ref={container} />
+        {annotationHost &&
+          selectedEvent &&
+          !forecastDismissed &&
+          createPortal(
+            <div
+              className="forecast-map-annotation"
+              role="status"
+              aria-live="polite"
+            >
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="forecast-map-close"
+                aria-label="Close forecast overview"
+                onPress={() => {
+                  setDismissedForecast({
+                    id: selectedEvent.eventId,
+                    focusRequest,
+                  });
+                  markers.current
+                    .get(selectedEvent.eventId)
+                    ?.getElement()
+                    .focus({ preventScroll: true });
+                }}
+              >
+                <X aria-hidden="true" />
+              </Button>
+              {forecastStatus === "loading" ? (
+                <span>Loading forecast…</span>
+              ) : forecastStatus === "error" ? (
+                <span>Forecast details are unavailable right now.</span>
+              ) : forecast ? (
+                <>
+                  <h3 className="forecast-map-heading">Forecast Overview</h3>
+                  <span className="forecast-map-period">
+                    24-hour forecast {forecast.expired ? "ended" : "through"}{" "}
+                    {forecastEnd(forecast.windowEnd)}
+                  </span>
+                  <div className="forecast-map-occurrence">
+                    <span className="forecast-map-metric">
+                      <strong>
+                        {likelihoodLevel(forecast.probabilityM1Plus24h)}
+                      </strong>{" "}
+                      <strong>({chance(forecast.probabilityM1Plus24h)})</strong>
+                    </span>
+                    <p>
+                      Chance of at least one further earthquake near the
+                      epicenter.
+                    </p>
+                  </div>
+                  <div className="forecast-map-distance">
+                    <strong className="forecast-map-metric">
+                      {reportedRadiusKm === null
+                        ? "Estimated activity radius unavailable"
+                        : `Estimated activity radius: ${Math.round(reportedRadiusKm)} km`}
+                    </strong>
+                    {radiusKm !== null && (
+                      <p>
+                        The circle shows the system’s estimated reach of further
+                        activity from this earthquake over the 24-hour forecast
+                        window.
+                      </p>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <span>No forecast is available for this earthquake.</span>
+              )}
+            </div>,
+            annotationHost,
+          )}
         <Button
           variant="outline"
-          size="icon"
-          onPress={() => zoom(1)}
-          aria-label="Zoom in"
+          className="terrain-button"
+          onPress={toggleTerrain}
+          isDisabled={!mapReady}
+          aria-pressed={terrain}
+          aria-label="3D terrain"
+          aria-description="In 3D, right-drag or use Shift + arrow keys to tilt and rotate. On touchscreens, move two fingers together to tilt; pinch to zoom."
         >
-          <Plus aria-hidden="true" />
+          <span className="terrain-switch" aria-hidden="true">
+            <span className="terrain-thumb" />
+          </span>
+          <span className="terrain-label">3D terrain</span>
         </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          onPress={() => zoom(-1)}
-          aria-label="Zoom out"
-        >
-          <Minus aria-hidden="true" />
-        </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          onPress={recenter}
-          aria-label="Show the Philippines"
-        >
-          <LocateFixed aria-hidden="true" />
-        </Button>
-      </div>
-      <div className={`map-legend-control${legendOpen ? " is-open" : ""}`} ref={legendControl}>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className="map-legend-toggle"
-          aria-label="Magnitude legend"
-          aria-expanded={legendOpen}
-          aria-controls="map-magnitude-legend"
-          onPress={() => setLegendOpen((open) => !open)}
-        >
-          <CircleQuestionMark aria-hidden="true" />
-        </Button>
-        <div id="map-magnitude-legend" className="map-legend" role="region" aria-label="Magnitude legend">
-          <strong>Magnitude (M)</strong>
-          {magnitudeBands.map((band) => (
-            <span key={band.className}>
-              <i className={`dot ${band.className}`} aria-hidden="true" />
-              {band.label}
-            </span>
-          ))}
+        <div className="map-tools">
+          <Button
+            variant="outline"
+            size="icon"
+            onPress={() => zoom(1)}
+            aria-label="Zoom in"
+          >
+            <Plus aria-hidden="true" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            onPress={() => zoom(-1)}
+            aria-label="Zoom out"
+          >
+            <Minus aria-hidden="true" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            onPress={recenter}
+            aria-label={forecastAnchor ? "Recenter on trigger earthquake" : "Show the Philippines"}
+          >
+            <LocateFixed aria-hidden="true" />
+          </Button>
         </div>
-      </div>
-    </section>
+        <div
+          className={`map-legend-control${legendOpen ? " is-open" : ""}`}
+          ref={legendControl}
+        >
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="map-legend-toggle"
+            aria-label="Magnitude legend"
+            aria-expanded={legendOpen}
+            aria-controls="map-magnitude-legend"
+            onPress={() => setLegendOpen((open) => !open)}
+          >
+            <CircleQuestionMark aria-hidden="true" />
+          </Button>
+          <div
+            id="map-magnitude-legend"
+            className="map-legend"
+            role="region"
+            aria-label="Magnitude legend"
+          >
+            <strong>Magnitude (M)</strong>
+            {magnitudeBands.map((band) => (
+              <span key={band.className}>
+                <i className={`dot ${band.className}`} aria-hidden="true" />
+                {band.label}
+              </span>
+            ))}
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

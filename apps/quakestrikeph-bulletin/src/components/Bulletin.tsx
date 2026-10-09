@@ -368,9 +368,8 @@ export default function Bulletin({ initialResults = null, initialState = { query
     /^https?:\/\//i.test(selectedDetail.source?.url ?? "")
       ? selectedDetail.source?.url
       : undefined;
-  const forecastQuery = bulletinParams({ query, date: dateFilter, magnitudes: magnitudeFilter, selectedId: null }).toString();
   const forecastHref = selected
-    ? `/forecasts/${encodeURIComponent(selected.eventId)}${forecastQuery ? `?${forecastQuery}` : ''}`
+    ? `/forecasts/${encodeURIComponent(selected.eventId)}`
     : "/";
   const chooseDateOption = (value: string | number | null) => {
     if (value === null) return;
