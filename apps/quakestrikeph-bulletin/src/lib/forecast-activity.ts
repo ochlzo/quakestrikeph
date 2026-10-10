@@ -17,10 +17,12 @@ export function initForecastActivity(
   const replay = get<HTMLButtonElement>("replay-handle");
   const history = get<HTMLButtonElement>("history-handle");
   const play = get<HTMLButtonElement>("play");
+  const speed = get<HTMLButtonElement>("playback-speed");
   const zoom = get<HTMLButtonElement>("timeline-zoom");
   const status = get<HTMLSpanElement>("replay-load-status");
   const future = get<HTMLDivElement>("time-future");
   const nowLabel = get<HTMLTimeElement>("time-now");
+  const visibleDates = get<HTMLParagraphElement>("timeline-dates");
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   history.replaceChildren(replay.querySelector("svg")!.cloneNode(true));
   const start = Date.parse(event.forecast.windowStart);
@@ -29,12 +31,14 @@ export function initForecastActivity(
   // Refresh Now during interactions rather than polling during playback.
   let availableThrough = Date.now();
   let replayTime = 0, rangeStart = 0;
+  let playbackSpeed = 1;
   const zoomLevels = [360, 1440, 2880, 5760];
   const minZoomMinutes = zoomLevels[0], maxZoomMinutes = zoomLevels[3];
   let zoomMinutes = 1440, viewSpan = 1440;
   let requestedZoomMinutes = zoomMinutes;
   let zoomFrame = 0;
   let finishZoom: (() => void) | null = null;
+  let playbackScrollFrame = 0;
   let fittedView = true;
   let firstVisibleTime = 0;
   let canvasStart = -6480,
@@ -61,14 +65,35 @@ export function initForecastActivity(
     hour12: true,
   });
   const offsetFormat = new Intl.NumberFormat("en-PH", { maximumFractionDigits: 2 });
+  const visibleDateFormat = new Intl.DateTimeFormat("en-PH", {
+    timeZone: "Asia/Manila", month: "long", day: "numeric",
+  });
+  const visibleYearFormat = new Intl.DateTimeFormat("en-PH", {
+    timeZone: "Asia/Manila", month: "long", day: "numeric", year: "numeric",
+  });
+  const yearFormat = new Intl.DateTimeFormat("en-PH", {
+    timeZone: "Asia/Manila", year: "numeric",
+  });
   const x = (minutes: number) => ((minutes - canvasStart) / viewSpan) * width;
   const viewStart = () =>
     canvasStart + (viewport.scrollLeft / width) * viewSpan;
   const nowMinutes = () => (availableThrough - start) / 60000;
-  const playbackEnd = () => Math.min(endMinutes, nowMinutes());
+  const playbackEnd = () =>
+    replayTime < endMinutes ? Math.min(endMinutes, nowMinutes()) : nowMinutes();
   const rulerFraction = () => width >= 560 ? 0.75 : 0.65;
   const edgeMinutes = () => 8 * viewSpan / width;
   const latestViewStart = () => Math.max(-edgeMinutes(), nowMinutes() - viewSpan * rulerFraction());
+
+  function updateVisibleDates() {
+    if (!width) return;
+    const first = viewStart();
+    const from = date(first);
+    const to = date(Math.max(first, Math.min(first + viewSpan, nowMinutes())));
+    const format = yearFormat.format(from) === yearFormat.format(to)
+      ? visibleDateFormat : visibleYearFormat;
+    const label = format.formatRange(from, to);
+    if (visibleDates.textContent !== label) visibleDates.textContent = label;
+  }
 
   function releaseStretch() {
     if (stretchTimer !== null) clearTimeout(stretchTimer);
@@ -84,6 +109,7 @@ export function initForecastActivity(
     stretchTimer = setTimeout(releaseStretch, 120);
   }
   function panBy(pixels: number) {
+    cancelPlaybackScroll();
     finishZoom?.();
     fittedView = false;
     availableThrough = Date.now();
@@ -127,6 +153,7 @@ export function initForecastActivity(
     const trace = get<HTMLDivElement>("visible-period");
     trace.style.left = `${Math.max(0, x(rangeStart))}px`;
     trace.style.width = `${Math.max(0, Math.min(width * 5, x(replayTime)) - Math.max(0, x(rangeStart)))}px`;
+    updateVisibleDates();
   }
   function buildRuler() {
     canvas.style.width = `${width * 5}px`;
@@ -173,10 +200,12 @@ export function initForecastActivity(
     render();
   }
   function positionView(first: number) {
+    cancelPlaybackScroll();
     firstVisibleTime = Math.min(first, latestViewStart());
     canvasStart = firstVisibleTime - viewSpan * 2;
     buildRuler();
     viewport.scrollLeft = width * 2;
+    updateVisibleDates();
   }
   function showTime(minutes: number) {
     finishZoom?.();
@@ -191,6 +220,7 @@ export function initForecastActivity(
     zoom.title = `Switch to ${nextMinutes / 60}h view`;
   }
   function animateZoom(anchorPixels: number, anchorTime: number, fit = false) {
+    cancelPlaybackScroll();
     cancelAnimationFrame(zoomFrame);
     const fromSpan = viewSpan, fromStart = viewStart();
     const toSpan = zoomMinutes * width / Math.max(1, width - 16);
@@ -258,14 +288,32 @@ export function initForecastActivity(
     }
     fittedView = true;
   }
+  function cancelPlaybackScroll() {
+    cancelAnimationFrame(playbackScrollFrame);
+    playbackScrollFrame = 0;
+  }
   function keepInView() {
-    if (finishZoom) return;
+    if (finishZoom || playbackScrollFrame || !width) return;
     const first = viewStart();
-    if (
-      replayTime < first + viewSpan * 0.08 ||
-      replayTime > first + viewSpan * 0.9
-    )
+    if (replayTime >= first + viewSpan * 0.08 &&
+        replayTime <= first + viewSpan * 0.9) return;
+    if (reducedMotion.matches) {
       showTime(replayTime);
+      return;
+    }
+    fittedView = false;
+    const target = Math.min(replayTime - viewSpan * 0.25, latestViewStart());
+    const started = performance.now();
+    const step = (time: number) => {
+      const progress = Math.min(1, (time - started) / 250);
+      const eased = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+      const next = first + (target - first) * eased;
+      viewport.scrollLeft = x(Math.min(next, latestViewStart()));
+      firstVisibleTime = viewStart();
+      updateVisibleDates();
+      playbackScrollFrame = progress === 1 ? 0 : requestAnimationFrame(step);
+    };
+    playbackScrollFrame = requestAnimationFrame(step);
   }
   function paintObservations() {
     const from = date(rangeStart).getTime(),
@@ -324,6 +372,7 @@ export function initForecastActivity(
       });
   }
   function setPlaying(playing: boolean) {
+    cancelPlaybackScroll();
     if (timer !== null) clearInterval(timer);
     timer = null;
     playing = playing && replayTime < playbackEnd();
@@ -336,7 +385,8 @@ export function initForecastActivity(
       keepInView();
       requestObservations(true);
       timer = setInterval(() => {
-        const next = Math.min(replayTime + 6, playbackEnd());
+        const limit = playbackEnd();
+        const next = Math.min(replayTime + 6 * playbackSpeed, limit);
         if (
           !cache.covered(
             date(rangeStart).getTime(),
@@ -352,7 +402,7 @@ export function initForecastActivity(
         keepInView();
         render();
         paintObservations();
-        if (replayTime >= playbackEnd()) {
+        if (replayTime >= limit) {
           setPlaying(false);
           return;
         }
@@ -408,6 +458,7 @@ export function initForecastActivity(
       (event) => {
         if (event.button !== 0 || pinch) return;
         event.preventDefault();
+        cancelPlaybackScroll();
         finishZoom?.();
         pointer = event.pointerId;
         lastX = event.clientX;
@@ -481,6 +532,7 @@ export function initForecastActivity(
       )
         return;
       if (event.pointerType === "mouse") event.preventDefault();
+      cancelPlaybackScroll();
       finishZoom?.();
       panPointer = event.pointerId;
       panX = event.clientX;
@@ -518,6 +570,7 @@ export function initForecastActivity(
   viewport.addEventListener("touchstart", (event) => {
     if (event.touches.length !== 2) return;
     event.preventDefault();
+    cancelPlaybackScroll();
     cancelDrags.forEach(cancel => cancel());
     panPointer = null;
     viewport.classList.remove("is-dragging");
@@ -569,6 +622,7 @@ export function initForecastActivity(
         buildRuler();
         viewport.scrollLeft = width * 2;
       }
+      updateVisibleDates();
     },
     options,
   );
@@ -592,6 +646,7 @@ export function initForecastActivity(
     options,
   );
   const resize = new ResizeObserver(() => {
+    cancelPlaybackScroll();
     finishZoom?.();
     width = viewport.clientWidth;
     if (!width) return;
@@ -600,6 +655,17 @@ export function initForecastActivity(
     else positionView(firstVisibleTime);
   });
   resize.observe(viewport);
+  function setPlaybackSpeed(value: 1 | 2) {
+    playbackSpeed = value;
+    const next = value === 1 ? 2 : 1;
+    speed.querySelector("span")!.textContent = `${value}x`;
+    speed.setAttribute("aria-label", `Playback speed, ${value}x. Switch to ${next}x.`);
+    speed.title = `Switch to ${next}x playback speed`;
+  }
+  setPlaybackSpeed(1);
+  speed.addEventListener("click", () => {
+    setPlaybackSpeed(playbackSpeed === 1 ? 2 : 1);
+  }, options);
   zoom.addEventListener("click", cycleZoom, options);
   play.addEventListener(
     "click",
@@ -637,8 +703,10 @@ export function initForecastActivity(
   window.addEventListener("pagehide", () => setPlaying(false), options);
   reducedMotion.addEventListener("change", () => {
     if (reducedMotion.matches) {
+      cancelPlaybackScroll();
       finishZoom?.();
       releaseStretch();
+      if (timer !== null) keepInView();
     }
   }, options);
   void cache
