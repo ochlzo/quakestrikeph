@@ -397,17 +397,34 @@ components:
           oneOf:
             - $ref: '#/components/schemas/ForecastSummary'
             - type: 'null'
+    ForecastAvailability:
+      type: object
+      description: >-
+        Availability for the latest event revision and configured model release.
+        An existing forecast takes priority over prediction jobs and recorded skip reasons.
+        Processing includes pending, running, and retrying work; it does not guarantee completion.
+        Technical errors remain private. Reasons apply only to unavailable forecasts.
+      required: [status, reason]
+      properties:
+        status:
+          type: string
+          enum: [available, processing, failed, unavailable]
+        reason:
+          type: [string, 'null']
+          enum: [insufficient_history, below_minimum_magnitude, model_unavailable, unknown, null]
     EarthquakeDetail:
       allOf:
         - $ref: '#/components/schemas/EarthquakeSummary'
         - type: object
-          required: [eventRevisionId, origin, source, forecast]
+          required: [eventRevisionId, origin, source, forecast, forecastAvailability]
           properties:
             eventRevisionId:
               type: string
               format: uuid
             origin:
               type: [string, 'null']
+            forecastAvailability:
+              $ref: '#/components/schemas/ForecastAvailability'
             source:
               type: object
               required: [provider, url]

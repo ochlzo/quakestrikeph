@@ -237,10 +237,18 @@ export interface components {
             locationDescription: string;
             forecast: components["schemas"]["ForecastSummary"] | null;
         };
+        /** @description Availability for the latest event revision and configured model release. An existing forecast takes priority over prediction jobs and recorded skip reasons. Processing includes pending, running, and retrying work; it does not guarantee completion. Technical errors remain private. Reasons apply only to unavailable forecasts. */
+        ForecastAvailability: {
+            /** @enum {string} */
+            status: "available" | "processing" | "failed" | "unavailable";
+            /** @enum {string|null} */
+            reason: "insufficient_history" | "below_minimum_magnitude" | "model_unavailable" | "unknown" | null;
+        };
         EarthquakeDetail: components["schemas"]["EarthquakeSummary"] & {
             /** Format: uuid */
             eventRevisionId: string;
             origin: string | null;
+            forecastAvailability: components["schemas"]["ForecastAvailability"];
             source: {
                 /** @constant */
                 provider: "PHIVOLCS";

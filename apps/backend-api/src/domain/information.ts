@@ -32,6 +32,36 @@ export interface Forecast {
   maximumMagnitudeQ95_24h: number | null;
 }
 
+export interface ForecastAvailability {
+  status: 'available' | 'processing' | 'failed' | 'unavailable';
+  reason: 'insufficient_history' | 'below_minimum_magnitude' | 'model_unavailable' | 'unknown' | null;
+}
+
+export function forecastAvailability(
+  forecast: Forecast | null, predictionStatus: string | null, skipReason: string | null,
+): ForecastAvailability {
+  // A recovered forecast or active job takes priority over an immutable skip decision.
+  if (forecast) return { status: 'available', reason: null };
+  if (predictionStatus === 'pending' || predictionStatus === 'running' || predictionStatus === 'retry_wait') {
+    return { status: 'processing', reason: null };
+  }
+  if (predictionStatus === 'failed') return { status: 'failed', reason: null };
+  if (predictionStatus) return { status: 'unavailable', reason: 'unknown' };
+  switch (skipReason) {
+    case 'history_coverage_unavailable':
+    case 'incomplete_feature_history':
+    case 'history_starts_after_required_window':
+    case 'history_ends_before_anchor':
+      return { status: 'unavailable', reason: 'insufficient_history' };
+    case 'magnitude_below_m1':
+      return { status: 'unavailable', reason: 'below_minimum_magnitude' };
+    case 'model_release_unavailable':
+      return { status: 'unavailable', reason: 'model_unavailable' };
+    default:
+      return { status: 'unavailable', reason: 'unknown' };
+  }
+}
+
 export interface Earthquake {
   eventId: string;
   eventRevisionId: string;
@@ -44,6 +74,7 @@ export interface Earthquake {
   origin: string | null;
   sourceUrl: string;
   forecast: Forecast | null;
+  forecastAvailability: ForecastAvailability;
 }
 
 export function forecastExpired(forecast: Forecast, now: Date): boolean {

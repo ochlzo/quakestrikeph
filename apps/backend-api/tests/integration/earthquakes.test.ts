@@ -46,9 +46,11 @@ test('search and detail use latest revisions and current successful forecasts', 
     for (const [revisionId, eventId, number, eventTime, magnitude, location] of revisions) {
       await pool.query(`INSERT INTO earthquake_event_revisions
         (event_revision_id, event_id, revision_number, ingestion_run_id, source_event_group_id,
-         source_url, source_time_precision, event_time, latitude, longitude, depth_km, magnitude, location_description)
-        VALUES ($1, $2, $3, $4, $5, 'https://example.org/bulletin', 'second', $6, 7.1, 125.6, 12, $7, $8)`,
-      [revisionId, eventId, number, runId, `GROUP_${revisionId.slice(0, 8).toUpperCase()}`, eventTime, magnitude, location]);
+         source_url, source_time_precision, event_time, latitude, longitude, depth_km, magnitude, location_description,
+         prediction_skip_reason)
+        VALUES ($1, $2, $3, $4, $5, 'https://example.org/bulletin', 'second', $6, 7.1, 125.6, 12, $7, $8, $9)`,
+      [revisionId, eventId, number, runId, `GROUP_${revisionId.slice(0, 8).toUpperCase()}`, eventTime, magnitude, location,
+        eventId === eventA || eventId === eventB ? 'history_starts_after_required_window' : null]);
     }
     for (const [id, label] of [[releaseId, 'selected'], [otherReleaseId, 'other']]) {
       await pool.query(`INSERT INTO model_releases
@@ -101,6 +103,12 @@ test('search and detail use latest revisions and current successful forecasts', 
     assert.equal(second.items[0]?.forecast, null);
     assert.equal(second.hasMore, false);
     assert.equal((await reader.findById(eventC))?.forecast, null);
+    assert.deepEqual((await reader.findById(eventA))?.forecastAvailability,
+      { status: 'available', reason: null }, 'A recovered forecast outranks the skip reason and a later failed job');
+    assert.deepEqual((await reader.findById(eventB))?.forecastAvailability,
+      { status: 'unavailable', reason: 'insufficient_history' });
+    assert.deepEqual((await reader.findById(eventC))?.forecastAvailability,
+      { status: 'unavailable', reason: 'unknown' }, 'An older revision does not determine availability');
     assert.equal(await reader.findById(duplicate), null);
     const all = await reader.search({ magnitudeRanges: [], limit: 25 });
     assert.deepEqual(all.map((item) => item.eventId), [eventA, eventB, eventC]);
@@ -109,6 +117,32 @@ test('search and detail use latest revisions and current successful forecasts', 
     const dated = await reader.search({ magnitudeRanges: [],
       dateFrom: '2026-09-26T00:00:00Z', dateTo: '2026-09-27T00:00:00Z', limit: 25 });
     assert.deepEqual(dated.map((item) => item.eventId), [eventB]);
+    await assert.rejects(() => backendPool.query('SELECT last_error_message FROM prediction_jobs'), { code: '42501' });
+    for (const [index, status] of ['pending', 'running', 'retry_wait', 'failed', 'cancelled', 'succeeded'].entries()) {
+      const jobId = randomUUID();
+      await pool.query(`INSERT INTO prediction_jobs
+        (job_id, event_revision_id, model_release_id, input_snapshot_hash, input_snapshot_json,
+         idempotency_key, status, requested_at, completed_at, next_attempt_at, correlation_id)
+        VALUES ($1, $2, $3, quakestrike_prediction_input_snapshot_sha256($4::jsonb), $4::jsonb,
+          $5, $6, $7, $8, $9, $10)`,
+      [jobId, revisionB, releaseId,
+        JSON.stringify({ ...snapshot, catalog_m1_plus_count_past_1h: index }), jobId, status,
+        new Date(Date.UTC(2026, 8, 26, index + 1)),
+        ['failed', 'cancelled', 'succeeded'].includes(status) ? new Date('2026-09-27T00:00:00Z') : null,
+        status === 'retry_wait' ? new Date('2026-09-27T00:00:00Z') : null, randomUUID()]);
+      assert.deepEqual((await reader.findById(eventB))?.forecastAvailability,
+        ['pending', 'running', 'retry_wait'].includes(status) ? { status: 'processing', reason: null }
+          : status === 'failed' ? { status: 'failed', reason: null } : { status: 'unavailable', reason: 'unknown' });
+    }
+    // A job for another model release must not change the selected release's public status.
+    const otherJob = randomUUID();
+    await pool.query(`INSERT INTO prediction_jobs
+      (job_id, event_revision_id, model_release_id, input_snapshot_hash, input_snapshot_json,
+       idempotency_key, correlation_id)
+      VALUES ($1::uuid, $2, $3, quakestrike_prediction_input_snapshot_sha256($4::jsonb), $4::jsonb, $1::text, $5)`,
+    [otherJob, revisionC, otherReleaseId, JSON.stringify(snapshot), randomUUID()]);
+    assert.deepEqual((await reader.findById(eventC))?.forecastAvailability,
+      { status: 'unavailable', reason: 'unknown' });
   } finally {
     await pool.query(`TRUNCATE maintenance_runs, source_catalog_evidence, ingestion_run_inputs,
       earthquake_bulletin_event_identities, audit_logs, job_dispatches, prediction_jobs,

@@ -63,6 +63,13 @@ components:
 
 # Design System: QuakeStrike PH Bulletin
 
+When an earthquake has no forecast, the forecast page uses one reading column.
+The earthquake summary includes its occurrence time. The status explanation
+uses the detail API's public availability and reason codes, with a PHIVOLCS
+bulletin link and a reminder that absence of a forecast does not imply low
+earthquake activity. Processing includes a reload link. Unknown reasons remain
+explicit; the page does not promise future generation or expose worker errors.
+
 ## Overview
 
 **Creative North Star: "Coastal blue event lens"**

@@ -12,6 +12,19 @@ import '../styles/forecast.css';
 interface Props { event: EarthquakeDetail | null; error: 'invalid' | 'missing' | 'unavailable' | null; backHref: string; }
 const { event, error, backHref } = Astro.props;
 const forecast = event?.forecast;
+const availability = event?.forecastAvailability;
+const unavailableMessages = {
+  insufficient_history: 'The system could not verify complete earthquake records for the seven days before this earthquake. The model requires these records to generate a forecast.',
+  below_minimum_magnitude: 'The model generates forecasts for earthquakes of magnitude 1.0 or higher. This earthquake is below that minimum.',
+  model_unavailable: 'The required forecast model was unavailable when this earthquake was processed.',
+  unknown: 'No forecast is available for this earthquake. The reason is currently unavailable.',
+};
+const availabilityTitle = availability?.status === 'processing' ? 'Forecast processing'
+  : availability?.status === 'failed' ? 'Forecast could not be generated' : 'Forecast unavailable';
+const availabilityMessage = availability?.status === 'processing'
+  ? 'The system is preparing the forecast. Reload this page to check for an update.'
+  : availability?.status === 'failed' ? 'The system could not complete forecast generation for this earthquake.'
+  : unavailableMessages[availability?.reason ?? 'unknown'];
 const percent = (value: number) => value > 0 && value < .005 ? '<1%' :   value < 1 && value >= .995 ? '>99%' :   String(Math.round(value * 100)) + '%';
 const count = (value: number) => new Intl.NumberFormat('en-PH', { maximumFractionDigits: 2 }).format(value);
 const expectedCount = forecast?.expectedM1PlusCount24h ?? 0;
@@ -74,10 +87,11 @@ const radiusCopy = forecast && forecast.activityRadiusMedianKm24h !== null ? `Th
 <p>{errorMessage}</p>
 </noscript>
 </section> : <>
-<div class="overview">
+<div class:list={['overview', { 'without-forecast': !forecast }]}>
 <section class="facts" id="main-facts" aria-labelledby="forecast-title">
 <h1 id="forecast-title">{magnitude(event.magnitude)} earthquake forecast</h1>
 <p class="forecast-location">{locationLabel(event.locationDescription)}</p>
+{!forecast && <p class="forecast-occurrence"><time datetime={event.eventTime}>{displayTime(event.eventTime)}</time></p>}
 <details class="event-details">
 <summary>Observed earthquake details<svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
 <path d="m6 9 6 6 6-6"/>
@@ -106,9 +120,14 @@ const radiusCopy = forecast && forecast.activityRadiusMedianKm24h !== null ? `Th
 </div>
 </dl>
 </details>
-{!forecast ? <section class="forecast-empty">
-<h2>Forecast details are not available</h2>
-<p>No forecast is available for this earthquake.</p>
+{!forecast ? <section class="forecast-unavailable" aria-labelledby="availability-title">
+<h2 id="availability-title">{availabilityTitle}</h2>
+<p>{availabilityMessage}</p>
+<p>An unavailable forecast does not mean further earthquake activity is unlikely.</p>
+<div class="availability-actions">
+<a href={event.source.url} target="_blank" rel="noreferrer">View PHIVOLCS bulletin</a>
+{availability?.status === 'processing' && <a href={Astro.url.pathname}>Reload forecast page</a>}
+</div>
 </section> : <>
 <div class="window">
 <div class="window-head">

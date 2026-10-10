@@ -34,6 +34,7 @@ const event = {
   source: { provider: 'PHIVOLCS', url: 'https://earthquake.phivolcs.dost.gov.ph/' }, forecast,
 };
 let mode = 'normal', details = 0;
+let availabilityFixture;
 const searches = [];
 const nativeFetch = globalThis.fetch;
 const injection = '</script><script>window.injected=true</script>';
@@ -48,6 +49,7 @@ globalThis.fetch = async (input, init) => {
     if (mode === 'detail-error') return new Response(null, { status: 404 });
     return Response.json({ item: {
       ...event, forecast: mode === 'no-forecast' ? null : forecast,
+      forecastAvailability: mode === 'no-forecast' ? availabilityFixture : { status: 'available', reason: null },
       locationDescription: mode === 'xss' ? injection : event.locationDescription,
     } });
   }
@@ -118,8 +120,26 @@ try {
   }
   mode = 'no-forecast';
   const noForecast = await page();
-  assert.match(noForecast, /Forecast details are not available/);
+  assert.match(noForecast, /Forecast unavailable/);
+  assert.match(noForecast, /The reason is currently unavailable/);
+  assert.match(noForecast, /View PHIVOLCS bulletin/);
+  assert.match(noForecast, /An unavailable forecast does not mean further earthquake activity is unlikely/);
   assert.doesNotMatch(noForecast, /data-activity-range/);
+  for (const [status, reason, title, explanation] of [
+    ['unavailable', 'insufficient_history', 'Forecast unavailable', 'seven days before this earthquake'],
+    ['unavailable', 'below_minimum_magnitude', 'Forecast unavailable', 'below that minimum'],
+    ['unavailable', 'model_unavailable', 'Forecast unavailable', 'model was unavailable'],
+    ['unavailable', 'unknown', 'Forecast unavailable', 'reason is currently unavailable'],
+    ['processing', null, 'Forecast processing', 'system is preparing the forecast'],
+    ['failed', null, 'Forecast could not be generated', 'could not complete forecast generation'],
+  ]) {
+    availabilityFixture = { status, reason };
+    const availabilityHtml = await page();
+    assert.match(availabilityHtml, new RegExp(title));
+    assert.match(availabilityHtml, new RegExp(explanation));
+    assert.equal(availabilityHtml.includes('Reload forecast page'), status === 'processing');
+    assert.doesNotMatch(availabilityHtml, /data-activity-range|history_starts_after_required_window|insufficient_history/);
+  }
   mode = 'xss';
   const safe = await page();
   assert.doesNotMatch(safe, /<script>window\.injected=true<\/script>/);

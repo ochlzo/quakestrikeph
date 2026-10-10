@@ -127,7 +127,7 @@ GRANT CONNECT ON DATABASE :"database_name" TO quakestrike_backend;
 GRANT USAGE ON SCHEMA public TO quakestrike_backend;
 GRANT SELECT (event_id, superseded_by_event_id) ON earthquake_events TO quakestrike_backend;
 GRANT SELECT (event_id, event_revision_id, revision_number, event_time, magnitude,
-  latitude, longitude, depth_km, location_description, origin, source_url)
+  latitude, longitude, depth_km, location_description, origin, source_url, prediction_skip_reason)
   ON earthquake_event_revisions TO quakestrike_backend;
 GRANT SELECT (job_id, event_revision_id, model_release_id, status, requested_at)
   ON prediction_jobs TO quakestrike_backend;

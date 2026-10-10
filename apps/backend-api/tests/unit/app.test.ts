@@ -3,6 +3,7 @@ import test from 'node:test';
 import type { Server } from 'node:http';
 import { once } from 'node:events';
 import type { Earthquake } from '../../src/domain/information.js';
+import { forecastAvailability } from '../../src/domain/information.js';
 import type { EarthquakeReader } from '../../src/ports/earthquakeReader.js';
 import { createApp } from '../../src/interface/http/app.js';
 import { DataUnavailable } from '../../src/application/information/errors.js';
@@ -14,6 +15,7 @@ const event: Earthquake = {
   magnitude: 4.2, latitude: 7.1, longitude: 125.6, depthKm: 12,
   locationDescription: 'Davao', origin: 'TECTONIC', sourceUrl: 'https://example.org/bulletin',
   forecast: null,
+  forecastAvailability: { status: 'unavailable', reason: 'unknown' },
 };
 
 async function withServer(reader: EarthquakeReader, run: (base: string) => Promise<void>): Promise<void> {
@@ -39,15 +41,42 @@ test('search returns a bounded page and detail keeps missing forecast explicit',
     const page = await search.json() as { items: Array<{ forecast: unknown }>; hasMore: boolean; nextCursor: string };
     assert.equal(page.items.length, 1);
     assert.equal(page.items[0]?.forecast, null);
+    assert.equal('forecastAvailability' in page.items[0]!, false, 'Availability is detail-only');
     assert.equal(page.hasMore, true);
     assert.ok(page.nextCursor);
     assert.ok(search.headers.get('x-request-id'));
     const detail = await fetch(`${base}/api/v1/earthquakes/${event.eventId}`);
     assert.equal(detail.status, 200);
-    const data = await detail.json() as { item: { forecast: unknown; source: { provider: string } } };
+    const data = await detail.json() as { item: { forecast: unknown; source: { provider: string }; forecastAvailability: unknown } };
     assert.equal(data.item.forecast, null);
     assert.equal(data.item.source.provider, 'PHIVOLCS');
+    assert.deepEqual(data.item.forecastAvailability, { status: 'unavailable', reason: 'unknown' });
   });
+});
+
+test('forecast availability maps skip reasons and prioritizes prediction work', () => {
+  for (const reason of ['history_coverage_unavailable', 'incomplete_feature_history',
+    'history_starts_after_required_window', 'history_ends_before_anchor']) {
+    assert.deepEqual(forecastAvailability(null, null, reason),
+      { status: 'unavailable', reason: 'insufficient_history' });
+  }
+  assert.deepEqual(forecastAvailability(null, null, 'magnitude_below_m1'),
+    { status: 'unavailable', reason: 'below_minimum_magnitude' });
+  assert.deepEqual(forecastAvailability(null, null, 'model_release_unavailable'),
+    { status: 'unavailable', reason: 'model_unavailable' });
+  for (const reason of [null, 'unrecognized_reason']) {
+    assert.deepEqual(forecastAvailability(null, null, reason), { status: 'unavailable', reason: 'unknown' });
+  }
+  for (const status of ['pending', 'running', 'retry_wait']) {
+    assert.deepEqual(forecastAvailability(null, status, 'history_coverage_unavailable'),
+      { status: 'processing', reason: null });
+  }
+  assert.deepEqual(forecastAvailability(null, 'failed', 'history_coverage_unavailable'),
+    { status: 'failed', reason: null });
+  for (const status of ['cancelled', 'succeeded']) {
+    assert.deepEqual(forecastAvailability(null, status, 'history_coverage_unavailable'),
+      { status: 'unavailable', reason: 'unknown' });
+  }
 });
 
 test('invalid input and database outage return status and short messages', async () => {

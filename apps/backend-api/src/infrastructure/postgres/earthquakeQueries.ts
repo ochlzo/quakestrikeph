@@ -1,5 +1,6 @@
 import type { Pool, QueryResultRow } from 'pg';
 import type { Earthquake, EarthquakeSearch, Forecast } from '../../domain/information.js';
+import { forecastAvailability } from '../../domain/information.js';
 import type { EarthquakeReader } from '../../ports/earthquakeReader.js';
 import { DataUnavailable } from '../../application/information/errors.js';
 
@@ -26,6 +27,8 @@ interface EarthquakeRow extends QueryResultRow {
   maximumMagnitudeQ05_24h: number | null;
   maximumMagnitudeQ50_24h: number | null;
   maximumMagnitudeQ95_24h: number | null;
+  predictionSkipReason?: string | null;
+  predictionStatus?: string | null;
 }
 
 const resultColumns = `
@@ -94,6 +97,7 @@ function mapRow(row: EarthquakeRow): Earthquake {
     origin: row.origin,
     sourceUrl: row.sourceUrl,
     forecast,
+    forecastAvailability: forecastAvailability(forecast, row.predictionStatus ?? null, row.predictionSkipReason ?? null),
   };
 }
 
@@ -162,18 +166,26 @@ export class PostgresEarthquakeReader implements EarthquakeReader {
 
   async findById(eventId: string): Promise<Earthquake | null> {
     const sql = `
-      SELECT ${resultColumns}
+      SELECT ${resultColumns}, r.prediction_skip_reason AS "predictionSkipReason",
+        latest_prediction.status AS "predictionStatus"
       FROM earthquake_events e
       JOIN LATERAL (
         SELECT r.event_id, r.event_revision_id, r.event_time, r.magnitude,
           r.latitude, r.longitude, r.depth_km, r.location_description,
-          r.origin, r.source_url
+          r.origin, r.source_url, r.prediction_skip_reason
         FROM earthquake_event_revisions r
         WHERE r.event_id = e.event_id
         ORDER BY r.revision_number DESC
         LIMIT 1
       ) r ON true
       ${currentForecastJoin}
+      LEFT JOIN LATERAL (
+        SELECT j.status
+        FROM prediction_jobs j
+        WHERE j.event_revision_id = r.event_revision_id AND j.model_release_id = $1::uuid
+        ORDER BY j.requested_at DESC, j.job_id DESC
+        LIMIT 1
+      ) latest_prediction ON true
       WHERE e.event_id = $2::uuid AND e.superseded_by_event_id IS NULL`;
     const rows = await this.read<EarthquakeRow>(sql, [this.modelReleaseId, eventId]);
     return rows[0] ? mapRow(rows[0]) : null;

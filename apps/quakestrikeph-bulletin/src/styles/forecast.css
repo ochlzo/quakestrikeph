@@ -1321,6 +1321,31 @@ details[open] .disclosure-body {
   min-height: 50vh;
   padding-block: 40px;
 }
+.overview.without-forecast {
+  display: block;
+  max-width: 72ch;
+}
+.forecast-occurrence {
+  margin-top: 8px;
+  color: var(--forecast-muted);
+}
+.forecast-unavailable {
+  padding-top: 28px;
+}
+.forecast-unavailable p {
+  margin-top: 16px;
+}
+.availability-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin-top: 20px;
+}
+.availability-actions a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
 .disclaimer a {
   color: #d4eeee;
 }

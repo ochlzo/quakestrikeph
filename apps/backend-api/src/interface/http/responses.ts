@@ -33,5 +33,6 @@ export function detail(earthquake: Earthquake, now: Date) {
     origin: earthquake.origin,
     source: { provider: 'PHIVOLCS', url: earthquake.sourceUrl },
     forecast: earthquake.forecast ? { ...earthquake.forecast, expired: forecastExpired(earthquake.forecast, now) } : null,
+    forecastAvailability: earthquake.forecastAvailability,
   };
 }
