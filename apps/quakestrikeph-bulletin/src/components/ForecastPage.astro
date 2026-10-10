@@ -1,10 +1,10 @@
 ---
-import { Activity, ChevronLeft, Pause, Play, RotateCcw } from 'lucide-react';
+import { Activity, ChevronLeft, Earth, Pause, Play, RotateCcw } from 'lucide-react';
 import ForecastActivity from './ForecastActivity';
 import ForecastNavigation from './ForecastNavigation';
 import BackgroundToaster from './BackgroundToaster';
-import ForecastErrorToast from './ForecastErrorToast';
-import { Button } from './ui/button';
+import { Button, LinkButton } from './ui/button';
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from './ui/empty';
 import type { EarthquakeDetail } from '../lib/events';
 import { displayTime, likelihoodLevel, locationLabel, magnitude } from '../lib/events';
 import '../styles/globals.css';
@@ -52,6 +52,8 @@ const chanceBoxes = probabilities.map((item, index) => {
   return { ...item, ...chanceBounds };
 });
 const errorMessage = error === 'invalid' ? 'This earthquake link is invalid.' : error === 'missing' ? 'This earthquake was not found.' : 'The earthquake service is temporarily unavailable.';
+const errorTitle = error === 'invalid' ? 'Invalid earthquake link' : error === 'missing' ? 'Earthquake not found' : 'Forecast could not load';
+const canRetry = error !== 'invalid' && error !== 'missing';
 const magnitudeCopy = 'These estimates describe the largest qualifying earthquake if further activity of magnitude 1.0 or higher occurs. They do not mean an earthquake is certain.';
 const countCopy = forecast ? `The model estimates an average of ${count(forecast.expectedM1PlusCount24h)} earthquakes of magnitude 1.0 or higher during the 24-hour forecast window. The estimate can include decimals because it is an average. The actual number of earthquakes will be a whole number and may differ from the estimate.` : '';
 const radiusCopy = forecast && forecast.activityRadiusMedianKm24h !== null ? `The model estimates a typical spread of ${count(forecast.activityRadiusMedianKm24h)} km from the original earthquake’s epicenter during the 24-hour forecast window. This assumes an earthquake of magnitude 1.0 or higher occurs. Earthquakes may occur beyond this radius. The radius does not show shaking, damage, or a safe boundary.` : 'The activity radius estimate is unavailable.';
@@ -79,13 +81,20 @@ const radiusCopy = forecast && forecast.activityRadiusMedianKm24h !== null ? `Th
 </div>
 </nav>}
 <main id="forecast-content" class="shell" tabindex="-1">
-{!event || error ? <section class="forecast-empty">
-<h1>Earthquake forecast</h1>
-<p>Return to the Bulletin to choose an earthquake.</p>
-<ForecastErrorToast message={errorMessage} client:only="react" />
-<noscript>
+{!event || error ? <section aria-labelledby="forecast-error-title">
+<Empty className="forecast-empty">
+<EmptyHeader>
+<EmptyMedia><Earth size={30} strokeWidth={1.8} aria-hidden="true" /></EmptyMedia>
+<EmptyTitle><h1 id="forecast-error-title">{errorTitle}</h1></EmptyTitle>
+<EmptyDescription>
 <p>{errorMessage}</p>
-</noscript>
+<p>{canRetry ? 'Try loading this forecast again, or return to the Bulletin to choose another earthquake.' : 'Return to the Bulletin to choose an earthquake.'}</p>
+</EmptyDescription>
+</EmptyHeader>
+<EmptyContent>
+<LinkButton href={canRetry ? Astro.url.pathname : backHref}>{canRetry ? 'Try again' : 'Back to earthquakes'}</LinkButton>
+</EmptyContent>
+</Empty>
 </section> : <>
 <div class:list={['overview', { 'without-forecast': !forecast }]}>
 <section class="facts" id="main-facts" aria-labelledby="forecast-title">

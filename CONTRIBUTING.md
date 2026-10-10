@@ -53,6 +53,13 @@ pytest summary shows that integration tests ran. The fixtures migrate and
 truncate their database, so never point `TEST_DATABASE_URL` at a development
 database. The final command removes only the test project's resources.
 
+The standard `test-runner` does not mount model artifacts or install the
+prediction dependencies. It skips two real-model tests by design. These skips
+do not establish that the model bundle is missing from the host. If the approved
+`SEIS 1.0.1` bundle is available locally, also run both checks with
+[`prediction-smoke-runner`](docs/operations/local-runtime.md#real-model-integration-checks).
+Report standard integration results and real-model results separately.
+
 ## Check before every push
 
 Run checks that match your change:

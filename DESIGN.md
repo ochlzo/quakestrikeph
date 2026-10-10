@@ -163,6 +163,7 @@ These rules record the user's preferred behavior for new screens and related ref
 - Error toasts appear at the bottom right on desktop and the upper right on mobile. Use red error icons. Repeated failures from the same action reuse the existing toast.
 - Use green icons for every success toast in the shared toast component. Keep the accompanying text explicit about the completed action. Show save success only after the save succeeds; selecting a draft value is not a successful save.
 - Keep a dedicated error state when an entire map or section cannot load. Use a minimal shadcn Empty composition with Lucide's CircleX icon instead of standalone error text below the form.
+- Forecast page load failures use a persistent, server-rendered shadcn Empty composition with Lucide's Earth globe icon. Show the failure reason and a Try again button that reloads the same forecast URL. Invalid or missing earthquake links offer Back to earthquakes instead. The message and action work without JavaScript.
 - When a save fails inside an active confirmation dialog, replace the dialog content with the failure title, error message, Retry, and Cancel. Do not add a duplicate error toast.
 
 ## Do's and Don'ts

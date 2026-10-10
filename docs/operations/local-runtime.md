@@ -248,16 +248,30 @@ dispatch reaches `stopped`, and a forecast exists for that job.
 The isolated one-versus-two-replica results and reproduction details are in
 [the prediction benchmark report](../benchmarks/prediction-worker-issue-21.md).
 
-For an isolated database smoke test with the real ignored bundle, run:
+### Real-model integration checks
+
+The standard integration runner omits model artifacts and prediction
+dependencies, so it skips the two real-model tests. A skip in that runner does
+not mean the host lacks the model bundle. The `prediction-smoke-runner` installs
+the locked prediction dependencies and mounts `MODEL_ARTIFACT_HOST_DIRECTORY`
+read-only. The default host directory is the repository's `model-artifacts/`.
+It must contain `seis-1.0.1/manifest.json` and the verified weights.
+
+To run both real-model tests against the disposable database, run:
 
 ```powershell
 docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test redis-test
-docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile prediction-smoke run --build --rm prediction-smoke-runner pytest --config-file workers/pyproject.toml workers/tests/integration/test_prediction_worker.py -k test_real_seis_bundle_persists_known_forecast
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile prediction-smoke run --build --rm prediction-smoke-runner pytest --config-file workers/pyproject.toml workers/tests/integration/test_prediction_worker.py -k test_real_seis -s
 docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v
 ```
 
-To measure one versus two replicas with the real bundle, use the same isolated
-test project and replace the smoke-test command with:
+Confirm the summary shows two passed tests and no skipped tests. The checks
+verify a known persisted forecast and measure one versus two worker replicas.
+If either test skips, check the reported manifest path, host mount, and
+prediction dependencies before reporting the bundle as missing.
+
+To run only the replica benchmark, use the same isolated test project and
+replace the test command with:
 
 ```powershell
 docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile prediction-smoke run --build --rm prediction-smoke-runner pytest --config-file workers/pyproject.toml workers/tests/integration/test_prediction_worker.py -k test_real_seis_replica_benchmark -s

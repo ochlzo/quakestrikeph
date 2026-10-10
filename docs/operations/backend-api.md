@@ -53,6 +53,18 @@ The API uses the explicitly configured model release; an event whose latest
 revision has no successful forecast for that release returns `forecast: null`.
 The API does not cache rows, so committed changes appear on a later request.
 
+Use an `eventId` from the search response to check the detail path. Replace
+`<eventId>` before running this command:
+
+```bash
+curl -i 'https://quakestrikeph.qzz.io/api/v1/earthquakes/<eventId>'
+```
+
+Expect HTTP 200 with `item`, including `forecast` and `forecastAvailability`.
+A null forecast is valid. If search returns no events, use a known existing
+event ID before completing rollout verification. Search and `/healthz` do not
+check the detail query's column permissions.
+
 For a local contract check, run `npm ci` and `npm test` in `apps/backend-api`.
 The PostgreSQL query integration test runs in the isolated
 `quakestrike-data-ingestion-test` Compose project after the worker migration
@@ -78,7 +90,43 @@ To stop only this public path, run:
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml stop cloudflared traefik backend-api
 ```
 
-Leave the PostgreSQL and worker containers running. For a new Backend image,
-build and test the new Git SHA, update `BACKEND_IMAGE_TAG`, and recreate
-`backend-api` while retaining the prior image for rollback. The existing
-worker CI deploy script does not deploy this Backend.
+Leave the PostgreSQL and worker containers running. The existing worker CI
+deploy script does not deploy this Backend.
+
+## Upgrade an existing Backend
+
+Run these steps in `/srv/quakestrikeph` on the VPS. Use the tested release
+checkout after applying any required migrations. Retain the prior Backend
+image and tag for rollback.
+
+1. Set `BACKEND_IMAGE_TAG` in `.env` to the tested Git SHA.
+2. Build the new Backend image.
+
+```bash
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml build backend-api
+```
+
+3. Reapply the restricted Backend grants before replacing `backend-api`.
+
+```bash
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml exec -T postgres sh /opt/quakestrike/provision-roles.sh create-backend
+```
+
+The command updates an existing role and reports `"status":"ready"` on success.
+It grants `SELECT` on `earthquake_event_revisions.prediction_skip_reason`,
+which the forecast detail query requires. Updating the checkout or rebuilding
+the image does not update permissions stored in an existing PostgreSQL volume.
+The command also sets the role password from `BACKEND_DB_PASSWORD`; keep
+`BACKEND_DATABASE_URL` consistent with that password.
+
+4. If provisioning succeeds, replace only the Backend container.
+
+```bash
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml up -d --no-deps --wait backend-api
+```
+
+5. Run both public checks in [Verify](#verify), including the earthquake detail request.
+
+If replacement or either public check fails, restore the prior
+`BACKEND_IMAGE_TAG` and recreate only `backend-api` with the same command.
+The added read grant remains compatible with the prior Backend image.

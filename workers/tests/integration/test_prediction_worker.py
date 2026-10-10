@@ -517,9 +517,19 @@ def test_alert_dispatch_failure_rolls_back_forecast_completion(migrated_engine):
 def test_real_seis_bundle_persists_known_forecast(migrated_engine):
     artifact_directory = Path(os.environ.get("MODEL_ARTIFACT_DIRECTORY", "model-artifacts"))
     if not (artifact_directory / SELECTED_RELEASE_MANIFEST_URI).is_file():
-        pytest.skip("The ignored SEIS 1.0.1 bundle is unavailable.")
+        pytest.skip(
+            "SEIS 1.0.1 manifest is not visible at "
+            f"{artifact_directory / SELECTED_RELEASE_MANIFEST_URI}. "
+            "The standard Compose test-runner does not mount model artifacts; "
+            "use prediction-smoke-runner with the prediction-smoke profile "
+            "(docs/operations/local-runtime.md)."
+        )
     if any(importlib.util.find_spec(name) is None for name in ("catboost", "lightgbm")):
-        pytest.skip("The optional SEIS native dependencies are unavailable.")
+        pytest.skip(
+            "CatBoost or LightGBM is not installed in this test environment; "
+            "use prediction-smoke-runner with the prediction-smoke profile "
+            "(docs/operations/local-runtime.md)."
+        )
     release = load_verified_release_manifest(
         artifact_directory, SELECTED_RELEASE_MANIFEST_URI, require_selected_policy=True
     )
@@ -784,9 +794,19 @@ worker.run_prediction(Settings(_env_file=None), model=HeldModel(), hostname=name
 def test_real_seis_replica_benchmark(migrated_engine, tmp_path):
     artifact_directory = Path(os.environ.get("MODEL_ARTIFACT_DIRECTORY", "model-artifacts"))
     if not (artifact_directory / SELECTED_RELEASE_MANIFEST_URI).is_file():
-        pytest.skip("The ignored SEIS 1.0.1 bundle is unavailable.")
+        pytest.skip(
+            "SEIS 1.0.1 manifest is not visible at "
+            f"{artifact_directory / SELECTED_RELEASE_MANIFEST_URI}. "
+            "The standard Compose test-runner does not mount model artifacts; "
+            "use prediction-smoke-runner with the prediction-smoke profile "
+            "(docs/operations/local-runtime.md)."
+        )
     if any(importlib.util.find_spec(name) is None for name in ("catboost", "lightgbm")):
-        pytest.skip("The optional SEIS native dependencies are unavailable.")
+        pytest.skip(
+            "CatBoost or LightGBM is not installed in this test environment; "
+            "use prediction-smoke-runner with the prediction-smoke profile "
+            "(docs/operations/local-runtime.md)."
+        )
     release = load_verified_release_manifest(
         artifact_directory, SELECTED_RELEASE_MANIFEST_URI, require_selected_policy=True
     )

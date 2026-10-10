@@ -20,9 +20,10 @@ from that API, supports inline list and map selection, and links observations
 to their PHIVOLCS sources. Bulletin account screens, the Operations Console,
 automatic alert delivery, and production monitoring are still planned.
 
-Forecasts open at `/forecasts/<eventId>`. The URL preserves location, date,
-and magnitude filters. The return link derives the Bulletin selection from the
-event ID in the forecast path.
+Forecasts open at `/forecasts/<eventId>`. Forecast links and return links clear
+location, date, and magnitude filters. The return link derives the Bulletin
+selection from the event ID in the forecast path. Browser Back restores the
+previous Bulletin URL and its filters.
 The forecast renders before browser requests load observations and the replay.
 Invalid IDs return HTTP 400, missing earthquakes return HTTP 404, and Backend
 failures return HTTP 503. Existing `/?earthquake=<eventId>` links redirect to the

@@ -1319,7 +1319,33 @@ details[open] .disclosure-body {
 }
 .forecast-empty {
   min-height: 50vh;
-  padding-block: 40px;
+  padding: 40px 16px;
+  gap: 24px;
+}
+.forecast-empty [data-slot="empty-header"],
+.forecast-empty [data-slot="empty-content"] {
+  max-width: 48ch;
+}
+.forecast-empty [data-slot="empty-icon"] {
+  color: var(--teal);
+}
+.forecast-empty [data-slot="empty-description"] {
+  color: var(--forecast-muted);
+  font-size: 16px;
+}
+.forecast-empty [data-slot="empty-description"] p + p {
+  margin-top: 8px;
+}
+.forecast-empty [data-slot="button"] {
+  min-height: 44px;
+  padding-inline: 20px;
+  background: var(--teal);
+  color: white;
+  font-size: 15px;
+  text-decoration: none;
+}
+.forecast-empty [data-slot="button"]:hover {
+  background: color-mix(in srgb, var(--teal) 88%, black);
 }
 .overview.without-forecast {
   display: block;

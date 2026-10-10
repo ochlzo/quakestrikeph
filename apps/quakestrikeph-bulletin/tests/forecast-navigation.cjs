@@ -288,6 +288,16 @@ function release() {
       await popup.waitFor();
       await popup.getByRole('button', { name: 'Close popup', exact: true }).press('Escape');
       assert.equal(await popup.count(), 0);
+      assert.ok(await observationPin.evaluate(pin => pin === document.activeElement), 'Escape inside the popup returns focus to the inspected pin');
+      for (const name of ['Zoom in', 'Zoom out']) {
+        await observationPin.press('Enter');
+        await popup.waitFor();
+        const control = page.getByRole('button', { name, exact: true });
+        await control.click();
+        await control.press('Escape');
+        assert.equal(await popup.count(), 0, 'Escape from ' + name + ' dismisses the popup');
+        assert.ok(await control.evaluate(button => button === document.activeElement), 'Escape keeps focus on ' + name);
+      }
       await observationPin.press('Enter');
       await popup.waitFor();
       await page.locator('.maplibregl-canvas').click({ position: { x: 30, y: 170 } });

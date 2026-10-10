@@ -111,13 +111,29 @@ try {
   assert.equal(legacy.headers.get('location'), `/forecasts/${eventId}`);
   assert.equal((await nativeFetch(`${base}/?earthquake=`, { redirect: 'manual' })).headers.get('location'), '/');
   const before = details;
-  assert.match(await page('/forecasts/not-a-uuid', 400), /earthquake link is invalid/);
+  const invalid = await page('/forecasts/not-a-uuid', 400);
+  assert.match(invalid, /earthquake link is invalid/);
+  assert.match(invalid, /<h1 id="forecast-error-title">Invalid earthquake link<\/h1>/);
+  assert.doesNotMatch(invalid, /Try again/);
   assert.equal(details, before, 'Invalid IDs must not reach the Backend');
   mode = 'detail-error';
-  assert.match(await page(undefined, 404), /earthquake was not found/);
+  const missing = await page(undefined, 404);
+  assert.match(missing, /earthquake was not found/);
+  assert.match(missing, /<h1 id="forecast-error-title">Earthquake not found<\/h1>/);
+  assert.doesNotMatch(missing, /Try again/);
   for (mode of ['backend-error', 'network-error', 'timeout']) {
-    assert.match(await page(undefined, 503), /service is temporarily unavailable/);
+    const failed = await page(undefined, 503);
+    const errorState = failed.match(/<section aria-labelledby="forecast-error-title">([\s\S]*?)<\/section>/)?.[1];
+    assert.ok(errorState, 'Page load failures must have a persistent error section');
+    assert.match(errorState, /<h1 id="forecast-error-title">Forecast could not load<\/h1>/);
+    assert.match(errorState, /<p>The earthquake service is temporarily unavailable\.<\/p>/);
+    assert.match(errorState, /data-slot="empty"/);
+    assert.match(errorState, /lucide-earth/);
+    assert.match(errorState, new RegExp(`<a[^>]*href="/forecasts/${eventId}"[^>]*>Try again</a>`));
+    assert.doesNotMatch(errorState, /astro-island|noscript/, 'The error and retry action must not need JavaScript');
   }
+  mode = 'normal';
+  assert.match(await page(), /80%/, 'Reloading the same route can recover after a transient failure');
   mode = 'no-forecast';
   const noForecast = await page();
   assert.match(noForecast, /Forecast unavailable/);

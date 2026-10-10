@@ -192,15 +192,6 @@ export default function MapPanel({
     setTerrain(false);
     let disposed = false;
     const attributionListeners = new AbortController();
-    container.current.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape" || !observationPopup.current) return;
-      const { id, popup } = observationPopup.current;
-      if (popup.getElement().contains(document.activeElement)) {
-        markers.current.get(id)?.getElement().focus({ preventScroll: true });
-      }
-      popup.remove();
-      observationPopup.current = null;
-    }, { signal: attributionListeners.signal });
     loadMapRuntime()
       .then((ml) => {
         if (disposed || !container.current) return;
@@ -733,6 +724,15 @@ export default function MapPanel({
         id="earthquake-map"
         className="map-panel"
         aria-label="Earthquakes on the Philippine map"
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || !observationPopup.current) return;
+          const { id, popup } = observationPopup.current;
+          if (popup.getElement().contains(document.activeElement)) {
+            markers.current.get(id)?.getElement().focus({ preventScroll: true });
+          }
+          popup.remove();
+          observationPopup.current = null;
+        }}
       >
         {!mapReady && (
           <img
