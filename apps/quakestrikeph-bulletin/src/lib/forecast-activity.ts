@@ -17,6 +17,7 @@ export function initForecastActivity(
   const replay = get<HTMLButtonElement>("replay-handle");
   const history = get<HTMLButtonElement>("history-handle");
   const play = get<HTMLButtonElement>("play");
+  const zoom = get<HTMLButtonElement>("timeline-zoom");
   const status = get<HTMLSpanElement>("replay-load-status");
   const future = get<HTMLDivElement>("time-future");
   const nowLabel = get<HTMLTimeElement>("time-now");
@@ -28,8 +29,14 @@ export function initForecastActivity(
   // Refresh Now during interactions rather than polling during playback.
   let availableThrough = Date.now();
   let replayTime = 0, rangeStart = 0;
-  const viewSpan = 2880;
-  let firstVisibleTime = -720;
+  const zoomLevels = [360, 1440, 2880, 5760];
+  const minZoomMinutes = zoomLevels[0], maxZoomMinutes = zoomLevels[3];
+  let zoomMinutes = 1440, viewSpan = 1440;
+  let requestedZoomMinutes = zoomMinutes;
+  let zoomFrame = 0;
+  let finishZoom: (() => void) | null = null;
+  let fittedView = true;
+  let firstVisibleTime = 0;
   let canvasStart = -6480,
     width = 0;
   let timer: ReturnType<typeof setInterval> | null = null;
@@ -53,13 +60,15 @@ export function initForecastActivity(
     minute: "2-digit",
     hour12: true,
   });
+  const offsetFormat = new Intl.NumberFormat("en-PH", { maximumFractionDigits: 2 });
   const x = (minutes: number) => ((minutes - canvasStart) / viewSpan) * width;
   const viewStart = () =>
     canvasStart + (viewport.scrollLeft / width) * viewSpan;
   const nowMinutes = () => (availableThrough - start) / 60000;
   const playbackEnd = () => Math.min(endMinutes, nowMinutes());
   const rulerFraction = () => width >= 560 ? 0.75 : 0.65;
-  const latestViewStart = () => nowMinutes() - viewSpan * rulerFraction();
+  const edgeMinutes = () => 8 * viewSpan / width;
+  const latestViewStart = () => Math.max(-edgeMinutes(), nowMinutes() - viewSpan * rulerFraction());
 
   function releaseStretch() {
     if (stretchTimer !== null) clearTimeout(stretchTimer);
@@ -75,6 +84,8 @@ export function initForecastActivity(
     stretchTimer = setTimeout(releaseStretch, 120);
   }
   function panBy(pixels: number) {
+    finishZoom?.();
+    fittedView = false;
     availableThrough = Date.now();
     const limit = x(latestViewStart());
     const target = viewport.scrollLeft + pixels;
@@ -123,19 +134,22 @@ export function initForecastActivity(
     ruler.replaceChildren();
     const originHour = start / 3600000;
     // Align ticks to real Philippine clock hours, including non-midnight anchors.
-    const first = Math.ceil((originHour + canvasStart / 60 + 8) / 2) * 2;
-    const labelHours = width >= 560 ? 6 : 12;
+    const tickHours = zoomMinutes < 1440 ? 1 : 2;
+    const first = Math.ceil((originHour + canvasStart / 60 + 8) / tickHours) * tickHours;
+    const pixelsPerHour = width * 60 / viewSpan;
+    const labelHours = [1, 2, 3, 6, 12, 24, 48].find(hours => hours * pixelsPerHour >= 100) ?? 48;
+    const dateDays = Math.ceil(120 / (pixelsPerHour * 24));
     for (
       let localHour = first;
-      localHour < originHour + canvasStart / 60 + 8 + 240 &&
+      localHour < originHour + (canvasStart + viewSpan * 5) / 60 + 8 &&
         (localHour - 8) * 3600000 <= availableThrough;
-      localHour += 2
+      localHour += tickHours
     ) {
       const minutes = (localHour - 8 - originHour) * 60;
       const tick = document.createElement("span");
       tick.className = `ruler-tick${localHour % labelHours === 0 ? " major" : ""}${localHour % 24 === 0 ? " midnight" : ""}`;
       tick.style.left = `${x(minutes)}px`;
-      if (localHour % 24 === 0) {
+      if (localHour % 24 === 0 && Math.floor(localHour / 24) % dateDays === 0) {
         const label = document.createElement("span");
         label.className = "ruler-date";
         label.textContent = dateFormat.format(date(minutes));
@@ -150,7 +164,7 @@ export function initForecastActivity(
         offset.className = "ruler-offset";
         time.textContent = clock.format(date(minutes));
         const hours = minutes / 60;
-        offset.textContent = `${hours < 0 ? "−" : hours > 0 ? "+" : ""}${new Intl.NumberFormat("en-PH", { maximumFractionDigits: 2 }).format(Math.abs(hours))}h`;
+        offset.textContent = `${hours < 0 ? "−" : hours > 0 ? "+" : ""}${offsetFormat.format(Math.abs(hours))}h`;
         label.append(time, offset);
         tick.append(label);
       }
@@ -158,14 +172,94 @@ export function initForecastActivity(
     }
     render();
   }
-  function showTime(minutes: number) {
-    const first = Math.min(minutes - viewSpan * 0.25, latestViewStart());
-    firstVisibleTime = first;
-    canvasStart = first - viewSpan * 2;
+  function positionView(first: number) {
+    firstVisibleTime = Math.min(first, latestViewStart());
+    canvasStart = firstVisibleTime - viewSpan * 2;
     buildRuler();
     viewport.scrollLeft = width * 2;
   }
+  function showTime(minutes: number) {
+    finishZoom?.();
+    fittedView = false;
+    positionView(minutes - viewSpan * 0.25);
+  }
+  function updateScale(minutes = zoomMinutes) {
+    viewSpan = minutes * width / Math.max(1, width - 16);
+    const nextMinutes = zoomLevels[(zoomLevels.indexOf(zoomMinutes) + 1) % zoomLevels.length];
+    zoom.querySelector("span")!.textContent = `${zoomMinutes / 60}h view`;
+    zoom.setAttribute("aria-label", `Timeline zoom, ${zoomMinutes / 60}h view. Switch to ${nextMinutes / 60}h view.`);
+    zoom.title = `Switch to ${nextMinutes / 60}h view`;
+  }
+  function animateZoom(anchorPixels: number, anchorTime: number, fit = false) {
+    cancelAnimationFrame(zoomFrame);
+    const fromSpan = viewSpan, fromStart = viewStart();
+    const toSpan = zoomMinutes * width / Math.max(1, width - 16);
+    const toStart = fit ? -8 * toSpan / width : anchorTime - anchorPixels / width * toSpan;
+    const started = performance.now();
+    const apply = (progress: number) => {
+      viewSpan = progress === 1 ? toSpan : fromSpan * Math.pow(toSpan / fromSpan, progress);
+      positionView(fit
+        ? fromStart + (toStart - fromStart) * progress
+        : anchorTime - anchorPixels / width * viewSpan);
+    };
+    finishZoom = () => {
+      cancelAnimationFrame(zoomFrame);
+      finishZoom = null;
+      apply(1);
+    };
+    updateScale(fromSpan * Math.max(1, width - 16) / width);
+    if (reducedMotion.matches) {
+      finishZoom();
+      return;
+    }
+    const step = (time: number) => {
+      const progress = Math.min(1, (time - started) / 250);
+      if (progress === 1) {
+        finishZoom?.();
+        return;
+      }
+      apply(1 - Math.pow(2, -10 * progress));
+      zoomFrame = requestAnimationFrame(step);
+    };
+    zoomFrame = requestAnimationFrame(step);
+  }
+  function zoomTo(minutes: number, anchorPixels: number, anchorTime = viewStart() + anchorPixels / width * viewSpan) {
+    if (!width) return;
+    availableThrough = Date.now();
+    fittedView = false;
+    releaseStretch();
+    // Accumulate gesture movement before choosing a level, including small trackpad deltas.
+    requestedZoomMinutes = Math.max(minZoomMinutes, Math.min(maxZoomMinutes, minutes));
+    const next = zoomLevels.reduce((closest, duration) =>
+      Math.abs(Math.log(duration / requestedZoomMinutes)) < Math.abs(Math.log(closest / requestedZoomMinutes)) ? duration : closest);
+    if (next === zoomMinutes) return;
+    zoomMinutes = next;
+    animateZoom(anchorPixels, anchorTime);
+  }
+  function cycleZoom() {
+    const minutes = zoomLevels[(zoomLevels.indexOf(zoomMinutes) + 1) % zoomLevels.length];
+    if (minutes === endMinutes) {
+      fitForecast(true);
+      return;
+    }
+    const selectedPosition = x(replayTime) - viewport.scrollLeft;
+    zoomTo(minutes, selectedPosition >= 0 && selectedPosition <= width ? selectedPosition : width / 2);
+  }
+  function fitForecast(animate = false) {
+    availableThrough = Date.now();
+    zoomMinutes = endMinutes;
+    requestedZoomMinutes = zoomMinutes;
+    releaseStretch();
+    if (animate) animateZoom(0, 0, true);
+    else {
+      finishZoom?.();
+      updateScale();
+      positionView(-edgeMinutes());
+    }
+    fittedView = true;
+  }
   function keepInView() {
+    if (finishZoom) return;
     const first = viewStart();
     if (
       replayTime < first + viewSpan * 0.08 ||
@@ -287,6 +381,8 @@ export function initForecastActivity(
     loadTimer = setTimeout(() => requestObservations(), 150);
   }
   const dragFrames = new Set<number>();
+  const cancelDrags: (() => void)[] = [];
+  let pinch: { distance: number; minutes: number; time: number } | null = null;
   for (const handle of [replay, history]) {
     let pointer: number | null = null,
       lastX = 0,
@@ -310,8 +406,9 @@ export function initForecastActivity(
     handle.addEventListener(
       "pointerdown",
       (event) => {
-        if (event.button !== 0) return;
+        if (event.button !== 0 || pinch) return;
         event.preventDefault();
+        finishZoom?.();
         pointer = event.pointerId;
         lastX = event.clientX;
         offset =
@@ -340,6 +437,7 @@ export function initForecastActivity(
       cancelAnimationFrame(frame);
       dragFrames.delete(frame);
     };
+    cancelDrags.push(endDrag);
     for (const name of ["pointerup", "pointercancel", "lostpointercapture"])
       handle.addEventListener(name, endDrag, options);
     handle.addEventListener(
@@ -378,11 +476,12 @@ export function initForecastActivity(
     "pointerdown",
     (event) => {
       if (
-        event.button !== 0 ||
+        event.button !== 0 || pinch ||
         (event.target as Element).closest("button")
       )
         return;
       if (event.pointerType === "mouse") event.preventDefault();
+      finishZoom?.();
       panPointer = event.pointerId;
       panX = event.clientX;
       viewport.setPointerCapture(panPointer);
@@ -393,7 +492,7 @@ export function initForecastActivity(
   viewport.addEventListener(
     "pointermove",
     (event) => {
-      if (event.pointerId !== panPointer) return;
+      if (event.pointerId !== panPointer || pinch) return;
       panBy(panX - event.clientX);
       panX = event.clientX;
     },
@@ -409,9 +508,42 @@ export function initForecastActivity(
       },
       options,
     );
+  const touchGeometry = (touches: TouchList) => {
+    const first = touches[0], second = touches[1];
+    return {
+      distance: Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY),
+      midpoint: (first.clientX + second.clientX) / 2 - viewport.getBoundingClientRect().left - viewport.clientLeft,
+    };
+  };
+  viewport.addEventListener("touchstart", (event) => {
+    if (event.touches.length !== 2) return;
+    event.preventDefault();
+    cancelDrags.forEach(cancel => cancel());
+    panPointer = null;
+    viewport.classList.remove("is-dragging");
+    const { distance, midpoint } = touchGeometry(event.touches);
+    pinch = { distance: Math.max(1, distance), minutes: viewSpan * Math.max(1, width - 16) / width, time: viewStart() + midpoint / width * viewSpan };
+  }, { ...options, passive: false });
+  viewport.addEventListener("touchmove", (event) => {
+    if (!pinch || event.touches.length !== 2) return;
+    event.preventDefault();
+    const { distance, midpoint } = touchGeometry(event.touches);
+    zoomTo(pinch.minutes * pinch.distance / Math.max(1, distance), midpoint, pinch.time);
+  }, { ...options, passive: false });
+  for (const name of ["touchend", "touchcancel"] as const)
+    viewport.addEventListener(name, (event) => {
+      if (event.touches.length < 2) pinch = null;
+    }, options);
   viewport.addEventListener(
     "wheel",
     (event) => {
+      if (event.ctrlKey) {
+        event.preventDefault();
+        const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? width : 1;
+        zoomTo(requestedZoomMinutes * Math.exp(Math.max(-1, Math.min(1, event.deltaY * unit * 0.003))),
+          Math.max(0, Math.min(width, event.clientX - viewport.getBoundingClientRect().left - viewport.clientLeft)));
+        return;
+      }
       if (!event.deltaX && !event.shiftKey) return;
       event.preventDefault();
       const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? width : 1;
@@ -460,10 +592,15 @@ export function initForecastActivity(
     options,
   );
   const resize = new ResizeObserver(() => {
+    finishZoom?.();
     width = viewport.clientWidth;
-    if (width) showTime(firstVisibleTime + viewSpan * 0.25);
+    if (!width) return;
+    updateScale();
+    if (fittedView) fitForecast();
+    else positionView(firstVisibleTime);
   });
   resize.observe(viewport);
+  zoom.addEventListener("click", cycleZoom, options);
   play.addEventListener(
     "click",
     () => {
@@ -490,13 +627,19 @@ export function initForecastActivity(
   document.addEventListener(
     "visibilitychange",
     () => {
-      if (document.hidden) setPlaying(false);
+      if (document.hidden) {
+        finishZoom?.();
+        setPlaying(false);
+      }
     },
     options,
   );
   window.addEventListener("pagehide", () => setPlaying(false), options);
   reducedMotion.addEventListener("change", () => {
-    if (reducedMotion.matches) releaseStretch();
+    if (reducedMotion.matches) {
+      finishZoom?.();
+      releaseStretch();
+    }
   }, options);
   void cache
     .ensure(start, start + 86400000 - 1, availableThrough)
@@ -520,6 +663,8 @@ export function initForecastActivity(
     resize.disconnect();
     if (loadTimer !== null) clearTimeout(loadTimer);
     releaseStretch();
+    cancelAnimationFrame(zoomFrame);
+    finishZoom = null;
     dragFrames.forEach((frame) => cancelAnimationFrame(frame));
   };
 }

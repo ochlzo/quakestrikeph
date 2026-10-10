@@ -1,8 +1,10 @@
 ---
 import { Activity, ChevronLeft, Pause, Play, RotateCcw } from 'lucide-react';
 import ForecastActivity from './ForecastActivity';
+import ForecastNavigation from './ForecastNavigation';
 import BackgroundToaster from './BackgroundToaster';
 import ForecastErrorToast from './ForecastErrorToast';
+import { Button } from './ui/button';
 import type { EarthquakeDetail } from '../lib/events';
 import { displayTime, likelihoodLevel, locationLabel, magnitude } from '../lib/events';
 import '../styles/globals.css';
@@ -60,10 +62,7 @@ const radiusCopy = forecast && forecast.activityRadiusMedianKm24h !== null ? `Th
 </header>
 {event && forecast && <nav class="navigation" aria-label="Forecast sections">
 <div class="shell">
-<a href="#main-facts" aria-current="location">Main facts</a>
-<a href="#activity-map">Activity map</a>
-<a href="#forecast-details">Forecast details</a>
-<a href="#disclaimer">Disclaimer</a>
+<ForecastNavigation client:load />
 </div>
 </nav>}
 <main id="forecast-content" class="shell" tabindex="-1">
@@ -227,6 +226,7 @@ return <>
 <button class="replay-control" id="reset" aria-label="Restart at forecast start" title="Restart at forecast start">
 <RotateCcw aria-hidden="true" />
 </button>
+<Button variant="outline" className="replay-zoom" id="timeline-zoom" aria-label="Timeline zoom, 24h view. Switch to 48h view."><span>24h view</span></Button>
 </div>
         </div>
 <span class="replay-load-status" id="replay-load-status" role="status">Loading observations…</span>
@@ -240,15 +240,10 @@ return <>
 {forecast && <section class="details-section" id="forecast-details" aria-labelledby="details-title">
 <div class="details-intro">
 <h2 id="details-title">Understand the forecast</h2>
-<span>What the estimates mean and how to read them</span>
 </div>
-<div class="tablist" role="tablist" aria-label="Forecast explanations">{['Chance and count', 'Magnitude', 'Area'].map((label,index) => <button class="tab" id={'tab-' + index} role="tab" aria-selected={index === 0 ? 'true' : 'false'} aria-controls={'forecast-panel-' + ['activity','magnitude','area'][index]} tabindex={index === 0 ? 0 : -1}>{label}</button>)}<span class="tab-indicator" aria-hidden="true">
-</span>
-</div>
-<div class="tab-panel" id="forecast-panel-activity" role="tabpanel" aria-labelledby="tab-0" tabindex="0">
-<div class="panel-columns visual-columns activity-columns">
-<div>
-<h3>Chance of at least one earthquake</h3>
+<section class="explanation-section" id="forecast-panel-activity" aria-labelledby="chance-title">
+<h3 id="chance-title">Chance of at least one earthquake</h3>
+<div class="panel-columns">
 <div class="visual chance-visual">
 <svg class="chance-chart" viewBox="0 0 416 296" role="img" aria-label={'Chance of at least one earthquake during the same 24-hour period: ' + probabilities.map(item => `magnitude ${item.threshold} or higher, ${percent(item.value)}`).join('; ')}>
 {chanceBoxes.map((box, index) => <g class={'chance-tier-' + index}>
@@ -260,14 +255,16 @@ return <>
 {probabilities.map((item, index) => <li><span class={'chance-swatch chance-tier-' + index} aria-hidden="true" /><span>Magnitude {item.threshold} or higher</span></li>)}
 </ul>
 </div>
-<div class="chance-explanation">
+<div class="explanation-copy">
 <p>Each percentage shows the chance of at least one earthquake of that magnitude or higher during the same 24-hour period.</p>
 <p>Earthquakes of magnitude 5.0 or higher also count toward the chances for magnitude 4.0 and 1.0 or higher. The chances overlap, so do not add the percentages together.</p>
 <p>These are estimates. Even a high chance does not mean an earthquake is certain, and a low chance does not rule one out.</p>
 </div>
 </div>
-<div>
-<h3>Expected number of earthquakes</h3>
+</section>
+<section class="explanation-section" id="forecast-count" aria-labelledby="count-title">
+<h3 id="count-title">Expected number of earthquakes</h3>
+<div class="panel-columns">
 <div class="visual count-visual">
 <div class="count-ruler" role="img" aria-label={`Estimated average: ${count(expectedCount)} earthquakes of magnitude 1.0 or higher during the 24-hour forecast window.`}>
 <div class="count-reading" style={`left: ${countPosition}%; transform: translateX(${countPosition < 25 ? '0' : countPosition > 75 ? '-100%' : '-50%'});`} aria-hidden="true">
@@ -283,14 +280,14 @@ return <>
 </div>
 <span>Magnitude 1.0 or higher · 24-hour window</span>
 </div>
+<div class="explanation-copy">
 <p>The model estimates an average of {count(expectedCount)} earthquakes during this 24-hour period. Actual earthquakes occur in whole numbers, so the total could be lower or higher.</p>
 </div>
 </div>
-</div>
-<div class="tab-panel" id="forecast-panel-magnitude" role="tabpanel" aria-labelledby="tab-1" tabindex="0" hidden>
-<div class="panel-columns visual-columns">
-<div>
-<h3>Largest earthquake magnitude</h3>
+</section>
+<section class="explanation-section" id="forecast-panel-magnitude" aria-labelledby="magnitude-title">
+<h3 id="magnitude-title">Largest earthquake magnitude</h3>
+<div class="panel-columns">
 <div class="visual magnitude-visual">
 {magnitudeEstimates.length === 3 ? <div class="magnitude-ruler" role="img" aria-label={`Largest earthquake magnitude estimates: lower ${magnitude(magnitudeEstimates[0])}, middle ${magnitude(magnitudeEstimates[1])}, upper ${magnitude(magnitudeEstimates[2])}. These estimates apply if further activity of magnitude 1.0 or higher occurs during the 24-hour forecast window.`}>
 <div class="magnitude-reading magnitude-middle" style={`left: ${magnitudeMiddlePosition}%;`} aria-hidden="true">
@@ -307,9 +304,8 @@ return <>
 <div class="magnitude-bounds" aria-hidden="true">{[0, 2].map(index => <div class="magnitude-bound"><strong>{magnitude(magnitudeEstimates[index])}</strong><span>{index === 0 ? 'Lower estimate' : 'Upper estimate'}</span></div>)}</div>
 </div> : <p>The magnitude estimates are unavailable.</p>}
 </div>
-</div>
-<div>
-<h3>What the estimates tell you</h3>
+<div class="explanation-copy">
+<h4>What the estimates tell you</h4>
 {magnitudeEstimates.length === 3 ? <>
 <p>If further earthquakes of magnitude 1.0 or higher occur during the 24-hour period, the model’s middle estimate for the largest is magnitude {magnitudeEstimates[1].toFixed(1)}.</p>
 <p>The lower estimate of {magnitudeEstimates[0].toFixed(1)} and upper estimate of {magnitudeEstimates[2].toFixed(1)} show uncertainty around that estimate. The largest earthquake could fall outside these values.</p>
@@ -317,11 +313,11 @@ return <>
 </> : <p>{magnitudeCopy}</p>}
 </div>
 </div>
-</div>
-<div class="tab-panel" id="forecast-panel-area" role="tabpanel" aria-labelledby="tab-2" tabindex="0" hidden>
-<div class="panel-columns visual-columns">
-<div>
-<h3>Distance from the observed earthquake</h3>{forecast.activityRadiusMedianKm24h === null ? <div class="visual">
+</section>
+<section class="explanation-section" id="forecast-panel-area" aria-labelledby="area-title">
+<h3 id="area-title">Distance from the observed earthquake</h3>
+<div class="panel-columns">
+{forecast.activityRadiusMedianKm24h === null ? <div class="visual">
 <p>The activity radius is unavailable.</p>
 </div> : <div class="visual area-visual">
 <svg viewBox="0 0 300 300" role="img" aria-label={'Conceptual radius diagram: ' + count(forecast.activityRadiusMedianKm24h) + ' kilometres from the original earthquake’s epicenter to the dashed boundary; not a geographic map'}>
@@ -335,15 +331,14 @@ return <>
 </div>
 <span class="area-origin">Original earthquake’s epicenter</span>
 </div>}
-</div>
-<div>
-<h3>What the radius means</h3>
+<div class="explanation-copy">
+<h4>What the radius means</h4>
 <p>If further earthquakes of magnitude 1.0 or higher occur during the 24-hour period, the model estimates their typical spread from the original earthquake’s epicenter.</p>
 {forecast.activityRadiusMedianKm24h !== null && <p>The estimated radius is <strong>{count(forecast.activityRadiusMedianKm24h)} km</strong>. Further earthquakes may occur beyond this distance.</p>}
 <p>This radius does not show how far shaking reaches, where damage occurs, or where people are safe.</p>
 </div>
 </div>
-</div>
+</section>
 </section>}
 </>}
 </main>

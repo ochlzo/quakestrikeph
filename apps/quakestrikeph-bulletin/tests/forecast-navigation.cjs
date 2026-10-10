@@ -75,7 +75,7 @@ function release() {
     browser = await chromium.launch({ channel: 'msedge', headless: true,
       args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
     for (const viewport of [{ width: 1440, height: 900 }, { width: 384, height: 844 }, { width: 320, height: 844 }]) {
-      const page = await browser.newPage({ viewport, reducedMotion: 'reduce' });
+      const page = await browser.newPage({ viewport, reducedMotion: 'reduce', hasTouch: viewport.width < 760 });
       page.on('pageerror', error => errors.push(error.stack));
       await page.route('https://tiles.openfreemap.org/**', route => route.fulfill({ json: mapStyle }));
       const params = new URLSearchParams({ q: 'Test', date: 'custom', from: '2026-09-30T16:00:00.000Z',
@@ -120,6 +120,100 @@ function release() {
       assert.equal(await page.locator('[data-activity-play]').isDisabled(), true);
       release();
       await page.waitForFunction(() => !document.querySelector('[data-activity-play]')?.disabled);
+      await page.waitForFunction(() => !document.querySelector('.navigation astro-island[ssr]'));
+      const navigation = page.getByRole('tablist', { name: 'Forecast sections' });
+      assert.equal(await navigation.getAttribute('data-slot'), 'tabs-list');
+      assert.equal(await navigation.getByRole('tab').count(), viewport.width < 760 ? 4 : 3);
+      assert.equal(await navigation.getByRole('tab', { name: 'Activity map' }).isVisible(), viewport.width < 760);
+      const detailsTab = navigation.getByRole('tab', { name: 'Forecast details' });
+      await detailsTab.click();
+      await page.waitForFunction(() => document.querySelector('.navigation [href="#forecast-details"]')?.getAttribute('aria-selected') === 'true');
+      assert.equal(new URL(page.url()).hash, '#forecast-details');
+      assert.equal(await page.locator('#main-facts').isVisible(), true, 'Tab navigation keeps every section rendered');
+      assert.equal(await navigation.evaluate(element => {
+        const selected = element.querySelector('[data-selected]').getBoundingClientRect();
+        const list = element.getBoundingClientRect();
+        const highlight = getComputedStyle(element, '::before');
+        const shift = new DOMMatrixReadOnly(highlight.transform).m41;
+        return Math.abs(list.left + parseFloat(highlight.left) + shift - selected.left) < 1
+          && Math.abs(parseFloat(highlight.width) - selected.width) < 1
+          && highlight.transitionDuration === '0s';
+      }), true, 'The sliding highlight aligns with the active tab and respects reduced motion');
+      await detailsTab.press('ArrowRight');
+      await navigation.getByRole('tab', { name: 'Disclaimer' }).press('Enter');
+      await page.waitForFunction(() => document.querySelector('.navigation [href="#disclaimer"]')?.getAttribute('aria-selected') === 'true');
+      assert.equal(new URL(page.url()).hash, '#disclaimer');
+      await page.locator('#main-facts').evaluate(element => element.scrollIntoView());
+      await page.waitForFunction(() => document.querySelector('.navigation [href="#main-facts"]')?.getAttribute('aria-selected') === 'true');
+      if (viewport.width < 760) {
+        await navigation.getByRole('tab', { name: 'Activity map' }).click();
+        await page.waitForFunction(() => document.querySelector('.navigation [href="#activity-map"]')?.getAttribute('aria-selected') === 'true');
+      }
+      await navigation.getByRole('tab', { name: 'Main facts' }).click();
+      await page.waitForFunction(() => document.querySelector('.navigation [href="#main-facts"]')?.getAttribute('aria-selected') === 'true');
+      await page.emulateMedia({ reducedMotion: 'no-preference' });
+      await page.evaluate(() => {
+        window.sectionSelections = [];
+        new MutationObserver(() => {
+          const selected = document.querySelector('.navigation [aria-selected="true"]');
+          if (selected) window.sectionSelections.push(selected.getAttribute('href'));
+        }).observe(document.querySelector('.navigation'), { subtree: true, attributes: true, attributeFilter: ['aria-selected'] });
+      });
+      async function waitForSection(id) {
+        await page.waitForFunction(id => {
+          const section = document.getElementById(id);
+          const target = Math.max(0, Math.min(document.documentElement.scrollHeight - innerHeight,
+            scrollY + section.getBoundingClientRect().top - parseFloat(getComputedStyle(section).scrollMarginTop)));
+          return Math.abs(scrollY - target) < 1;
+        }, id);
+        await page.waitForTimeout(180);
+      }
+      const destinations = viewport.width < 760
+        ? ['disclaimer', 'main-facts', 'forecast-details', 'activity-map', 'main-facts']
+        : ['disclaimer', 'main-facts', 'forecast-details', 'main-facts'];
+      for (const id of destinations) {
+        await page.evaluate(() => { window.sectionSelections = []; });
+        await navigation.locator(`[href="#${id}"]`).click();
+        await waitForSection(id);
+        assert.deepEqual(await page.evaluate(() => [...new Set(window.sectionSelections)]), [`#${id}`],
+          `Smooth navigation to ${id} never selects intervening sections`);
+      }
+      await navigation.getByRole('tab', { name: 'Disclaimer' }).click();
+      await page.waitForFunction(() => scrollY > 100 && document.querySelector('#forecast-details').getBoundingClientRect().top > 84);
+      await page.evaluate(() => { window.sectionSelections = []; });
+      await navigation.getByRole('tab', { name: 'Forecast details' }).click();
+      await waitForSection('forecast-details');
+      assert.deepEqual(await page.evaluate(() => [...new Set(window.sectionSelections)]), ['#forecast-details'], 'A repeated click replaces the scroll destination');
+      await navigation.getByRole('tab', { name: 'Main facts' }).click();
+      await waitForSection('main-facts');
+      await navigation.getByRole('tab', { name: 'Disclaimer' }).press('Enter');
+      await page.waitForFunction(() => scrollY > 100 && document.querySelector('#forecast-details').getBoundingClientRect().top > 84);
+      if (viewport.width < 760) await page.touchscreen.tap(10, 200);
+      else {
+        await page.mouse.move(10, 200);
+        await page.mouse.wheel(0, -200);
+      }
+      await page.waitForFunction(() => document.querySelector('.navigation [href="#disclaimer"]')?.getAttribute('aria-selected') === 'false');
+      await navigation.getByRole('tab', { name: 'Main facts' }).click();
+      await waitForSection('main-facts');
+      await navigation.getByRole('tab', { name: 'Disclaimer' }).click();
+      await page.waitForFunction(() => scrollY > 100 && document.querySelector('#forecast-details').getBoundingClientRect().top > 84);
+      await page.keyboard.press('PageUp');
+      await page.waitForFunction(() => document.querySelector('.navigation [href="#disclaimer"]')?.getAttribute('aria-selected') === 'false');
+      await navigation.getByRole('tab', { name: 'Main facts' }).click();
+      await waitForSection('main-facts');
+      await navigation.getByRole('tab', { name: 'Main facts' }).click();
+      await page.waitForTimeout(180);
+      await page.locator('#forecast-details').evaluate(element => element.scrollIntoView({ behavior: 'instant' }));
+      await page.waitForFunction(() => document.querySelector('.navigation [href="#forecast-details"]')?.getAttribute('aria-selected') === 'true');
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await navigation.getByRole('tab', { name: 'Main facts' }).click();
+      await waitForSection('main-facts');
+      assert.equal(await page.locator('#time-viewport').evaluate(element => {
+        const band = document.querySelector('#forecast-band');
+        const left = parseFloat(band.style.left) - element.scrollLeft;
+        return Math.abs(left - 8) < 1 && Math.abs(element.clientWidth - left - parseFloat(band.style.width) - 8) < 1;
+      }), true, 'The default view fits the forecast with 8px on each edge');
       await page.locator('.maplibregl-canvas').waitFor();
       assert.ok(await page.locator('.map-panel').evaluate(element => element.clientHeight >= 300));
       assert.equal(await page.getByRole('button', { name: 'Zoom in', exact: true }).count(), 1);
@@ -226,10 +320,105 @@ function release() {
       assert.equal(await page.locator('#reset .lucide-rotate-ccw').count(), 1);
       assert.equal(searches.filter(criteria => criteria.limit === 100).length, requestCount, 'Play within cached time does not fetch');
       assert.equal(await page.locator('#play-icon').isVisible(), true);
-      await page.getByRole('tab', { name: 'Magnitude', exact: true }).click();
-      assert.match(await page.locator('#forecast-panel-magnitude').textContent(), /Lower estimate.*M1\.0.*Middle estimate.*M2\.0.*Upper estimate.*M4\.0/s);
-      await page.getByRole('tab', { name: 'Magnitude', exact: true }).press('ArrowLeft');
-      assert.equal(await page.getByRole('tab', { name: 'Chance and count', exact: true }).getAttribute('aria-selected'), 'true');
+      assert.equal(await page.locator('#forecast-details').getByRole('tab').count(), 0, 'Forecast explanations have no tabs');
+      const explanations = page.locator('#forecast-details .explanation-section');
+      assert.equal(await explanations.count(), 4, 'Chance, count, magnitude, and area have separate sections');
+      for (const section of await explanations.all()) {
+        assert.equal(await section.isVisible(), true, 'Every explanation is visible without selecting a tab');
+        assert.equal(await section.locator('.panel-columns').evaluate(element =>
+          getComputedStyle(element).gridTemplateColumns.split(' ').length), viewport.width > 760 ? 2 : 1,
+        'Each section pairs its graphic and text on desktop and stacks them on mobile');
+      }
+      assert.match(await page.locator('#forecast-panel-magnitude .magnitude-ruler').getAttribute('aria-label'),
+        /lower M1\.0, middle M2\.0, upper M4\.0/);
+      const timeline = page.locator('#time-viewport');
+      const zoom = page.locator('#timeline-zoom');
+      assert.equal(await zoom.getAttribute('data-slot'), 'button', 'Timeline zoom uses the shared shadcn Button');
+      assert.equal(await zoom.getAttribute('data-variant'), 'outline');
+      assert.equal(await zoom.getAttribute('data-size'), 'default', 'The zoom button uses the shared text size');
+      assert.equal(await page.locator('.replay-zoom').count(), 1, 'One view button replaces the three zoom controls');
+      assert.equal(await zoom.textContent(), '24h view', 'The default zoom level is 2');
+      const fit = async () => {
+        for (let index = 0; index < 4; index++) {
+          await zoom.click();
+          if (await zoom.textContent() === '24h view') return;
+        }
+        assert.fail('The zoom cycle must return to level 2 within four clicks');
+      };
+      const geometry = () => timeline.evaluate(element => {
+        const labels = [...document.querySelectorAll('.ruler-offset')].slice(0, 2);
+        const hours = label => Number(label.textContent.replace('−', '-').replace('h', ''));
+        const position = label => parseFloat(label.closest('.ruler-tick').style.left);
+        return {
+          width: element.clientWidth,
+          hourWidth: (position(labels[1]) - position(labels[0])) / (hours(labels[1]) - hours(labels[0])),
+          bandWidth: parseFloat(document.querySelector('#forecast-band').style.width),
+          bandLeft: parseFloat(document.querySelector('#forecast-band').style.left) - element.scrollLeft,
+          selected: parseFloat(document.querySelector('#replay-handle').style.transform.match(/translate3d\(([-\d.]+)/)[1]) + 22 - element.scrollLeft,
+        };
+      });
+      await fit();
+      const fitted = await geometry();
+      assert.ok(Math.abs(fitted.bandLeft - 8) < 1, 'The forecast starts 8px from the ruler edge');
+      assert.ok(Math.abs(fitted.width - fitted.bandLeft - fitted.bandWidth - 8) < 1, 'The forecast ends 8px from the ruler edge');
+      const selectedTime = await page.locator('#replay-handle').getAttribute('aria-label');
+      const rangeTime = await rangeStartHandle.getAttribute('aria-label');
+      for (const [level, hours] of [[3, 48], [4, 96], [1, 6], [2, 24]]) {
+        await zoom.click();
+        assert.equal(await zoom.textContent(), `${hours}h view`, 'Clicking advances the level and wraps 4 to 1');
+        assert.match(await zoom.getAttribute('aria-label'), new RegExp(`Timeline zoom, ${hours}h view`));
+        assert.ok(Math.abs((await geometry()).hourWidth / fitted.hourWidth - 24 / hours) < 0.01);
+        if (level !== 2) assert.ok(Math.abs((await geometry()).selected - fitted.selected) < 1, 'Button zoom keeps the selected time in place');
+      }
+      assert.ok(Math.abs((await geometry()).bandLeft - 8) < 1, 'Returning to level 2 fits the original forecast');
+      assert.equal(await page.locator('#replay-handle').getAttribute('aria-label'), selectedTime);
+      assert.equal(await rangeStartHandle.getAttribute('aria-label'), rangeTime);
+      await fit();
+      const rect = await timeline.boundingBox();
+      for (let index = 0; index < 30; index++)
+        await timeline.dispatchEvent('wheel', { ctrlKey: true, deltaY: -10, clientX: rect.x + rect.width / 2 });
+      assert.ok((await geometry()).hourWidth > fitted.hourWidth, 'Ctrl-wheel zooms the ruler');
+      assert.equal(await zoom.textContent(), '6h view', 'Small wheel deltas accumulate and update the view button');
+      for (let index = 0; index < 4; index++)
+        await timeline.dispatchEvent('wheel', { ctrlKey: true, deltaY: 1000, clientX: rect.x + rect.width / 2 });
+      assert.equal(await zoom.textContent(), '96h view', 'Ctrl-wheel obeys the zoom-out limit');
+      assert.ok(Math.abs((await geometry()).hourWidth / fitted.hourWidth - 0.25) < 0.01);
+      for (let index = 0; index < 4; index++)
+        await timeline.dispatchEvent('wheel', { ctrlKey: true, deltaY: -1000, clientX: rect.x + rect.width / 2 });
+      assert.equal(await zoom.textContent(), '6h view', 'Ctrl-wheel obeys the zoom-in limit');
+      assert.ok(Math.abs((await geometry()).hourWidth / fitted.hourWidth - 4) < 0.01);
+      await fit();
+      if (viewport.width < 760) {
+        const client = await page.context().newCDPSession(page);
+        const center = rect.x + rect.width / 2;
+        const points = distance => [
+          { id: 1, x: center - distance / 2, y: rect.y + 180 },
+          { id: 2, x: center + distance / 2, y: rect.y + 180 },
+        ];
+        await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: points(80) });
+        await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: points(240) });
+        assert.equal(await zoom.textContent(), '6h view', 'Spreading two fingers selects level 1');
+        assert.ok(Math.abs((await geometry()).hourWidth / fitted.hourWidth - 4) < 0.02, 'Spreading two fingers zooms in');
+        await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: points(20) });
+        assert.equal(await zoom.textContent(), '96h view', 'Pinching inward reaches level 4');
+        assert.ok(Math.abs((await geometry()).hourWidth / fitted.hourWidth - 0.25) < 0.01);
+        await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: points(300) });
+        assert.ok((await geometry()).hourWidth <= fitted.hourWidth * 4 + 1, 'Pinch obeys the six-hour limit');
+        assert.equal(await zoom.textContent(), '6h view');
+        await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        assert.equal(await page.evaluate(() => visualViewport.scale), 1, 'Pinch changes the ruler rather than browser zoom');
+        assert.equal(await page.locator('#replay-handle').getAttribute('aria-label'), selectedTime);
+        assert.equal(await rangeStartHandle.getAttribute('aria-label'), rangeTime);
+        await client.detach();
+        await fit();
+      }
+      await page.getByRole('button', { name: 'Play replay', exact: true }).click();
+      await zoom.press('Space');
+      assert.equal(await zoom.textContent(), '48h view', 'The view button supports keyboard activation');
+      assert.equal(await page.locator('#play').getAttribute('aria-pressed'), 'true', 'Zoom preserves active playback');
+      await fit();
+      assert.equal(await page.locator('#play').getAttribute('aria-pressed'), 'true', 'Fit preserves active playback');
+      await page.getByRole('button', { name: 'Pause replay', exact: true }).click();
       await page.getByRole('button', { name: 'Magnitude 1.0 or higher', exact: false }).click();
       await page.getByRole('button', { name: 'Magnitude 4.0 or higher', exact: false }).click();
       assert.equal(await page.locator('#explain-m1').isVisible(), false);
