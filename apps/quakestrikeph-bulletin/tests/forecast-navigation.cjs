@@ -92,7 +92,7 @@ function release() {
         await page.locator('.selected-card').waitFor();
         assert.equal(await page.getByRole('textbox', { name: 'Search by location' }).inputValue(), 'Test');
         assert.match(await page.locator('.date-filter-trigger').textContent(), /Oct 1.*Oct 2/);
-        assert.match(await page.locator('[data-slot="combobox-chip"]').textContent(), /M3.0/);
+        assert.match(await page.locator('.magnitude-filter-value').textContent(), /M3.0/);
         const url = new URL(page.url());
         assert.equal(url.searchParams.get('selected'), eventId);
         assert.equal(url.searchParams.get('from'), params.get('from'));
@@ -104,7 +104,7 @@ function release() {
         await page.locator('.selected-card').waitFor();
         assert.equal(await page.getByRole('textbox', { name: 'Search by location' }).inputValue(), '');
         assert.match(await page.locator('.date-filter-trigger').textContent(), /All dates/);
-        assert.equal(await page.locator('[data-slot="combobox-chip"]').count(), 0);
+        assert.equal(await page.locator('.magnitude-filter-value').textContent(), 'All magnitudes');
         assert.equal(new URL(page.url()).search, `?selected=${eventId}`);
       }
       await page.goto(listUrl);

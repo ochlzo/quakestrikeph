@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "./ui/toast";
 import { parseDate, today } from "@internationalized/date";
 import { Dialog, type DateValue, type RangeValue } from "react-aria-components";
 import {
   ArrowRight,
-  Calendar,
   ChevronRight,
   ChevronsUpDown,
   ListCollapse,
@@ -76,9 +75,10 @@ function formatCalendarDate(date: DateValue, year = true) {
   );
 }
 
-function formatCalendarRange(range: RangeValue<DateValue>) {
+function formatCalendarRange(range: RangeValue<DateValue>, year = true) {
   const { start, end } = range;
-  if (start.compare(end) === 0) return formatCalendarDate(start);
+  if (start.compare(end) === 0) return formatCalendarDate(start, year);
+  if (!year) return `${formatCalendarDate(start, false)} - ${formatCalendarDate(end, false)}`;
   if (start.year !== end.year) {
     return `${formatCalendarDate(start)} - ${formatCalendarDate(end)}`;
   }
@@ -90,6 +90,38 @@ function phtDayBoundary(date: DateValue, nextDay = false) {
     Date.UTC(date.year, date.month - 1, date.day + Number(nextDay)) -
       8 * 60 * 60 * 1000,
   ).toISOString();
+}
+
+function DateFilterText({ text, compactText = text }: { text: string; compactText?: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [compact, setCompact] = useState(false);
+
+  useLayoutEffect(() => {
+    const label = ref.current;
+    const field = label?.parentElement?.parentElement;
+    if (!label || !field) return;
+    let active = true;
+
+    const fit = () => {
+      if (!active || !field.clientWidth) return;
+      setCompact(label.getBoundingClientRect().width > field.clientWidth);
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(field);
+    void document.fonts.ready.then(fit);
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [text]);
+
+  return (
+    <span className="filter-value-text" title={text}>
+      <span ref={ref} className="absolute invisible pointer-events-none" aria-hidden="true">{text}</span>
+      {compact ? compactText : text}
+    </span>
+  );
 }
 
 export default function Bulletin({ initialResults = null, initialState = { query: '', date: { value: 'all' }, magnitudes: [], selectedId: null } }: {
@@ -525,16 +557,13 @@ export default function Bulletin({ initialResults = null, initialState = { query
           ref={dateSelectTrigger}
           className="filter-select-trigger date-filter-trigger"
         >
-          <Calendar
-            className="filter-select-icon size-5"
-            aria-hidden="true"
-          />
-          <SelectValue>
-            {({ defaultChildren }) =>
-              dateFilter.value === "custom"
+          <SelectValue className="filter-scroll-value">
+            {() => (
+              <DateFilterText text={dateFilter.value === "custom"
                 ? formatCalendarRange(customRange)
-                : defaultChildren
-            }
+                : dateOptions.find((option) => option.value === dateFilter.value)?.label ?? "All dates"}
+                compactText={dateFilter.value === "custom" ? formatCalendarRange(customRange, false) : undefined} />
+            )}
           </SelectValue>
         </SelectTrigger>
         <SelectContent className="date-filter-popover">
