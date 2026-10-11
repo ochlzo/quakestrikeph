@@ -1328,17 +1328,36 @@ def test_prediction_freezes_forecast_content_for_both_channels(migrated_engine):
     with migrated_engine.connect() as connection:
         alert = connection.execute(text("SELECT * FROM alert_jobs")).mappings().one()
         event_id = connection.scalar(select(earthquake_events.c.event_id))
+        forecast = connection.execute(select(forecasts)).one()
     assert "Chance of further M1.0+ activity:" in alert["message_snapshot"]
     assert (
         "View current forecast: https://quakestrikeph.qzz.io/forecasts/" + str(event_id)
         in alert["message_snapshot"]
     )
-    assert "2026-09-23 20:00:00" in alert["message_snapshot"]
-    assert "2026-09-24 20:00:00" in alert["message_snapshot"]
+    for column in (
+        "message_snapshot",
+        "nearby_message_snapshot",
+        "email_body_snapshot",
+        "nearby_email_body_snapshot",
+    ):
+        assert "Original 24-hour forecast window:" not in alert[column]
+        assert "2026-09-23 20:00:00" not in alert[column]
+        assert "2026-09-24 20:00:00" not in alert[column]
+    assert forecast.window_start == NOW
+    assert forecast.window_end == NOW + timedelta(hours=24)
+    assert alert["expires_at"] == forecast.window_end
+    assert forecast.maximum_magnitude_q05_24h == 3.7
+    assert forecast.maximum_magnitude_q50_24h == 4.2
+    assert forecast.maximum_magnitude_q95_24h == 4.7
     assert alert["email_subject_snapshot"]
     assert "Expected M1.0+ count:" in alert["email_body_snapshot"]
     assert "saved alert location" in alert["nearby_message_snapshot"]
     assert alert["nearby_email_subject_snapshot"]
     assert "saved alert location" in alert["nearby_email_body_snapshot"]
+    for column in ("email_body_snapshot", "nearby_email_body_snapshot"):
+        assert "Possible further activity radius: 50 km\n" in alert[column]
+        assert "Possible maximum magnitude: M4.2\n" in alert[column]
+        assert "M3.7" not in alert[column]
+        assert "M4.7" not in alert[column]
     assert alert["content_provenance_snapshot"]["location_label"]
     assert alert["content_provenance_snapshot"]["geographic_dataset_sha256"]
