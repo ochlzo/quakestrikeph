@@ -57,6 +57,12 @@ export class Iprog implements PhoneProvider {
       result.message === 'Invalid phone number format. Philippine mobile numbers must be in format: 09XXXXXXXXX or +639XXXXXXXXX (11 digits total)') return result;
     if (result.status !== 'success') return fail('provider_failure');
     if (operation === 'detect' && (!data || typeof data.network !== 'string' || typeof data.is_smart_tnt !== 'boolean')) return fail('malformed_response');
+    if (operation === 'detect') {
+      const network = (data!.network as string).toLowerCase();
+      const coherent = data!.is_smart_tnt === true ? ['smart', 'tnt', 'smart/tnt'].includes(network) :
+        ['globe', 'tm', 'globe/tm', 'dito'].includes(network);
+      if (!coherent) return fail('malformed_response');
+    }
     if (operation === 'send_otp' && (typeof data?.otp_code !== 'string' || !/^\d{6}$/.test(data.otp_code))) return fail('malformed_response');
     return result;
   }

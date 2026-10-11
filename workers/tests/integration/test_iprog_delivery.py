@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import timedelta
 
@@ -29,6 +30,12 @@ class Response:
 
     def json(self):
         return self.body
+
+    def iter_content(self, size):
+        yield json.dumps(self.json()).encode()
+
+    def close(self):
+        pass
 
 
 def test_forecast_sms_acceptance_then_restart_poll_atomically_delivers(migrated_engine):

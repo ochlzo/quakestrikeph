@@ -9,6 +9,7 @@ import requests
 from quakestrike.application.alert_delivery import SubmissionResult, normalize_submission
 from quakestrike.application.alerts import SmsSupportUnavailable
 from quakestrike.application.sms_polling import SmsOutcome
+from quakestrike.infrastructure.provider_http import provider_json, provider_response
 
 GSM_BASIC = frozenset(
     "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./"
@@ -50,15 +51,14 @@ class IprogSmsSupport:
         if not self.token or not self.token.strip():
             raise SmsSupportUnavailable("sms_support_configuration")
         try:
-            response = self.request(
+            with provider_response(
+                self.request,
                 "https://www.iprogsms.com/api/v1/phone_numbers/detect",
                 json={"api_token": self.token, "phone_number": phone},
-                timeout=(3, 8),
-                allow_redirects=False,
-            )
-            if response.status_code != 200:
-                raise SmsSupportUnavailable("sms_support_http_failure")
-            body = response.json()
+            ) as (response, deadline):
+                if response.status_code != 200:
+                    raise SmsSupportUnavailable("sms_support_http_failure")
+                body = provider_json(response, deadline)
         except (requests.RequestException, ValueError):
             raise SmsSupportUnavailable("sms_support_transport_or_response") from None
         if isinstance(body, dict) and body.get("status") == "error":
@@ -112,25 +112,24 @@ class IprogAlertProvider:
                 "permanent", error_code="provider_credentials_or_credit", evidence=evidence
             )
         try:
-            response = self.post(
+            with provider_response(
+                self.post,
                 "https://www.iprogsms.com/api/v1/sms_messages",
                 json={
                     "api_token": self.token,
                     "phone_number": request.destination,
                     "message": request.body,
                 },
-                timeout=(3, 8),
-                allow_redirects=False,
-            )
+            ) as (response, deadline):
+                evidence["http_status"] = response.status_code
+                try:
+                    body = provider_json(response, deadline)
+                except ValueError:
+                    body = {}
         except requests.RequestException:
             return SubmissionResult(
                 "unknown", error_code="provider_transport_uncertain", evidence=evidence
             )
-        evidence["http_status"] = response.status_code
-        try:
-            body = response.json()
-        except ValueError:
-            body = {}
         if not isinstance(body, dict):
             body = {}
         code = body.get("status")
@@ -200,17 +199,15 @@ class IprogAlertProvider:
         ):
             return SmsOutcome("unknown", "provider_invalid_response", evidence)
         try:
-            response = self.get(
+            with provider_response(
+                self.get,
                 "https://www.iprogsms.com/api/v1/sms_messages/status",
                 params={"api_token": self.token, "message_id": reference},
-                timeout=(3, 8),
-                allow_redirects=False,
-            )
+            ) as (response, deadline):
+                evidence["http_status"] = response.status_code
+                body = provider_json(response, deadline)
         except requests.RequestException:
             return SmsOutcome("unknown", "provider_transport_uncertain", evidence)
-        evidence["http_status"] = response.status_code
-        try:
-            body = response.json()
         except ValueError:
             return SmsOutcome("unknown", "provider_invalid_response", evidence)
         if not isinstance(body, dict):

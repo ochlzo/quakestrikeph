@@ -38,6 +38,11 @@ docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/c
 
 Polling and maintenance use separate process-owned UUID cursors. Unresolved early records cannot monopolize later pages.
 Each pass reserves 30 seconds for polling and a separate five seconds for maintenance.
+IPROG detection/submission/polling and Brevo submission have a 12-second elapsed deadline, including HTTP headers and streamed response bodies.
+Decoded bodies cannot exceed 16 KiB. Deadline interruption closes the stream; uncertain submissions never receive an automatic retry.
+Run real provider transport in the Linux main/prefork context. Another active alarm timer or unsupported default transport context fails closed before transport.
+Requests connect/read timeouts measure inactivity, so they supplement rather than replace this elapsed deadline.
+See the [Requests timeout contract](https://requests.readthedocs.io/en/latest/user/advanced/#timeouts).
 One phase's failure does not cancel the other phase. Database calls use a five-second statement timeout and a one-second lock timeout.
 An individual persistence or settlement failure advances the poll cursor and makes that pass unhealthy. A later sweep retries the read without resubmission.
 Restarting reconciliation begins a fresh sweep. Polls do not invent or change provider timestamps.

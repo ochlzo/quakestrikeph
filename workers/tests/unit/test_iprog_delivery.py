@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -20,6 +21,12 @@ class Response:
 
     def json(self):
         return self.body
+
+    def iter_content(self, size):
+        yield json.dumps(self.json()).encode()
+
+    def close(self):
+        pass
 
 
 def test_ordinary_submission_preserves_frozen_content_and_accepts_numeric_status():
@@ -46,6 +53,7 @@ def test_ordinary_submission_preserves_frozen_content_and_accepts_numeric_status
                 },
                 "timeout": (3, 8),
                 "allow_redirects": False,
+                "stream": True,
             },
         )
     ]
@@ -127,6 +135,24 @@ def test_transport_uncertainty_and_malformed_json_never_retry_inside_adapter():
     result = IprogAlertProvider("secret", post=lambda *a, **k: Malformed(None)).submit(submission())
     assert result.status == "unknown"
     assert result.error_code == "provider_invalid_response"
+
+
+def test_oversized_submission_response_is_uncertain_and_closed_without_retry():
+    calls, closed = [], []
+    response = Response({"status": 200, "message_id": "known", "private": "x" * 16384})
+    response.close = lambda: closed.append(True)
+
+    def post(*args, **options):
+        calls.append(True)
+        return response
+
+    result = IprogAlertProvider("TEST_ONLY", post=post).submit(submission())
+    assert (result.status, result.error_code) == ("unknown", "provider_invalid_response")
+    assert result.evidence["http_status"] == 200
+    assert result.reference is None
+    assert calls == [True]
+    assert closed == [True]
+    assert "private" not in repr(result)
 
 
 def test_rate_limit_timing_and_safe_charging_metadata():

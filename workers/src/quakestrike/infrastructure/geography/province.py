@@ -8,8 +8,9 @@ import math
 from functools import lru_cache
 from pathlib import Path
 
+from quakestrike.domain.alerts import alert_distance_km
+
 ASSETS = Path(__file__).with_name("assets")
-EARTH_RADIUS_KM = 6371.0088
 
 
 @lru_cache(maxsize=1)
@@ -35,15 +36,9 @@ def resolve_province_label(
     ):
         raise ValueError("The observed coordinates are invalid.")
     manifest, points = _dataset()
-    lat, lon = math.radians(latitude), math.radians(longitude)
     nearest = None
     for point in points:
-        p_lat, p_lon = math.radians(point["latitude"]), math.radians(point["longitude"])
-        haversine = (
-            math.sin((p_lat - lat) / 2) ** 2
-            + math.cos(lat) * math.cos(p_lat) * math.sin((p_lon - lon) / 2) ** 2
-        )
-        distance = 2 * EARTH_RADIUS_KM * math.asin(math.sqrt(min(1, max(0, haversine))))
+        distance = alert_distance_km(latitude, longitude, point["latitude"], point["longitude"])
         if distance <= 100 and (
             nearest is None
             or (distance, point["geoname_id"]) < (nearest[0], nearest[1]["geoname_id"])
