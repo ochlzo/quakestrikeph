@@ -154,6 +154,59 @@ Actual event echo, retry timing, received content, and charging remain measured 
 The provider creation reference omits an `error` subscription despite the payload guide describing it; do not invent a subscription spelling.
 See [Brevo contracts](https://developers.brevo.com/docs/transactional-webhooks), [webhook creation](https://developers.brevo.com/reference/create-webhook), and [retry policy](https://developers.brevo.com/docs/retry-mechanism).
 
+## Revised copy verification on 11 October 2026
+
+[ADR 0048](../adr/0048-forecast-alert-copy-amendment.md) records the user's accepted copy amendment.
+New SMS snapshots omit the application brand header because the provider template supplies it.
+Both channels omit the displayed window line while original-window expiry remains enforced.
+Email retains branding and displays the median radius and q50 maximum magnitude under the revised labels.
+Stored forecast outputs, frozen older snapshots, schema, and grants remain unchanged by this amendment.
+The canonical database design documents the rendering contract.
+
+The reviewed provider image uses application source `5f307c9a62bb348c8ab4b8b3a14cdda4ad9c0263`.
+Integration commit `a09512bab5195cbb6f7e19c0226c614496e2061c` adds receipt documentation and a corrected integration assertion without changing that application source.
+[CI run 38131684534](https://github.com/ochlzo/quakestrikeph/actions/runs/38131684534) passed on the integration commit; deployment was skipped.
+
+Host worker checks passed 390 cases, with eleven platform skips.
+The final isolated integration suite passed 302 cases, with two expected standard model skips.
+Both separate checks against the approved actual SEIS bundle passed without skips.
+Ruff lint and format checks passed for 188 files, and both review axes found no issues.
+The first integration run exposed a stale test requiring displayed dates; the corrected full suite passed.
+
+A finite simulation first stopped before a provider call because a test fixture left the disposable worker role without LOGIN.
+Fresh disposable storage restored the approved role setup without changing production role policy.
+A separate simulation registry then recorded two mock submissions, zero actual provider calls, and successful reconciliation.
+Its state remained separate from the fresh live fixture.
+
+The live fixture used one synthetic email-only account and two fresh public forecast mirrors with their original windows.
+Model manifest/hash checks passed; synthetic dependency rows do not establish local inference.
+The dedicated Backend joined both required networks from startup.
+A synthetic unknown-attempt probe and matching `uncorrelated` Backend log proved database connectivity before submission.
+That probe is not delivery evidence.
+
+The finite worker submitted exactly two emails to the newly approved university destination: one general and one nearby.
+Both submissions returned HTTP 201 and retained known references, with one committed attempt per variant.
+Both real request and delivered callbacks returned HTTP 204 with exact literal attempt tags and matching normalized references.
+No submission retry, email poll, replacement callback injection, or new SMS send occurred.
+
+| Email variant | Actual provider delivery time | Durable outcome |
+| --- | --- | --- |
+| General | 10:27:44 UTC | Delivered recipient/attempt; completed job; stopped dispatch. |
+| Nearby | 10:28:56 UTC | Delivered recipient/attempt; completed job; stopped dispatch. |
+
+Safe callback evidence retains UTC receipt times separately from provider event times.
+The new general result proves successful reconciliation for its fresh attempt; it does not change the earlier accepted general attempt.
+Earlier provider retry timing remains unverified.
+Human receipt, folder placement, received sender, authentication headers, exact revised content, and received links remain unverified for the new emails.
+The revised SMS snapshots are available as private previews; their new provider submissions were not exercised.
+Itemized SMS encoding/billing and received-link behavior after a later forecast update remain unverified.
+
+The task webhook was deleted with HTTP 204, and its absence was verified before ingress stopped.
+The owned tunnel, callback proxy, and relay stopped; disposable PostgreSQL, Redis, Backend, and temporary networks were removed.
+Final inventory showed zero task containers, networks, and listeners on ports 33152, 34152, and 35152.
+Copied credentials were removed, while original private configuration and private recipient-comparison artifacts were preserved.
+Automatic delivery gates remain disabled, and no shared database or production deployment changed.
+
 ## Activation and rollback readiness
 
 The intended deployment target is the repository's single VPS runtime; no production deployment occurred during these checks.
