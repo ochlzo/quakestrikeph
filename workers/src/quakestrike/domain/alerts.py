@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from math import floor
+from math import asin, cos, floor, radians, sin, sqrt
 from urllib.parse import urlsplit
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -175,3 +175,76 @@ def validate_public_bulletin_base_url(value: str) -> str:
             "The public Bulletin base URL must be an HTTPS origin or local HTTP origin."
         )
     return value.rstrip("/")
+
+
+def alert_distance_km(
+    latitude: float, longitude: float, other_latitude: float, other_longitude: float
+) -> float:
+    """Great-circle distance using the frozen recipient policy radius."""
+    lat, other_lat = radians(latitude), radians(other_latitude)
+    value = (
+        sin((other_lat - lat) / 2) ** 2
+        + cos(lat) * cos(other_lat) * sin(radians(other_longitude - longitude) / 2) ** 2
+    )
+    return 2 * 6371.0088 * asin(sqrt(min(1.0, max(0.0, value))))
+
+
+def eligible_alert_channels(
+    account, magnitude: float, latitude: float, longitude: float
+) -> list[dict[str, object]]:
+    """Evaluate current account settings without geographic display information."""
+    threshold = account["alert_trigger_magnitude"]
+    if (
+        account["account_status"] != "active"
+        or account["onboarding_completed_at"] is None
+        or threshold is None
+        or Decimal(str(magnitude)) < threshold
+    ):
+        return []
+    nearby = account["nearby_alerts_only"]
+    evidence = {
+        "policy_version": "automatic_forecast_alert_v1",
+        "account_status": "active",
+        "onboarding_completed": True,
+        "observed_magnitude": magnitude,
+        "trigger_magnitude": float(threshold),
+        "nearby_alerts_only": nearby,
+    }
+    if nearby:
+        lat, lon = account["alert_location_latitude"], account["alert_location_longitude"]
+        radius = account["alert_trigger_distance_km"]
+        if lat is None or lon is None or radius is None:
+            return []
+        distance = alert_distance_km(latitude, longitude, float(lat), float(lon))
+        if distance > float(radius):
+            return []
+        evidence.update(
+            saved_latitude=float(lat),
+            saved_longitude=float(lon),
+            trigger_distance_km=float(radius),
+            distance_km=distance,
+            earth_radius_km=6371.0088,
+        )
+    candidates = []
+    for channel, destination_key, verified_key, enabled_key in (
+        ("email", "email", "email_verified_at", "email_enabled"),
+        ("sms", "mobile_number", "mobile_verified_at", "sms_enabled"),
+    ):
+        destination = account[destination_key]
+        verified = account[verified_key]
+        if not account[enabled_key] or not destination or verified is None:
+            continue
+        candidates.append(
+            {
+                "user_id": account["user_id"],
+                "channel": channel,
+                "destination": destination.strip(),
+                "evidence": {
+                    **evidence,
+                    "channel": channel,
+                    "enabled": True,
+                    "verified_at": verified.isoformat(),
+                },
+            }
+        )
+    return candidates

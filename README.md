@@ -59,7 +59,7 @@ server. See the
 | `workers/src/quakestrike/` | Scheduling, ingestion, prediction, and shared application code. |
 | `workers/tests/` | Unit and integration tests. |
 | `workers/migrations/` | PostgreSQL schema migrations. |
-| `packages/contracts/queue/` | Versioned ingestion and prediction command schemas. |
+| `packages/contracts/queue/` | Versioned ingestion, prediction, and alert command schemas. |
 | `packages/contracts/openapi.yaml` | Public Backend HTTP contract. |
 | `apps/backend-api/` | Read-only Node/Express/TypeScript earthquake and forecast API. |
 | `apps/quakestrikeph-bulletin/` | Astro/React/TypeScript public Bulletin with API-backed event and forecast views. |

@@ -8,7 +8,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from quakestrike.domain.alerts import (
@@ -23,6 +23,15 @@ DEFAULT_BOOTSTRAP_REQUIRED_AVAILABLE_THROUGH = datetime.fromisoformat("2026-09-0
 
 class Settings(BaseSettings):
     """Configuration shared by the Phase 1 worker entry points."""
+
+    alert_resolution_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("ALERT_RESOLUTION_ENABLED", "alert_resolution_enabled"),
+    )
+    iprog_api_token: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("IPROG_API_TOKEN", "iprog_api_token"),
+    )
 
     public_bulletin_base_url: str = Field(
         default=DEFAULT_PUBLIC_BULLETIN_BASE_URL,

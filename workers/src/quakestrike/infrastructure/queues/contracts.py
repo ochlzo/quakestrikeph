@@ -32,6 +32,16 @@ class PredictionCommandV1(_Command):
     job_id: UUID
 
 
+class AlertCommandV1(_Command):
+    """Identifier-only wakeup for durable automatic alert work."""
+
+    alert_job_id: UUID
+
+
+def parse_alert_command(payload: Mapping[str, object]) -> AlertCommandV1:
+    return AlertCommandV1.model_validate(payload)
+
+
 def parse_ingestion_command(payload: Mapping[str, object]) -> IngestionCommandV1:
     return IngestionCommandV1.model_validate(payload)
 

@@ -10,6 +10,7 @@ from pathlib import Path
 from threading import Event
 
 from quakestrike.application.dispatch import (
+    AlertDispatch,
     DispatchBatchResult,
     DispatchOutcome,
     DurableDispatcher,
@@ -25,6 +26,7 @@ from quakestrike.infrastructure.logging.json_logging import (
     log_exception_event,
     safe_exception_type,
 )
+from quakestrike.infrastructure.queues.alert_publisher import CeleryAlertPublisher
 from quakestrike.infrastructure.queues.celery_app import create_celery_app
 from quakestrike.infrastructure.queues.ingestion_publisher import CeleryIngestionPublisher
 from quakestrike.infrastructure.queues.prediction_publisher import CeleryPredictionPublisher
@@ -81,12 +83,14 @@ def run_dispatcher(settings: Settings, *, stop_event: Event | None = None) -> in
             create_session_factory(engine),
             lease_seconds=settings.dispatch_lease_seconds,
             retry_delays_seconds=settings.retry_delays_seconds,
+            alerts_enabled=settings.alert_resolution_enabled,
         )
         dispatcher = DurableDispatcher(
             store,
             {
                 "ingestion": CeleryIngestionPublisher(app),
                 "prediction": CeleryPredictionPublisher(app),
+                "alert": CeleryAlertPublisher(app),
             },
             batch_size=settings.dispatcher_batch_size,
         )
@@ -142,6 +146,8 @@ def _log_dispatch_outcome(logger: logging.Logger, outcome: DispatchOutcome) -> N
     }
     if isinstance(dispatch, IngestionDispatch):
         context["run_id"] = dispatch.run_id
+    elif isinstance(dispatch, AlertDispatch):
+        context["alert_job_id"] = dispatch.alert_job_id
     else:
         context["job_id"] = dispatch.job_id
     if outcome.error is not None:

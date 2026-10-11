@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import and_, func, or_, select, update
 
 from quakestrike.application.dispatch import (
+    AlertDispatch,
     DispatchClaim,
     DispatchClaimLost,
     DispatchState,
@@ -20,6 +21,8 @@ from quakestrike.domain.prediction import PREDICTION_PROCESSING_LEASE_SECONDS
 from quakestrike.infrastructure.database.engine import SessionFactory
 from quakestrike.infrastructure.database.prediction import SqlAlchemyPredictionStore
 from quakestrike.infrastructure.database.tables import (
+    alert_jobs,
+    alert_recipients,
     ingestion_runs,
     job_dispatches,
     prediction_attempts,
@@ -135,6 +138,7 @@ class SqlAlchemyDispatchStore(DispatchStore):
         clock: Callable[[], datetime] = _utc_now,
         token_factory: Callable[[], UUID] = uuid4,
         prediction_recovery_seconds: int = PREDICTION_PROCESSING_LEASE_SECONDS,
+        alerts_enabled: bool = False,
     ) -> None:
         retry_delays = tuple(retry_delays_seconds)
         if (
@@ -144,6 +148,7 @@ class SqlAlchemyDispatchStore(DispatchStore):
             or any(delay <= 0 for delay in retry_delays)
         ):
             raise ValueError("Dispatch lease and retry delays must be positive.")
+        self._alerts_enabled = alerts_enabled
         self._session_factory = session_factory
         self._lease_seconds = lease_seconds
         self._retry_delays = tuple(timedelta(seconds=delay) for delay in retry_delays)
@@ -202,6 +207,39 @@ class SqlAlchemyDispatchStore(DispatchStore):
             ),
         )
 
+        alert_terminal = alert_jobs.c.status.in_(("completed", "failed", "expired"))
+        alert_due = or_(
+            alert_jobs.c.status == "pending",
+            and_(
+                alert_jobs.c.status.in_(("resolving", "delivering")),
+                alert_jobs.c.lease_expires_at <= claimed_at,
+            ),
+            alert_jobs.c.expires_at <= claimed_at,
+        )
+        alert_candidate = and_(
+            self._alerts_enabled,
+            job_dispatches.c.alert_job_id.is_not(None),
+            or_(
+                and_(submission_is_due, or_(alert_due, alert_terminal)),
+                and_(
+                    job_dispatches.c.status == "enqueued",
+                    or_(
+                        alert_terminal,
+                        alert_jobs.c.expires_at <= claimed_at,
+                        and_(
+                            alert_jobs.c.status.in_(("resolving", "delivering")),
+                            alert_jobs.c.lease_expires_at <= claimed_at,
+                        ),
+                        and_(
+                            alert_jobs.c.status == "pending",
+                            job_dispatches.c.last_dispatched_at
+                            <= claimed_at - self._prediction_recovery,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
         claims: list[DispatchClaim] = []
         with self._session_factory() as session, session.begin():
             rows = session.execute(
@@ -209,6 +247,7 @@ class SqlAlchemyDispatchStore(DispatchStore):
                     limit,
                     ingestion_candidate,
                     prediction_candidate,
+                    alert_candidate,
                 )
             ).all()
             for row in rows:
@@ -267,6 +306,24 @@ class SqlAlchemyDispatchStore(DispatchStore):
                         job_id=row.prediction_job_id,
                         correlation_id=prediction_job.correlation_id,
                     )
+                elif row.alert_job_id is not None:
+                    job = session.execute(
+                        select(alert_jobs)
+                        .where(alert_jobs.c.alert_job_id == row.alert_job_id)
+                        .with_for_update(skip_locked=True)
+                    ).one_or_none()
+                    if job is None:
+                        continue
+                    if job.status in ("completed", "failed", "expired"):
+                        self._stop_target_terminal(session, row.dispatch_id, row.status)
+                        continue
+                    if job.lease_expires_at is not None and job.lease_expires_at > claimed_at:
+                        continue
+                    if job.expires_at <= claimed_at:
+                        self._fail_alert(session, row.alert_job_id, claimed_at, status="expired")
+                        self._stop_target_terminal(session, row.dispatch_id, row.status)
+                        continue
+                    target = AlertDispatch(row.dispatch_id, row.alert_job_id, job.correlation_id)
                 else:
                     continue
 
@@ -314,6 +371,7 @@ class SqlAlchemyDispatchStore(DispatchStore):
         limit: int,
         ingestion_candidate,
         prediction_candidate,
+        alert_candidate,
     ):
         source = job_dispatches.outerjoin(
             ingestion_runs,
@@ -322,11 +380,15 @@ class SqlAlchemyDispatchStore(DispatchStore):
             prediction_jobs,
             prediction_jobs.c.job_id == job_dispatches.c.prediction_job_id,
         )
+        source = source.outerjoin(
+            alert_jobs, alert_jobs.c.alert_job_id == job_dispatches.c.alert_job_id
+        )
         query = (
             select(
                 job_dispatches.c.dispatch_id,
                 job_dispatches.c.ingestion_run_id,
                 job_dispatches.c.prediction_job_id,
+                job_dispatches.c.alert_job_id,
                 job_dispatches.c.status,
                 job_dispatches.c.attempt_count,
                 job_dispatches.c.last_dispatched_at,
@@ -336,7 +398,7 @@ class SqlAlchemyDispatchStore(DispatchStore):
                 prediction_jobs.c.correlation_id.label("prediction_correlation_id"),
             )
             .select_from(source)
-            .where(or_(ingestion_candidate, prediction_candidate))
+            .where(or_(ingestion_candidate, prediction_candidate, alert_candidate))
             .order_by(
                 func.coalesce(
                     job_dispatches.c.next_dispatch_at,
@@ -366,11 +428,11 @@ class SqlAlchemyDispatchStore(DispatchStore):
                     status="enqueued",
                     attempt_count=(
                         0
-                        if isinstance(claim.dispatch, PredictionDispatch)
+                        if isinstance(claim.dispatch, (PredictionDispatch, AlertDispatch))
                         else job_dispatches.c.attempt_count
                     ),
                     next_dispatch_at=None,
-                    last_dispatched_at=func.now(),
+                    last_dispatched_at=self._clock(),
                     lease_expires_at=None,
                     dispatch_token=None,
                     last_error=None,
@@ -413,9 +475,13 @@ class SqlAlchemyDispatchStore(DispatchStore):
                     live_until = self._live_prediction_lease(
                         session, claim.dispatch.job_id, retried_at
                     )
-                    if live_until is not None:
-                        state = "retry_wait"
-                        next_dispatch_at = live_until
+                elif isinstance(claim.dispatch, AlertDispatch):
+                    live_until = self._live_alert_lease(
+                        session, claim.dispatch.alert_job_id, retried_at
+                    )
+                if live_until is not None:
+                    state = "retry_wait"
+                    next_dispatch_at = live_until
 
             result = session.execute(
                 update(job_dispatches)
@@ -440,6 +506,8 @@ class SqlAlchemyDispatchStore(DispatchStore):
             if state == "stopped":
                 if isinstance(claim.dispatch, IngestionDispatch):
                     self._fail_run_after_exhaustion(session, claim.dispatch.run_id, retried_at)
+                elif isinstance(claim.dispatch, AlertDispatch):
+                    self._fail_alert(session, claim.dispatch.alert_job_id, retried_at)
                 else:
                     self._fail_prediction_after_dispatch_error(
                         session, claim.dispatch.job_id, retried_at, DISPATCH_EXHAUSTED_ERROR_CODE
@@ -472,6 +540,10 @@ class SqlAlchemyDispatchStore(DispatchStore):
                 if isinstance(claim.dispatch, PredictionDispatch)
                 else None
             )
+            if isinstance(claim.dispatch, AlertDispatch):
+                live_until = self._live_alert_lease(
+                    session, claim.dispatch.alert_job_id, stopped_at
+                )
             result = session.execute(
                 update(job_dispatches)
                 .where(
@@ -494,10 +566,25 @@ class SqlAlchemyDispatchStore(DispatchStore):
                 raise DispatchClaimLost("The dispatch claim is no longer current.")
             if isinstance(claim.dispatch, IngestionDispatch):
                 self._fail_run_after_invalid_dispatch(session, claim.dispatch.run_id, stopped_at)
+            elif isinstance(claim.dispatch, AlertDispatch):
+                self._fail_alert(session, claim.dispatch.alert_job_id, stopped_at)
             elif live_until is None:
                 self._fail_prediction_after_dispatch_error(
                     session, claim.dispatch.job_id, stopped_at, DISPATCH_INVALID_ERROR_CODE
                 )
+
+    @staticmethod
+    def _live_alert_lease(session, job_id: UUID, now: datetime) -> datetime | None:
+        job = session.execute(
+            select(alert_jobs).where(alert_jobs.c.alert_job_id == job_id).with_for_update()
+        ).one()
+        if (
+            job.status in ("resolving", "delivering")
+            and job.lease_expires_at > now
+            and job.expires_at > now
+        ):
+            return job.lease_expires_at
+        return None
 
     @staticmethod
     def _live_prediction_lease(session, job_id: UUID, now: datetime) -> datetime | None:
@@ -520,6 +607,8 @@ class SqlAlchemyDispatchStore(DispatchStore):
     def _target_match(dispatch):
         if isinstance(dispatch, IngestionDispatch):
             return job_dispatches.c.ingestion_run_id == dispatch.run_id
+        if isinstance(dispatch, AlertDispatch):
+            return job_dispatches.c.alert_job_id == dispatch.alert_job_id
         return job_dispatches.c.prediction_job_id == dispatch.job_id
 
     @staticmethod
@@ -561,6 +650,32 @@ class SqlAlchemyDispatchStore(DispatchStore):
         elif row.prediction_job_id is not None:
             self._fail_prediction_after_dispatch_error(
                 session, row.prediction_job_id, now, DISPATCH_EXHAUSTED_ERROR_CODE
+            )
+
+        elif row.alert_job_id is not None:
+            self._fail_alert(session, row.alert_job_id, now)
+
+    @staticmethod
+    def _fail_alert(session, job_id, now, *, status="failed"):
+        result = session.execute(
+            update(alert_jobs)
+            .where(
+                alert_jobs.c.alert_job_id == job_id,
+                alert_jobs.c.status.not_in(("completed", "failed", "expired")),
+                or_(alert_jobs.c.lease_expires_at.is_(None), alert_jobs.c.lease_expires_at <= now),
+            )
+            .values(
+                status=status, completed_at=now, lease_expires_at=None, worker_execution_id=None
+            )
+        )
+        if result.rowcount == 1 and status == "expired":
+            session.execute(
+                update(alert_recipients)
+                .where(
+                    alert_recipients.c.alert_job_id == job_id,
+                    alert_recipients.c.status.in_(("pending", "retry_wait")),
+                )
+                .values(status="expired", next_attempt_at=None)
             )
 
     @staticmethod

@@ -1,1 +1,1 @@
-"""Deferred alert worker package."""
+"""Automatic alert queue interface."""

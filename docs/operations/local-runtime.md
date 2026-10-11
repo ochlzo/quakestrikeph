@@ -326,7 +326,12 @@ not a replacement for durable run and dispatch records.
 
 The local enablement execution record is in
 [the issue #13 report](../reports/issue-13-local-enablement-2026-09-19.md).
-Automatic alerts, public APIs, web apps, and production monitoring remain deferred.
+The recipient resolver supports the identifier-only `alert` queue but stays disabled by default.
+`ALERT_RESOLUTION_ENABLED=false` prevents the Dispatcher from publishing alert work.
+The opt-in `quakestrike-alert` entrypoint records recipients and performs network detection only.
+It does not submit email or SMS messages.
+Production activation remains blocked until the delivery and verification slices are complete.
+Public APIs, web apps, and production monitoring remain deferred.
 
 ## 8. Stop local services
 

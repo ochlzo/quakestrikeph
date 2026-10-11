@@ -339,6 +339,16 @@ UUIDs are caller-generated. All columns are NOT NULL unless marked `?`; unspecif
 
 Indexes remain `ix_alert_jobs_status_expiry(status, expires_at)`, `ix_alert_jobs_requested_at(requested_at)`, and partial `ix_alert_jobs_active_lease(lease_expires_at)` for resolving/delivering. `trg_alert_jobs_assignment_and_snapshots_immutable` invokes `enforce_alert_assignment_and_snapshots_immutable()` and protects forecast assignment, recipient policy, and every SMS/email/provenance snapshot. States remain pending, resolving, delivering, completed, failed, expired. Terminal transitions stop dispatch atomically. Completed means recipients settled, not necessarily delivered. Expiry equals forecast window end transactionally. New sends stop at expiry; late evidence may still change.
 
+Recipient resolution claims pending jobs or recovers expired resolving leases with a fresh execution token. Each recipient write and checkpoint requires the same unexpired token and an unexpired forecast. Production ownership checks read PostgreSQL `clock_timestamp()` after lock acquisition and before page/checkpoint commit; lock waits and host-clock skew never extend ownership. Isolated tests can inject a deterministic clock.
+
+The worker reads the fourteen approved account columns in bounded UUID order without account locks or writes. Each execution captures a maximum user UUID; accounts created beyond that bound do not extend its scan. Restart scans begin again with a fresh bound; unique constraints retain the original destination and resolution evidence. Email uses the Backend's stored canonical destination, including its preserved local-part case. SMS uses the stored Philippine E.164 destination.
+
+Resolution requires active accounts, completed onboarding, channel opt-in, verified destinations, and the inclusive observed-magnitude threshold. Nearby-only selection calculates Haversine distance between the observed epicenter and saved coordinates using Earth radius `6371.0088` km. Selection includes calculated distance equal to the user's `alert_trigger_distance_km`. Geographic display labels do not affect selection.
+
+A proven unsupported SMS network excludes only SMS. An unavailable SMS support lookup preserves eligible email rows and leaves status resolving with a null completion checkpoint. The same live root claim permits subsequent email processing; provider outages do not authorize fallback email or declare the roster complete.
+
+Only a complete candidate scan sets `recipient_resolution_completed_at`. A nonempty roster advances to delivering and retains the root lease/token. An empty roster sets completed, records completion time, clears the root lease/token, and stops the dispatch atomically. Successful alert publication resets its per-publication attempt count; recovery does not consume a lifetime resolution budget. The partial resolver is disabled by default and performs no message submission.
+
 ### `alert_recipients`
 
 One destination per user/channel/batch, with immutable resolution evidence and mutable delivery summary.
