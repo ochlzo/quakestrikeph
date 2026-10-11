@@ -1,6 +1,7 @@
 """Fenced, paged recipient resolution over approved worker database grants."""
 
 from datetime import timedelta
+from hashlib import sha256
 from uuid import uuid4
 
 from sqlalchemy import and_, func, or_, select, update
@@ -17,6 +18,7 @@ from quakestrike.infrastructure.database.tables import (
     alert_delivery_attempts,
     alert_jobs,
     alert_recipients,
+    audit_logs,
     earthquake_event_revisions,
     forecasts,
     job_dispatches,
@@ -41,6 +43,14 @@ ACCOUNT_COLUMNS = (
     "onboarding_completed_at",
 )
 ALERT_TERMINAL = ("completed", "failed", "expired")
+CONTENT_ADDITIONS = (
+    "email_subject_snapshot",
+    "email_body_snapshot",
+    "nearby_message_snapshot",
+    "nearby_email_subject_snapshot",
+    "nearby_email_body_snapshot",
+    "content_provenance_snapshot",
+)
 
 
 class SqlAlchemyAlertStore:
@@ -807,7 +817,7 @@ class SqlAlchemyAlertStore:
             )
             return False
 
-    def iprog_poll_candidates(self, *, after=None, limit=20):
+    def iprog_poll_candidates(self, *, after=None, limit=20, alert_job_id=None):
         """Keyset pages retain late reconciliation for expired or completed batches."""
         if not 1 <= limit <= 100:
             raise ValueError("SMS poll batch must contain 1 to 100 attempts.")
@@ -835,8 +845,263 @@ class SqlAlchemyAlertStore:
         )
         if after is not None:
             query = query.where(alert_delivery_attempts.c.delivery_attempt_id > after)
+        if alert_job_id is not None:
+            query = query.where(alert_jobs.c.alert_job_id == alert_job_id)
         with self.sessions() as session:
             return session.execute(query).all()
+
+    def maintenance_candidates(self, *, after=None, limit=20):
+        """Independent keyset scan also recovers interrupted calls on terminal jobs."""
+        if not 1 <= limit <= 100:
+            raise ValueError("Alert maintenance batch must contain 1 to 100 jobs.")
+        with self.sessions() as session:
+            now = self._now(session)
+            interrupted = (
+                select(alert_recipients.c.recipient_id)
+                .where(
+                    alert_recipients.c.alert_job_id == alert_jobs.c.alert_job_id,
+                    alert_recipients.c.status == "sending",
+                    alert_recipients.c.processing_lease_expires_at <= now,
+                )
+                .exists()
+            )
+            query = (
+                select(
+                    alert_jobs.c.alert_job_id,
+                    alert_jobs.c.correlation_id,
+                    job_dispatches.c.dispatch_id,
+                )
+                .join(job_dispatches, job_dispatches.c.alert_job_id == alert_jobs.c.alert_job_id)
+                .where(
+                    or_(
+                        and_(
+                            alert_jobs.c.status.not_in(ALERT_TERMINAL),
+                            or_(
+                                alert_jobs.c.lease_expires_at.is_(None),
+                                alert_jobs.c.lease_expires_at <= now,
+                                alert_jobs.c.expires_at <= now,
+                            ),
+                        ),
+                        interrupted,
+                    )
+                )
+                .order_by(alert_jobs.c.alert_job_id)
+                .limit(limit)
+            )
+            if after is not None:
+                query = query.where(alert_jobs.c.alert_job_id > after)
+            return session.execute(query).all()
+
+    def preview_legacy_alerts(self, *, limit=100):
+        if not 1 <= limit <= 100:
+            raise ValueError("Legacy retirement preview must contain 1 to 100 jobs.")
+        with self.sessions() as session:
+            now = self._now(session)
+            attempts = (
+                select(alert_delivery_attempts.c.delivery_attempt_id)
+                .join(
+                    alert_recipients,
+                    alert_recipients.c.recipient_id == alert_delivery_attempts.c.recipient_id,
+                )
+                .where(alert_recipients.c.alert_job_id == alert_jobs.c.alert_job_id)
+                .exists()
+            )
+            evidence = (
+                select(alert_recipients.c.recipient_id)
+                .where(
+                    alert_recipients.c.alert_job_id == alert_jobs.c.alert_job_id,
+                    alert_recipients.c.status.not_in(("pending", "retry_wait")),
+                )
+                .exists()
+            )
+            rows = session.execute(
+                select(alert_jobs, job_dispatches.c.dispatch_id)
+                .join(
+                    job_dispatches,
+                    job_dispatches.c.alert_job_id == alert_jobs.c.alert_job_id,
+                )
+                .where(
+                    *(alert_jobs.c[name].is_(None) for name in CONTENT_ADDITIONS),
+                    alert_jobs.c.status.not_in(ALERT_TERMINAL),
+                    ~attempts,
+                    ~evidence,
+                    or_(
+                        alert_jobs.c.lease_expires_at.is_(None),
+                        alert_jobs.c.lease_expires_at <= now,
+                    ),
+                    or_(
+                        job_dispatches.c.lease_expires_at.is_(None),
+                        job_dispatches.c.lease_expires_at <= now,
+                    ),
+                )
+                .order_by(alert_jobs.c.alert_job_id)
+                .limit(limit)
+            ).all()
+            return [
+                {
+                    "alert_job_id": str(row.alert_job_id),
+                    "dispatch_id": str(row.dispatch_id),
+                    "status": row.status,
+                    "expires_at": row.expires_at.isoformat(),
+                    "content_sha256": sha256(row.message_snapshot.encode()).hexdigest(),
+                    "recipient_count": session.scalar(
+                        select(func.count())
+                        .select_from(alert_recipients)
+                        .where(alert_recipients.c.alert_job_id == row.alert_job_id)
+                    ),
+                }
+                for row in rows
+            ]
+
+    def retire_legacy_alerts(self, job_ids):
+        """Explicitly retire only selected unsent legacy rows, including required audits."""
+        job_ids = tuple(sorted(set(job_ids)))
+        if not 1 <= len(job_ids) <= 100:
+            raise ValueError("Select 1 to 100 legacy job IDs.")
+        retired = 0
+        with self.sessions() as session, session.begin():
+            for job_id in job_ids:
+                dispatch = session.execute(
+                    select(job_dispatches)
+                    .where(job_dispatches.c.alert_job_id == job_id)
+                    .with_for_update()
+                ).one_or_none()
+                job = session.execute(
+                    select(alert_jobs).where(alert_jobs.c.alert_job_id == job_id).with_for_update()
+                ).one_or_none()
+                if (
+                    job is None
+                    or dispatch is None
+                    or any(job._mapping[name] is not None for name in CONTENT_ADDITIONS)
+                ):
+                    raise ValueError("Selected job is not applicable legacy work.")
+                if job.status in ALERT_TERMINAL:
+                    continue
+                recipients = session.execute(
+                    select(alert_recipients)
+                    .where(alert_recipients.c.alert_job_id == job_id)
+                    .order_by(alert_recipients.c.recipient_id)
+                    .with_for_update()
+                ).all()
+                attempts = session.scalar(
+                    select(func.count())
+                    .select_from(
+                        alert_delivery_attempts.join(
+                            alert_recipients,
+                            alert_recipients.c.recipient_id
+                            == alert_delivery_attempts.c.recipient_id,
+                        )
+                    )
+                    .where(alert_recipients.c.alert_job_id == job_id)
+                )
+                now = self._now(session)
+                if (
+                    (job.lease_expires_at is not None and job.lease_expires_at > now)
+                    or (dispatch.lease_expires_at is not None and dispatch.lease_expires_at > now)
+                    or attempts
+                    or any(row.status not in ("pending", "retry_wait") for row in recipients)
+                ):
+                    raise ValueError("Selected legacy work has active claims or retained evidence.")
+                terminal = "expired" if job.expires_at <= now else "failed"
+                self._settle(session, job_id, dispatch.dispatch_id, terminal, now)
+                if terminal == "failed":
+                    session.execute(
+                        update(alert_recipients)
+                        .where(
+                            alert_recipients.c.alert_job_id == job_id,
+                            alert_recipients.c.status.in_(("pending", "retry_wait")),
+                        )
+                        .values(
+                            status="skipped",
+                            next_attempt_at=None,
+                            last_error_code="legacy_content_retired",
+                        )
+                    )
+                session.execute(
+                    update(job_dispatches)
+                    .where(job_dispatches.c.dispatch_id == dispatch.dispatch_id)
+                    .values(last_error="legacy_content_retired", updated_at=now)
+                )
+                session.execute(
+                    insert(audit_logs).values(
+                        audit_id=uuid4(),
+                        occurred_at=now,
+                        actor_type="system",
+                        actor_service="alert-retirement",
+                        action="retire_legacy_alert",
+                        target_type="alert_job",
+                        target_id=str(job_id),
+                        outcome="succeeded",
+                        reason_code="legacy_content_retired",
+                        correlation_id=job.correlation_id,
+                        metadata={
+                            "previous_status": job.status,
+                            "status": terminal,
+                            "dispatch_id": str(dispatch.dispatch_id),
+                            "recipient_count": len(recipients),
+                            "content_sha256": sha256(job.message_snapshot.encode()).hexdigest(),
+                        },
+                    )
+                )
+                retired += 1
+        return retired
+
+    def controlled_fixture_is_valid(self, command, user_id, destinations, *, submitting=True):
+        """Read approved fields only; finite fixtures never require Clerk or account writes."""
+        with self.sessions() as session:
+            now = self._now(session)
+            user_ids = session.scalars(select(users.c.user_id).limit(2)).all()
+            if user_ids != [user_id]:
+                return False
+            account = session.execute(
+                select(*(users.c[name] for name in ACCOUNT_COLUMNS)).where(
+                    users.c.user_id == user_id
+                )
+            ).one()
+            for channel in ("sms", "email"):
+                enabled = account._mapping[f"{channel}_enabled"]
+                if enabled != (channel in destinations):
+                    return False
+                if enabled:
+                    field = "mobile_number" if channel == "sms" else "email"
+                    if account._mapping[field] != destinations[channel]:
+                        return False
+            job = session.execute(
+                select(alert_jobs)
+                .join(
+                    job_dispatches,
+                    job_dispatches.c.alert_job_id == alert_jobs.c.alert_job_id,
+                )
+                .where(
+                    alert_jobs.c.alert_job_id == command.alert_job_id,
+                    alert_jobs.c.correlation_id == command.correlation_id,
+                    job_dispatches.c.dispatch_id == command.dispatch_id,
+                    job_dispatches.c.status == "enqueued" if submitting else True,
+                )
+            ).one_or_none()
+            if job is None or any(job._mapping[name] is None for name in CONTENT_ADDITIONS):
+                return False
+            recipients = session.execute(
+                select(alert_recipients).where(
+                    alert_recipients.c.alert_job_id == command.alert_job_id,
+                )
+            ).all()
+            if any(
+                row.user_id != user_id
+                or row.channel not in destinations
+                or row.destination_snapshot != destinations[row.channel]
+                for row in recipients
+            ):
+                return False
+            if not submitting:
+                return True
+            return (
+                job.status == "pending"
+                and job.lease_expires_at is None
+                and now - timedelta(minutes=15) <= job.requested_at <= now + timedelta(minutes=1)
+                and job.expires_at > now
+                and not recipients
+            )
 
     def reconcile_delivery(
         self,

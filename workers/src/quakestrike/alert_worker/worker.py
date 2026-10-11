@@ -9,6 +9,10 @@ from pydantic import ValidationError
 
 from quakestrike.application.alert_delivery import deliver_alert
 from quakestrike.application.alerts import AlertStore, ResolveAlertRecipients, SmsSupport
+from quakestrike.infrastructure.alert_readiness import alert_startup_gates
+from quakestrike.infrastructure.alert_readiness import (
+    configured_alert_providers as configured_alert_providers,
+)
 from quakestrike.infrastructure.database.alerts import SqlAlchemyAlertStore
 from quakestrike.infrastructure.database.engine import (
     create_database_engine,
@@ -114,20 +118,42 @@ def create_alert_app(settings, *, command_handler):
     return app
 
 
-def run_alert(settings):
-    if not settings.alert_resolution_enabled:
-        raise ValueError("Alert resolution runtime is disabled.")
+def create_alert_handler(settings, *, store, support, providers=None):
+    if not settings.alert_resolution_enabled or not settings.alert_delivery_enabled:
+        raise ValueError("Alert delivery runtime is disabled.")
+    providers = configured_alert_providers(settings) if providers is None else providers
 
     def handle(payload):
-        engine = create_database_engine(settings.database_url)
         try:
-            token = settings.iprog_api_token
             return handle_alert_command(
                 payload,
-                store=SqlAlchemyAlertStore(create_session_factory(engine)),
-                support=IprogSmsSupport(token.get_secret_value() if token else None),
+                store=store,
+                support=support,
+                providers=providers,
                 logger=logging.getLogger("alert-worker"),
             )
+        except Exception:
+            # PostgreSQL DETAIL can contain private rows even with hidden SQL parameters.
+            raise RuntimeError("Alert processing is unavailable.") from None
+
+    return handle
+
+
+def run_alert(settings):
+    if not settings.alert_resolution_enabled or not settings.alert_delivery_enabled:
+        raise ValueError("Alert delivery runtime is disabled.")
+    providers = configured_alert_providers(settings)
+
+    def handle(payload):
+        engine = create_database_engine(settings.database_url, statement_timeout_ms=5000)
+        try:
+            token = settings.iprog_api_token
+            return create_alert_handler(
+                settings,
+                store=SqlAlchemyAlertStore(create_session_factory(engine)),
+                support=IprogSmsSupport(token.get_secret_value() if token else None),
+                providers=providers,
+            )(payload)
         finally:
             engine.dispose()
 
@@ -151,7 +177,7 @@ def run_alert(settings):
 
 
 def main():
-    return run_service("alert-worker", runtime=run_alert)
+    return run_service("alert-worker", runtime=run_alert, gate_factory=alert_startup_gates)
 
 
 if __name__ == "__main__":

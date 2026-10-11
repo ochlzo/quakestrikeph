@@ -24,9 +24,40 @@ DEFAULT_BOOTSTRAP_REQUIRED_AVAILABLE_THROUGH = datetime.fromisoformat("2026-09-0
 class Settings(BaseSettings):
     """Configuration shared by the Phase 1 worker entry points."""
 
+    alert_delivery_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("ALERT_DELIVERY_ENABLED", "alert_delivery_enabled"),
+    )
+    alert_reconciliation_interval_seconds: int = Field(
+        default=5,
+        ge=1,
+        le=60,
+        validation_alias=AliasChoices(
+            "ALERT_RECONCILIATION_INTERVAL_SECONDS", "alert_reconciliation_interval_seconds"
+        ),
+    )
+    alert_reconciliation_batch_size: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        validation_alias=AliasChoices(
+            "ALERT_RECONCILIATION_BATCH_SIZE", "alert_reconciliation_batch_size"
+        ),
+    )
+
     alert_resolution_enabled: bool = Field(
         default=False,
         validation_alias=AliasChoices("ALERT_RESOLUTION_ENABLED", "alert_resolution_enabled"),
+    )
+    alert_test_sms_destination: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("ALERT_TEST_SMS_DESTINATION", "alert_test_sms_destination"),
+    )
+    alert_test_email_destination: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "ALERT_TEST_EMAIL_DESTINATION", "alert_test_email_destination"
+        ),
     )
     iprog_api_token: SecretStr | None = Field(
         default=None,

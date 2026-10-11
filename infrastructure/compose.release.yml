@@ -43,7 +43,9 @@ services:
   dispatcher:
     image: quakestrike-workers:${WORKER_IMAGE_TAG:?Set WORKER_IMAGE_TAG to the tested Git commit SHA}
     command: ["quakestrike-dispatcher"]
-    environment: *worker-environment
+    environment:
+      <<: *worker-environment
+      ALERT_RESOLUTION_ENABLED: ${ALERT_RESOLUTION_ENABLED:-false}
     volumes: *worker-volumes
     networks: [private-data]
     depends_on:
@@ -90,6 +92,7 @@ services:
       <<: *worker-environment
       PREDICTION_SOFT_TIME_LIMIT_SECONDS: ${PREDICTION_SOFT_TIME_LIMIT_SECONDS:-300}
       PREDICTION_HARD_TIME_LIMIT_SECONDS: ${PREDICTION_HARD_TIME_LIMIT_SECONDS:-360}
+      PUBLIC_BULLETIN_BASE_URL: ${PUBLIC_BULLETIN_BASE_URL:-https://quakestrikeph.qzz.io}
     volumes: *worker-volumes
     networks: [private-data]
     depends_on:
@@ -105,6 +108,62 @@ services:
       start_period: 30s
     restart: unless-stopped
     mem_limit: 512m
+    logging: *worker-logging
+
+  alert-worker:
+    profiles: ["alerts"]
+    image: quakestrike-workers:${WORKER_IMAGE_TAG:?Set WORKER_IMAGE_TAG to the tested Git commit SHA}
+    command: ["quakestrike-alert"]
+    environment:
+      <<: *worker-environment
+      ALERT_RESOLUTION_ENABLED: ${ALERT_RESOLUTION_ENABLED:-false}
+      ALERT_DELIVERY_ENABLED: ${ALERT_DELIVERY_ENABLED:-false}
+      IPROG_API_TOKEN: ${IPROG_API_TOKEN:-}
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      BREVO_SENDER_EMAIL: ${BREVO_SENDER_EMAIL:-}
+      BREVO_SENDER_NAME: ${BREVO_SENDER_NAME:-}
+    volumes: *worker-volumes
+    networks: [private-data, source-egress]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "uv", "run", "--frozen", "--no-dev", "--no-sync", "quakestrike", "health-alert"]
+      interval: 15s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    mem_limit: 512m
+    logging: *worker-logging
+
+  alert-reconciliation:
+    profiles: ["alerts"]
+    image: quakestrike-workers:${WORKER_IMAGE_TAG:?Set WORKER_IMAGE_TAG to the tested Git commit SHA}
+    command: ["quakestrike-alert-reconcile"]
+    environment:
+      <<: *worker-environment
+      ALERT_DELIVERY_ENABLED: ${ALERT_DELIVERY_ENABLED:-false}
+      ALERT_RECONCILIATION_INTERVAL_SECONDS: ${ALERT_RECONCILIATION_INTERVAL_SECONDS:-5}
+      ALERT_RECONCILIATION_BATCH_SIZE: ${ALERT_RECONCILIATION_BATCH_SIZE:-20}
+      IPROG_API_TOKEN: ${IPROG_API_TOKEN:-}
+    volumes: *worker-volumes
+    networks: [private-data, source-egress]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "uv", "run", "--frozen", "--no-dev", "--no-sync", "quakestrike", "health-alert-reconciliation"]
+      interval: 15s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    mem_limit: 256m
     logging: *worker-logging
 
   beat:

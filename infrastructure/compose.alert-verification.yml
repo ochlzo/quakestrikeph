@@ -1,0 +1,31 @@
+# Combine ONLY with compose.integration.yml. No Beat, Dispatcher, queue consumer or egress.
+# A separately approved temporary override may attach controlled external connectivity.
+services:
+  controlled-alert:
+    profiles: ["controlled-alert"]
+    image: quakestrike-workers:${WORKER_IMAGE_TAG:?Set WORKER_IMAGE_TAG to the tested Git commit SHA}
+    command: ["quakestrike", "config-check"]
+    environment:
+      DATABASE_URL: ${CONTROLLED_DATABASE_URL:?Set the disposable restricted worker URL}
+      REDIS_URL: redis://redis-test:6379/0
+      PHIVOLCS_CATALOG_URL: https://example.invalid/controlled-fixture
+      MODEL_RELEASE_ID: ${MODEL_RELEASE_ID:?Set MODEL_RELEASE_ID}
+      IPROG_API_TOKEN: ${IPROG_API_TOKEN:-}
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      BREVO_SENDER_EMAIL: ${BREVO_SENDER_EMAIL:-}
+      BREVO_SENDER_NAME: ${BREVO_SENDER_NAME:-}
+      ALERT_TEST_SMS_DESTINATION: ${ALERT_TEST_SMS_DESTINATION:-}
+      ALERT_TEST_EMAIL_DESTINATION: ${ALERT_TEST_EMAIL_DESTINATION:-}
+    networks: [phase2-test]
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    restart: "no"
+    mem_limit: 256m
+    logging:
+      driver: local
+      options:
+        max-size: "20m"
+        max-file: "5"

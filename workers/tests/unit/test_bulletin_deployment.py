@@ -6,9 +6,19 @@ from pathlib import Path
 import pytest
 
 
-@pytest.mark.parametrize("previous_bulletin", [False, True])
-@pytest.mark.parametrize("failure", [False, True])
-def test_bulletin_rollout_restores_or_saves_tags(tmp_path, previous_bulletin, failure):
+@pytest.mark.parametrize(
+    ("previous_bulletin", "failure", "active_alerts"),
+    [
+        (False, False, False),
+        (True, False, False),
+        (False, True, False),
+        (True, True, False),
+        (True, False, True),
+    ],
+)
+def test_bulletin_rollout_restores_or_saves_tags(
+    tmp_path, previous_bulletin, failure, active_alerts
+):
     bash = shutil.which("bash")
     if os.name == "nt":
         bash = "C:/Program Files/Git/bin/bash.exe"
@@ -42,16 +52,25 @@ docker() {
     if [[ $* == *"inspect --format"* ]]; then
         echo "${!#}" | sed 's/.*://'
     elif [[ $* == *"ps --status running -q"* ]]; then
-        case "${!#}" in prediction-worker|beat) ;; *) echo container ;; esac
+        case "${!#}" in prediction-worker|beat|alert-reconciliation) ;; *) echo container ;; esac
     fi
 }
 curl() { log "curl $*"; return 22; }
 """
     test_script = tmp_path / "deploy.sh"
+    if active_alerts:
+        mocks = mocks.replace("|alert-reconciliation", "")
     if not failure:
         mocks = mocks.replace("return 22", "return 0")
     test_script.write_text(mocks + script)
     result = subprocess.run([bash, str(test_script), new], capture_output=True, text=True)
+    if active_alerts:
+        assert result.returncode == 2
+        assert "explicit alert-runtime rollout" in result.stderr
+        assert (tmp_path / ".env").read_text() == env
+        commands = (tmp_path / "commands.log").read_text()
+        assert "git fetch" not in commands and "git switch" not in commands
+        return
     if not failure:
         assert result.returncode == 0, result.stderr
         saved = (tmp_path / ".env").read_text()

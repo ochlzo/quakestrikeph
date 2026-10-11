@@ -326,12 +326,11 @@ not a replacement for durable run and dispatch records.
 
 The local enablement execution record is in
 [the issue #13 report](../reports/issue-13-local-enablement-2026-09-19.md).
-The recipient resolver supports the identifier-only `alert` queue but stays disabled by default.
-`ALERT_RESOLUTION_ENABLED=false` prevents the Dispatcher from publishing alert work.
-The opt-in `quakestrike-alert` entrypoint records recipients and performs network detection only.
-It does not submit email or SMS messages.
-Production activation remains blocked until the delivery and verification slices are complete.
-Public APIs, web apps, and production monitoring remain deferred.
+The identifier-only alert runtime defaults to disabled. The Dispatcher uses
+`ALERT_RESOLUTION_ENABLED`; submission requires `ALERT_DELIVERY_ENABLED` as well.
+The explicit `alerts` profile adds the Alert Worker and independent reconciliation.
+Follow [alert operations](alert-runtime.md) for rollout, legacy retirement, and finite verification.
+Provider verification and production activation remain separate gates.
 
 ## 8. Stop local services
 

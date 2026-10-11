@@ -57,16 +57,22 @@ def poll_iprog_deliveries(
             result = SmsOutcome("unknown", "provider_transport_uncertain")
         outcome = "ignored"
         if result.status in ("accepted", "delivered", "failed"):
-            outcome = store.reconcile_delivery(
-                candidate.delivery_attempt_id,
-                candidate.provider_message_id,
-                result.status,
-                None,
-                result.error_code,
-                provider="iprog",
-                evidence=result.evidence,
-            )
-            store.maintain(candidate.dispatch_id, candidate.alert_job_id, candidate.correlation_id)
+            try:
+                outcome = store.reconcile_delivery(
+                    candidate.delivery_attempt_id,
+                    candidate.provider_message_id,
+                    result.status,
+                    None,
+                    result.error_code,
+                    provider="iprog",
+                    evidence=result.evidence,
+                )
+                store.maintain(
+                    candidate.dispatch_id, candidate.alert_job_id, candidate.correlation_id
+                )
+            except Exception:
+                # Retry the read during a later sweep; one locked row cannot starve others.
+                outcome = "poll_reconciliation_unavailable"
         report(candidate, result, outcome)
         processed += 1
         cursor = candidate.delivery_attempt_id
