@@ -39,7 +39,7 @@ Its simulated providers exercise delivery through the application boundary; they
 
 ## Recorded evidence on 11 October 2026
 
-The final tested application source and controlled SMS image use `2e4f3e876ee98b73fc603614bc534ddd1899f770`.
+The final tested application source and controlled provider images use `2e4f3e876ee98b73fc603614bc534ddd1899f770`.
 [CI run 38114036506](https://github.com/ochlzo/quakestrikeph/actions/runs/38114036506) passed on that source.
 
 | Check | Verified result |
@@ -86,15 +86,52 @@ The finite fixture mirrored fresh public forecasts into disposable PostgreSQL an
 Its dependency rows used synthetic unseen prediction inputs; no local inference produced the mirrored forecasts.
 The fixture never selected ordinary backlog or shared database accounts.
 
+Authenticated Brevo account, sender, and domain checks returned HTTP 200 after authorization of the Windows host's outbound IP.
+The approved sender was active, the domain was authenticated, and transactional sending was enabled.
+The account reported a free-plan allocation of 300 under `sendLimit`; that allocation is not a measured remaining balance.
+Direct Docker requests still received an IP authorization rejection despite matching the configured key.
+The finite worker therefore used a temporary authenticated CONNECT relay through the authorized Windows host.
+The relay allowed only `api.brevo.com:443`, retained end-to-end TLS verification, and enforced connection and lifetime limits.
+These checks do not establish readiness for a production server's outbound IP.
+
+Exactly two actual email submissions received HTTP 201, with one committed attempt and a known reference per variant.
+Both used the approved sender and frozen subject, plain text, and escaped HTML content.
+Actual callback payloads echoed `quakestrike-attempt:<attempt UUID>` in the literal `X-Mailin-custom` field.
+Their normalized references matched the submitted references; the authenticated proxy forwarded only callbacks for the selected disposable attempts.
+
+| Email variant | Actual callback observation | Durable outcome |
+| --- | --- | --- |
+| General | Request at 08:49:11 UTC and delivered at 08:49:13 UTC received HTTP 429 during a temporary Backend connectivity failure. | Accepted recipient/attempt with known reference; delivery reconciliation and provider retry remain unverified. |
+| Nearby | Request at 09:08:29 UTC and delivered at 09:08:31 UTC received HTTP 204 after connectivity was corrected. | Delivered recipient/attempt with provider timestamp; completed job; stopped dispatch. |
+
+Docker did not publish the loopback port while the disposable Backend had only its internal network.
+Attaching the task's temporary bridge and restarting the Backend restored host connectivity.
+A synthetic unknown-attempt probe then reached PostgreSQL and returned the documented uncorrelated outcome.
+That synthetic probe is connectivity evidence only; it is not a real delivery callback.
+The initial general callback failures remain recorded. No replacement callback was injected, and no email was resubmitted.
+General callback observation continued through 09:20:26 UTC without a retry reaching the proxy.
+That finite observation does not establish whether Brevo retries later.
+
+The unused nearby fixture aged beyond the finite runner's 15-minute freshness gate while the general callback remained pending.
+An audited disposable transaction replaced only that unsent job and dispatch with fresh fixture identifiers.
+It retained frozen hashes, public forecast identity, and original expiry, and verified that all general evidence remained unchanged.
+The fixture restricted Dispatcher candidate selection to the exact nearby dispatch and job.
+Production code still performed claims, publication, Redis consumption, and finite submission.
+This selected fixture seam does not demonstrate full consumer activation or authorize ordinary-user delivery.
+Human inbox receipt, received sender, exact received content, and received-link navigation remain unverified for both emails.
+After retaining safe evidence, the task-owned webhook was deleted and its absence was verified.
+The temporary tunnel, proxy, relay, disposable PostgreSQL/Redis/Backend resources, egress network, copied environment, and relay credential were removed or stopped.
+The original private configuration and temporary recipient-comparison files remain available.
+
 | Observation | Status and required proof |
 | --- | --- |
 | IPROG account/support preflight | Controlled preflight verified designated-destination support and the account balances before and after the submissions. |
 | SMS provider header and content | Unverified: compare received general/nearby messages with immutable snapshots and provider-added header behavior. |
 | SMS encoding and charging | Local segment estimates and returned credit evidence are recorded above. Actual encoding and billed segments remain unverified; `sms_count` supplied no usable count. |
 | SMS delivery polling | Two actual retained references reconciled to delivered without resubmission. Human receipt and provider delivery timestamps remain unverified. |
-| Brevo authentication | Root observed HTTP 401; email verification is parked pending the specific account/key correction. Never request secret values in chat. |
-| Brevo sender/domain and receipt | User reported setup ready, but authenticated preflight and actual received sender/content remain unverified. |
-| Brevo callback | Unverified live: observe exact attempt-tag echo, compatible reference/time, bearer authentication, committed updates, and retry behavior. |
+| Brevo authentication | Authorized host and relayed Linux preflight passed; direct Docker outbound IP authorization remains a deployment prerequisite. |
+| Brevo sender/domain and receipt | Authenticated preflight verified sender/domain configuration. Human receipt and received sender/content remain unverified. |
+| Brevo callback | Nearby authentication/correlation and durable delivery passed. General delivery reconciliation and measured provider retry remain unverified after initial HTTP 429 callbacks. |
 | Received event link | Public event routes loaded the selected forecasts. Opening the full received link and its updated forecast remain unverified. |
 
 Refresh public event/forecast data immediately before a finite live fixture.
