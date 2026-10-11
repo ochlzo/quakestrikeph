@@ -76,6 +76,7 @@ docker() {
         echo '{"services":{"alert-worker":{"environment":{
             "ALERT_RESOLUTION_ENABLED":"true","ALERT_DELIVERY_ENABLED":"true"}}}}'
     elif [[ $* == *"SELECT version_num"* ]]; then
+        cat >/dev/null
         if [[ -f schema-changed ]]; then echo new-revision; else echo old-revision; fi
     fi
 }
@@ -83,7 +84,6 @@ sudo() { log "sudo $*"; }
 python3() { command "$PYTHON_FOR_TEST" "$@"; }
 curl() { log "curl $*"; return 22; }
 """
-    test_script = tmp_path / "deploy.sh"
     if legacy_release:
         mocks = mocks.replace("printf 'alert-worker\\nalert-reconciliation\\n'", "echo dispatcher")
         mocks = mocks.replace(
@@ -115,11 +115,11 @@ curl() { log "curl $*"; return 22; }
             'log "docker $*"',
             'log "docker $*"; [[ $* != *"up -d --wait --no-deps backend-api"* ]] || return 24',
         )
-    test_script.write_text(mocks + script)
     import sys
 
     result = subprocess.run(
-        [bash, str(test_script), new],
+        [bash, "-s", "--", new],
+        input=mocks + script,
         capture_output=True,
         text=True,
         env={

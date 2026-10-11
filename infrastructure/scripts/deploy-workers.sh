@@ -69,7 +69,7 @@ rollout_started=0
 web_started=0
 migration_before=''
 database_revision() {
-    compose exec -T postgres sh -ec 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1 -c "SELECT version_num FROM public.alembic_version"'
+    compose exec -T postgres sh -ec 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1 -c "SELECT version_num FROM public.alembic_version"' </dev/null
 }
 stop_processing() {
     compose --profile beat stop beat
