@@ -29,6 +29,8 @@ EXPECTED_TABLES = {
     "prediction_attempts",
     "forecasts",
     "alert_jobs",
+    "alert_recipients",
+    "alert_delivery_attempts",
     "audit_logs",
     "maintenance_runs",
 }
@@ -39,6 +41,8 @@ EXPECTED_ENUMS = {
     "dispatch_status",
     "prediction_attempt_status",
     "alert_job_status",
+    "alert_recipient_status",
+    "alert_delivery_status",
     "maintenance_run_status",
 }
 
@@ -69,6 +73,12 @@ def test_upgrade_creates_only_phase_two_schema_and_uuid_keys_have_no_defaults(
         "forecast_id",
         "requested_at",
         "message_snapshot",
+        "email_subject_snapshot",
+        "email_body_snapshot",
+        "nearby_message_snapshot",
+        "nearby_email_subject_snapshot",
+        "nearby_email_body_snapshot",
+        "content_provenance_snapshot",
         "recipient_policy_snapshot",
         "status",
         "recipient_resolution_completed_at",
@@ -119,7 +129,7 @@ def test_migration_gate_is_ready_at_head_and_read_only_when_revision_is_stale(
     settings = _settings(str(migrated_engine.url))
     ready = AlembicMigrationStateGate(settings, engine=migrated_engine).check()
     assert ready.ready is True
-    assert ready.details["current_revision"] == "20261004_12"
+    assert ready.details["current_revision"] == "20261011_13"
 
     with migrated_engine.begin() as connection:
         connection.execute(text("UPDATE alembic_version SET version_num = 'stale_revision'"))
@@ -130,7 +140,7 @@ def test_migration_gate_is_ready_at_head_and_read_only_when_revision_is_stale(
             connection.scalar(text("SELECT version_num FROM alembic_version")) == "stale_revision"
         )
     with migrated_engine.begin() as connection:
-        connection.execute(text("UPDATE alembic_version SET version_num = '20261004_12'"))
+        connection.execute(text("UPDATE alembic_version SET version_num = '20261011_13'"))
 
 
 def test_display_name_migration_preserves_profile_and_restores_nullable_columns(

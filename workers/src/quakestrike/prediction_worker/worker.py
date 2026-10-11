@@ -94,7 +94,9 @@ def process_prediction_delivery(settings: Settings, payload: object, model: Pred
         return handle_prediction_command(
             payload,
             store=SqlAlchemyPredictionStore(
-                create_session_factory(engine), configured_release_id=settings.model_release_id
+                create_session_factory(engine),
+                configured_release_id=settings.model_release_id,
+                public_bulletin_base_url=settings.public_bulletin_base_url,
             ),
             model=model,
             logger=logging.getLogger("prediction-worker"),

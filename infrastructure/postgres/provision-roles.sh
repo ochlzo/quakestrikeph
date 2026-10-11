@@ -26,7 +26,8 @@ WHERE schemaname = 'public'
     'source_catalog_evidence',
     'earthquake_events', 'earthquake_bulletin_event_identities',
     'earthquake_event_revisions', 'model_releases', 'prediction_jobs',
-    'prediction_attempts', 'forecasts', 'alert_jobs', 'audit_logs',
+    'prediction_attempts', 'forecasts', 'alert_jobs', 'alert_recipients',
+    'alert_delivery_attempts', 'audit_logs',
     'job_dispatches', 'maintenance_runs', 'users'
   ) \gexec
 SELECT format('ALTER TYPE %I.%I OWNER TO quakestrike_migration', n.nspname, t.typname)
@@ -37,7 +38,8 @@ WHERE n.nspname = 'public'
   AND pg_get_userbyid(t.typowner) <> 'quakestrike_migration'
   AND t.typname IN (
     'ingestion_run_status', 'prediction_job_status', 'dispatch_status',
-    'prediction_attempt_status', 'alert_job_status', 'maintenance_run_status', 'account_status'
+    'prediction_attempt_status', 'alert_job_status', 'alert_recipient_status',
+    'alert_delivery_status', 'maintenance_run_status', 'account_status'
   ) \gexec
 DO $function_ownership$
 DECLARE app_function record;
@@ -49,7 +51,11 @@ BEGIN
           AND pg_get_userbyid(p.proowner) <> 'quakestrike_migration'
           AND p.oid IN (
               to_regprocedure('public.quakestrike_prediction_input_snapshot_sha256(jsonb)'),
-              to_regprocedure('public.quakestrike_prediction_jobs_snapshot_immutable()')
+              to_regprocedure('public.quakestrike_prediction_jobs_snapshot_immutable()'),
+              to_regprocedure('public.enforce_alert_assignment_and_snapshots_immutable()'),
+              to_regprocedure('public.enforce_alert_recipient_evidence()'),
+              to_regprocedure('public.enforce_alert_attempt_evidence()'),
+              to_regprocedure('public.quakestrike_reconcile_brevo_delivery(uuid,text,text,timestamptz,text)')
           )
     LOOP
         EXECUTE format('ALTER FUNCTION %I.%I(%s) OWNER TO quakestrike_migration',
@@ -78,6 +84,20 @@ GRANT SELECT, INSERT ON TABLE
     earthquake_event_revisions, forecasts, alert_jobs, audit_logs,
     source_catalog_evidence
 TO quakestrike_worker;
+
+REVOKE USAGE ON TYPE public.alert_recipient_status, public.alert_delivery_status FROM PUBLIC;
+GRANT USAGE ON TYPE public.alert_recipient_status, public.alert_delivery_status TO quakestrike_worker;
+GRANT SELECT, INSERT ON public.alert_recipients, public.alert_delivery_attempts TO quakestrike_worker;
+GRANT UPDATE (status,recipient_resolution_completed_at,lease_expires_at,worker_execution_id,completed_at)
+ ON public.alert_jobs TO quakestrike_worker;
+GRANT UPDATE (status,next_attempt_at,delivered_at,last_error_code,processing_lease_expires_at,worker_execution_id)
+ ON public.alert_recipients TO quakestrike_worker;
+GRANT UPDATE (provider_message_id,status,finished_at,provider_status_at,error_code,error_message,provider_evidence_snapshot)
+ ON public.alert_delivery_attempts TO quakestrike_worker;
+GRANT SELECT (user_id,email,email_verified_at,email_enabled,mobile_number,mobile_verified_at,sms_enabled,
+ alert_trigger_magnitude,nearby_alerts_only,alert_location_latitude,alert_location_longitude,
+ alert_trigger_distance_km,account_status,onboarding_completed_at) ON public.users TO quakestrike_worker;
+
 SQL
     then
       echo '{"action":"grant-worker","status":"ready"}'
@@ -141,6 +161,13 @@ GRANT UPDATE (display_name, email, email_verified_at, email_enabled, mobile_numb
   alert_location_latitude, alert_location_longitude, alert_trigger_distance_km,
   onboarding_completed_at, updated_at) ON users TO quakestrike_backend;
 GRANT INSERT ON audit_logs TO quakestrike_backend;
+-- The callback capability exists only after the approved forward migration.
+DO $$ BEGIN
+ IF to_regprocedure('public.quakestrike_reconcile_brevo_delivery(uuid,text,text,timestamptz,text)') IS NOT NULL THEN
+  REVOKE ALL ON FUNCTION public.quakestrike_reconcile_brevo_delivery(uuid,text,text,timestamptz,text) FROM PUBLIC;
+  GRANT EXECUTE ON FUNCTION public.quakestrike_reconcile_brevo_delivery(uuid,text,text,timestamptz,text) TO quakestrike_backend;
+ END IF;
+END $$;
 SQL
     then
       echo '{"action":"create-backend","status":"ready"}'

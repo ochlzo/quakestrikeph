@@ -11,6 +11,10 @@ from uuid import UUID
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from quakestrike.domain.alerts import (
+    DEFAULT_PUBLIC_BULLETIN_BASE_URL,
+    validate_public_bulletin_base_url,
+)
 from quakestrike.domain.prediction import PREDICTION_PROCESSING_LEASE_SECONDS
 
 DEFAULT_BOOTSTRAP_RUN_MANIFEST = Path("database/initialization/bootstrap-readiness.json")
@@ -19,6 +23,16 @@ DEFAULT_BOOTSTRAP_REQUIRED_AVAILABLE_THROUGH = datetime.fromisoformat("2026-09-0
 
 class Settings(BaseSettings):
     """Configuration shared by the Phase 1 worker entry points."""
+
+    public_bulletin_base_url: str = Field(
+        default=DEFAULT_PUBLIC_BULLETIN_BASE_URL,
+        validation_alias=AliasChoices("PUBLIC_BULLETIN_BASE_URL", "public_bulletin_base_url"),
+    )
+
+    @field_validator("public_bulletin_base_url")
+    @classmethod
+    def validate_public_base_url(cls, value: str) -> str:
+        return validate_public_bulletin_base_url(value)
 
     database_url: str = Field(
         validation_alias=AliasChoices("DATABASE_URL", "database_url"),
