@@ -2,7 +2,6 @@
 import { Activity, ChevronLeft, Earth, Pause, Play, RotateCcw } from 'lucide-react';
 import ForecastActivity from './ForecastActivity';
 import ForecastNavigation from './ForecastNavigation';
-import BackgroundToaster from './BackgroundToaster';
 import { Button, LinkButton } from './ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from './ui/empty';
 import type { EarthquakeDetail } from '../lib/events';
@@ -401,7 +400,6 @@ return <>
 </div>
 </div>
 </footer>
-<BackgroundToaster client:only="react" />
 <script>import { initForecastDetails } from '../lib/forecast-details'; initForecastDetails();</script>
 </body>
 </html>
