@@ -32,8 +32,14 @@ jobs:
 
       - name: Check Python style
         run: |
-          uv run --project workers ruff check workers
-          uv run --project workers ruff format --check workers
+          uv run --project workers ruff check workers infrastructure/scripts/save-release-tags.py
+          uv run --project workers ruff format --check workers infrastructure/scripts/save-release-tags.py
+
+      - name: Check deployment scripts
+        run: |
+          for script in infrastructure/scripts/deploy-workers.sh infrastructure/scripts/prepare-release-database.sh infrastructure/scripts/enable-beat.sh; do
+            bash -n "$script"
+          done
 
       - name: Check local Compose isolation
         run: python3 infrastructure/scripts/check-local-compose.py
@@ -136,7 +142,7 @@ jobs:
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
 
-      - name: Deploy tested commit
+      - name: Back up, migrate, and deploy tested application
         env:
           DEPLOY_USER: ${{ vars.VPS_DEPLOY_USER }}
           DEPLOY_HOST: ${{ vars.VPS_TAILSCALE_HOST }}

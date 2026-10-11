@@ -6,12 +6,11 @@ successful `main` run, its deploy job can connect to the VPS over Tailscale and
 run `infrastructure/scripts/deploy-workers.sh`. The deploy job is disabled until
 the repository variable `DEPLOY_ENABLED` is set to `true`.
 
-This deploys Python workers and the public Bulletin. The workflow also checks the
-Backend, whose image still has a separate [manual rollout](backend-api.md).
+This deploys Python workers, the Backend, Bulletin, and already-enabled alert services. [ADR 0049](../adr/0049-automatic-full-application-deployment.md) authorizes the explicit migration and grant job. Initial [Backend setup](backend-api.md) and alert activation remain manual.
 Bulletin CI builds its Dockerfile (including Astro checks and production build)
 and checks the production homepage and an emitted asset. A disposable Traefik
 container also checks page/API routing and unrelated-host rejection. Deployment waits for
-all three checks and uses the tested main SHA for worker and Bulletin images.
+all three checks and uses the tested main SHA for all application images.
 The Operations Console deployment remains planned.
 
 ## Bulletin hosting
@@ -33,16 +32,28 @@ Its Dockerfile supplies a root-page health check, production Node command,
 and a non-root user. Compose adds bounded logs, restart policy, and memory limit.
 Traefik is recreated after Bulletin is healthy so its mounted route file uses
 the current checkout. The script checks the public homepage and earthquake API.
-A failed rollout restores previous worker and Bulletin images and routing; a
-failed first rollout removes Bulletin and restores the API-only configuration.
+When the database revision remains unchanged, a failed rollout restores previous
+application images and routing. A failed first rollout also removes Bulletin
+and restores the API-only configuration.
 Do not prune prior images until the release is verified.
 
 For the first release, keep `DEPLOY_ENABLED=false`, wait for green main checks,
 and run `bash infrastructure/scripts/deploy-workers.sh <tested-main-sha>` on
 the VPS using the new script. Confirm homepage, assets, map, earthquake list,
 and forecast reads over HTTPS, then set `DEPLOY_ENABLED=true` in GitHub.
-Future successful main runs deploy workers and Bulletin together. A Bulletin
-failure fails deployment and triggers rollback; the Backend tag is unchanged.
+Future successful main runs deploy the full application. A failed rollout restores previous images only when the database revision remains unchanged. A changed or unreadable schema leaves processing and Backend stopped for repair forward. Deployment never restores or downgrades the live database automatically.
+
+## Routine release sequence
+
+Deployment verifies the clean checkout, previous images, and current main SHA. It builds images before downtime. The installed encrypted backup and isolated restore services must both succeed. A second main check rejects stale releases before stopping services.
+
+Deployment stops Beat, Dispatcher, consumers, reconciliation, and Backend. The existing host maintenance lock serializes migration and grants with backup, restore, and retention. `release-init` uses the migration login for reviewed DDL. The reviewed checkout's provisioning script refreshes approved grants through stdin.
+
+Readiness checks verify migration state, model release, bootstrap, PostgreSQL, and Redis. Backend starts before consumers and already-enabled alerts. Reconciliation starts before Alert Worker; Dispatcher resumes afterward. Prediction replica count and previous Beat enablement are preserved. Bulletin, Traefik, and public endpoint checks complete the rollout.
+
+The deployment account needs noninteractive `sudo` for the installed backup services and maintenance-locked database job. Initial secret provisioning, alert activation, model registration, bootstrap, and legacy retirement remain operator actions. Only previously running alert services resume. The workflow never changes alert gates.
+
+Successful releases save Worker, Backend, and Bulletin tags atomically in private `.env`. Protected environment backups remain under the deployment user's `.local/state/quakestrikeph/env-backups`. Previous images remain available. If a changed schema prevents rollback, retain the target checkout and repair forward with publication stopped. A retry requires restoring the documented running-service preconditions.
 
 ## Initialize the VPS once
 
@@ -130,21 +141,15 @@ belongs to this VPS database and cannot be copied from another machine.
 These are operator steps because an empty database cannot become ready by
 starting containers. A database backup and restore plan is also needed before
 using this as a production service. See [PostgreSQL backups](postgres-backups.md)
-for the B2 setup and isolated restore test. The workflow never migrates the database,
-reimports history, or changes the model registry. A code push containing a new
-unapplied migration fails the pre-deploy `startup-check`; apply that migration
-through the reviewed operator procedure before retrying deployment. If the
-release changes worker table permissions, repeat `provision-roles.sh grant-worker`
-before starting the new Data Ingestor; automatic deployment does not change
-database grants. The scheduled checkpoint cleanup in ADR 0034 requires the
-worker's `DELETE` grant on `ingestion_run_inputs`.
+for the B2 setup and isolated restore test. Routine deployment applies reviewed migrations and approved grants as an explicit release job. It never reimports history or changes the model registry. The scheduled checkpoint cleanup in ADR 0034 retains the worker's `DELETE` grant on `ingestion_run_inputs`.
 
 The deploy script requires PostgreSQL, Redis, Dispatcher, and Data Ingestor to
 already be running. It updates Prediction Worker and Beat only if they were
 running before the release. It builds images tagged with the tested commit,
-checks readiness, pauses Beat and Dispatcher, updates consumers one at a time,
-then resumes Dispatcher and Beat. On failure it attempts to restore the previous
-checkout and images. Check container health and logs after any failed run.
+backs up and tests a restore, pauses application processing, and applies reviewed
+migrations and grants. It checks readiness and restores services in the routine
+release order above. Recovery depends on whether the database revision changed.
+Check container health and logs after any failed run.
 
 ## Give GitHub access to the VPS
 

@@ -48,7 +48,7 @@ An individual persistence or settlement failure advances the poll cursor and mak
 Restarting reconciliation begins a fresh sweep. Polls do not invent or change provider timestamps.
 An unavailable dependency makes health fail; subsequent passes and new connections can recover without recreating delivery evidence.
 
-## Ordered deployment and legacy retirement
+## Initial deployment and legacy retirement
 
 First obtain environment-specific approval for migrations, retirement, activation, and real provider verification.
 Back up the database and retain the previous tested images. Stop Beat and Dispatcher publication before changing the alert runtime.
@@ -95,7 +95,7 @@ docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/c
 ```
 
 Normal activation uses every eligible account. Do not add a production test-account filter or copy finite authorization settings into normal consumers.
-The automatic deployment script refuses deployments while either alert service runs. Use the ordered alert rollout for subsequent activated releases.
+After initial activation, [automatic deployment](continuous-deployment.md#routine-release-sequence) updates both already-running alert services with the Backend and workers. Backend and reconciliation resume before alert consumption and publication. Both services must initially run together with both gates enabled. The workflow never enables a disabled gate or starts previously inactive alerts.
 
 ## Finite disposable verification
 

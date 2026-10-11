@@ -7,17 +7,23 @@ import pytest
 
 
 @pytest.mark.parametrize(
-    ("previous_bulletin", "failure", "active_alerts"),
+    ("previous_bulletin", "failure", "active_alerts", "schema_change", "legacy_release"),
     [
-        (False, False, False),
-        (True, False, False),
-        (False, True, False),
-        (True, True, False),
-        (True, False, True),
+        (False, False, False, False, False),
+        (True, False, False, False, False),
+        (False, True, False, False, False),
+        (True, True, False, False, False),
+        (True, False, True, False, False),
+        (True, True, True, True, False),
+        (True, "backup", False, False, False),
+        (True, "restore", False, False, False),
+        (True, "consumer", False, False, False),
+        (True, "backend", True, False, False),
+        (True, False, False, False, True),
     ],
 )
 def test_bulletin_rollout_restores_or_saves_tags(
-    tmp_path, previous_bulletin, failure, active_alerts
+    tmp_path, previous_bulletin, failure, active_alerts, schema_change, legacy_release
 ):
     bash = shutil.which("bash")
     if os.name == "nt":
@@ -26,7 +32,10 @@ def test_bulletin_rollout_restores_or_saves_tags(
         pytest.skip("Bash is unavailable")
     old = "a" * 40
     new = "b" * 40
-    env = f"WORKER_IMAGE_TAG={old}\n"
+    env = (
+        f"WORKER_IMAGE_TAG={old}\nBACKEND_IMAGE_TAG={old}\n"
+        "ALERT_DELIVERY_ENABLED=false\nPRIVATE_VALUE=preserved\n"
+    )
     if previous_bulletin:
         env += f"BULLETIN_IMAGE_TAG={old}\n"
     (tmp_path / ".env").write_text(env)
@@ -35,6 +44,9 @@ def test_bulletin_rollout_restores_or_saves_tags(
     script = script.replace(
         "source infrastructure/scripts/enable-beat.sh", "release_enable_beat() { :; }"
     )
+    scripts = tmp_path / "infrastructure/scripts"
+    scripts.mkdir(parents=True)
+    shutil.copyfile("infrastructure/scripts/save-release-tags.py", scripts / "save-release-tags.py")
     mocks = r"""
 old=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 new=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -49,33 +61,121 @@ git() {
 }
 docker() {
     log "docker $*"
-    if [[ $* == *"inspect --format"* ]]; then
+    if [[ $* == *"{{.Image}}"* || $* == *"{{.Id}}"* ]]; then
+        echo sha256:previous-backend
+    elif [[ $* == *"inspect --format"* ]]; then
         echo "${!#}" | sed 's/.*://'
+    elif [[ $* == *"config --services"* ]]; then
+        printf 'alert-worker\nalert-reconciliation\n'
     elif [[ $* == *"ps --status running -q"* ]]; then
-        case "${!#}" in prediction-worker|beat|alert-reconciliation) ;; *) echo container ;; esac
+        case "${!#}" in
+            prediction-worker|beat|alert-worker|alert-reconciliation) ;;
+            *) echo container ;;
+        esac
+    elif [[ $* == *"config --format json"* ]]; then
+        echo '{"services":{"alert-worker":{"environment":{
+            "ALERT_RESOLUTION_ENABLED":"true","ALERT_DELIVERY_ENABLED":"true"}}}}'
+    elif [[ $* == *"SELECT version_num"* ]]; then
+        if [[ -f schema-changed ]]; then echo new-revision; else echo old-revision; fi
     fi
 }
+sudo() { log "sudo $*"; }
+python3() { command "$PYTHON_FOR_TEST" "$@"; }
 curl() { log "curl $*"; return 22; }
 """
     test_script = tmp_path / "deploy.sh"
+    if legacy_release:
+        mocks = mocks.replace("printf 'alert-worker\\nalert-reconciliation\\n'", "echo dispatcher")
+        mocks = mocks.replace(
+            'log "docker $*"',
+            'log "docker $*"; [[ $* != *"ps --status running -q alert"* ]] || return 25',
+        )
     if active_alerts:
-        mocks = mocks.replace("|alert-reconciliation", "")
+        mocks = mocks.replace("|alert-worker|alert-reconciliation", "")
+    if schema_change:
+        mocks = mocks.replace(
+            'sudo() { log "sudo $*"; }',
+            'sudo() { log "sudo $*"; [[ $* != *"flock"* ]] || touch schema-changed; }',
+        )
+    if failure in ("backup", "restore"):
+        service = "backup" if failure == "backup" else "restore-test"
+        mocks = mocks.replace(
+            'sudo() { log "sudo $*"; }',
+            f'sudo() {{ log "sudo $*"; [[ $* != *"quakestrike-postgres-{service}.service"* ]]; }}',
+        )
     if not failure:
         mocks = mocks.replace("return 22", "return 0")
+    if failure == "consumer":
+        mocks = mocks.replace(
+            'log "docker $*"',
+            'log "docker $*"; [[ $* != *"up -d --wait --no-deps data-ingestor"* ]] || return 23',
+        )
+    if failure == "backend":
+        mocks = mocks.replace(
+            'log "docker $*"',
+            'log "docker $*"; [[ $* != *"up -d --wait --no-deps backend-api"* ]] || return 24',
+        )
     test_script.write_text(mocks + script)
-    result = subprocess.run([bash, str(test_script), new], capture_output=True, text=True)
-    if active_alerts:
-        assert result.returncode == 2
-        assert "explicit alert-runtime rollout" in result.stderr
+    import sys
+
+    result = subprocess.run(
+        [bash, str(test_script), new],
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PYTHON_FOR_TEST": sys.executable,
+            "HOME": str(tmp_path),
+            "USERPROFILE": str(tmp_path),
+        },
+    )
+    commands = (tmp_path / "commands.log").read_text()
+    if failure in ("backup", "restore"):
+        assert result.returncode != 0
+        assert " stop " not in commands
+        assert "prepare-release-database.sh" not in commands
         assert (tmp_path / ".env").read_text() == env
-        commands = (tmp_path / "commands.log").read_text()
-        assert "git fetch" not in commands and "git switch" not in commands
+        return
+    assert commands.index("quakestrike-postgres-backup.service") < commands.index(
+        "stop backend-api"
+    )
+    assert commands.index("quakestrike-postgres-restore-test.service") < commands.index(
+        "prepare-release-database.sh"
+    )
+    if failure in ("consumer", "backend"):
+        assert result.returncode == (23 if failure == "consumer" else 24), result.stderr
+        assert "up -d --wait --no-deps dispatcher" not in commands
+        assert "up -d --wait --no-deps alert-worker" not in commands
+        assert (tmp_path / ".env").read_text() == env
+        return
+    assert (
+        commands.index("stop backend-api")
+        < commands.index("prepare-release-database.sh")
+        < commands.index("startup-check")
+        < commands.index("up -d --wait --no-deps backend-api")
+    )
+    if active_alerts:
+        assert "up -d --wait --no-deps alert-reconciliation" in commands
+        assert (
+            commands.index("up -d --wait --no-deps alert-reconciliation")
+            < commands.index("up -d --wait --no-deps alert-worker")
+            < commands.index("up -d --wait --no-deps dispatcher")
+        )
+    else:
+        assert "up -d --wait --no-deps alert-worker" not in commands
+    if schema_change:
+        assert result.returncode == 22
+        assert "Repair forward" in result.stderr
+        assert f"git switch --detach {old}" not in commands
+        assert (tmp_path / ".env").read_text() == env
         return
     if not failure:
         assert result.returncode == 0, result.stderr
         saved = (tmp_path / ".env").read_text()
         assert f"WORKER_IMAGE_TAG={new}" in saved
         assert f"BULLETIN_IMAGE_TAG={new}" in saved
+        assert f"BACKEND_IMAGE_TAG={new}" in saved
+        assert "ALERT_DELIVERY_ENABLED=false\nPRIVATE_VALUE=preserved" in saved
         return
     assert result.returncode == 22, result.stderr
     assert (tmp_path / ".env").read_text() == env

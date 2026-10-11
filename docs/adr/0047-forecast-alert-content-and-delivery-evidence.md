@@ -2,6 +2,8 @@
 
 **Status**: accepted by the user on 11 October 2026.
 
+[ADR 0049](0049-automatic-full-application-deployment.md) automates reviewed migration/grant deployment and repeat releases of already-enabled alerts. Initial activation and live provider verification remain explicit.
+
 [ADR 0048](0048-forecast-alert-copy-amendment.md) replaces the rendered window line, maximum-magnitude display, email labels, and SMS header decision below.
 
 The user approved the concrete schema proposal for issue 44 and children 46–51. Approval covers contract amendments, migration/grant implementation, and disposable integration tests. Shared development and production schema application remains separately authorized. Live provider tests and production activation have separate gates.

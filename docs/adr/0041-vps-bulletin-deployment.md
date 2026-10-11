@@ -2,6 +2,8 @@
 
 **Status**: accepted
 
+[ADR 0049](0049-automatic-full-application-deployment.md) extends routine deployment to the Backend, reviewed migrations, restricted grants, and already-enabled alert services. It replaces unconditional image rollback after a schema change.
+
 Amends the Bulletin checkout and hosting decision in [ADR 0040](0040-scoped-rollover-recovery-and-worker-checkout.md). Its historical recovery rules remain unchanged.
 
 The Bulletin stays in the monorepo and runs in its own production Astro Node container on the existing VPS. Cloudflare Tunnel keeps the public hostname `quakestrikeph.qzz.io` mapped to `http://traefik:80`. Traefik routes `/api/v1/` to the existing Backend with higher priority and other paths on that hostname to `bulletin:4321`. Port 4321 has no host mapping. The Bulletin joins only the edge network and receives no database, broker, or provider secrets. Cloudflare Access remains limited to the Operations Console.
