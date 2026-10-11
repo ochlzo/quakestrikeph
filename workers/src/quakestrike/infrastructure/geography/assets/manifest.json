@@ -1,9 +1,9 @@
 {
   "asset_sha256": "0399972a2308b7f281a595531b22a9d8b4035e234d721db4437179b524d80e97",
   "attribution": "GeoNames geographical database, https://www.geonames.org/",
-  "crosswalk_sha256": "02be434a1b28205e3932751b71e35ed2ef76bc62214aba1ed1f5240de6ebb380",
+  "crosswalk_sha256": "347bf35cc0d1b2dd1b9588fb9061d95460973b64d030fe76eb086e31aa28f4d6",
   "excluded_adm3_count": 51,
-  "exclusions_sha256": "8c31d767f534bf3063d7e41ce8bb3ac89d1922b7f907d2085f635e9006895bb8",
+  "exclusions_sha256": "01091ae8d62dc411108d9ba56eef6e3272344a4aea9bcc607f4656685dfc7422",
   "generator_version": "build-alert-geography-v1",
   "license": "CC BY 4.0",
   "license_url": "https://creativecommons.org/licenses/by/4.0/",
