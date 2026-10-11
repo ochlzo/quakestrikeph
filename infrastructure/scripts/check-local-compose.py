@@ -1,18 +1,26 @@
 """Check local isolation and production edge composition without real secrets."""
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[2]
 
 
-def configuration(*files: str) -> dict:
+def configuration(*files: str, profiles=()) -> dict:
     command = ["docker", "compose", "--env-file", ".env.example"]
     for file in files:
         command.extend(["-f", f"infrastructure/{file}"])
+    for profile in profiles:
+        command.extend(["--profile", profile])
     command.extend(["config", "--format", "json"])
-    return json.loads(subprocess.check_output(command, cwd=root, text=True))
+    environment = {
+        **os.environ,
+        "WORKER_IMAGE_TAG": "0" * 40,
+        "CONTROLLED_DATABASE_URL": "postgresql+psycopg://quakestrike_worker:fixture@postgres-test:5432/quakestrike_test",
+    }
+    return json.loads(subprocess.check_output(command, cwd=root, text=True, env=environment))
 
 
 base = configuration("compose.yml")
@@ -50,4 +58,31 @@ assert (
 )
 for service in ("backend-api", "bulletin", "postgres", "redis"):
     assert not production["services"][service].get("ports")
-print("Local isolation and explicit production edge checks passed.")
+release = configuration("compose.yml", "compose.release.yml")
+assert "alert-worker" not in release["services"]
+assert "alert-reconciliation" not in release["services"]
+alerts = configuration("compose.yml", "compose.release.yml", profiles=("alerts", "prediction"))
+services = alerts["services"]
+assert services["dispatcher"]["environment"]["ALERT_RESOLUTION_ENABLED"] == "false"
+assert services["alert-worker"]["environment"]["ALERT_DELIVERY_ENABLED"] == "false"
+assert "BREVO_API_KEY" in services["alert-worker"]["environment"]
+assert "BREVO_API_KEY" not in services["alert-reconciliation"]["environment"]
+assert "BREVO_CALLBACK_TOKEN" not in services["alert-worker"]["environment"]
+assert "BREVO_CALLBACK_TOKEN" in local["services"]["backend-api"]["environment"]
+for service in ("dispatcher", "prediction-worker", "beat"):
+    if service in services:
+        assert not {"IPROG_API_TOKEN", "BREVO_API_KEY", "BREVO_CALLBACK_TOKEN"} & set(
+            services[service]["environment"]
+        )
+assert services["prediction-worker"]["environment"]["PUBLIC_BULLETIN_BASE_URL"] == (
+    "https://quakestrikeph.qzz.io"
+)
+controlled = configuration(
+    "compose.integration.yml", "compose.alert-verification.yml", profiles=("controlled-alert",)
+)
+fixture = controlled["services"]["controlled-alert"]
+assert set(fixture["networks"]) == {"phase2-test"}
+assert fixture["restart"] == "no"
+assert not {"beat", "dispatcher", "alert-worker", "alert-reconciliation"} & set(controlled["services"])
+assert "BREVO_CALLBACK_TOKEN" not in fixture["environment"]
+print("Local isolation, explicit edge, disabled alerts, and finite fixture checks passed.")

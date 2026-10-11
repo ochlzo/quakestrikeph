@@ -34,6 +34,11 @@ for service in postgres redis dispatcher data-ingestor; do
 done
 prediction_count=$(compose --profile prediction ps --status running -q prediction-worker | wc -l)
 beat_running=$(compose --profile beat ps --status running -q beat)
+# Activated alerts need the ordered provider/callback rollout, never a stale consumer.
+if [[ -n $(compose --profile alerts ps --status running -q alert-worker alert-reconciliation) ]]; then
+    echo 'Active alerts require the explicit alert-runtime rollout; automatic worker deployment is stopped' >&2
+    exit 2
+fi
 docker image inspect "quakestrike-workers:$previous_tag" >/dev/null
 [[ $(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "quakestrike-workers:$previous_tag") == "$previous_tag" ]]
 if (( prediction_count > 0 )); then
