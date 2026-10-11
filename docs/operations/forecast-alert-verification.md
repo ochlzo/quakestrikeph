@@ -1,6 +1,8 @@
 # Forecast alert verification and activation gates
 
-The simulated delivery implementation is available; production activation remains blocked by controlled provider observations and deployment authorization.
+Local application and controlled delivery verification are complete for review, with the provider limitations recorded below.
+The user accepted the recipient observations and deferred Spam investigation on 11 October 2026.
+Production activation still requires review, environment-specific readiness, and deployment authorization.
 This report separates application verification from provider readiness, received messages, and production deployment.
 No live outcome is inferred from a successful simulation, configured secret, healthy process, or accepted submission.
 
@@ -132,12 +134,12 @@ The original private configuration and temporary recipient-comparison files rema
 | --- | --- |
 | IPROG account/support preflight | Controlled preflight verified designated-destination support and the account balances before and after the submissions. |
 | SMS provider header and content | User-confirmed content match for both variants; the user reported provider template branding. ADR 0048 removes the repeated application header from new SMS snapshots. |
-| SMS encoding and charging | Local segment estimates and returned credit evidence are recorded above. Actual encoding and billed segments remain unverified; `sms_count` supplied no usable count. |
+| SMS encoding and charging | Local segment estimates and returned credit evidence are recorded above. The user supplied a credit-purchase receipt, not an itemized send record. Actual encoding and billed segments remain unverified; `sms_count` supplied no usable count. |
 | SMS delivery polling | Two actual retained references reconciled to delivered without resubmission. The user confirmed receipt/content. Provider delivery timestamps remain unavailable. |
 | Brevo authentication | Authorized host and relayed Linux preflight passed; direct Docker outbound IP authorization remains a deployment prerequisite. |
-| Brevo sender/domain and receipt | Authenticated preflight verified sender/domain configuration. The user confirmed receipt/content in Spam. Received sender identity and message authentication remain unverified. |
-| Brevo callback | Nearby authentication/correlation and durable delivery passed. General delivery reconciliation and measured provider retry remain unverified after initial HTTP 429 callbacks. |
-| Received event link | The user confirmed that received SMS/email links opened the correct earthquakes. Navigation after a later forecast update remains unverified. |
+| Brevo sender/domain and receipt | Authenticated preflight verified sender/domain configuration. The user confirmed both revised emails, the approved sender, matching content, and Spam placement. The user reported SPF, DKIM, and DMARC PASS; the nearby header screenshot independently shows those results. |
+| Brevo callback | Both fresh revised-copy attempts passed authentication/correlation and durable delivery. The earlier general attempt remains accepted, and its provider retry timing remains unverified after initial HTTP 429 callbacks. |
+| Received event link | The user confirmed that received SMS/email links opened the correct earthquakes and that an earlier received link displayed updated forecast information. |
 
 Refresh public event/forecast data immediately before a finite live fixture.
 Use separate active public forecasts for general and nearby jobs; one forecast permits only one alert job.
@@ -150,7 +152,7 @@ A temporary callback route must expose only the literal callback path through a 
 Preserve Authorization, strict uncompressed 32 KiB JSON, and Backend status/Retry-After behavior.
 Brevo documentation describes dropping 5xx callbacks, so transient processing failure uses 429.
 Register and remove only the task-owned webhook; filter account-wide callbacks to the exact disposable fixture.
-Actual event echo, retry timing, received content, and charging remain measured gates.
+Record actual event echo, retry timing, received content, and charging separately; unavailable provider details do not become measured passes.
 The provider creation reference omits an `error` subscription despite the payload guide describing it; do not invent a subscription spelling.
 See [Brevo contracts](https://developers.brevo.com/docs/transactional-webhooks), [webhook creation](https://developers.brevo.com/reference/create-webhook), and [retry policy](https://developers.brevo.com/docs/retry-mechanism).
 
@@ -197,9 +199,27 @@ No submission retry, email poll, replacement callback injection, or new SMS send
 Safe callback evidence retains UTC receipt times separately from provider event times.
 The new general result proves successful reconciliation for its fresh attempt; it does not change the earlier accepted general attempt.
 Earlier provider retry timing remains unverified.
-Human receipt, folder placement, received sender, authentication headers, exact revised content, and received links remain unverified for the new emails.
-The revised SMS snapshots are available as private previews; their new provider submissions were not exercised.
-Itemized SMS encoding/billing and received-link behavior after a later forecast update remain unverified.
+The user confirmed receipt of both revised emails in Spam, the approved sender, exact expected content, and correct received links.
+The user reported SPF, DKIM, and DMARC PASS; the nearby original-message screenshot independently confirms all three results and the approved sender domain.
+The mailbox explains Spam placement by earlier messages from the same domain being marked as Spam.
+That mailbox explanation does not establish a complete deliverability diagnosis.
+The user also confirmed that an earlier received link displayed updated forecast information.
+Raw screenshots, full destinations, and message identifiers remain outside Git.
+
+The revised SMS snapshots passed automated checks and remain available as private previews; no new SMS submission occurred.
+The user declined further SMS verification, relying on the earlier confirmed receipt, content, links, and provider template branding.
+This decision does not establish live receipt of the revised SMS snapshots.
+The supplied SMS screenshot records a purchase of 200 credits, not per-message encoding, billed segments, or charges.
+Itemized SMS encoding and billed segments remain unavailable; local estimates and observed credit evidence remain recorded separately above.
+
+## Review disposition on 11 October 2026
+
+The user requested completion of the spec for a consolidated branch review and deferred Spam investigation until afterward.
+All implementation tickets are consolidated on `codex/forecast-alerts-44` in PR #53.
+The recipient confirmations complete the remaining email and updated-link checks for ticket #52.
+The unavailable SMS billing details, declined revised SMS send, and earlier general callback uncertainty remain explicit provider limitations.
+Successful fresh general/nearby reconciliation does not repair or erase the earlier accepted attempt.
+PR #53 closes spec #44 and tickets #45–#52 when the reviewed PR merges; review readiness does not authorize deployment.
 
 The task webhook was deleted with HTTP 204, and its absence was verified before ingress stopped.
 The owned tunnel, callback proxy, and relay stopped; disposable PostgreSQL, Redis, Backend, and temporary networks were removed.
