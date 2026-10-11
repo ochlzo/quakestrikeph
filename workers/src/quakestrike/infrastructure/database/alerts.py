@@ -3,11 +3,14 @@
 from datetime import timedelta
 from uuid import uuid4
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 
+from quakestrike.application.alert_delivery import AlertSubmission
 from quakestrike.application.alerts import AlertClaim, AlertClaimLost
+from quakestrike.domain.alerts import eligible_alert_channels
 from quakestrike.infrastructure.database.tables import (
+    alert_delivery_attempts,
     alert_jobs,
     alert_recipients,
     earthquake_event_revisions,
@@ -61,7 +64,7 @@ class SqlAlchemyAlertStore:
             else session.scalar(select(func.clock_timestamp()))
         )
 
-    def claim(self, dispatch_id, alert_job_id, correlation_id):
+    def claim(self, dispatch_id, alert_job_id, correlation_id, *, delivery=False):
         with self.sessions() as session, session.begin():
             dispatch = session.execute(
                 select(job_dispatches)
@@ -89,7 +92,7 @@ class SqlAlchemyAlertStore:
             if job.expires_at <= now:
                 self._settle(session, alert_job_id, dispatch_id, "expired", now)
                 return "expired"
-            if job.recipient_resolution_completed_at is not None:
+            if job.recipient_resolution_completed_at is not None and not delivery:
                 return "already_resolved"
             if job.lease_expires_at is not None and job.lease_expires_at > now:
                 return "busy"
@@ -129,7 +132,7 @@ class SqlAlchemyAlertStore:
                 update(alert_jobs)
                 .where(alert_jobs.c.alert_job_id == alert_job_id)
                 .values(
-                    status="resolving",
+                    status="delivering" if job.recipient_resolution_completed_at else "resolving",
                     worker_execution_id=token,
                     lease_expires_at=min(now + self.lease, job.expires_at),
                 )
@@ -156,7 +159,22 @@ class SqlAlchemyAlertStore:
             )
             if after is not None:
                 query = query.where(users.c.user_id > after)
-            return session.execute(query.limit(self.page_size)).mappings().all()
+            accounts = session.execute(query.limit(self.page_size)).mappings().all()
+            existing = session.execute(
+                select(alert_recipients.c.user_id, alert_recipients.c.channel).where(
+                    alert_recipients.c.alert_job_id == claim.alert_job_id,
+                    alert_recipients.c.user_id.in_([account["user_id"] for account in accounts]),
+                )
+            ).all()
+            return [
+                {
+                    **account,
+                    "resolved_channels": {
+                        row.channel for row in existing if row.user_id == account["user_id"]
+                    },
+                }
+                for account in accounts
+            ]
 
     def _owned(self, session, claim):
         job = session.execute(
@@ -265,3 +283,615 @@ class SqlAlchemyAlertStore:
                 status="stopped", next_dispatch_at=None, lease_expires_at=None, dispatch_token=None
             )
         )
+
+    def _delivery_owned(self, session, claim):
+        job = session.execute(
+            select(alert_jobs)
+            .where(
+                alert_jobs.c.alert_job_id == claim.alert_job_id,
+                alert_jobs.c.correlation_id == claim.correlation_id,
+                alert_jobs.c.status.in_(("resolving", "delivering")),
+                alert_jobs.c.worker_execution_id == claim.token,
+            )
+            .with_for_update()
+        ).one_or_none()
+        now = self._now(session)
+        if job is None or min(job.lease_expires_at, job.expires_at) <= now:
+            raise AlertClaimLost("Alert delivery lease expired or changed.")
+        return job, now
+
+    def renew_delivery(self, claim):
+        with self.sessions() as session, session.begin():
+            job, now = self._delivery_owned(session, claim)
+            session.execute(
+                update(alert_jobs)
+                .where(alert_jobs.c.alert_job_id == claim.alert_job_id)
+                .values(lease_expires_at=min(now + self.lease, job.expires_at))
+            )
+
+    def due_recipients(self, claim, limit):
+        with self.sessions() as session, session.begin():
+            _, now = self._delivery_owned(session, claim)
+            return session.execute(
+                select(alert_recipients)
+                .where(
+                    alert_recipients.c.alert_job_id == claim.alert_job_id,
+                    or_(
+                        alert_recipients.c.status == "pending",
+                        and_(
+                            alert_recipients.c.status == "retry_wait",
+                            alert_recipients.c.next_attempt_at <= now,
+                        ),
+                    ),
+                )
+                .order_by(alert_recipients.c.recipient_id)
+                .limit(limit)
+            ).all()
+
+    def begin_submission(self, claim, recipient_id, supported):
+        with self.sessions() as session, session.begin():
+            job, now = self._delivery_owned(session, claim)
+            recipient = session.execute(
+                select(alert_recipients)
+                .where(
+                    alert_recipients.c.recipient_id == recipient_id,
+                    alert_recipients.c.alert_job_id == claim.alert_job_id,
+                )
+                .with_for_update()
+            ).one()
+            if recipient.status not in ("pending", "retry_wait") or (
+                recipient.next_attempt_at is not None and recipient.next_attempt_at > now
+            ):
+                return None
+            account = (
+                session.execute(
+                    select(*(users.c[name] for name in ACCOUNT_COLUMNS)).where(
+                        users.c.user_id == recipient.user_id
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            candidates = (
+                eligible_alert_channels(account, claim.magnitude, claim.latitude, claim.longitude)
+                if account
+                else []
+            )
+            candidate = next(
+                (
+                    item
+                    for item in candidates
+                    if item["channel"] == recipient.channel
+                    and item["destination"] == recipient.destination_snapshot
+                ),
+                None,
+            )
+            if candidate is None or supported is False:
+                session.execute(
+                    update(alert_recipients)
+                    .where(alert_recipients.c.recipient_id == recipient_id)
+                    .values(
+                        status="skipped", next_attempt_at=None, last_error_code="lost_eligibility"
+                    )
+                )
+                return None
+            if supported is None:
+                session.execute(
+                    update(alert_recipients)
+                    .where(alert_recipients.c.recipient_id == recipient_id)
+                    .values(
+                        status="retry_wait",
+                        next_attempt_at=now + timedelta(seconds=60),
+                        last_error_code="sms_support_unavailable",
+                    )
+                )
+                return None
+            variant = "nearby" if candidate["evidence"]["nearby_alerts_only"] else "general"
+            attempt_id, token = uuid4(), self.token_factory()
+            now = self._now(session)
+            if min(job.lease_expires_at, job.expires_at) <= now:
+                raise AlertClaimLost("Alert expired before attempt creation.")
+            number = (
+                session.scalar(
+                    select(
+                        func.coalesce(func.max(alert_delivery_attempts.c.attempt_number), 0)
+                    ).where(alert_delivery_attempts.c.recipient_id == recipient_id)
+                )
+                + 1
+            )
+            evidence = {
+                **candidate["evidence"],
+                "checked_at": now.isoformat(),
+                "expires_at": job.expires_at.isoformat(),
+            }
+            if recipient.channel == "sms":
+                evidence["ordinary_sms_supported"] = True
+            session.execute(
+                insert(alert_delivery_attempts).values(
+                    delivery_attempt_id=attempt_id,
+                    recipient_id=recipient_id,
+                    attempt_number=number,
+                    provider="iprog" if recipient.channel == "sms" else "brevo",
+                    status="sending",
+                    started_at=now,
+                    correlation_id=claim.correlation_id,
+                    content_variant=variant,
+                    eligibility_snapshot=evidence,
+                )
+            )
+            session.execute(
+                update(alert_recipients)
+                .where(alert_recipients.c.recipient_id == recipient_id)
+                .values(
+                    status="sending",
+                    next_attempt_at=None,
+                    worker_execution_id=token,
+                    processing_lease_expires_at=now + self.lease,
+                )
+            )
+            if recipient.channel == "sms":
+                body = job.nearby_message_snapshot if variant == "nearby" else job.message_snapshot
+                subject = None
+            else:
+                body = (
+                    job.nearby_email_body_snapshot
+                    if variant == "nearby"
+                    else job.email_body_snapshot
+                )
+                subject = (
+                    job.nearby_email_subject_snapshot
+                    if variant == "nearby"
+                    else job.email_subject_snapshot
+                )
+            return AlertSubmission(
+                attempt_id,
+                recipient_id,
+                token,
+                recipient.channel,
+                recipient.destination_snapshot,
+                body,
+                subject,
+            )
+
+    def finish_submission(self, request, result):
+        with self.sessions() as session, session.begin():
+            recipient = session.execute(
+                select(alert_recipients)
+                .where(alert_recipients.c.recipient_id == request.recipient_id)
+                .with_for_update()
+            ).one()
+            attempt = session.execute(
+                select(alert_delivery_attempts)
+                .where(alert_delivery_attempts.c.delivery_attempt_id == request.attempt_id)
+                .with_for_update()
+            ).one()
+            now = self._now(session)
+            if attempt.recipient_id != request.recipient_id:
+                return "conflict"
+            if (
+                attempt.provider_message_id is not None
+                and result.reference is not None
+                and attempt.provider_message_id != result.reference
+            ):
+                return "conflict"
+            owned = (
+                recipient.worker_execution_id == request.token
+                and recipient.processing_lease_expires_at is not None
+                and recipient.processing_lease_expires_at > now
+                and attempt.status == "sending"
+            )
+            if not owned:
+                # Late provider evidence cannot restore processing ownership or retry authority.
+                if (
+                    result.status in ("accepted", "unknown")
+                    and result.reference
+                    and attempt.status in ("unknown", "sending")
+                ):
+                    session.execute(
+                        update(alert_delivery_attempts)
+                        .where(alert_delivery_attempts.c.delivery_attempt_id == request.attempt_id)
+                        .values(
+                            status=result.status,
+                            provider_message_id=result.reference,
+                            finished_at=attempt.finished_at or max(now, attempt.started_at),
+                            error_code=result.error_code,
+                            provider_evidence_snapshot={
+                                **(attempt.provider_evidence_snapshot or {}),
+                                **result.evidence,
+                            },
+                        )
+                    )
+                    newer = session.scalar(
+                        select(func.count())
+                        .select_from(alert_delivery_attempts)
+                        .where(
+                            alert_delivery_attempts.c.recipient_id == request.recipient_id,
+                            alert_delivery_attempts.c.attempt_number > attempt.attempt_number,
+                        )
+                    )
+                    if not newer and recipient.status != "delivered":
+                        session.execute(
+                            update(alert_recipients)
+                            .where(alert_recipients.c.recipient_id == request.recipient_id)
+                            .values(
+                                status=result.status,
+                                next_attempt_at=None,
+                                last_error_code=result.error_code,
+                                processing_lease_expires_at=None,
+                                worker_execution_id=None,
+                            )
+                        )
+                    return "applied"
+                if result.evidence:
+                    session.execute(
+                        update(alert_delivery_attempts)
+                        .where(alert_delivery_attempts.c.delivery_attempt_id == request.attempt_id)
+                        .values(
+                            provider_evidence_snapshot={
+                                **(attempt.provider_evidence_snapshot or {}),
+                                **result.evidence,
+                            }
+                        )
+                    )
+                return "ignored"
+            status = "accepted" if result.status == "accepted" and result.reference else "unknown"
+            recipient_status = status
+            next_attempt_at = None
+            if result.status in ("transient", "permanent"):
+                status = recipient_status = "failed"
+                if result.status == "transient" and attempt.attempt_number < 4:
+                    delays = (30, 120, 600)
+                    delay = delays[attempt.attempt_number - 1]
+                    if result.retry_after_seconds is not None:
+                        delay = max(delay, result.retry_after_seconds)
+                    next_attempt_at = now + timedelta(seconds=delay)
+                    expiry = session.scalar(
+                        select(alert_jobs.c.expires_at).where(
+                            alert_jobs.c.alert_job_id == recipient.alert_job_id
+                        )
+                    )
+                    if next_attempt_at < expiry:
+                        recipient_status = "retry_wait"
+                    else:
+                        recipient_status = "expired"
+                        next_attempt_at = None
+            session.execute(
+                update(alert_delivery_attempts)
+                .where(alert_delivery_attempts.c.delivery_attempt_id == request.attempt_id)
+                .values(
+                    status=status,
+                    provider_message_id=result.reference or attempt.provider_message_id,
+                    finished_at=max(now, attempt.started_at),
+                    error_code=result.error_code,
+                    provider_evidence_snapshot=result.evidence,
+                )
+            )
+            session.execute(
+                update(alert_recipients)
+                .where(alert_recipients.c.recipient_id == request.recipient_id)
+                .values(
+                    status=recipient_status,
+                    next_attempt_at=next_attempt_at,
+                    last_error_code=result.error_code,
+                    processing_lease_expires_at=None,
+                    worker_execution_id=None,
+                )
+            )
+
+    def maintain(self, dispatch_id, job_id, correlation_id):
+        """Recover calls and settle terminal batches without acquiring send authority."""
+        with self.sessions() as session, session.begin():
+            dispatch = session.execute(
+                select(job_dispatches)
+                .where(
+                    job_dispatches.c.dispatch_id == dispatch_id,
+                    job_dispatches.c.alert_job_id == job_id,
+                )
+                .with_for_update()
+            ).one_or_none()
+            job = session.execute(
+                select(alert_jobs)
+                .where(
+                    alert_jobs.c.alert_job_id == job_id,
+                    alert_jobs.c.correlation_id == correlation_id,
+                )
+                .with_for_update()
+            ).one_or_none()
+            if dispatch is None or job is None:
+                return "rejected"
+            now = self._now(session)
+            sending = session.execute(
+                select(alert_recipients)
+                .where(
+                    alert_recipients.c.alert_job_id == job_id,
+                    alert_recipients.c.status == "sending",
+                    alert_recipients.c.processing_lease_expires_at <= now,
+                )
+                .order_by(alert_recipients.c.recipient_id)
+                .with_for_update()
+            ).all()
+            for recipient in sending:
+                attempt = session.execute(
+                    select(alert_delivery_attempts)
+                    .where(
+                        alert_delivery_attempts.c.recipient_id == recipient.recipient_id,
+                        alert_delivery_attempts.c.status == "sending",
+                    )
+                    .with_for_update()
+                ).one_or_none()
+                if attempt:
+                    session.execute(
+                        update(alert_delivery_attempts)
+                        .where(
+                            alert_delivery_attempts.c.delivery_attempt_id
+                            == attempt.delivery_attempt_id
+                        )
+                        .values(
+                            status="unknown",
+                            finished_at=max(now, attempt.started_at),
+                            error_code="interrupted_call",
+                        )
+                    )
+                session.execute(
+                    update(alert_recipients)
+                    .where(alert_recipients.c.recipient_id == recipient.recipient_id)
+                    .values(
+                        status="unknown",
+                        processing_lease_expires_at=None,
+                        worker_execution_id=None,
+                        last_error_code="interrupted_call",
+                    )
+                )
+            if job.status in ALERT_TERMINAL:
+                return job.status
+            if job.expires_at <= now:
+                self._settle(session, job_id, dispatch_id, "expired", now)
+                return "expired"
+            unsettled = session.scalar(
+                select(func.count())
+                .select_from(alert_recipients)
+                .where(
+                    alert_recipients.c.alert_job_id == job_id,
+                    alert_recipients.c.status.in_(
+                        ("pending", "retry_wait", "sending", "accepted", "unknown")
+                    ),
+                )
+            )
+            if job.recipient_resolution_completed_at is not None and not unsettled:
+                self._settle(session, job_id, dispatch_id, "completed", now)
+                return "completed"
+            return job.status
+
+    def finish_pass(self, claim):
+        """Release the root lease and schedule durable work, not a provider resend."""
+        status = self.maintain(claim.dispatch_id, claim.alert_job_id, claim.correlation_id)
+        if status in ALERT_TERMINAL:
+            return status
+        with self.sessions() as session, session.begin():
+            dispatch = session.execute(
+                select(job_dispatches)
+                .where(
+                    job_dispatches.c.dispatch_id == claim.dispatch_id,
+                    job_dispatches.c.alert_job_id == claim.alert_job_id,
+                )
+                .with_for_update()
+            ).one()
+            job, now = self._delivery_owned(session, claim)
+            retry = session.scalar(
+                select(func.min(alert_recipients.c.next_attempt_at)).where(
+                    alert_recipients.c.alert_job_id == claim.alert_job_id,
+                    alert_recipients.c.status == "retry_wait",
+                )
+            )
+            pending = session.scalar(
+                select(func.count())
+                .select_from(alert_recipients)
+                .where(
+                    alert_recipients.c.alert_job_id == claim.alert_job_id,
+                    alert_recipients.c.status == "pending",
+                )
+            )
+            due = min(retry or now + timedelta(seconds=60), now + timedelta(seconds=60))
+            if pending:
+                due = now + timedelta(seconds=1)
+            session.execute(
+                update(alert_jobs)
+                .where(alert_jobs.c.alert_job_id == claim.alert_job_id)
+                .values(
+                    lease_expires_at=now,
+                )
+            )
+            session.execute(
+                update(job_dispatches)
+                .where(job_dispatches.c.dispatch_id == dispatch.dispatch_id)
+                .values(
+                    status="retry_wait",
+                    next_dispatch_at=due,
+                    lease_expires_at=None,
+                    dispatch_token=None,
+                )
+            )
+            return job.status
+
+    def allow_submission(self, claim, request):
+        """Check exact ownership and fresh account evidence after the attempt commit."""
+        with self.sessions() as session, session.begin():
+            job = session.execute(
+                select(alert_jobs)
+                .where(
+                    alert_jobs.c.alert_job_id == claim.alert_job_id,
+                )
+                .with_for_update()
+            ).one()
+            recipient = session.execute(
+                select(alert_recipients)
+                .where(
+                    alert_recipients.c.recipient_id == request.recipient_id,
+                )
+                .with_for_update()
+            ).one()
+            attempt = session.execute(
+                select(alert_delivery_attempts)
+                .where(
+                    alert_delivery_attempts.c.delivery_attempt_id == request.attempt_id,
+                )
+                .with_for_update()
+            ).one()
+            now = self._now(session)
+            if recipient.worker_execution_id != request.token or attempt.status != "sending":
+                return False
+            account = (
+                session.execute(
+                    select(*(users.c[name] for name in ACCOUNT_COLUMNS)).where(
+                        users.c.user_id == recipient.user_id
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            candidates = (
+                eligible_alert_channels(account, claim.magnitude, claim.latitude, claim.longitude)
+                if account
+                else []
+            )
+            candidate = next(
+                (
+                    item
+                    for item in candidates
+                    if item["channel"] == request.channel
+                    and item["destination"] == request.destination
+                ),
+                None,
+            )
+            eligible = candidate is not None and all(
+                candidate["evidence"].get(key) == value
+                for key, value in attempt.eligibility_snapshot.items()
+                if key not in ("checked_at", "expires_at", "ordinary_sms_supported")
+            )
+            owned = (
+                job.worker_execution_id == claim.token
+                and job.status in ("resolving", "delivering")
+                and job.lease_expires_at > now
+                and recipient.processing_lease_expires_at > now
+            )
+            if eligible and owned and job.expires_at > now:
+                return True
+            expired = job.expires_at <= now
+            session.execute(
+                update(alert_delivery_attempts)
+                .where(alert_delivery_attempts.c.delivery_attempt_id == request.attempt_id)
+                .values(
+                    status="failed",
+                    finished_at=max(now, attempt.started_at),
+                    error_code="not_submitted_expired"
+                    if expired
+                    else "not_submitted_settings_or_claim",
+                )
+            )
+            session.execute(
+                update(alert_recipients)
+                .where(alert_recipients.c.recipient_id == request.recipient_id)
+                .values(
+                    status="expired" if expired else "skipped",
+                    next_attempt_at=None,
+                    worker_execution_id=None,
+                    processing_lease_expires_at=None,
+                    last_error_code="not_submitted_expired"
+                    if expired
+                    else "not_submitted_settings_or_claim",
+                )
+            )
+            return False
+
+    def reconcile_delivery(self, attempt_id, reference, status, provider_time, error_code=None):
+        """Commit verified outcomes independently from send ownership and expiry."""
+        if (
+            status not in ("accepted", "delivered", "failed")
+            or not isinstance(reference, str)
+            or reference != reference.strip()
+            or not 1 <= len(reference) <= 512
+            or (provider_time is not None and provider_time.tzinfo is None)
+        ):
+            raise ValueError("Invalid normalized delivery outcome.")
+        if error_code is not None and error_code not in (
+            "provider_rejected",
+            "provider_failure",
+            "provider_credentials_or_credit",
+            "provider_permanent_rejection",
+        ):
+            error_code = "provider_failure"
+        rank = {"sending": 0, "unknown": 0, "accepted": 1, "failed": 2, "delivered": 3}
+        with self.sessions() as session, session.begin():
+            link = session.execute(
+                select(alert_delivery_attempts.c.recipient_id).where(
+                    alert_delivery_attempts.c.delivery_attempt_id == attempt_id
+                )
+            ).one_or_none()
+            if link is None:
+                return "uncorrelated"
+            recipient = session.execute(
+                select(alert_recipients)
+                .where(alert_recipients.c.recipient_id == link.recipient_id)
+                .with_for_update()
+            ).one()
+            attempt = session.execute(
+                select(alert_delivery_attempts)
+                .where(alert_delivery_attempts.c.delivery_attempt_id == attempt_id)
+                .with_for_update()
+            ).one()
+            if attempt.provider_message_id is not None and attempt.provider_message_id != reference:
+                return "conflict"
+            if attempt.status == "delivered" or (
+                attempt.status == "failed" and status == "accepted"
+            ):
+                return "ignored"
+            if provider_time is None and rank[status] <= rank[attempt.status]:
+                return "ignored"
+            if (
+                provider_time is not None
+                and attempt.provider_status_at is not None
+                and (
+                    provider_time < attempt.provider_status_at
+                    or (
+                        provider_time == attempt.provider_status_at
+                        and rank[status] <= rank[attempt.status]
+                    )
+                )
+            ):
+                return "ignored"
+            now = self._now(session)
+            error = (error_code or "provider_rejected") if status == "failed" else None
+            session.execute(
+                update(alert_delivery_attempts)
+                .where(alert_delivery_attempts.c.delivery_attempt_id == attempt_id)
+                .values(
+                    status=status,
+                    provider_message_id=reference,
+                    finished_at=attempt.finished_at or max(now, attempt.started_at),
+                    provider_status_at=provider_time or attempt.provider_status_at,
+                    error_code=error,
+                    error_message=None,
+                )
+            )
+            newer = session.scalar(
+                select(func.count())
+                .select_from(alert_delivery_attempts)
+                .where(
+                    alert_delivery_attempts.c.recipient_id == recipient.recipient_id,
+                    alert_delivery_attempts.c.attempt_number > attempt.attempt_number,
+                )
+            )
+            if recipient.status != "delivered" and (status == "delivered" or not newer):
+                session.execute(
+                    update(alert_recipients)
+                    .where(alert_recipients.c.recipient_id == recipient.recipient_id)
+                    .values(
+                        status=status,
+                        delivered_at=(provider_time or now) if status == "delivered" else None,
+                        next_attempt_at=None,
+                        worker_execution_id=None,
+                        processing_lease_expires_at=None,
+                        last_error_code=error,
+                    )
+                )
+            return "applied"
