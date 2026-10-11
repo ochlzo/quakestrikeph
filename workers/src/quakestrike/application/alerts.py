@@ -69,7 +69,13 @@ class ResolveAlertRecipients:
         self.sms_support = sms_support
 
     def execute(
-        self, dispatch_id: UUID, alert_job_id: UUID, correlation_id: UUID
+        self,
+        dispatch_id: UUID,
+        alert_job_id: UUID,
+        correlation_id: UUID,
+        *,
+        clock=None,
+        deadline=None,
     ) -> AlertResolutionResult:
         claim = self.store.claim(dispatch_id, alert_job_id, correlation_id)
         if isinstance(claim, str):
@@ -79,12 +85,20 @@ class ResolveAlertRecipients:
         try:
             while page := self.store.candidate_page(claim, after):
                 recipients = []
+                budget_exhausted = False
                 for account in page:
+                    if deadline is not None and clock() >= deadline - 30:
+                        budget_exhausted = True
+                        break
                     self.store.renew(claim)
                     for candidate in eligible_alert_channels(
                         account, claim.magnitude, claim.latitude, claim.longitude
                     ):
+                        if candidate["channel"] in account.get("resolved_channels", ()):
+                            continue
                         if candidate["channel"] == "sms":
+                            if support_failures:
+                                continue
                             try:
                                 supported = self.sms_support.supported(candidate["destination"])
                             except SmsSupportUnavailable as error:
@@ -95,6 +109,10 @@ class ResolveAlertRecipients:
                             candidate["evidence"]["ordinary_sms_supported"] = True
                         recipients.append(candidate)
                 self.store.record(claim, recipients)
+                if budget_exhausted or (deadline is not None and clock() >= deadline - 30):
+                    return AlertResolutionResult(
+                        "incomplete", claim, tuple(sorted(support_failures))
+                    )
                 after = page[-1]["user_id"]
             if support_failures:
                 return AlertResolutionResult("incomplete", claim, tuple(sorted(support_failures)))

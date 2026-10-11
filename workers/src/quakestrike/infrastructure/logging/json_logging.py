@@ -11,6 +11,16 @@ from typing import Any, TextIO
 
 SAFE_CONTEXT_FIELDS = frozenset(
     {
+        "recipient_id",
+        "provider",
+        "operation",
+        "provider_code",
+        "http_status",
+        "error_category",
+        "encoding",
+        "estimated_segments",
+        "charging_units",
+        "retry_delay_seconds",
         "run_id",
         "dispatch_id",
         "correlation_id",

@@ -2,10 +2,12 @@
 
 import logging
 from collections.abc import Mapping
+from time import monotonic
 
 from celery.exceptions import Reject
 from pydantic import ValidationError
 
+from quakestrike.application.alert_delivery import deliver_alert
 from quakestrike.application.alerts import AlertStore, ResolveAlertRecipients, SmsSupport
 from quakestrike.infrastructure.database.alerts import SqlAlchemyAlertStore
 from quakestrike.infrastructure.database.engine import (
@@ -21,16 +23,27 @@ from quakestrike.runtime import run_service
 
 
 def handle_alert_command(
-    payload: object, *, store: AlertStore, support: SmsSupport, logger: logging.Logger
+    payload: object,
+    *,
+    store: AlertStore,
+    support: SmsSupport,
+    logger: logging.Logger,
+    providers=None,
 ) -> str:
+    deadline = monotonic() + 240
     if not isinstance(payload, Mapping):
         return "rejected"
     try:
         command = parse_alert_command(payload)
     except ValidationError:
         return "rejected"
+    if providers is not None:
+        store.maintain(command.dispatch_id, command.alert_job_id, command.correlation_id)
     result = ResolveAlertRecipients(store, support).execute(
-        command.dispatch_id, command.alert_job_id, command.correlation_id
+        command.dispatch_id,
+        command.alert_job_id,
+        command.correlation_id,
+        **({"clock": monotonic, "deadline": deadline} if providers is not None else {}),
     )
     log_event(
         logger,
@@ -45,6 +58,39 @@ def handle_alert_command(
             "reason": ",".join(result.support_failures) if result.support_failures else None,
         },
     )
+    if providers is not None:
+        claim = result.claim
+        if result.status == "already_resolved":
+            claim = store.claim(
+                command.dispatch_id, command.alert_job_id, command.correlation_id, delivery=True
+            )
+            if isinstance(claim, str):
+                return claim
+        if claim is not None:
+
+            def report(request, submission, outcome):
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "Alert submission settled.",
+                    event_code="alert_submission_settled",
+                    context={
+                        "alert_job_id": str(command.alert_job_id),
+                        "recipient_id": str(request.recipient_id),
+                        "attempt_id": str(request.attempt_id),
+                        "correlation_id": str(command.correlation_id),
+                        "provider": "iprog" if request.channel == "sms" else "brevo",
+                        "status": submission.status,
+                        "reason": "provider_reference_conflict"
+                        if outcome == "conflict"
+                        else submission.error_code,
+                        **submission.evidence,
+                    },
+                )
+
+            return deliver_alert(
+                claim, store, support, providers, clock=monotonic, deadline=deadline, report=report
+            )
     return result.status
 
 
