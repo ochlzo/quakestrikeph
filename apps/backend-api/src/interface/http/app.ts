@@ -5,7 +5,7 @@ import { DataUnavailable } from '../../application/information/errors.js';
 import { InvalidRequest } from './searchRequest.js';
 import { earthquakeRoutes } from './routes/earthquakes.js';
 import { accountRoutes, type AccountDependencies } from './routes/account.js';
-import { AccountError } from '../../domain/accounts.js';
+import { AccountError, SmsProviderError } from '../../domain/accounts.js';
 
 export function createApp(reader: EarthquakeReader, now: () => Date = () => new Date(), accounts?: AccountDependencies) {
   const app = express();
@@ -38,6 +38,8 @@ export function createApp(reader: EarthquakeReader, now: () => Date = () => new 
 
   const handleError: ErrorRequestHandler = (error: unknown, _req, res, _next) => {
     if (error instanceof AccountError) {
+      if (error instanceof SmsProviderError) console.error(JSON.stringify({ service: 'backend-api', event: 'sms_provider_failed',
+        requestId: res.getHeader('X-Request-ID'), ...error.diagnostic }));
       res.status(error.status).json({ error: { code: error.code, message: error.message, ...(error.field ? { field: error.field } : {}) } });
       return;
     }
