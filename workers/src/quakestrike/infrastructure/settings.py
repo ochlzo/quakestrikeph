@@ -32,6 +32,15 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("IPROG_API_TOKEN", "iprog_api_token"),
     )
+    brevo_api_key: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("BREVO_API_KEY", "brevo_api_key")
+    )
+    brevo_sender_email: str | None = Field(
+        default=None, validation_alias=AliasChoices("BREVO_SENDER_EMAIL", "brevo_sender_email")
+    )
+    brevo_sender_name: str | None = Field(
+        default=None, validation_alias=AliasChoices("BREVO_SENDER_NAME", "brevo_sender_name")
+    )
 
     public_bulletin_base_url: str = Field(
         default=DEFAULT_PUBLIC_BULLETIN_BASE_URL,
