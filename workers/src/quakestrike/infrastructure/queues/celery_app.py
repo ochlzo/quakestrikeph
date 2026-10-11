@@ -12,6 +12,7 @@ from quakestrike.infrastructure.settings import Settings
 
 INGESTION_QUEUE = "ingestion"
 PREDICTION_QUEUE = "prediction"
+ALERT_QUEUE = "alert"
 INGESTION_TASK_NAME = "quakestrike.data_ingestor.worker.process_ingestion"
 DURABLE_INGESTION_TICK = "quakestrike.scheduler.beat.durable_ingestion_tick"
 
@@ -54,6 +55,7 @@ def create_celery_app(
             "quakestrike.infrastructure.queues.tasks.publish_prediction": {
                 "queue": PREDICTION_QUEUE,
             },
+            "quakestrike.infrastructure.queues.tasks.publish_alert": {"queue": ALERT_QUEUE},
         },
         "quakestrike_poll_interval_seconds": settings.poll_interval_seconds,
         "beat_scheduler": "quakestrike.scheduler.beat:DurableBeatScheduler",

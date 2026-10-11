@@ -1,0 +1,112 @@
+"""Identifier-only alert queue handler."""
+
+import logging
+from collections.abc import Mapping
+
+from celery.exceptions import Reject
+from pydantic import ValidationError
+
+from quakestrike.application.alerts import AlertStore, ResolveAlertRecipients, SmsSupport
+from quakestrike.infrastructure.database.alerts import SqlAlchemyAlertStore
+from quakestrike.infrastructure.database.engine import (
+    create_database_engine,
+    create_session_factory,
+)
+from quakestrike.infrastructure.logging.json_logging import log_event
+from quakestrike.infrastructure.queues.alert_publisher import ALERT_TASK_NAME
+from quakestrike.infrastructure.queues.celery_app import ALERT_QUEUE, create_celery_app
+from quakestrike.infrastructure.queues.contracts import parse_alert_command
+from quakestrike.infrastructure.sms.iprog import IprogSmsSupport
+from quakestrike.runtime import run_service
+
+
+def handle_alert_command(
+    payload: object, *, store: AlertStore, support: SmsSupport, logger: logging.Logger
+) -> str:
+    if not isinstance(payload, Mapping):
+        return "rejected"
+    try:
+        command = parse_alert_command(payload)
+    except ValidationError:
+        return "rejected"
+    result = ResolveAlertRecipients(store, support).execute(
+        command.dispatch_id, command.alert_job_id, command.correlation_id
+    )
+    log_event(
+        logger,
+        logging.INFO,
+        "Alert resolution processed.",
+        event_code="alert_resolution_processed",
+        context={
+            "dispatch_id": str(command.dispatch_id),
+            "alert_job_id": str(command.alert_job_id),
+            "correlation_id": str(command.correlation_id),
+            "status": result.status,
+            "reason": ",".join(result.support_failures) if result.support_failures else None,
+        },
+    )
+    return result.status
+
+
+def create_alert_app(settings, *, command_handler):
+    app = create_celery_app(settings)
+
+    @app.task(
+        name=ALERT_TASK_NAME,
+        acks_late=True,
+        reject_on_worker_lost=True,
+        acks_on_failure_or_timeout=False,
+        soft_time_limit=300,
+        time_limit=360,
+    )
+    def process_alert(payload):
+        try:
+            return command_handler(payload)
+        except Exception:
+            raise Reject("Alert processing failed.", requeue=True) from None
+
+    return app
+
+
+def run_alert(settings):
+    if not settings.alert_resolution_enabled:
+        raise ValueError("Alert resolution runtime is disabled.")
+
+    def handle(payload):
+        engine = create_database_engine(settings.database_url)
+        try:
+            token = settings.iprog_api_token
+            return handle_alert_command(
+                payload,
+                store=SqlAlchemyAlertStore(create_session_factory(engine)),
+                support=IprogSmsSupport(token.get_secret_value() if token else None),
+                logger=logging.getLogger("alert-worker"),
+            )
+        finally:
+            engine.dispose()
+
+    app = create_alert_app(settings, command_handler=handle)
+    app.worker_main(
+        [
+            "worker",
+            "--loglevel",
+            settings.log_level,
+            "--queues",
+            ALERT_QUEUE,
+            "--concurrency",
+            "1",
+            "--pool",
+            "prefork",
+            "--hostname",
+            "alert-worker@%h",
+        ]
+    )
+    return 0
+
+
+def main():
+    return run_service("alert-worker", runtime=run_alert)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

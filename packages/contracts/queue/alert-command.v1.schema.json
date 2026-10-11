@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quakestrike.local/contracts/queue/alert-command.v1.schema.json",
+  "title": "QuakeStrike PH alert command v1",
+  "description": "Stable identifiers for one durable alert dispatch.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "message_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "dispatch_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "alert_job_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "correlation_id": {
+      "type": "string",
+      "format": "uuid"
+    }
+  },
+  "required": [
+    "message_version",
+    "dispatch_id",
+    "alert_job_id",
+    "correlation_id"
+  ]
+}
