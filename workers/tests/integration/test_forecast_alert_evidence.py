@@ -310,44 +310,55 @@ def test_restricted_worker_and_callback_grants_do_not_allow_unrelated_data(migra
     ).read_text(encoding="utf-8")
     worker_block = provisioning.split("  grant-worker)", 1)[1]
     worker_sql = re.search(r"<<'SQL'\n(.*?)\nSQL", worker_block, re.S).group(1)
-    with migrated_engine.begin() as connection:
-        connection.execute(
-            text("""
-            DO $$ BEGIN
-              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'quakestrike_worker') THEN
-                CREATE ROLE quakestrike_worker NOLOGIN;
-              END IF;
-              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'quakestrike_backend') THEN
-                CREATE ROLE quakestrike_backend NOLOGIN;
-              END IF;
-            END $$;
-            GRANT USAGE ON SCHEMA public TO quakestrike_worker, quakestrike_backend;
-            GRANT EXECUTE ON FUNCTION
-              quakestrike_reconcile_brevo_delivery(uuid,text,text,timestamptz,text)
-              TO quakestrike_backend;
-        """)
-        )
-        connection.execute(text(worker_sql))
-        connection.execute(text("SET LOCAL ROLE quakestrike_worker"))
-        assert connection.scalar(select(alert_jobs.c.alert_job_id)) == alert_id
-        connection.execute(select(users.c.email))
-        with pytest.raises(ProgrammingError), connection.begin_nested():
-            connection.execute(select(users.c.display_name))
-        with pytest.raises(ProgrammingError), connection.begin_nested():
-            connection.execute(update(users).values(sms_enabled=True))
-        with pytest.raises(ProgrammingError), connection.begin_nested():
-            connection.execute(update(alert_jobs).values(message_snapshot="Replacement"))
-        connection.execute(text("SET LOCAL ROLE quakestrike_backend"))
-        assert (
-            connection.scalar(
-                text(
-                    "SELECT quakestrike_reconcile_brevo_delivery("
-                    "NULL, 'unmatched', 'delivered', now(), NULL)"
-                )
+    role_state_query = text(
+        "SELECT rolname, rolcanlogin FROM pg_roles "
+        "WHERE rolname IN ('quakestrike_worker', 'quakestrike_backend') ORDER BY rolname"
+    )
+    with migrated_engine.connect() as connection:
+        original_roles = connection.execute(role_state_query).all()
+        connection.rollback()
+        transaction = connection.begin()
+        try:
+            connection.execute(
+                text("""
+                DO $$ BEGIN
+                  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'quakestrike_worker') THEN
+                    CREATE ROLE quakestrike_worker NOLOGIN;
+                  END IF;
+                  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'quakestrike_backend') THEN
+                    CREATE ROLE quakestrike_backend NOLOGIN;
+                  END IF;
+                END $$;
+                GRANT USAGE ON SCHEMA public TO quakestrike_worker, quakestrike_backend;
+                GRANT EXECUTE ON FUNCTION
+                  quakestrike_reconcile_brevo_delivery(uuid,text,text,timestamptz,text)
+                  TO quakestrike_backend;
+            """)
             )
-            == "uncorrelated"
-        )
-        with pytest.raises(ProgrammingError), connection.begin_nested():
-            connection.execute(select(alert_recipients.c.recipient_id))
-        with pytest.raises(ProgrammingError), connection.begin_nested():
-            connection.execute(update(alert_delivery_attempts).values(status="failed"))
+            connection.execute(text(worker_sql))
+            connection.execute(text("SET LOCAL ROLE quakestrike_worker"))
+            assert connection.scalar(select(alert_jobs.c.alert_job_id)) == alert_id
+            connection.execute(select(users.c.email))
+            with pytest.raises(ProgrammingError), connection.begin_nested():
+                connection.execute(select(users.c.display_name))
+            with pytest.raises(ProgrammingError), connection.begin_nested():
+                connection.execute(update(users).values(sms_enabled=True))
+            with pytest.raises(ProgrammingError), connection.begin_nested():
+                connection.execute(update(alert_jobs).values(message_snapshot="Replacement"))
+            connection.execute(text("SET LOCAL ROLE quakestrike_backend"))
+            assert (
+                connection.scalar(
+                    text(
+                        "SELECT quakestrike_reconcile_brevo_delivery("
+                        "NULL, 'unmatched', 'delivered', now(), NULL)"
+                    )
+                )
+                == "uncorrelated"
+            )
+            with pytest.raises(ProgrammingError), connection.begin_nested():
+                connection.execute(select(alert_recipients.c.recipient_id))
+            with pytest.raises(ProgrammingError), connection.begin_nested():
+                connection.execute(update(alert_delivery_attempts).values(status="failed"))
+        finally:
+            transaction.rollback()
+        assert connection.execute(role_state_query).all() == original_roles
