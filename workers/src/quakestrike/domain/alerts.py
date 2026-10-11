@@ -8,7 +8,6 @@ from decimal import Decimal
 from math import asin, cos, floor, radians, sin, sqrt
 from urllib.parse import urlsplit
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 from quakestrike.domain.prediction import ForecastOutput
 
@@ -71,11 +70,6 @@ def create_automatic_alert_snapshots(
             "A forecast alert needs complete forecast, event, and geographic evidence."
         )
     public_base_url = validate_public_bulletin_base_url(public_base_url)
-    zone = ZoneInfo("Asia/Manila")
-    window = (
-        f"{forecast.window_start.astimezone(zone):%Y-%m-%d %H:%M:%S}"
-        f" to {forecast.window_end.astimezone(zone):%Y-%m-%d %H:%M:%S} PHT"
-    )
     probability = forecast.probability_m1_plus_24h
     likelihood = "Low" if probability < 0.3 else "Moderate" if probability < 0.7 else "High"
     link = f"View current forecast: {public_base_url}/forecasts/{event_id}"
@@ -83,24 +77,19 @@ def create_automatic_alert_snapshots(
     common = (
         f"Location: {location}\n\n"
         f"Chance of further M1.0+ activity: {format_probability(probability)}\n"
-        f"Likelihood: {likelihood}\n"
-        f"Original 24-hour forecast window: {window}\n\n{link}"
+        f"Likelihood: {likelihood}\n\n{link}"
     )
-    general = f"QuakeStrike PH\n\nM{candidate.magnitude:.1f} earthquake\n{common}"
-    nearby = (
-        f"QuakeStrike PH\n\nM{candidate.magnitude:.1f} earthquake near your saved alert location\n"
-        f"{common}"
-    )
+    general = f"M{candidate.magnitude:.1f} earthquake\n{common}"
+    nearby = f"M{candidate.magnitude:.1f} earthquake near your saved alert location\n{common}"
     radius = (
         "Unavailable"
         if forecast.activity_radius_median_km_24h is None
         else f"{forecast.activity_radius_median_km_24h:g} km"
     )
-    quantiles = (
+    maximum_magnitude = (
         "Unavailable"
-        if forecast.maximum_magnitude_q05_24h is None
-        else f"M{forecast.maximum_magnitude_q05_24h:g} / "
-        f"M{forecast.maximum_magnitude_q50_24h:g} / M{forecast.maximum_magnitude_q95_24h:g}"
+        if forecast.maximum_magnitude_q50_24h is None
+        else f"M{forecast.maximum_magnitude_q50_24h:g}"
     )
     fuller = (
         f"\n\nExpected M1.0+ count: {forecast.expected_m1_plus_count_24h:g}\n"
@@ -108,8 +97,8 @@ def create_automatic_alert_snapshots(
         f"{format_probability(forecast.probability_m4_plus_24h)}\n"
         "Chance of further M5.0+ activity: "
         f"{format_probability(forecast.probability_m5_plus_24h)}\n"
-        f"Median activity radius: {radius}\n"
-        f"Maximum magnitude (5th / 50th / 95th percentiles): {quantiles}\n\n"
+        f"Possible further activity radius: {radius}\n"
+        f"Possible maximum magnitude: {maximum_magnitude}\n\n"
         "The activity radius is not shaking distance or a safety boundary.\n"
         "These experimental estimates do not guarantee earthquake activity.\n"
         "The current forecast page may show a newer forecast than this frozen summary.\n"
@@ -118,16 +107,16 @@ def create_automatic_alert_snapshots(
     return AutomaticAlertSnapshots(
         message=general,
         email_subject=f"QuakeStrike PH forecast after an M{candidate.magnitude:.1f} earthquake",
-        email_body=general + fuller,
+        email_body="QuakeStrike PH\n\n" + general + fuller,
         nearby_message=nearby,
         nearby_email_subject=(
             f"QuakeStrike PH forecast after an M{candidate.magnitude:.1f} earthquake "
             "near your saved alert location"
         ),
-        nearby_email_body=nearby + fuller,
+        nearby_email_body="QuakeStrike PH\n\n" + nearby + fuller,
         content_provenance={
             **location_provenance,
-            "rendering_policy_version": "forecast-alert-v1",
+            "rendering_policy_version": "forecast-alert-v2",
         },
         recipient_policy={
             "version": "automatic_forecast_alert_v1",
