@@ -2,6 +2,8 @@
 
 The runtime defaults to disabled. These commands document operator actions; they do not authorize shared database changes, real sends, or production activation.
 
+See [forecast alert verification](forecast-alert-verification.md) for simulated evidence, unresolved live observations, and full activation gates.
+
 The Alert Worker consumes version-1 identifier-only commands from `alert`. It constructs IPROG SMS and Brevo email providers before consumption.
 The worker records an attempt before each external call. Accepted and uncertain submissions never trigger an automatic resend.
 Known IPROG references reconcile through polling. Authenticated Brevo callbacks use `POST /api/v1/callbacks/brevo` and the existing narrow database function.
