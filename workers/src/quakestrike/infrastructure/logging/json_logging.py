@@ -20,6 +20,7 @@ SAFE_CONTEXT_FIELDS = frozenset(
         "encoding",
         "estimated_segments",
         "charging_units",
+        "provider_sms_count",
         "retry_delay_seconds",
         "run_id",
         "dispatch_id",

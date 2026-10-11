@@ -6,7 +6,11 @@ from uuid import uuid4
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 
-from quakestrike.application.alert_delivery import AlertSubmission
+from quakestrike.application.alert_delivery import (
+    AlertSubmission,
+    SubmissionResult,
+    normalize_submission,
+)
 from quakestrike.application.alerts import AlertClaim, AlertClaimLost
 from quakestrike.domain.alerts import eligible_alert_channels
 from quakestrike.infrastructure.database.tables import (
@@ -544,13 +548,13 @@ class SqlAlchemyAlertStore:
                     delay = delays[attempt.attempt_number - 1]
                     if result.retry_after_seconds is not None:
                         delay = max(delay, result.retry_after_seconds)
-                    next_attempt_at = now + timedelta(seconds=delay)
                     expiry = session.scalar(
                         select(alert_jobs.c.expires_at).where(
                             alert_jobs.c.alert_job_id == recipient.alert_job_id
                         )
                     )
-                    if next_attempt_at < expiry:
+                    if delay < (expiry - now).total_seconds():
+                        next_attempt_at = now + timedelta(seconds=delay)
                         recipient_status = "retry_wait"
                     else:
                         recipient_status = "expired"
@@ -803,7 +807,48 @@ class SqlAlchemyAlertStore:
             )
             return False
 
-    def reconcile_delivery(self, attempt_id, reference, status, provider_time, error_code=None):
+    def iprog_poll_candidates(self, *, after=None, limit=20):
+        """Keyset pages retain late reconciliation for expired or completed batches."""
+        if not 1 <= limit <= 100:
+            raise ValueError("SMS poll batch must contain 1 to 100 attempts.")
+        query = (
+            select(
+                alert_delivery_attempts.c.delivery_attempt_id,
+                alert_delivery_attempts.c.provider_message_id,
+                alert_jobs.c.alert_job_id,
+                alert_jobs.c.correlation_id,
+                job_dispatches.c.dispatch_id,
+            )
+            .join(
+                alert_recipients,
+                alert_recipients.c.recipient_id == alert_delivery_attempts.c.recipient_id,
+            )
+            .join(alert_jobs, alert_jobs.c.alert_job_id == alert_recipients.c.alert_job_id)
+            .join(job_dispatches, job_dispatches.c.alert_job_id == alert_jobs.c.alert_job_id)
+            .where(
+                alert_delivery_attempts.c.provider == "iprog",
+                alert_delivery_attempts.c.status.in_(("accepted", "unknown")),
+                alert_delivery_attempts.c.provider_message_id.is_not(None),
+            )
+            .order_by(alert_delivery_attempts.c.delivery_attempt_id)
+            .limit(limit)
+        )
+        if after is not None:
+            query = query.where(alert_delivery_attempts.c.delivery_attempt_id > after)
+        with self.sessions() as session:
+            return session.execute(query).all()
+
+    def reconcile_delivery(
+        self,
+        attempt_id,
+        reference,
+        status,
+        provider_time,
+        error_code=None,
+        *,
+        provider=None,
+        evidence=None,
+    ):
         """Commit verified outcomes independently from send ownership and expiry."""
         if (
             status not in ("accepted", "delivered", "failed")
@@ -839,13 +884,26 @@ class SqlAlchemyAlertStore:
                 .where(alert_delivery_attempts.c.delivery_attempt_id == attempt_id)
                 .with_for_update()
             ).one()
+            if provider is not None and attempt.provider != provider:
+                return "conflict"
             if attempt.provider_message_id is not None and attempt.provider_message_id != reference:
                 return "conflict"
+            safe_evidence = dict(attempt.provider_evidence_snapshot or {})
+            if evidence is not None:
+                safe_evidence.update(
+                    normalize_submission(SubmissionResult("unknown", evidence=evidence)).evidence
+                )
             if attempt.status == "delivered" or (
                 attempt.status == "failed" and status == "accepted"
             ):
                 return "ignored"
             if provider_time is None and rank[status] <= rank[attempt.status]:
+                if status == attempt.status and evidence is not None:
+                    session.execute(
+                        update(alert_delivery_attempts)
+                        .where(alert_delivery_attempts.c.delivery_attempt_id == attempt_id)
+                        .values(provider_evidence_snapshot=safe_evidence)
+                    )
                 return "ignored"
             if (
                 provider_time is not None
@@ -871,6 +929,7 @@ class SqlAlchemyAlertStore:
                     provider_status_at=provider_time or attempt.provider_status_at,
                     error_code=error,
                     error_message=None,
+                    provider_evidence_snapshot=safe_evidence,
                 )
             )
             newer = session.scalar(

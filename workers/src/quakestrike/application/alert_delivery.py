@@ -71,7 +71,7 @@ def normalize_submission(result):
     evidence = {}
     raw = getattr(result, "evidence", {})
     if isinstance(raw, dict):
-        for key in ("http_status", "estimated_segments", "charging_units"):
+        for key in ("http_status", "estimated_segments", "charging_units", "retry_delay_seconds"):
             value = raw.get(key)
             if (
                 isinstance(value, int | float)
@@ -95,6 +95,11 @@ def normalize_submission(result):
         code = raw.get("provider_code")
         if isinstance(code, int) and not isinstance(code, bool) and 0 <= code <= 10000:
             evidence["provider_code"] = code
+        count = raw.get("provider_sms_count")
+        if isinstance(count, int) and not isinstance(count, bool) and 0 <= count <= 1000000:
+            evidence["provider_sms_count"] = count
+    if delay is not None and delay <= 1000000:
+        evidence["retry_delay_seconds"] = delay
     return SubmissionResult(status, reference, error, delay, evidence)
 
 
