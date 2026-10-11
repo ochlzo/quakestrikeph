@@ -1,0 +1,895 @@
+{
+  "version": "geonames-PH-20261010-provinces-reviewed-20261011-v1",
+  "review_date": "2026-10-11",
+  "source_archive_sha256": "6ff0c68fdbf4ab049dd0a325ed4201209eccf7ce5054e4c5cca07b4d540e0cb4",
+  "review_source": "https://psa.gov.ph/classification/psgc/provinces",
+  "review_source_publication": "PSGC as of 30 June 2026",
+  "review_method": "Explicit GeoNames ADM2 ID to PSA province display label, reviewed against nationwide list; no prefix inference",
+  "province_count": 82,
+  "provinces": [
+    {
+      "key": "PH.09.66",
+      "geoname_id": 1679428,
+      "country_code": "PH",
+      "admin1_code": "09",
+      "admin2_code": "66",
+      "source_name": "Province of Zamboanga del Sur",
+      "label": "Zamboanga del Sur",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.03.13",
+      "geoname_id": 1723064,
+      "country_code": "PH",
+      "admin1_code": "03",
+      "admin2_code": "13",
+      "source_name": "Province of Bulacan",
+      "label": "Bulacan",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.02.14",
+      "geoname_id": 1721086,
+      "country_code": "PH",
+      "admin1_code": "02",
+      "admin2_code": "14",
+      "source_name": "Province of Cagayan",
+      "label": "Cagayan",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.05.15",
+      "geoname_id": 1719846,
+      "country_code": "PH",
+      "admin1_code": "05",
+      "admin2_code": "15",
+      "source_name": "Province of Camarines Norte",
+      "label": "Camarines Norte",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.05.16",
+      "geoname_id": 1719845,
+      "country_code": "PH",
+      "admin1_code": "05",
+      "admin2_code": "16",
+      "source_name": "Province of Camarines Sur",
+      "label": "Camarines Sur",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.10.17",
+      "geoname_id": 1719694,
+      "country_code": "PH",
+      "admin1_code": "10",
+      "admin2_code": "17",
+      "source_name": "Province of Camiguin",
+      "label": "Camiguin",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.06.18",
+      "geoname_id": 1718641,
+      "country_code": "PH",
+      "admin1_code": "06",
+      "admin2_code": "18",
+      "source_name": "Province of Capiz",
+      "label": "Capiz",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.05.19",
+      "geoname_id": 1717952,
+      "country_code": "PH",
+      "admin1_code": "05",
+      "admin2_code": "19",
+      "source_name": "Province of Catanduanes",
+      "label": "Catanduanes",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.10.12",
+      "geoname_id": 1723105,
+      "country_code": "PH",
+      "admin1_code": "10",
+      "admin2_code": "12",
+      "source_name": "Province of Bukidnon",
+      "label": "Bukidnon",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.40.20",
+      "geoname_id": 1717639,
+      "country_code": "PH",
+      "admin1_code": "40",
+      "admin2_code": "20",
+      "source_name": "Province of Cavite",
+      "label": "Cavite",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.11.I6",
+      "geoname_id": 1717055,
+      "country_code": "PH",
+      "admin1_code": "11",
+      "admin2_code": "I6",
+      "source_name": "Davao de Oro",
+      "label": "Davao de Oro",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.11.I7",
+      "geoname_id": 1715347,
+      "country_code": "PH",
+      "admin1_code": "11",
+      "admin2_code": "I7",
+      "source_name": "Province of Davao del Norte",
+      "label": "Davao del Norte",
+      "source_modified": "2025-11-03"
+    },
+    {
+      "key": "PH.11.25",
+      "geoname_id": 1715345,
+      "country_code": "PH",
+      "admin1_code": "11",
+      "admin2_code": "25",
+      "source_name": "Province of Davao del Sur",
+      "label": "Davao del Sur",
+      "source_modified": "2025-11-03"
+    },
+    {
+      "key": "PH.11.26",
+      "geoname_id": 1715342,
+      "country_code": "PH",
+      "admin1_code": "11",
+      "admin2_code": "26",
+      "source_name": "Province of Davao Oriental",
+      "label": "Davao Oriental",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.13.I9",
+      "geoname_id": 1714796,
+      "country_code": "PH",
+      "admin1_code": "13",
+      "admin2_code": "I9",
+      "source_name": "Dinagat Islands",
+      "label": "Dinagat Islands",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.08.23",
+      "geoname_id": 1713986,
+      "country_code": "PH",
+      "admin1_code": "08",
+      "admin2_code": "23",
+      "source_name": "Province of Eastern Samar",
+      "label": "Eastern Samar",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.15.27",
+      "geoname_id": 1711331,
+      "country_code": "PH",
+      "admin1_code": "15",
+      "admin2_code": "27",
+      "source_name": "Province of Ifugao",
+      "label": "Ifugao",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.07.21",
+      "geoname_id": 1717511,
+      "country_code": "PH",
+      "admin1_code": "07",
+      "admin2_code": "21",
+      "source_name": "Province of Cebu",
+      "label": "Cebu",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.07.11",
+      "geoname_id": 1724395,
+      "country_code": "PH",
+      "admin1_code": "07",
+      "admin2_code": "11",
+      "source_name": "Bohol",
+      "label": "Bohol",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.08.H9",
+      "geoname_id": 1725260,
+      "country_code": "PH",
+      "admin1_code": "08",
+      "admin2_code": "H9",
+      "source_name": "Biliran",
+      "label": "Biliran",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.15.10",
+      "geoname_id": 1725582,
+      "country_code": "PH",
+      "admin1_code": "15",
+      "admin2_code": "10",
+      "source_name": "Province of Benguet",
+      "label": "Benguet",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.11.P3",
+      "geoname_id": 11189141,
+      "country_code": "PH",
+      "admin1_code": "11",
+      "admin2_code": "P3",
+      "source_name": "Davao Occidental",
+      "label": "Davao Occidental",
+      "source_modified": "2022-11-22"
+    },
+    {
+      "key": "PH.12.M9",
+      "geoname_id": 7671047,
+      "country_code": "PH",
+      "admin1_code": "12",
+      "admin2_code": "M9",
+      "source_name": "Province of Sarangani",
+      "label": "Sarangani",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.06.J3",
+      "geoname_id": 7602867,
+      "country_code": "PH",
+      "admin1_code": "06",
+      "admin2_code": "J3",
+      "source_name": "Province of Guimaras",
+      "label": "Guimaras",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.09.ZSI",
+      "geoname_id": 7115981,
+      "country_code": "PH",
+      "admin1_code": "09",
+      "admin2_code": "ZSI",
+      "source_name": "Province of Zamboanga Sibugay",
+      "label": "Zamboanga Sibugay",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.15.H6",
+      "geoname_id": 7115731,
+      "country_code": "PH",
+      "admin1_code": "15",
+      "admin2_code": "H6",
+      "source_name": "Apayao",
+      "label": "Apayao",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.15.32",
+      "geoname_id": 7115730,
+      "country_code": "PH",
+      "admin1_code": "15",
+      "admin2_code": "32",
+      "source_name": "Kalinga",
+      "label": "Kalinga",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.15.01",
+      "geoname_id": 1732380,
+      "country_code": "PH",
+      "admin1_code": "15",
+      "admin2_code": "01",
+      "source_name": "Province of Abra",
+      "label": "Abra",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.13.02",
+      "geoname_id": 1731819,
+      "country_code": "PH",
+      "admin1_code": "13",
+      "admin2_code": "02",
+      "source_name": "Province of Agusan del Norte",
+      "label": "Agusan del Norte",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.13.03",
+      "geoname_id": 1731818,
+      "country_code": "PH",
+      "admin1_code": "13",
+      "admin2_code": "03",
+      "source_name": "Province of Agusan del Sur",
+      "label": "Agusan del Sur",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.06.04",
+      "geoname_id": 1731758,
+      "country_code": "PH",
+      "admin1_code": "06",
+      "admin2_code": "04",
+      "source_name": "Province of Aklan",
+      "label": "Aklan",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.05.05",
+      "geoname_id": 1731616,
+      "country_code": "PH",
+      "admin1_code": "05",
+      "admin2_code": "05",
+      "source_name": "Province of Albay",
+      "label": "Albay",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.06.06",
+      "geoname_id": 1730491,
+      "country_code": "PH",
+      "admin1_code": "06",
+      "admin2_code": "06",
+      "source_name": "Province of Antique",
+      "label": "Antique",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.03.G8",
+      "geoname_id": 1729926,
+      "country_code": "PH",
+      "admin1_code": "03",
+      "admin2_code": "G8",
+      "source_name": "Province of Aurora",
+      "label": "Aurora",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.14.22",
+      "geoname_id": 1726404,
+      "country_code": "PH",
+      "admin1_code": "14",
+      "admin2_code": "22",
+      "source_name": "Province of Basilan",
+      "label": "Basilan",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.03.07",
+      "geoname_id": 1726347,
+      "country_code": "PH",
+      "admin1_code": "03",
+      "admin2_code": "07",
+      "source_name": "Province of Bataan",
+      "label": "Bataan",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.02.08",
+      "geoname_id": 1726302,
+      "country_code": "PH",
+      "admin1_code": "02",
+      "admin2_code": "08",
+      "source_name": "Province of Batanes",
+      "label": "Batanes",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.40.09",
+      "geoname_id": 1726279,
+      "country_code": "PH",
+      "admin1_code": "40",
+      "admin2_code": "09",
+      "source_name": "Province of Batangas",
+      "label": "Batangas",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.01.28",
+      "geoname_id": 1711034,
+      "country_code": "PH",
+      "admin1_code": "01",
+      "admin2_code": "28",
+      "source_name": "Province of Ilocos Norte",
+      "label": "Ilocos Norte",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.01.29",
+      "geoname_id": 1711032,
+      "country_code": "PH",
+      "admin1_code": "01",
+      "admin2_code": "29",
+      "source_name": "Province of Ilocos Sur",
+      "label": "Ilocos Sur",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.06.30",
+      "geoname_id": 1711004,
+      "country_code": "PH",
+      "admin1_code": "06",
+      "admin2_code": "30",
+      "source_name": "Province of Iloilo",
+      "label": "Iloilo",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.02.31",
+      "geoname_id": 1710515,
+      "country_code": "PH",
+      "admin1_code": "02",
+      "admin2_code": "31",
+      "source_name": "Province of Isabela",
+      "label": "Isabela",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.40.H2",
+      "geoname_id": 1692194,
+      "country_code": "PH",
+      "admin1_code": "40",
+      "admin2_code": "H2",
+      "source_name": "Province of Quezon",
+      "label": "Quezon",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.02.68",
+      "geoname_id": 1691975,
+      "country_code": "PH",
+      "admin1_code": "02",
+      "admin2_code": "68",
+      "source_name": "Province of Quirino",
+      "label": "Quirino",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.40.53",
+      "geoname_id": 1691591,
+      "country_code": "PH",
+      "admin1_code": "40",
+      "admin2_code": "53",
+      "source_name": "Province of Rizal",
+      "label": "Rizal",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.41.54",
+      "geoname_id": 1691537,
+      "country_code": "PH",
+      "admin1_code": "41",
+      "admin2_code": "54",
+      "source_name": "Province of Romblon",
+      "label": "Romblon",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.08.55",
+      "geoname_id": 1690649,
+      "country_code": "PH",
+      "admin1_code": "08",
+      "admin2_code": "55",
+      "source_name": "Province of Samar",
+      "label": "Samar",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.07.69",
+      "geoname_id": 1686065,
+      "country_code": "PH",
+      "admin1_code": "07",
+      "admin2_code": "69",
+      "source_name": "Province of Siquijor",
+      "label": "Siquijor",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.05.58",
+      "geoname_id": 1685754,
+      "country_code": "PH",
+      "admin1_code": "05",
+      "admin2_code": "58",
+      "source_name": "Province of Sorsogon",
+      "label": "Sorsogon",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.12.70",
+      "geoname_id": 1685731,
+      "country_code": "PH",
+      "admin1_code": "12",
+      "admin2_code": "70",
+      "source_name": "Province of South Cotabato",
+      "label": "South Cotabato",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.08.59",
+      "geoname_id": 1685725,
+      "country_code": "PH",
+      "admin1_code": "08",
+      "admin2_code": "59",
+      "source_name": "Province of Southern Leyte",
+      "label": "Southern Leyte",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.12.71",
+      "geoname_id": 1685377,
+      "country_code": "PH",
+      "admin1_code": "12",
+      "admin2_code": "71",
+      "source_name": "Province of Sultan Kudarat",
+      "label": "Sultan Kudarat",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.14.60",
+      "geoname_id": 1685370,
+      "country_code": "PH",
+      "admin1_code": "14",
+      "admin2_code": "60",
+      "source_name": "Province of Sulu",
+      "label": "Sulu",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.13.61",
+      "geoname_id": 1685215,
+      "country_code": "PH",
+      "admin1_code": "13",
+      "admin2_code": "61",
+      "source_name": "Province of Surigao del Norte",
+      "label": "Surigao del Norte",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.13.62",
+      "geoname_id": 1685214,
+      "country_code": "PH",
+      "admin1_code": "13",
+      "admin2_code": "62",
+      "source_name": "Province of Surigao del Sur",
+      "label": "Surigao del Sur",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.03.63",
+      "geoname_id": 1682811,
+      "country_code": "PH",
+      "admin1_code": "03",
+      "admin2_code": "63",
+      "source_name": "Province of Tarlac",
+      "label": "Tarlac",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.14.72",
+      "geoname_id": 1682671,
+      "country_code": "PH",
+      "admin1_code": "14",
+      "admin2_code": "72",
+      "source_name": "Province of Tawi-Tawi",
+      "label": "Tawi-Tawi",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.03.64",
+      "geoname_id": 1679435,
+      "country_code": "PH",
+      "admin1_code": "03",
+      "admin2_code": "64",
+      "source_name": "Province of Zambales",
+      "label": "Zambales",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.09.65",
+      "geoname_id": 1679429,
+      "country_code": "PH",
+      "admin1_code": "09",
+      "admin2_code": "65",
+      "source_name": "Province of Zamboanga del Norte",
+      "label": "Zamboanga del Norte",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.01.51",
+      "geoname_id": 1695357,
+      "country_code": "PH",
+      "admin1_code": "01",
+      "admin2_code": "51",
+      "source_name": "Province of Pangasinan",
+      "label": "Pangasinan",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.14.MGS",
+      "geoname_id": 13308207,
+      "country_code": "PH",
+      "admin1_code": "14",
+      "admin2_code": "MGS",
+      "source_name": "Maguindanao del Sur",
+      "label": "Maguindanao del Sur",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.03.50",
+      "geoname_id": 1695848,
+      "country_code": "PH",
+      "admin1_code": "03",
+      "admin2_code": "50",
+      "source_name": "Province of Pampanga",
+      "label": "Pampanga",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.02.48",
+      "geoname_id": 1697456,
+      "country_code": "PH",
+      "admin1_code": "02",
+      "admin2_code": "48",
+      "source_name": "Province of Nueva Vizcaya",
+      "label": "Nueva Vizcaya",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.40.33",
+      "geoname_id": 1708026,
+      "country_code": "PH",
+      "admin1_code": "40",
+      "admin2_code": "33",
+      "source_name": "Province of Laguna",
+      "label": "Laguna",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.10.34",
+      "geoname_id": 1707668,
+      "country_code": "PH",
+      "admin1_code": "10",
+      "admin2_code": "34",
+      "source_name": "Province of Lanao del Norte",
+      "label": "Lanao del Norte",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.14.35",
+      "geoname_id": 1707667,
+      "country_code": "PH",
+      "admin1_code": "14",
+      "admin2_code": "35",
+      "source_name": "Province of Lanao del Sur",
+      "label": "Lanao del Sur",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.01.36",
+      "geoname_id": 1707052,
+      "country_code": "PH",
+      "admin1_code": "01",
+      "admin2_code": "36",
+      "source_name": "Province of La Union",
+      "label": "La Union",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.08.37",
+      "geoname_id": 1706800,
+      "country_code": "PH",
+      "admin1_code": "08",
+      "admin2_code": "37",
+      "source_name": "Province of Leyte",
+      "label": "Leyte",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.41.38",
+      "geoname_id": 1700902,
+      "country_code": "PH",
+      "admin1_code": "41",
+      "admin2_code": "38",
+      "source_name": "Province of Marinduque",
+      "label": "Marinduque",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.05.39",
+      "geoname_id": 1700711,
+      "country_code": "PH",
+      "admin1_code": "05",
+      "admin2_code": "39",
+      "source_name": "Province of Masbate",
+      "label": "Masbate",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.41.40",
+      "geoname_id": 1699586,
+      "country_code": "PH",
+      "admin1_code": "41",
+      "admin2_code": "40",
+      "source_name": "Occidental Mindoro",
+      "label": "Occidental Mindoro",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.41.41",
+      "geoname_id": 1699585,
+      "country_code": "PH",
+      "admin1_code": "41",
+      "admin2_code": "41",
+      "source_name": "Oriental Mindoro",
+      "label": "Oriental Mindoro",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.10.42",
+      "geoname_id": 1699493,
+      "country_code": "PH",
+      "admin1_code": "10",
+      "admin2_code": "42",
+      "source_name": "Province of Misamis Occidental",
+      "label": "Misamis Occidental",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.10.43",
+      "geoname_id": 1699492,
+      "country_code": "PH",
+      "admin1_code": "10",
+      "admin2_code": "43",
+      "source_name": "Province of Misamis Oriental",
+      "label": "Misamis Oriental",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.15.44",
+      "geoname_id": 1699175,
+      "country_code": "PH",
+      "admin1_code": "15",
+      "admin2_code": "44",
+      "source_name": "Mountain Province",
+      "label": "Mountain Province",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.06.H3",
+      "geoname_id": 1697808,
+      "country_code": "PH",
+      "admin1_code": "06",
+      "admin2_code": "H3",
+      "source_name": "Province of Negros Occidental",
+      "label": "Negros Occidental",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.07.46",
+      "geoname_id": 1697806,
+      "country_code": "PH",
+      "admin1_code": "07",
+      "admin2_code": "46",
+      "source_name": "Province of Negros Oriental",
+      "label": "Negros Oriental",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.12.57",
+      "geoname_id": 1697559,
+      "country_code": "PH",
+      "admin1_code": "12",
+      "admin2_code": "57",
+      "source_name": "Cotabato",
+      "label": "Cotabato",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.08.67",
+      "geoname_id": 1697549,
+      "country_code": "PH",
+      "admin1_code": "08",
+      "admin2_code": "67",
+      "source_name": "Province of Northern Samar",
+      "label": "Northern Samar",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.03.47",
+      "geoname_id": 1697473,
+      "country_code": "PH",
+      "admin1_code": "03",
+      "admin2_code": "47",
+      "source_name": "Province of Nueva Ecija",
+      "label": "Nueva Ecija",
+      "source_modified": "2025-08-06"
+    },
+    {
+      "key": "PH.41.49",
+      "geoname_id": 1696177,
+      "country_code": "PH",
+      "admin1_code": "41",
+      "admin2_code": "49",
+      "source_name": "Province of Palawan",
+      "label": "Palawan",
+      "source_modified": "2025-08-05"
+    },
+    {
+      "key": "PH.14.MGN",
+      "geoname_id": 13308209,
+      "country_code": "PH",
+      "admin1_code": "14",
+      "admin2_code": "MGN",
+      "source_name": "Maguindanao del Norte",
+      "label": "Maguindanao del Norte",
+      "source_modified": "2025-08-06"
+    }
+  ],
+  "excluded_adm2_records": [
+    {
+      "geoname_id": 1716770,
+      "name": "Cotabato City",
+      "latitude": 7.21667,
+      "longitude": 124.25,
+      "feature_code": "ADM2",
+      "country": "PH",
+      "admin1": "12",
+      "admin2": "B8",
+      "admin3": "",
+      "modified": "2025-08-05"
+    },
+    {
+      "geoname_id": 11395835,
+      "name": "Capital District",
+      "latitude": 14.5982,
+      "longitude": 120.98986,
+      "feature_code": "ADM2",
+      "country": "PH",
+      "admin1": "NCR",
+      "admin2": "133900000",
+      "admin3": "",
+      "modified": "2016-12-20"
+    },
+    {
+      "geoname_id": 11395836,
+      "name": "Eastern Manila District",
+      "latitude": 14.58043,
+      "longitude": 121.08376,
+      "feature_code": "ADM2",
+      "country": "PH",
+      "admin1": "NCR",
+      "admin2": "137400000",
+      "admin3": "",
+      "modified": "2016-12-20"
+    },
+    {
+      "geoname_id": 11395837,
+      "name": "Northern Manila District",
+      "latitude": 14.73421,
+      "longitude": 121.01337,
+      "feature_code": "ADM2",
+      "country": "PH",
+      "admin1": "NCR",
+      "admin2": "137500000",
+      "admin3": "",
+      "modified": "2016-12-20"
+    },
+    {
+      "geoname_id": 11395838,
+      "name": "Southern Manila District",
+      "latitude": 14.51845,
+      "longitude": 121.02882,
+      "feature_code": "ADM2",
+      "country": "PH",
+      "admin1": "NCR",
+      "admin2": "137600000",
+      "admin3": "",
+      "modified": "2016-12-20"
+    }
+  ],
+  "missing_psa_provinces": [],
+  "caution": "Complete province identity list match does not establish accurate individual municipality membership or containment."
+}

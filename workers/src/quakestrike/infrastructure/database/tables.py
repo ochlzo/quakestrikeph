@@ -16,6 +16,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ENUM, JSONB, UUID
 
@@ -718,6 +719,12 @@ alert_jobs = Table(
     ),
     Column("requested_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("message_snapshot", Text, nullable=False),
+    Column("email_subject_snapshot", Text),
+    Column("email_body_snapshot", Text),
+    Column("nearby_message_snapshot", Text),
+    Column("nearby_email_subject_snapshot", Text),
+    Column("nearby_email_body_snapshot", Text),
+    Column("content_provenance_snapshot", JSONB),
     Column("recipient_policy_snapshot", JSONB, nullable=False),
     Column("status", alert_job_status, nullable=False, server_default="pending"),
     Column("recipient_resolution_completed_at", DateTime(timezone=True)),
@@ -726,6 +733,22 @@ alert_jobs = Table(
     Column("expires_at", DateTime(timezone=True), nullable=False),
     Column("completed_at", DateTime(timezone=True)),
     Column("correlation_id", UUID(as_uuid=True), nullable=False),
+    CheckConstraint(
+        "((email_subject_snapshot IS NULL) = (email_body_snapshot IS NULL))",
+        name="ck_alert_jobs_email_pair",
+    ),
+    CheckConstraint(
+        "((content_provenance_snapshot IS NULL AND nearby_message_snapshot IS NULL\n   AND nearby_email_subject_snapshot IS NULL AND nearby_email_body_snapshot IS NULL\n   AND email_subject_snapshot IS NULL AND email_body_snapshot IS NULL)\n  OR (content_provenance_snapshot IS NOT NULL AND nearby_message_snapshot IS NOT NULL\n   AND nearby_email_subject_snapshot IS NOT NULL AND nearby_email_body_snapshot IS NOT NULL\n   AND email_subject_snapshot IS NOT NULL AND email_body_snapshot IS NOT NULL))",
+        name="ck_alert_jobs_forecast_content_group",
+    ),
+    CheckConstraint(
+        "((email_subject_snapshot IS NULL OR (email_subject_snapshot = btrim(email_subject_snapshot) AND email_subject_snapshot <> ''))\n  AND (email_body_snapshot IS NULL OR (email_body_snapshot = btrim(email_body_snapshot) AND email_body_snapshot <> ''))\n  AND (nearby_message_snapshot IS NULL OR (nearby_message_snapshot = btrim(nearby_message_snapshot) AND nearby_message_snapshot <> ''))\n  AND (nearby_email_subject_snapshot IS NULL OR (nearby_email_subject_snapshot = btrim(nearby_email_subject_snapshot) AND nearby_email_subject_snapshot <> ''))\n  AND (nearby_email_body_snapshot IS NULL OR (nearby_email_body_snapshot = btrim(nearby_email_body_snapshot) AND nearby_email_body_snapshot <> '')))",
+        name="ck_alert_jobs_new_content_nonblank",
+    ),
+    CheckConstraint(
+        "(content_provenance_snapshot IS NULL OR jsonb_typeof(content_provenance_snapshot) = 'object')",
+        name="ck_alert_jobs_content_provenance_object",
+    ),
     CheckConstraint(
         "message_snapshot = btrim(message_snapshot) AND message_snapshot <> ''",
         name="ck_alert_jobs_message",
@@ -811,4 +834,190 @@ Index(
     "ix_job_dispatches_dispatching_lease",
     job_dispatches.c.lease_expires_at,
     postgresql_where=job_dispatches.c.status == "dispatching",
+)
+
+alert_recipient_status = ENUM(
+    "pending",
+    "sending",
+    "retry_wait",
+    "accepted",
+    "delivered",
+    "failed",
+    "unknown",
+    "skipped",
+    "expired",
+    name="alert_recipient_status",
+    create_type=False,
+)
+
+alert_recipients = Table(
+    "alert_recipients",
+    metadata,
+    Column("recipient_id", UUID(as_uuid=True), primary_key=True),
+    Column("alert_job_id", UUID(as_uuid=True), nullable=False),
+    Column("user_id", UUID(as_uuid=True)),
+    Column("channel", Text, nullable=False),
+    Column("destination_snapshot", Text, nullable=False),
+    Column("eligibility_snapshot", JSONB, nullable=False),
+    Column("resolved_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("delivery_idempotency_key", Text, nullable=False, unique=True),
+    Column("status", alert_recipient_status, nullable=False, server_default="pending"),
+    Column("next_attempt_at", DateTime(timezone=True)),
+    Column("delivered_at", DateTime(timezone=True)),
+    Column("last_error_code", Text),
+    Column("processing_lease_expires_at", DateTime(timezone=True)),
+    Column("worker_execution_id", UUID(as_uuid=True)),
+    ForeignKeyConstraint(
+        ["alert_job_id"],
+        ["alert_jobs.alert_job_id"],
+        name="fk_alert_recipients_job",
+        onupdate="RESTRICT",
+        ondelete="RESTRICT",
+    ),
+    ForeignKeyConstraint(
+        ["user_id"],
+        ["users.user_id"],
+        name="fk_alert_recipients_user",
+        onupdate="RESTRICT",
+        ondelete="SET NULL",
+    ),
+    UniqueConstraint(
+        "alert_job_id",
+        "channel",
+        "destination_snapshot",
+        name="uq_alert_recipients_job_channel_destination",
+    ),
+    CheckConstraint("(channel IN ('email','sms'))", name="ck_alert_recipients_channel"),
+    CheckConstraint(
+        "(destination_snapshot = btrim(destination_snapshot) AND destination_snapshot <> '' AND (channel <> 'sms' OR destination_snapshot ~ '^\\+639[0-9]{9}$'))",
+        name="ck_alert_recipients_destination",
+    ),
+    CheckConstraint(
+        "(delivery_idempotency_key = btrim(delivery_idempotency_key) AND delivery_idempotency_key <> '')",
+        name="ck_alert_recipients_key",
+    ),
+    CheckConstraint(
+        "(jsonb_typeof(eligibility_snapshot) = 'object')",
+        name="ck_alert_recipients_eligibility_object",
+    ),
+    CheckConstraint(
+        "((status = 'sending' AND processing_lease_expires_at IS NOT NULL AND worker_execution_id IS NOT NULL) OR (status <> 'sending' AND processing_lease_expires_at IS NULL AND worker_execution_id IS NULL))",
+        name="ck_alert_recipients_sending_claim",
+    ),
+    CheckConstraint(
+        "((status = 'retry_wait') = (next_attempt_at IS NOT NULL))",
+        name="ck_alert_recipients_retry",
+    ),
+    CheckConstraint(
+        "((status = 'delivered') = (delivered_at IS NOT NULL))",
+        name="ck_alert_recipients_delivered",
+    ),
+    CheckConstraint(
+        "(last_error_code IS NULL OR (last_error_code = btrim(last_error_code) AND length(last_error_code) BETWEEN 1 AND 100))",
+        name="ck_alert_recipients_error",
+    ),
+)
+Index(
+    "uq_alert_recipients_job_user_channel",
+    alert_recipients.c.alert_job_id,
+    alert_recipients.c.user_id,
+    alert_recipients.c.channel,
+    unique=True,
+    postgresql_where=text("user_id IS NOT NULL"),
+)
+Index(
+    "ix_alert_recipients_user",
+    alert_recipients.c.user_id,
+    postgresql_where=text("user_id IS NOT NULL"),
+)
+Index("ix_alert_recipients_job_status", alert_recipients.c.alert_job_id, alert_recipients.c.status)
+Index(
+    "ix_alert_recipients_retry",
+    alert_recipients.c.next_attempt_at,
+    postgresql_where=text("status = 'retry_wait'"),
+)
+Index(
+    "ix_alert_recipients_sending_lease",
+    alert_recipients.c.processing_lease_expires_at,
+    postgresql_where=text("status = 'sending'"),
+)
+
+alert_delivery_status = ENUM(
+    "sending",
+    "accepted",
+    "delivered",
+    "failed",
+    "unknown",
+    name="alert_delivery_status",
+    create_type=False,
+)
+
+alert_delivery_attempts = Table(
+    "alert_delivery_attempts",
+    metadata,
+    Column("delivery_attempt_id", UUID(as_uuid=True), primary_key=True),
+    Column("recipient_id", UUID(as_uuid=True), nullable=False),
+    Column("attempt_number", Integer, nullable=False),
+    Column("provider", Text, nullable=False),
+    Column("provider_message_id", Text),
+    Column("status", alert_delivery_status, nullable=False, server_default="sending"),
+    Column("started_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("finished_at", DateTime(timezone=True)),
+    Column("provider_status_at", DateTime(timezone=True)),
+    Column("error_code", Text),
+    Column("error_message", Text),
+    Column("correlation_id", UUID(as_uuid=True), nullable=False),
+    Column("content_variant", Text, nullable=False),
+    Column("eligibility_snapshot", JSONB, nullable=False),
+    Column("provider_evidence_snapshot", JSONB),
+    ForeignKeyConstraint(
+        ["recipient_id"],
+        ["alert_recipients.recipient_id"],
+        name="fk_alert_delivery_attempts_recipient",
+        onupdate="RESTRICT",
+        ondelete="RESTRICT",
+    ),
+    UniqueConstraint(
+        "recipient_id", "attempt_number", name="uq_alert_delivery_attempts_recipient_number"
+    ),
+    CheckConstraint("(attempt_number >= 1)", name="ck_alert_delivery_attempts_number"),
+    CheckConstraint("(provider IN ('iprog','brevo'))", name="ck_alert_delivery_attempts_provider"),
+    CheckConstraint(
+        "(provider_message_id IS NULL OR (provider_message_id = btrim(provider_message_id) AND length(provider_message_id) BETWEEN 1 AND 512))",
+        name="ck_alert_delivery_attempts_reference",
+    ),
+    CheckConstraint(
+        "((status = 'sending') = (finished_at IS NULL))", name="ck_alert_delivery_attempts_closure"
+    ),
+    CheckConstraint(
+        "(finished_at IS NULL OR finished_at >= started_at)",
+        name="ck_alert_delivery_attempts_finish_order",
+    ),
+    CheckConstraint(
+        "(content_variant IN ('general','nearby'))", name="ck_alert_delivery_attempts_variant"
+    ),
+    CheckConstraint(
+        "(jsonb_typeof(eligibility_snapshot) = 'object')",
+        name="ck_alert_delivery_attempts_eligibility_object",
+    ),
+    CheckConstraint(
+        "(provider_evidence_snapshot IS NULL OR jsonb_typeof(provider_evidence_snapshot) = 'object')",
+        name="ck_alert_delivery_attempts_provider_evidence_object",
+    ),
+    CheckConstraint(
+        "((error_code IS NULL OR (error_code = btrim(error_code) AND length(error_code) BETWEEN 1 AND 100)) AND (error_message IS NULL OR (error_message = btrim(error_message) AND length(error_message) BETWEEN 1 AND 500)))",
+        name="ck_alert_delivery_attempts_errors",
+    ),
+)
+Index(
+    "uq_alert_delivery_attempts_one_sending",
+    alert_delivery_attempts.c.recipient_id,
+    unique=True,
+    postgresql_where=text("status = 'sending'"),
+)
+Index(
+    "ix_alert_delivery_attempts_provider_reference",
+    alert_delivery_attempts.c.provider,
+    alert_delivery_attempts.c.provider_message_id,
+    postgresql_where=text("provider_message_id IS NOT NULL"),
 )

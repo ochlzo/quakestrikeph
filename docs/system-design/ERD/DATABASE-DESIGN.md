@@ -295,15 +295,19 @@ The window starts at the linked revision's event time and spans exactly 24 elaps
 
 ### `alert_jobs`
 
-One automatic two-channel batch with immutable SMS/email content and a recipient-policy snapshot. The Prediction Worker creates it with a successful current live forecast. The current migration already has `message_snapshot` for SMS; email fields below are a planned forward schema change.
+One automatic two-channel batch created atomically with a successful current live M1+ forecast, its dispatch, and the required system audit. Historical recovery, historical/backfill work, and expired forecasts create no alert. Migration `20261011_13` implements the content amendment approved on 11 October 2026; [ADR 0047](../../adr/0047-forecast-alert-content-and-delivery-evidence.md) records approval and ownership.
 
 ```text
 alert_job_id uuid PK
 forecast_id uuid UQ
 requested_at timestamptz = now()
-message_snapshot text  -- SMS body
+message_snapshot text  -- general SMS
 email_subject_snapshot text?
 email_body_snapshot text?
+nearby_message_snapshot text?
+nearby_email_subject_snapshot text?
+nearby_email_body_snapshot text?
+content_provenance_snapshot jsonb?
 recipient_policy_snapshot jsonb
 status alert_job_status = 'pending'
 recipient_resolution_completed_at timestamptz?
@@ -314,13 +318,30 @@ completed_at timestamptz?
 correlation_id uuid
 ```
 
-`UNIQUE (forecast_id)` enforces one alert batch per forecast, whether zero, one, or both channels have recipients. Every newly committed current forecast for a live M1+ anchor creates that job while its 24-hour window remains open. Backfill, historical, and expired work create no alert. `message_snapshot` remains the immutable SMS body. The email subject/body are both null only for legacy SMS-only jobs created before the email feature; enforce a paired-null check, trim and nonblank checks when present, and require both on every new job after the email-capable worker is enabled. The channel-content and recipient-policy snapshots are fixed in the prediction-completion transaction. Recipient eligibility is evaluated later against each user's shared alert trigger magnitude and optional nearby-only rule. Email content is separate from Clerk's authentication mail. A reviewed forward migration must add the email fields and extend the existing immutability trigger; the Prediction Worker, Alert Worker, and migrations need a compatible rollout before email delivery is enabled.
+UUIDs are caller-generated. All columns are NOT NULL unless marked `?`; unspecified defaults are absent. The six content/provenance additions are either all null for legacy SMS-only jobs or all present for forecast-content jobs. The email-capable Prediction Worker requires all six for new work. Never backfill or rewrite legacy content. `message_snapshot` retains the general SMS body. Frozen nearby wording refers to a saved alert location, never device tracking. Email bodies are plain text and contain fuller model outputs and their limitations.
 
-States are `pending`, `resolving`, `delivering`, `completed`, `failed`, and `expired`. Active resolving/delivering ownership needs lease/token. Terminal states need `completed_at` and stop dispatch; `completed` means recipients settled, not all delivered. Accepted/unknown recipients stay under reconciliation until expiry. `expires_at` equals forecast `window_end` and must be later than creation; verify equality transactionally. No new send begins at or after expiry. Late outcomes may still update evidence. Cancellation is deferred and has no reserved state or columns.
+`content_provenance_snapshot` freezes `rendering_policy_version`, `geographic_lookup_policy_version`, `geographic_dataset_version`, `geographic_dataset_sha256`, `geographic_lookup_limit_km`, `location_label`, `location_source`, `reference_geoname_id`, `reference_distance_km`, `province_code`, and `province_name`. The application validates the versioned shape; SQL requires an object. Resolve the nearest suitable local GeoNames city/municipality representative point within inclusive 100 km. Explicit reviewed province metadata determines `near` labels, not containment or parsed prose. Source fallback preserves the unchanged PHIVOLCS description and nulls the reference/province fields. Dataset provenance remains present on fallback. Districts, independent cities, and ambiguous mappings never invent a province. Package attribution, source hashes, reviewed mapping/exclusions, and a deterministic generator.
+
+`recipient_policy_snapshot` freezes the batch policy. Eligibility remains per-user and per-channel. The renderer uses the original forecast window, raw-probability Bulletin likelihood thresholds, matching percentage rounding, and a full configured `/forecasts/{eventId}` URL labelled `View current forecast`. The page may show newer information than the frozen message. Optional outputs remain unavailable; activity radius is not shaking distance or a safety boundary.
+
+| Constraint | Required rule |
+|---|---|
+| Existing forecast uniqueness/FK | One batch per forecast; forecast FK uses RESTRICT update/delete. |
+| `ck_alert_jobs_message` | Trimmed nonblank general SMS. |
+| `ck_alert_jobs_recipient_policy_object` | Recipient policy is a JSON object. |
+| `ck_alert_jobs_expiry` | Expiry is later than request time. |
+| `ck_alert_jobs_lease` | Resolving/delivering require lease/token; other states clear both. |
+| `ck_alert_jobs_completion` | Terminal states require completion time; active states have none. |
+| `ck_alert_jobs_email_pair` | General email subject/body have paired nullability. |
+| `ck_alert_jobs_forecast_content_group` | All six new additions are null or present together. |
+| `ck_alert_jobs_new_content_nonblank` | Every present content field is trimmed and nonblank. |
+| `ck_alert_jobs_content_provenance_object` | Present content provenance is an object. |
+
+Indexes remain `ix_alert_jobs_status_expiry(status, expires_at)`, `ix_alert_jobs_requested_at(requested_at)`, and partial `ix_alert_jobs_active_lease(lease_expires_at)` for resolving/delivering. `trg_alert_jobs_assignment_and_snapshots_immutable` invokes `enforce_alert_assignment_and_snapshots_immutable()` and protects forecast assignment, recipient policy, and every SMS/email/provenance snapshot. States remain pending, resolving, delivering, completed, failed, expired. Terminal transitions stop dispatch atomically. Completed means recipients settled, not necessarily delivered. Expiry equals forecast window end transactionally. New sends stop at expiry; late evidence may still change.
 
 ### `alert_recipients`
 
-One resolved destination per user, channel, and batch, with selection evidence and current delivery summary. Alert Worker writes and rechecks it.
+One destination per user/channel/batch, with immutable resolution evidence and mutable delivery summary.
 
 ```text
 recipient_id uuid PK
@@ -339,11 +360,37 @@ processing_lease_expires_at timestamptz?
 worker_execution_id uuid?
 ```
 
-`channel` has the named check `IN ('email', 'sms')`. `UNIQUE (alert_job_id, channel, destination_snapshot)` applies after email normalization or E.164 phone normalization, plus a partial `UNIQUE (alert_job_id, user_id, channel) WHERE user_id IS NOT NULL` to prevent two destinations on one channel for the same user. One public-user resolution requires a user; the FK may later be set null for controlled account removal, but a detached row cannot start a send. States are `pending`, `sending`, `retry_wait`, `accepted`, `delivered`, `failed`, `unknown`, `skipped`, and `expired`. Sending needs lease/token; other states clear them. Retry wait alone needs `next_attempt_at`. Delivered alone needs `delivered_at`. Accepted awaits provider outcome; unknown is held for reconciliation, never blind resend. Eligibility requires an active account with completed onboarding, observed anchor magnitude greater than or equal to its `alert_trigger_magnitude`, and the channel's enabled setting and verified current destination. Email requires `email_enabled = true` and `email_verified_at` for the current mirrored Clerk email. SMS requires `sms_enabled = true`, `mobile_verified_at` for the current number, and current IPROG shared-sender support. When `nearby_alerts_only` is true, the observed earthquake epicenter must also be within the inclusive `alert_trigger_distance_km` radius of the saved alert location. Use Haversine distance in kilometres with Earth radius `6371.0088 km`; the forecast activity radius does not define this filter. The snapshot records the evaluated shared settings, channel, destination-verification state, observed magnitude, calculated distance when applicable, and policy version. Before each provider call, recheck account, current destination, channel setting, magnitude, nearby-only setting, current alert location and distance, sender support for SMS, and expiry. Lost eligibility becomes skipped. Resolution uses idempotent inserts and marks completion only after the full candidate scan. Cancellation is deferred and has no reserved recipient state.
+`alert_recipient_status` contains pending, sending, retry_wait, accepted, delivered, failed, unknown, skipped, expired. `fk_alert_recipients_job` references alert_jobs with RESTRICT update/delete. `fk_alert_recipients_user` references users with RESTRICT update and SET NULL delete. Resolution requires an account. Controlled account removal first settles a sending recipient; a detached recipient cannot start sending. Suspension/closure uses account state without deleting evidence.
+
+| Constraint | Required rule |
+|---|---|
+| `uq_alert_recipients_job_channel_destination` | Unique `(alert_job_id, channel, destination_snapshot)`. |
+| `ck_alert_recipients_channel` | Channel is email or SMS. |
+| `ck_alert_recipients_destination` | Trimmed nonblank destination; SMS matches Philippine E.164 `^\+639[0-9]{9}$`. Email normalization uses the Backend canonicalization. |
+| `ck_alert_recipients_key` | Trimmed nonblank logical delivery key. |
+| `ck_alert_recipients_eligibility_object` | Resolution evidence is an object. |
+| `ck_alert_recipients_sending_claim` | Sending requires lease/token; other states clear both. |
+| `ck_alert_recipients_retry` | Retry wait alone has next attempt time. |
+| `ck_alert_recipients_delivered` | Delivered alone has delivery time. |
+| `ck_alert_recipients_error` | Present last error code is trimmed and 1–100 characters. |
+
+| Index | Columns and predicate |
+|---|---|
+| `uq_alert_recipients_job_user_channel` | UNIQUE `(alert_job_id, user_id, channel)` where user_id is present. |
+| `ix_alert_recipients_user` | `(user_id)` where user_id is present. |
+| `ix_alert_recipients_job_status` | `(alert_job_id, status)`. |
+| `ix_alert_recipients_retry` | `(next_attempt_at)` where status is retry_wait. |
+| `ix_alert_recipients_sending_lease` | `(processing_lease_expires_at)` where status is sending. |
+
+The unique logical key has its ordinary unique-constraint index. `trg_alert_recipients_evidence` invokes `enforce_alert_recipient_evidence()`. It freezes identity, channel, destination, selection evidence, resolution time, and logical key. A user may detach to null but cannot be reassigned. Delivered summaries cannot regress.
+
+Eligibility requires an active account, completed onboarding, explicit channel opt-in, verified current destination, and observed anchor magnitude at or above the user's threshold. SMS additionally requires current approved ordinary sender support. Nearby-only compares the observed epicenter with the saved point using Haversine distance and Earth radius 6371.0088 km. Equality qualifies. Forecast activity radius and the display lookup limit never determine eligibility. Before every provider call, recheck all settings, destination, verification, account, magnitude, distance, sender support, and expiry. Lost eligibility becomes skipped. Resolve idempotently and checkpoint only after the full scan.
+
+Resolution JSON records policy version, channel, account/onboarding state, enabled setting, verification state, observed magnitude, threshold, nearby-only state, and saved location/radius/calculated distance when used. Coordinates and snapshots remain private and excluded from public responses and technical logs.
 
 ### `alert_delivery_attempts`
 
-One persisted SMS or email provider-call attempt per recipient. Its state cannot claim a crashed call definitely failed or delivered; the recipient supplies the channel.
+One durable provider-call attempt per recipient; persist sending before the external call, outside that call's SQL transaction.
 
 ```text
 delivery_attempt_id uuid PK
@@ -358,9 +405,54 @@ provider_status_at timestamptz?
 error_code text?
 error_message text?
 correlation_id uuid
+content_variant text
+eligibility_snapshot jsonb
+provider_evidence_snapshot jsonb?
 ```
 
-`UNIQUE (recipient_id, attempt_number)`, number at least 1; partial `UNIQUE (recipient_id) WHERE status = 'sending'`. States are `sending`, `accepted`, `delivered`, `failed`, `unknown`. Persist `sending` before the external call. It has no finish time; later states have one. Crash recovery closes it as unknown at recovery time, with an interrupted-call code. `finished_at` is local closure, not handset receipt or email inbox arrival. Set `provider = 'brevo'` for email and store the Brevo transactional API's returned message ID in `provider_message_id`; this records acceptance, not delivery. Index provider plus reference, but do not assume provider reference is unique across retry rows. Authenticated, idempotent Brevo transactional webhooks update the attempt and recipient atomically; verified IPROG callback or polling does likewise. Neither can regress delivered to accepted. Bounce, blocked, error, or provider rejection maps to failed, not delivered.
+`alert_delivery_status` contains sending, accepted, delivered, failed, unknown. `fk_alert_delivery_attempts_recipient` references alert_recipients with RESTRICT update/delete. Acceptance means provider submission, not inbox/handset delivery. Crash recovery closes interrupted calls as unknown; unknown never authorizes automatic resend. `finished_at` is local closure, not receipt. `provider_status_at` is verified provider event time. Retain accepted/unknown/delivered evidence through expiry and reconcile late outcomes.
+
+| Constraint | Required rule |
+|---|---|
+| `uq_alert_delivery_attempts_recipient_number` | Unique `(recipient_id, attempt_number)`. |
+| `ck_alert_delivery_attempts_number` | Attempt number is at least 1. |
+| `ck_alert_delivery_attempts_provider` | Provider is iprog or brevo. |
+| `ck_alert_delivery_attempts_reference` | Present provider ID is trimmed and 1–512 characters. |
+| `ck_alert_delivery_attempts_closure` | Sending alone has no finish time. |
+| `ck_alert_delivery_attempts_finish_order` | Finish is not before start. |
+| `ck_alert_delivery_attempts_variant` | Selected content is general or nearby, stored as checked text. |
+| `ck_alert_delivery_attempts_eligibility_object` | Send-time evidence is an object. |
+| `ck_alert_delivery_attempts_provider_evidence_object` | Present provider evidence is an object. |
+| `ck_alert_delivery_attempts_errors` | Present errors are trimmed; code is 1–100 and message is 1–500 characters. |
+
+| Index | Columns and predicate |
+|---|---|
+| `uq_alert_delivery_attempts_one_sending` | UNIQUE `(recipient_id)` where status is sending. |
+| `ix_alert_delivery_attempts_provider_reference` | Non-unique `(provider, provider_message_id)` where reference is present. |
+| `ix_alert_delivery_attempts_reconcile` | `(provider, status, provider_status_at, started_at)` where accepted/unknown. |
+
+The recipient-number unique index covers the recipient FK; do not add a duplicate index. `trg_alert_delivery_attempts_evidence` invokes `enforce_alert_attempt_evidence()`. It enforces email/Brevo and SMS/IPROG pairing; freezes identity, number, provider, start, correlation, variant, and send-time evidence. A null provider reference may become known; a known reference cannot change. Delivered cannot regress. Attempt eligibility additionally records check time, expiry, and SMS sender-support evidence. Retries preserve prior attempts and insert new evidence.
+
+Provider evidence may change during reconciliation. Application validation allows only normalized operation, safe provider code, HTTP status, error category, retry delay, encoding, estimated segments, and provider-supplied charging units. Never persist raw provider payloads, credentials, OTPs, message content, destinations, or credential-bearing URLs in diagnostic evidence. SQL validates the outer object; application validates the allowlist.
+
+### Narrow Backend callback capability and ownership
+
+`quakestrike_reconcile_brevo_delivery(uuid,text,text,timestamptz,text) RETURNS text` takes attempt ID, provider reference, normalized outcome, provider time, and optional sanitized error code. It returns only applied, ignored, uncorrelated, conflict. Valid outcomes are accepted, delivered, failed. Backend authenticates callbacks before executing this function and gets no direct delivery-table mutation grant. Early correlation uses documented Brevo X-Mailin-custom with the pre-created attempt UUID. Without a tag, an already-known reference must identify exactly one attempt; never match by destination. Conflicting references fail closed.
+
+The SECURITY DEFINER function has fixed `pg_catalog, public` search path and migration ownership. PUBLIC execution is revoked. All lifecycle writers lock recipient before attempt. Updates to both records commit atomically. Older timestamps are ignored; equal timestamps allow delivery over failure over acceptance. Delivered cannot regress; acceptance cannot reopen failure. Only the newest attempt updates a non-delivered recipient summary, while delivery proof can advance the summary. Late evidence can close another attempt without regressing a delivered summary. Worker outcome persistence must retain callback-completed evidence and fence claims with leases/tokens.
+
+Backend acknowledges only committed updates or verified no-ops. Authenticated transient database failure and unresolved correlation return HTTP 429, because [Brevo's documented retries](https://developers.brevo.com/docs/retry-mechanism) discard 5xx. Actual callback behavior still requires controlled verification.
+
+| Role | Approved access |
+|---|---|
+| quakestrike_migration | Own new tables, enums, and all four alert functions; apply schema explicitly. |
+| quakestrike_worker | SELECT/INSERT on recipients/attempts; UPDATE only named lifecycle/diagnostic columns below; USAGE on both new enums. |
+| quakestrike_backend | EXECUTE only on the reconciliation function; existing account/public permissions unchanged. |
+| PUBLIC | No execution on the four alert functions; no USAGE on the two new enums. |
+
+Worker alert-job UPDATE columns are status, recipient_resolution_completed_at, lease_expires_at, worker_execution_id, completed_at. Recipient UPDATE columns are status, next_attempt_at, delivered_at, last_error_code, processing_lease_expires_at, worker_execution_id. Attempt UPDATE columns are provider_message_id, status, finished_at, provider_status_at, error_code, error_message, provider_evidence_snapshot. Worker reads only these account fields: user_id, email, email_verified_at, email_enabled, mobile_number, mobile_verified_at, sms_enabled, alert_trigger_magnitude, nearby_alerts_only, alert_location_latitude, alert_location_longitude, alert_trigger_distance_km, account_status, onboarding_completed_at. No account writes are granted. Existing dispatch writes and append-only audits remain sufficient. Optional observer default SELECT continues covering new tables; no new Console role or grant is introduced.
+
+Migration ownership follows execution as quakestrike_migration. Explicit provisioning repairs ownership and reapplies restricted grants. No extra login, callback inbox, dispatch table, account column, or technical-log table is authorized. Additive migration preserves legacy rows. Destructive downgrade refuses retained recipients, attempts, or new content; prefer stopping delivery while retaining schema. Shared development/production application and ordinary-user sends need separate authorization.
 
 ## Audit, operations, and dispatch
 

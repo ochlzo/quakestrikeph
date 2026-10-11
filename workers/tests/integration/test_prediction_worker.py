@@ -78,6 +78,9 @@ def seed(
     existing_release_id=None,
     trigger_type="manual",
     source_minute="1200",
+    latitude=Decimal("14.123456"),
+    longitude=Decimal("121.123456"),
+    source_location="Example",
 ):
     run_id, event_id, revision_id, release_id, job_id, dispatch_id, correlation_id = (
         uuid4() for _ in range(7)
@@ -122,11 +125,11 @@ def seed(
                 source_url="https://earthquake.phivolcs.dost.gov.ph/example",
                 source_time_precision="minute",
                 event_time=NOW,
-                latitude=Decimal("14.123456"),
-                longitude=Decimal("121.123456"),
+                latitude=latitude,
+                longitude=longitude,
                 depth_km=Decimal("10.000"),
                 magnitude=Decimal("4.20"),
-                location_description="Example",
+                location_description=source_location,
             )
         )
         if existing_release_id is None:
@@ -147,8 +150,18 @@ def seed(
                 job_id=job_id,
                 event_revision_id=revision_id,
                 model_release_id=release_id,
-                input_snapshot_hash=feature_snapshot_hash(SNAPSHOT),
-                input_snapshot_json=SNAPSHOT,
+                input_snapshot_hash=feature_snapshot_hash(
+                    {
+                        **SNAPSHOT,
+                        "anchor_latitude": float(latitude),
+                        "anchor_longitude": float(longitude),
+                    }
+                ),
+                input_snapshot_json={
+                    **SNAPSHOT,
+                    "anchor_latitude": float(latitude),
+                    "anchor_longitude": float(longitude),
+                },
                 idempotency_key=str(job_id),
                 correlation_id=correlation_id,
             )
@@ -228,7 +241,7 @@ def test_prediction_command_completes_once_and_stops_dispatch(migrated_engine, c
         assert alert.correlation_id == command.correlation_id
         assert "M4.2" in alert.message_snapshot
         assert alert.recipient_policy_snapshot["observed_anchor_magnitude"] == 4.2
-        assert alert.recipient_policy_snapshot["version"] == "automatic_sms_v1"
+        assert alert.recipient_policy_snapshot["version"] == "automatic_forecast_alert_v1"
         assert alert_dispatch.status == "pending"
         assert connection.scalar(select(func.count()).select_from(alert_jobs)) == 1
         assert connection.scalar(select(func.count()).select_from(job_dispatches)) == 2
@@ -1301,3 +1314,31 @@ def test_prediction_runs_with_the_provisioned_worker_role(migrated_engine):
             )
     finally:
         worker_engine.dispose()
+
+
+def test_prediction_freezes_forecast_content_for_both_channels(migrated_engine):
+    command = seed(migrated_engine)
+    outcome = handle_prediction_command(
+        command.to_message(),
+        store=store(migrated_engine),
+        model=DeterministicTestModel(),
+        logger=logging.getLogger(__name__),
+    )
+    assert outcome == "succeeded"
+    with migrated_engine.connect() as connection:
+        alert = connection.execute(text("SELECT * FROM alert_jobs")).mappings().one()
+        event_id = connection.scalar(select(earthquake_events.c.event_id))
+    assert "Chance of further M1.0+ activity:" in alert["message_snapshot"]
+    assert (
+        "View current forecast: https://quakestrikeph.qzz.io/forecasts/" + str(event_id)
+        in alert["message_snapshot"]
+    )
+    assert "2026-09-23 20:00:00" in alert["message_snapshot"]
+    assert "2026-09-24 20:00:00" in alert["message_snapshot"]
+    assert alert["email_subject_snapshot"]
+    assert "Expected M1.0+ count:" in alert["email_body_snapshot"]
+    assert "saved alert location" in alert["nearby_message_snapshot"]
+    assert alert["nearby_email_subject_snapshot"]
+    assert "saved alert location" in alert["nearby_email_body_snapshot"]
+    assert alert["content_provenance_snapshot"]["location_label"]
+    assert alert["content_provenance_snapshot"]["geographic_dataset_sha256"]

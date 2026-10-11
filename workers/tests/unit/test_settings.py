@@ -121,3 +121,13 @@ def test_prediction_task_limits_must_fit_inside_processing_lease(soft, hard) -> 
     values["prediction_hard_time_limit_seconds"] = hard
     with pytest.raises(ValidationError, match="soft < hard < 900-second lease"):
         Settings(_env_file=None, **values)
+
+
+@pytest.mark.parametrize(
+    "base_url", ["https://example.invalid:bad", "https://example.invalid:65536"]
+)
+def test_settings_reject_invalid_public_forecast_link_ports(base_url):
+    values = valid_settings().model_dump()
+    values["public_bulletin_base_url"] = base_url
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **values)
