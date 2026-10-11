@@ -8,6 +8,7 @@ import { PostgresAccounts } from './infrastructure/postgres/accounts.js';
 import { RedisPhoneAttempts } from './infrastructure/redis/phoneAttempts.js';
 import { clerkIdentity } from './infrastructure/clerk/identity.js';
 import { Iprog } from './infrastructure/sms/iprog.js';
+import { PostgresBrevoReconciler } from './infrastructure/postgres/brevo.js';
 
 const settings = loadSettings();
 const pool = new Pool({ connectionString: settings.databaseUrl, max: settings.poolSize,
@@ -24,7 +25,8 @@ redis.on('error', () => console.error(JSON.stringify({ service: 'backend-api', e
 if (process.env.ACCOUNT_REDIS_URL) void redis.connect().catch(() => {});
 const accounts = { service: new AccountService(new PostgresAccounts(pool), new RedisPhoneAttempts(redis), new Iprog(process.env.IPROG_API_TOKEN)),
   authenticate: clerkIdentity(process.env.CLERK_SECRET_KEY, (process.env.CLERK_AUTHORIZED_PARTIES ?? '').split(',').map(x => x.trim()).filter(Boolean), process.env.CLERK_PUBLISHABLE_KEY) };
-const server = createApp(reader, () => new Date(), accounts).listen(settings.port, '0.0.0.0', () => {
+const server = createApp(reader, () => new Date(), accounts,
+  { token: settings.brevoCallbackToken, reconciler: new PostgresBrevoReconciler(pool) }).listen(settings.port, '0.0.0.0', () => {
   console.info(JSON.stringify({ service: 'backend-api', event: 'listening', port: settings.port }));
 });
 

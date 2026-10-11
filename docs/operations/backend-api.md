@@ -6,6 +6,8 @@ container by its Compose service name. It has no database or host port mapping,
 does not create tables at startup, and does not use the broad pgAdmin observer
 login. The Bulletin UI is not required to start the API.
 
+After initial setup, [routine deployment](continuous-deployment.md#routine-release-sequence) updates the Backend with workers and Bulletin. Secret provisioning remains manual. Reviewed migrations and grants run before the new Backend starts.
+
 ## First VPS setup
 
 Run these commands in the VPS checkout at `/srv/quakestrikeph`, after the
@@ -90,10 +92,13 @@ To stop only this public path, run:
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml stop cloudflared traefik backend-api
 ```
 
-Leave the PostgreSQL and worker containers running. The existing worker CI
-deploy script does not deploy this Backend.
+Leave the PostgreSQL and worker containers running. Automatic deployment requires
+Backend, Traefik, and Cloudflared to run before a routine release.
 
-## Upgrade an existing Backend
+## Manually upgrade an existing Backend
+
+Routine main releases use automatic deployment. Use these commands only for an
+approved manual rollout or recovery.
 
 Run these steps in `/srv/quakestrikeph` on the VPS. Use the tested release
 checkout after applying any required migrations. Retain the prior Backend

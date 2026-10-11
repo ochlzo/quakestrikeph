@@ -5,12 +5,13 @@ import { DataUnavailable } from '../../application/information/errors.js';
 import { InvalidRequest } from './searchRequest.js';
 import { earthquakeRoutes } from './routes/earthquakes.js';
 import { accountRoutes, type AccountDependencies } from './routes/account.js';
-import { AccountError } from '../../domain/accounts.js';
+import { AccountError, SmsProviderError } from '../../domain/accounts.js';
+import { brevoRoutes, type BrevoDependencies } from './routes/brevo.js';
 
-export function createApp(reader: EarthquakeReader, now: () => Date = () => new Date(), accounts?: AccountDependencies) {
+export function createApp(reader: EarthquakeReader, now: () => Date = () => new Date(), accounts?: AccountDependencies,
+  brevo?: BrevoDependencies) {
   const app = express();
   app.disable('x-powered-by');
-  app.use(express.json({ limit: '8kb', strict: true }));
   app.use((req, res, next) => {
     const requestId = randomUUID();
     res.setHeader('X-Request-ID', requestId);
@@ -23,6 +24,9 @@ export function createApp(reader: EarthquakeReader, now: () => Date = () => new 
     });
     next();
   });
+
+  app.use('/api/v1/callbacks/brevo', brevoRoutes(brevo, now));
+  app.use(express.json({ limit: '8kb', strict: true }));
 
   app.get('/healthz', async (_req, res) => {
     await reader.check();
@@ -38,6 +42,8 @@ export function createApp(reader: EarthquakeReader, now: () => Date = () => new 
 
   const handleError: ErrorRequestHandler = (error: unknown, _req, res, _next) => {
     if (error instanceof AccountError) {
+      if (error instanceof SmsProviderError) console.error(JSON.stringify({ service: 'backend-api', event: 'sms_provider_failed',
+        requestId: res.getHeader('X-Request-ID'), ...error.diagnostic }));
       res.status(error.status).json({ error: { code: error.code, message: error.message, ...(error.field ? { field: error.field } : {}) } });
       return;
     }

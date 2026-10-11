@@ -8,9 +8,13 @@ from typing import Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from quakestrike.domain.alerts import (
+    DEFAULT_PUBLIC_BULLETIN_BASE_URL,
+    validate_public_bulletin_base_url,
+)
 from quakestrike.domain.prediction import PREDICTION_PROCESSING_LEASE_SECONDS
 
 DEFAULT_BOOTSTRAP_RUN_MANIFEST = Path("database/initialization/bootstrap-readiness.json")
@@ -19,6 +23,65 @@ DEFAULT_BOOTSTRAP_REQUIRED_AVAILABLE_THROUGH = datetime.fromisoformat("2026-09-0
 
 class Settings(BaseSettings):
     """Configuration shared by the Phase 1 worker entry points."""
+
+    alert_delivery_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("ALERT_DELIVERY_ENABLED", "alert_delivery_enabled"),
+    )
+    alert_reconciliation_interval_seconds: int = Field(
+        default=5,
+        ge=1,
+        le=60,
+        validation_alias=AliasChoices(
+            "ALERT_RECONCILIATION_INTERVAL_SECONDS", "alert_reconciliation_interval_seconds"
+        ),
+    )
+    alert_reconciliation_batch_size: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        validation_alias=AliasChoices(
+            "ALERT_RECONCILIATION_BATCH_SIZE", "alert_reconciliation_batch_size"
+        ),
+    )
+
+    alert_resolution_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("ALERT_RESOLUTION_ENABLED", "alert_resolution_enabled"),
+    )
+    alert_test_sms_destination: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("ALERT_TEST_SMS_DESTINATION", "alert_test_sms_destination"),
+    )
+    alert_test_email_destination: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "ALERT_TEST_EMAIL_DESTINATION", "alert_test_email_destination"
+        ),
+    )
+    iprog_api_token: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("IPROG_API_TOKEN", "iprog_api_token"),
+    )
+    brevo_api_key: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("BREVO_API_KEY", "brevo_api_key")
+    )
+    brevo_sender_email: str | None = Field(
+        default=None, validation_alias=AliasChoices("BREVO_SENDER_EMAIL", "brevo_sender_email")
+    )
+    brevo_sender_name: str | None = Field(
+        default=None, validation_alias=AliasChoices("BREVO_SENDER_NAME", "brevo_sender_name")
+    )
+
+    public_bulletin_base_url: str = Field(
+        default=DEFAULT_PUBLIC_BULLETIN_BASE_URL,
+        validation_alias=AliasChoices("PUBLIC_BULLETIN_BASE_URL", "public_bulletin_base_url"),
+    )
+
+    @field_validator("public_bulletin_base_url")
+    @classmethod
+    def validate_public_base_url(cls, value: str) -> str:
+        return validate_public_bulletin_base_url(value)
 
     database_url: str = Field(
         validation_alias=AliasChoices("DATABASE_URL", "database_url"),

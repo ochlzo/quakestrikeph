@@ -55,10 +55,23 @@ def worker_health(action: str) -> int:
             active = ModelReleaseStartupGate(settings).check().ready and prediction_consuming(
                 settings, local_only=True
             )
+        elif action in {"health-alert", "health-alert-reconciliation"}:
+            from quakestrike.infrastructure.alert_readiness import AlertReadinessGate
+
+            reconciliation = action == "health-alert-reconciliation"
+            active = AlertReadinessGate(settings, reconciliation=reconciliation).check().ready and (
+                reconciliation_running(settings)
+                if reconciliation
+                else alert_consuming(settings, local_only=True)
+            )
         else:
             active = evaluate_startup_gates(phase_one_startup_gates(settings)).ready
         ready = connected and active
-        print_json({"action": action, "status": "healthy" if ready else "unhealthy"})
+        result = {"action": action, "status": "healthy" if ready else "unhealthy"}
+        if action in {"health-alert", "health-alert-reconciliation"}:
+            result["provider_authentication"] = "unverified"
+            result["delivery_proof"] = "unverified"
+        print_json(result)
         return 0 if ready else 2
     except Exception:
         print_json({"action": action, "status": "unhealthy"})
@@ -156,6 +169,35 @@ def dispatcher_running(settings: Settings) -> bool:
             return False
         pid = int(SCAN_HEALTH_MARKER.read_text(encoding="ascii"))
         os.kill(pid, 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def alert_consuming(settings: Settings, *, local_only: bool = False) -> bool:
+    from quakestrike.infrastructure.queues.celery_app import ALERT_QUEUE
+
+    app = create_celery_app(settings)
+    destination = f"alert-worker@{socket.gethostname()}" if local_only else None
+    inspector = app.control.inspect(destination=[destination] if destination else None, timeout=3)
+    queues = inspector.active_queues() or {}
+    return any(
+        worker.startswith("alert-worker@")
+        and (not local_only or worker == destination)
+        and any(queue.get("name") == ALERT_QUEUE for queue in worker_queues)
+        for worker, worker_queues in queues.items()
+    )
+
+
+def reconciliation_running(settings: Settings) -> bool:
+    from quakestrike.alert_worker.reconciliation import SCAN_HEALTH_MARKER
+
+    try:
+        if time.time() - SCAN_HEALTH_MARKER.stat().st_mtime > max(
+            60, settings.alert_reconciliation_interval_seconds * 3
+        ):
+            return False
+        os.kill(int(SCAN_HEALTH_MARKER.read_text(encoding="ascii")), 0)
         return True
     except (OSError, ValueError):
         return False

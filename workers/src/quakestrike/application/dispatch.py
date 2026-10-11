@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Literal, Protocol
 from uuid import UUID
 
-DispatchTargetKind = Literal["ingestion", "prediction"]
+DispatchTargetKind = Literal["ingestion", "prediction", "alert"]
 DispatchState = Literal["retry_wait", "stopped"]
 DispatchOutcomeState = Literal["enqueued", "retry_wait", "stopped"]
 Clock = Callable[[], datetime]
@@ -40,7 +40,18 @@ class PredictionDispatch:
         return "prediction"
 
 
-type DispatchTarget = IngestionDispatch | PredictionDispatch
+@dataclass(frozen=True, slots=True)
+class AlertDispatch:
+    dispatch_id: UUID
+    alert_job_id: UUID
+    correlation_id: UUID
+
+    @property
+    def target_kind(self) -> Literal["alert"]:
+        return "alert"
+
+
+type DispatchTarget = IngestionDispatch | PredictionDispatch | AlertDispatch
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +171,7 @@ class DurableDispatcher:
         target_totals: dict[DispatchTargetKind, list[int]] = {
             "ingestion": [0, 0, 0, 0],
             "prediction": [0, 0, 0, 0],
+            "alert": [0, 0, 0, 0],
         }
         outcomes: list[DispatchOutcome] = []
 
@@ -197,6 +209,6 @@ class DurableDispatcher:
                 target_kind,
                 DispatchTargetCounts(*target_totals[target_kind]),
             )
-            for target_kind in ("ingestion", "prediction")
+            for target_kind in ("ingestion", "prediction", "alert")
         )
         return DispatchBatchResult(*totals, target_counts=target_counts, outcomes=tuple(outcomes))

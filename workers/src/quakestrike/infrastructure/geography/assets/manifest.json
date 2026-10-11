@@ -1,0 +1,22 @@
+{
+  "asset_sha256": "0399972a2308b7f281a595531b22a9d8b4035e234d721db4437179b524d80e97",
+  "attribution": "GeoNames geographical database, https://www.geonames.org/",
+  "crosswalk_sha256": "347bf35cc0d1b2dd1b9588fb9061d95460973b64d030fe76eb086e31aa28f4d6",
+  "excluded_adm3_count": 51,
+  "exclusions_sha256": "01091ae8d62dc411108d9ba56eef6e3272344a4aea9bcc607f4656685dfc7422",
+  "generator_version": "build-alert-geography-v1",
+  "license": "CC BY 4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "lookup_policy_version": "geonames-nearest-province-v1",
+  "modifications": "ADM3 filtering; explicit PSA province mapping; independent-city exclusions",
+  "province_count": 82,
+  "record_count": 1595,
+  "reference_semantics": "ADM3 city/municipality representative points; proximity, not containment",
+  "reviewed_at": "2026-10-11",
+  "source_archive_sha256": "6ff0c68fdbf4ab049dd0a325ed4201209eccf7ce5054e4c5cca07b4d540e0cb4",
+  "source_catalog_sha256": "5ce6ea1d4356e35f04e90e57c6cc451b1a0e644be6f8ce2abd0066522f04dbb0",
+  "source_inspected_at_utc": "2026-10-11T01:38:41.4343954Z",
+  "source_snapshot_zip_date": "2026-10-10 (ZIP local timestamp; timezone unspecified)",
+  "source_url": "https://download.geonames.org/export/dump/PH.zip",
+  "version": "geonames-PH-20261010-provinces-reviewed-20261011-v1"
+}

@@ -10,7 +10,12 @@ from uuid import UUID, uuid4
 from sqlalchemy import insert, select, update
 
 from quakestrike.application.prediction import PredictionClaim, StalePredictionAttempt
-from quakestrike.domain.alerts import AutomaticAlertCandidate, create_automatic_alert_snapshots
+from quakestrike.domain.alerts import (
+    DEFAULT_PUBLIC_BULLETIN_BASE_URL,
+    AutomaticAlertCandidate,
+    create_automatic_alert_snapshots,
+    validate_public_bulletin_base_url,
+)
 from quakestrike.domain.features import INPUT_SCHEMA_VERSION, create_feature_snapshot
 from quakestrike.domain.prediction import PREDICTION_PROCESSING_LEASE_SECONDS, ForecastOutput
 from quakestrike.infrastructure.database.engine import SessionFactory
@@ -26,6 +31,7 @@ from quakestrike.infrastructure.database.tables import (
     prediction_attempts,
     prediction_jobs,
 )
+from quakestrike.infrastructure.geography.province import resolve_province_label
 
 OUTPUT_SCHEMA_VERSION = "quakestrike.prediction-output.v2"
 PROCESSING_RETRY_DELAYS = (timedelta(seconds=30), timedelta(minutes=2), timedelta(minutes=10))
@@ -37,6 +43,7 @@ class SqlAlchemyPredictionStore:
         session_factory: SessionFactory,
         *,
         configured_release_id: UUID,
+        public_bulletin_base_url: str = DEFAULT_PUBLIC_BULLETIN_BASE_URL,
         lease_seconds: int = PREDICTION_PROCESSING_LEASE_SECONDS,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
@@ -44,6 +51,7 @@ class SqlAlchemyPredictionStore:
             raise ValueError("Prediction lease must be positive.")
         self._session_factory = session_factory
         self._configured_release_id = configured_release_id
+        self._public_bulletin_base_url = validate_public_bulletin_base_url(public_bulletin_base_url)
         self._lease = timedelta(seconds=lease_seconds)
         self._clock = clock
 
@@ -289,7 +297,15 @@ class SqlAlchemyPredictionStore:
                         window_end=output.window_end,
                         now=alert_now,
                         historical_recovery=revision.prediction_skip_reason is not None,
-                    )
+                    ),
+                    forecast=output,
+                    event_id=revision.event_id,
+                    location_provenance=resolve_province_label(
+                        float(revision.latitude),
+                        float(revision.longitude),
+                        revision.location_description,
+                    ),
+                    public_base_url=self._public_bulletin_base_url,
                 )
                 alert_job_id = None
                 if snapshots is not None:
@@ -300,6 +316,12 @@ class SqlAlchemyPredictionStore:
                             forecast_id=forecast_id,
                             requested_at=alert_now,
                             message_snapshot=snapshots.message,
+                            email_subject_snapshot=snapshots.email_subject,
+                            email_body_snapshot=snapshots.email_body,
+                            nearby_message_snapshot=snapshots.nearby_message,
+                            nearby_email_subject_snapshot=snapshots.nearby_email_subject,
+                            nearby_email_body_snapshot=snapshots.nearby_email_body,
+                            content_provenance_snapshot=snapshots.content_provenance,
                             recipient_policy_snapshot=snapshots.recipient_policy,
                             expires_at=output.window_end,
                             correlation_id=job.correlation_id,

@@ -64,15 +64,25 @@ def main() -> int:
             "health-ingestor",
             "health-prediction",
             "health-beat",
+            "health-alert",
+            "health-alert-reconciliation",
+            "retire-legacy-alerts",
+            "controlled-alert",
         ),
     )
     parser.add_argument("--source-package", type=Path)
     parser.add_argument("--snapshot", type=Path)
     parser.add_argument("--run-manifest", type=Path)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--reconcile", action="store_true")
     parser.add_argument("--batch-size", type=int, default=50)
     parser.add_argument("--source-run-id", type=UUID, default=SOURCE_RUN_ID)
     parser.add_argument("--skip-reason", choices=RECOVERABLE_SKIP_REASONS, default=SKIP_REASON)
+    parser.add_argument("--alert-job-id", type=UUID, action="append", default=[])
+    parser.add_argument("--dispatch-id", type=UUID)
+    parser.add_argument("--correlation-id", type=UUID)
+    parser.add_argument("--fixture-user-id", type=UUID)
+    parser.add_argument("--channel", choices=("sms", "email"), action="append", default=[])
     args = parser.parse_args()
     if args.command == "migrate":
         return operator_setup.migrate()
@@ -105,7 +115,40 @@ def main() -> int:
         )
     if args.command == "poll-now":
         return operator_runtime.immediate_poll()
-    if args.command in {"health-dispatcher", "health-ingestor", "health-prediction", "health-beat"}:
+    if args.command in {"retire-legacy-alerts", "controlled-alert"}:
+        from quakestrike.alert_worker import operations
+
+        if args.command == "retire-legacy-alerts":
+            return operations.retire_legacy_alerts(job_ids=args.alert_job_id, apply=args.apply)
+        if (
+            len(args.alert_job_id) != 1
+            or args.dispatch_id is None
+            or args.correlation_id is None
+            or args.fixture_user_id is None
+            or not args.channel
+        ):
+            parser.error(
+                "controlled-alert requires one job, dispatch, correlation, fixture user and channel"
+            )
+        return operations.controlled_alert(
+            {
+                "message_version": 1,
+                "alert_job_id": str(args.alert_job_id[0]),
+                "dispatch_id": str(args.dispatch_id),
+                "correlation_id": str(args.correlation_id),
+            },
+            args.fixture_user_id,
+            tuple(args.channel),
+            reconcile=args.reconcile,
+        )
+    if args.command in {
+        "health-dispatcher",
+        "health-ingestor",
+        "health-prediction",
+        "health-beat",
+        "health-alert",
+        "health-alert-reconciliation",
+    }:
         return operator_runtime.worker_health(args.command)
     return run_service("cli", command=args.command)
 

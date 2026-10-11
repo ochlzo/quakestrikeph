@@ -17,8 +17,11 @@ configuration. A read-only Backend API now has event search and detail routes
 with current forecast reads; its [VPS setup](docs/operations/backend-api.md)
 is explicit. The public Astro/React Bulletin reads the 30 most recent events
 from that API, supports inline list and map selection, and links observations
-to their PHIVOLCS sources. Bulletin account screens, the Operations Console,
-automatic alert delivery, and production monitoring are still planned.
+to their PHIVOLCS sources. The Operations Console and production monitoring
+remain planned. Forecast alert delivery now has explicit
+SMS/email consumers, reconciliation, health checks, and audited legacy retirement.
+The alert runtime defaults to disabled. See [alert operations](docs/operations/alert-runtime.md).
+Target-provider verification and production activation remain separate gates.
 
 Forecasts open at `/forecasts/<eventId>`. Forecast links and return links clear
 location, date, and magnitude filters. The return link derives the Bulletin
@@ -59,7 +62,7 @@ server. See the
 | `workers/src/quakestrike/` | Scheduling, ingestion, prediction, and shared application code. |
 | `workers/tests/` | Unit and integration tests. |
 | `workers/migrations/` | PostgreSQL schema migrations. |
-| `packages/contracts/queue/` | Versioned ingestion and prediction command schemas. |
+| `packages/contracts/queue/` | Versioned ingestion, prediction, and alert command schemas. |
 | `packages/contracts/openapi.yaml` | Public Backend HTTP contract. |
 | `apps/backend-api/` | Read-only Node/Express/TypeScript earthquake and forecast API. |
 | `apps/quakestrikeph-bulletin/` | Astro/React/TypeScript public Bulletin with API-backed event and forecast views. |

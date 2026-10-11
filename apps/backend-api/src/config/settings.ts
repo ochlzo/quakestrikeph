@@ -4,6 +4,7 @@ export interface Settings {
   port: number;
   poolSize: number;
   queryTimeoutMs: number;
+  brevoCallbackToken?: string;
 }
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -26,11 +27,16 @@ export function loadSettings(env: NodeJS.ProcessEnv = process.env): Settings {
   if (!database.hostname) {
     throw new Error('DATABASE_URL has an invalid host');
   }
+  const brevoCallbackToken = env.BREVO_CALLBACK_TOKEN || undefined;
+  if (brevoCallbackToken && !/^[\x21-\x7e]{32,1024}$/.test(brevoCallbackToken)) {
+    throw new Error('BREVO_CALLBACK_TOKEN must contain 32 to 1024 non-space ASCII characters');
+  }
   return {
     databaseUrl: env.DATABASE_URL,
     modelReleaseId: env.MODEL_RELEASE_ID,
     port: integerSetting(env.PORT, 3000, 1, 65535, 'PORT'),
     poolSize: integerSetting(env.DB_POOL_SIZE, 5, 1, 20, 'DB_POOL_SIZE'),
     queryTimeoutMs: integerSetting(env.DB_QUERY_TIMEOUT_MS, 3000, 100, 30000, 'DB_QUERY_TIMEOUT_MS'),
+    brevoCallbackToken,
   };
 }

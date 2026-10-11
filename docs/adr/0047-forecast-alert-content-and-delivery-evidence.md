@@ -1,0 +1,23 @@
+# Freeze forecast-alert content and narrow callback evidence writes
+
+**Status**: accepted by the user on 11 October 2026.
+
+[ADR 0049](0049-automatic-full-application-deployment.md) automates reviewed migration/grant deployment and repeat releases of already-enabled alerts. Initial activation and live provider verification remain explicit.
+
+[ADR 0048](0048-forecast-alert-copy-amendment.md) replaces the rendered window line, maximum-magnitude display, email labels, and SMS header decision below.
+
+The user approved the concrete schema proposal for issue 44 and children 46–51. Approval covers contract amendments, migration/grant implementation, and disposable integration tests. Shared development and production schema application remains separately authorized. Live provider tests and production activation have separate gates.
+
+This extends ADRs 0026, 0027, 0030, 0038, and 0042 while preserving ADR 0043. One current, live, unexpired M1+ forecast creates one alert batch. Historical recovery, historical/backfill work, and expired forecasts create no automatic alert. Forecast, alert snapshots, dispatch, and system audit commit atomically.
+
+Retain `message_snapshot` as general SMS. Add general email subject/body, nearby SMS, nearby email subject/body, and geographic/rendering provenance. All six additions are null on legacy jobs or present together on forecast-content jobs. Snapshots and forecast assignment stay immutable. The email-capable Prediction Worker requires complete content before insertion. Retire obsolete unsent content explicitly; startup never performs retirement.
+
+Package a versioned, attributed GeoNames derivative with explicit city/municipality administrative metadata and reviewed province mappings. Find the nearest suitable reference point within inclusive 100 km. Use near-province wording, not containment. Preserve unchanged PHIVOLCS location prose when no suitable province mapping exists. Freeze resolved label, dataset version/hash, and lookup/rendering policy before recipient resolution. Missing metadata, districts, and independent cities never invent province membership.
+
+Freeze general and nearby variants before resolution. Nearby wording refers to the saved alert location without device tracking. SMS gives observed magnitude/location, probability of further M1.0+ activity, Bulletin likelihood, the original 24-hour window, and the full event-ID `/forecasts/{eventId}` URL labelled View current forecast. Email adds fuller outputs and their limitations. Raw probability controls likelihood; positive midpoint rounding and near-zero/near-one percentage rules match the Bulletin. The provider's header behavior remains subject to controlled verification.
+
+Create only the documented recipient and attempt lifecycles. Add checked-text attempt `content_variant`, frozen send-time `eligibility_snapshot`, and allowlisted `provider_evidence_snapshot`. Resolution evidence is separate from retry evidence. Unique destination/user/channel and attempt-number constraints prevent duplicated logical deliveries. One sending attempt per recipient, leases, and execution tokens fence concurrent workers. Unknown calls are reconciled without automatic resend. Late outcomes preserve evidence after expiry.
+
+Amend the architecture's Backend read-only delivery boundary only for the owner-controlled `quakestrike_reconcile_brevo_delivery(uuid,text,text,timestamptz,text)` function. Revoke PUBLIC execution and grant Backend EXECUTE only. Authenticate callbacks before invoking the function. Use the documented Brevo X-Mailin-custom attempt UUID for early correlation, or a uniquely matching known provider reference. Lock recipient before attempt. Return bounded applied/ignored/uncorrelated/conflict outcomes; never regress delivered evidence. Equal timestamps permit stronger outcomes. Recipient and attempt updates commit atomically. The Backend receives no direct delivery-table mutation grants.
+
+The database design records all exact fields, checks, indexes, triggers, relationships, and restricted grants. The implementation migration is `20261011_13`. No extra callback inbox, account column, dispatch target, provider-state enum value, or technical-log table is authorized. Production rollout remains explicit and requires simulated and controlled real-send verification before full eligible-user activation.

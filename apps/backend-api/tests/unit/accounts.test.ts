@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
-import { AccountError, normalizePhone, preferences, type Account, type Identity } from '../../src/domain/accounts.js';
+import { AccountError, SmsProviderError, normalizePhone, preferences, type Account, type Identity } from '../../src/domain/accounts.js';
 import { AccountService } from '../../src/application/accounts/service.js';
 import { Iprog } from '../../src/infrastructure/sms/iprog.js';
 import { clerkIdentity } from '../../src/infrastructure/clerk/identity.js';
@@ -121,8 +121,8 @@ test('IPROG adapter interprets documented string statuses and strips returned OT
   assert.notEqual(proof, provider.proof('NEW_ATTEMPT', '123456'));
   assert.equal(await provider.verify('+639171234567', '123456'), true);
   assert.equal(calls.length, 3);
-  for (const network of ['Smart/TNT', 'Unknown Network', 'Invalid Format']) {
-    const unsupported = new Iprog('TEST_ONLY', (async () => Response.json({ status: 'success', data: { network, is_smart_tnt: false } })) as typeof fetch);
+  for (const network of ['Smart', 'TNT', 'Smart/TNT']) {
+    const unsupported = new Iprog('TEST_ONLY', (async () => Response.json({ status: 'success', data: { network, is_smart_tnt: true } })) as typeof fetch);
     assert.equal(await unsupported.supported('+639171234567'), false);
   }
   await assert.rejects(new Iprog(undefined).send('+639171234567', 'FIXTURE_ATTEMPT'), { code: 'SMS_UNAVAILABLE' });
@@ -145,5 +145,239 @@ test('account HTTP routes require owner identity; removal and email mutations ar
     for (const path of ['', '/email', '/close']) {
       assert.equal((await fetch(`${baseUrl}${path}`, { method: 'DELETE', headers: { authorization: 'Bearer TEST_SESSION' } })).status, 404);
     }
+  } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+test('number detection service errors do not report unsupported networks', async () => {
+  const f = fixture();
+  const provider = new Iprog('TEST_ONLY', (async () => Response.json({ status: 'error', message: 'Provider unavailable' })) as typeof fetch);
+  const service = new AccountService(f.store, f.attempts, provider);
+  await assert.rejects(service.start(identity, { phone: '09171234567' }, randomUUID()), { code: 'SMS_UNAVAILABLE' });
+  assert.equal(f.stats().pending, null);
+});
+
+test('malformed network results return unavailable through account HTTP with safe diagnostics', async (t) => {
+  const logs: string[] = [];
+  t.mock.method(console, 'error', (line: string) => logs.push(line));
+  for (const data of [
+    { network: '', is_smart_tnt: false },
+    { network: 'Unknown Network', is_smart_tnt: false },
+    { network: 'Globe/TM', is_smart_tnt: true },
+    { network: 'Smart/TNT', is_smart_tnt: false },
+  ]) {
+    const f = fixture(); let calls = 0;
+    const provider = new Iprog('PRIVATE_TOKEN', (async () => {
+      calls++;
+      return Response.json({ status: 'success', data, message: 'PRIVATE_MESSAGE' });
+    }) as typeof fetch);
+    const service = new AccountService(f.store, f.attempts, provider);
+    const server = createApp({ check: async () => {}, search: async () => [], findById: async () => null }, undefined,
+      { service, authenticate: async () => identity }).listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('No server address');
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/v1/account/phone/attempts`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone: '09171234567' }),
+      });
+      assert.equal(response.status, 503);
+      assert.equal((await response.json()).error.code, 'SMS_UNAVAILABLE');
+      assert.equal(calls, 1); assert.equal(f.stats().pending, null);
+      const diagnostic = JSON.parse(logs.at(-1)!);
+      assert.equal(diagnostic.category, 'malformed_response');
+      assert.equal(diagnostic.operation, 'detect');
+      assert.equal(diagnostic.requestId, response.headers.get('x-request-id'));
+      assert.equal(diagnostic.failureSource, 'body'); assert.equal(diagnostic.httpStatus, 200);
+      assert.doesNotMatch(logs.join(''), /PRIVATE_TOKEN|PRIVATE_MESSAGE|639171234567/);
+    } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+  }
+});
+
+test('IPROG combined credential and credit rejection remains ambiguous under HTTP success', async () => {
+  const provider = new Iprog('PRIVATE_TOKEN', (async () => Response.json({ status: 500,
+    message: 'Invalid api token or no load balance', data: { otp_code: '123456', phone_number: '+639171234567' } })) as typeof fetch);
+  await assert.rejects(provider.supported('+639171234567'), (error: unknown) => {
+    assert.ok(error instanceof SmsProviderError);
+    assert.deepEqual(error.diagnostic, { provider: 'iprog', operation: 'detect', category: 'credential_or_credit',
+      failureSource: 'body', httpStatus: 200, providerCode: 500, retryAfterSeconds: null });
+    assert.doesNotMatch(JSON.stringify(error), /PRIVATE_TOKEN|123456|639171234567|load balance/);
+    return true;
+  });
+});
+
+test('phone verification service failures preserve matching proofs and classify sanitized diagnostics', async () => {
+  const cases = [
+    { category: 'credentials', source: 'http', status: 401, request: async () => Response.json({ status: 'error' }, { status: 401 }) },
+    { category: 'credits', source: 'http', status: 402, request: async () => Response.json({ status: 'error' }, { status: 402 }) },
+    { category: 'provider_failure', source: 'body', status: 200, request: async () => Response.json({ status: 'error', message: 'Unknown outage' }) },
+    { category: 'rate_limit', source: 'body', status: 200, request: async () => Response.json({ status: 429 }) },
+    { category: 'http_failure', source: 'http', status: 500, request: async () => Response.json({ status: 'success' }, { status: 500 }) },
+    { category: 'malformed_response', source: 'body', status: 200, request: async () => new Response('PRIVATE_RESPONSE', { status: 200 }) },
+    { category: 'malformed_response', source: 'body', status: 200, request: async () => Response.json(null) },
+    { category: 'malformed_response', source: 'body', status: 200, request: async () => Response.json([]) },
+    { category: 'malformed_response', source: 'body', status: 200, request: async () => Response.json({ data: {} }) },
+    { category: 'transport_uncertain', source: 'transport', status: null, request: async (): Promise<Response> => { throw new DOMException('PRIVATE_TOKEN 123456 +639171234567', 'TimeoutError'); } },
+  ];
+  for (const scenario of cases) {
+    const f = fixture();
+    let digest = '';
+    f.attempts.arm = async (_user, _attempt, proof) => { digest = proof; };
+    f.attempts.matches = async (_user, _attempt, proof) => digest === proof;
+    const provider = new Iprog('PRIVATE_TOKEN', (async (url) => {
+      if (String(url).endsWith('/detect')) return Response.json({ status: 'success', data: { network: 'Globe/TM', is_smart_tnt: false } });
+      if (String(url).endsWith('/send_otp')) return Response.json({ status: 'success', data: { otp_code: '123456' } });
+      return scenario.request();
+    }) as typeof fetch);
+    const service = new AccountService(f.store, f.attempts, provider);
+    const pending = await service.start(identity, { phone: '09171234567' }, randomUUID());
+    await assert.rejects(service.verify(identity, { attemptId: pending.id, code: '123456' }, randomUUID()), (error: unknown) => {
+      assert.ok(error instanceof SmsProviderError, scenario.category);
+      assert.equal(error.diagnostic.category, scenario.category);
+      assert.equal(error.diagnostic.failureSource, scenario.source);
+      assert.equal(error.diagnostic.httpStatus, scenario.status);
+      assert.equal(error.diagnostic.operation, 'verify_otp');
+      assert.doesNotMatch(JSON.stringify(error), /PRIVATE_TOKEN|PRIVATE_RESPONSE|123456|639171234567/);
+      return true;
+    });
+    assert.equal(f.stats().failures, 0);
+    assert.equal(f.stats().pending?.id, pending.id);
+    assert.equal(f.stats().current?.phone, null);
+  }
+});
+
+test('phone setup rejects malformed detection and send results without creating a usable attempt', async () => {
+  for (const failure of ['detect', 'send_otp'] as const) {
+    for (const data of [undefined, null, [], {}, { network: 'Globe/TM' }, { otp_code: '123' }]) {
+      const f = fixture();
+      const provider = new Iprog('TEST_ONLY', (async (url) => {
+        if (String(url).endsWith(`/${failure}`)) return Response.json({ status: 'success', data });
+        return Response.json({ status: 'success', data: { network: 'Globe/TM', is_smart_tnt: false } });
+      }) as typeof fetch);
+      const service = new AccountService(f.store, f.attempts, provider);
+      await assert.rejects(service.start(identity, { phone: '09171234567' }, randomUUID()), (error: unknown) => {
+        assert.ok(error instanceof SmsProviderError);
+        assert.equal(error.diagnostic.category, 'malformed_response');
+        assert.equal(error.diagnostic.operation, failure);
+        return true;
+      });
+      assert.equal(f.stats().pending, null);
+      assert.equal(f.stats().current?.phone, null);
+    }
+  }
+});
+
+test('missing SMS configuration stays unavailable through account setup and preferences', async () => {
+  for (const token of [undefined, '', '   ']) {
+    const f = fixture({ ...account, phone: '+639171234567' });
+    const provider = new Iprog(token, (async () => { throw new Error('Must not call the provider'); }) as typeof fetch);
+    const service = new AccountService(f.store, f.attempts, provider);
+    for (const action of [() => service.start({ ...identity, recent: true }, { phone: '09171234568' }, randomUUID()),
+      () => service.save(identity, { ...base, smsEnabled: true }, randomUUID())]) {
+      await assert.rejects(action(), (error: unknown) => {
+        assert.ok(error instanceof SmsProviderError);
+        assert.equal(error.code, 'SMS_UNAVAILABLE');
+        assert.equal(error.diagnostic.category, 'configuration');
+        assert.equal(error.diagnostic.httpStatus, null);
+        return true;
+      });
+    }
+  }
+});
+
+test('genuine local code mismatch consumes a wrong-code attempt without calling IPROG verification', async () => {
+  const f = fixture();
+  let digest = '';
+  f.attempts.arm = async (_user, _attempt, proof) => { digest = proof; };
+  f.attempts.matches = async (_user, _attempt, proof) => digest === proof;
+  const provider = new Iprog('TEST_ONLY', (async (url) => {
+    if (String(url).endsWith('/detect')) return Response.json({ status: 'success', data: { network: 'Globe/TM', is_smart_tnt: false } });
+    if (String(url).endsWith('/send_otp')) return Response.json({ status: 'success', data: { otp_code: '123456' } });
+    throw new Error('Wrong local code must not reach verification');
+  }) as typeof fetch);
+  const service = new AccountService(f.store, f.attempts, provider);
+  const pending = await service.start(identity, { phone: '09171234567' }, randomUUID());
+  await assert.rejects(service.verify(identity, { attemptId: pending.id, code: '654321' }, randomUUID()), { code: 'INVALID_CODE' });
+  assert.equal(f.stats().failures, 1);
+  assert.equal(f.stats().pending?.id, pending.id);
+});
+
+test('provider diagnostics preserve valid Retry-After dates and discard malformed values', async (t) => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-10-11T00:00:00Z'));
+  for (const [retry, expected] of [['Sun, 11 Oct 2026 00:01:00 GMT', 60], ['Sun, 11 Oct 2026 00:00:00 GMT', 0],
+    ['-1', null], ['123456 PRIVATE_TOKEN', null], ['99999999999999', null]] as const) {
+    const provider = new Iprog('TEST_ONLY', (async () => new Response('not JSON', { status: 429, headers: { 'retry-after': retry } })) as typeof fetch);
+    await assert.rejects(provider.supported('+639171234567'), (error: unknown) => {
+      assert.ok(error instanceof SmsProviderError);
+      assert.equal(error.diagnostic.retryAfterSeconds, expected);
+      assert.equal(error.diagnostic.providerCode, null);
+      return true;
+    });
+  }
+});
+
+test('an interrupted provider response retains transport uncertainty and HTTP status', async () => {
+  const response = new Response(new ReadableStream({ start(controller) {
+    controller.error(new DOMException('PRIVATE_TOKEN 123456', 'TimeoutError'));
+  } }), { status: 200 });
+  const provider = new Iprog('TEST_ONLY', (async () => response) as typeof fetch);
+  await assert.rejects(provider.verify('+639171234567', '123456'), (error: unknown) => {
+    assert.ok(error instanceof SmsProviderError);
+    assert.equal(error.diagnostic.category, 'transport_uncertain');
+    assert.equal(error.diagnostic.failureSource, 'transport');
+    assert.equal(error.diagnostic.httpStatus, 200);
+    assert.doesNotMatch(JSON.stringify(error), /PRIVATE_TOKEN|123456/);
+    return true;
+  });
+});
+
+test('account setup preserves documented unsupported network results', async () => {
+  for (const body of [
+    { status: 'success', data: { network: 'Smart/TNT', is_smart_tnt: true } },
+    { status: 'error', message: 'Invalid phone number format. Philippine mobile numbers must be in format: 09XXXXXXXXX or +639XXXXXXXXX (11 digits total)',
+      data: { network: 'Invalid Format', is_smart_tnt: false } },
+  ]) {
+    const f = fixture();
+    const service = new AccountService(f.store, f.attempts, new Iprog('TEST_ONLY', (async () => Response.json(body)) as typeof fetch));
+    await assert.rejects(service.start(identity, { phone: '09171234567' }, randomUUID()), { code: 'SMS_UNSUPPORTED' });
+    assert.equal(f.stats().pending, null);
+  }
+});
+
+test('verification rate limits retain attempts and log safe request diagnostics', async (t) => {
+  const f = fixture();
+  let limited = true;
+  const logs: string[] = [];
+  t.mock.method(console, 'error', (line: string) => logs.push(line));
+  const provider = new Iprog('PRIVATE_TOKEN', (async (url) => {
+    if (String(url).endsWith('/detect')) return Response.json({ status: 'success', data: { network: 'Globe/TM', is_smart_tnt: false } });
+    if (String(url).endsWith('/send_otp')) return Response.json({ status: 'success', data: { otp_code: '123456' } });
+    if (!limited) return Response.json({ status: 'success', message: 'OTP verified successfully' });
+    return Response.json({ status: 429, message: 'PRIVATE_TOKEN +639171234567 123456 PRIVATE_MESSAGE', code: 'PRIVATE_TOKEN' },
+      { status: 429, headers: { 'retry-after': '30' } });
+  }) as typeof fetch);
+  const service = new AccountService(f.store, f.attempts, provider);
+  let digest = '';
+  f.attempts.arm = async (_user, _attempt, proof) => { digest = proof; };
+  f.attempts.matches = async (_user, _attempt, proof) => digest === proof;
+  const pending = await service.start(identity, { phone: '09171234567' }, randomUUID());
+  const server = createApp({ check: async () => {}, search: async () => [], findById: async () => null }, undefined,
+    { service, authenticate: async () => identity }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address(); if (!address || typeof address === 'string') throw new Error('No server address');
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/v1/account/phone/verify`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ attemptId: pending.id, code: '123456' }),
+    });
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).error.code, 'SMS_UNAVAILABLE');
+    assert.equal(f.stats().failures, 0);
+    assert.equal(f.stats().pending?.id, pending.id);
+    assert.deepEqual(JSON.parse(logs[0]!), { service: 'backend-api', event: 'sms_provider_failed',
+      requestId: response.headers.get('x-request-id'), provider: 'iprog', operation: 'verify_otp',
+      category: 'rate_limit', failureSource: 'http', providerCode: 429, httpStatus: 429, retryAfterSeconds: 30 });
+    assert.doesNotMatch(logs.join(''), /PRIVATE_TOKEN|123456|639171234567|PRIVATE_MESSAGE/);
+    limited = false;
+    const verified = await service.verify(identity, { attemptId: pending.id, code: '123456' }, randomUUID());
+    assert.equal(verified.phone, '+639171234567');
+    assert.equal(verified.smsEnabled, false);
   } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });

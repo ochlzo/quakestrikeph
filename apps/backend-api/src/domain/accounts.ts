@@ -4,6 +4,22 @@ export class AccountError extends Error {
   }
 }
 
+export interface SmsDiagnostic {
+  provider: 'iprog';
+  operation: 'detect' | 'send_otp' | 'verify_otp';
+  category: 'rate_limit' | 'credential_or_credit' | 'credentials' | 'credits' | 'configuration' | 'malformed_response' | 'transport_uncertain' | 'provider_failure' | 'http_failure';
+  failureSource: 'http' | 'body' | 'transport' | 'configuration';
+  providerCode: number | null;
+  httpStatus: number | null;
+  retryAfterSeconds: number | null;
+}
+
+export class SmsProviderError extends AccountError {
+  constructor(public diagnostic: SmsDiagnostic) {
+    super('SMS_UNAVAILABLE', 'The SMS service is unavailable. Please try again later.', 503);
+  }
+}
+
 export interface Identity {
   clerkUserId: string;
   email: string;
