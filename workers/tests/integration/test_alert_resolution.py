@@ -3,12 +3,13 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import insert, select, update
 
 from quakestrike.alert_worker.worker import handle_alert_command
+from quakestrike.application.alert_delivery import SubmissionResult, deliver_alert
 from quakestrike.application.alerts import (
     AlertClaimLost,
     ResolveAlertRecipients,
@@ -34,7 +35,7 @@ pytestmark = pytest.mark.integration
 
 
 def account(engine, **extra):
-    user_id = uuid4()
+    user_id = extra.get("user_id", uuid4())
     values = dict(
         user_id=user_id,
         clerk_user_id=str(user_id),
@@ -148,6 +149,134 @@ def test_empty_roster_settles_job_and_dispatch_atomically(migrated_engine):
             .status
             == "stopped"
         )
+
+
+@pytest.mark.parametrize("page_size", [5, 100])
+def test_slow_sms_exclusions_resume_to_later_email_and_sms(migrated_engine, page_size):
+    dispatch, sessions = queued(migrated_engine)
+    for number in range(1, 21):
+        account(
+            migrated_engine,
+            user_id=UUID(int=number),
+            email_enabled=number == 1,
+            mobile_number=f"+63917{number:07d}",
+        )
+    later = account(migrated_engine, user_id=UUID(int=21))
+    current, elapsed, calls = [NOW], [0], []
+
+    class SlowSupport:
+        def supported(self, phone):
+            calls.append(phone)
+            elapsed[0] += 11
+            return phone == "+639171234567"
+
+    def execute():
+        store = SqlAlchemyAlertStore(
+            sessions, clock=lambda: current[0], page_size=page_size, lease_seconds=60
+        )
+        return ResolveAlertRecipients(store, SlowSupport()).execute(
+            dispatch.dispatch_id,
+            dispatch.alert_job_id,
+            dispatch.correlation_id,
+            clock=lambda: elapsed[0],
+            deadline=240,
+        )
+
+    first = execute()
+    assert first.status == "incomplete"
+    with migrated_engine.connect() as connection:
+        original = connection.execute(select(alert_recipients)).all()
+        skipped = [row for row in original if row.status == "skipped"]
+        assert len(skipped) == 20
+        assert all(row.last_error_code == "sms_sender_unsupported" for row in skipped)
+        assert all(row.eligibility_snapshot["ordinary_sms_supported"] is False for row in skipped)
+        assert [(row.user_id, row.channel) for row in original if row.status == "pending"] == [
+            (UUID(int=1), "email")
+        ]
+        assert (
+            connection.execute(select(alert_jobs)).one().recipient_resolution_completed_at is None
+        )
+    current[0] += timedelta(seconds=61)
+    elapsed[0] = 0
+    dispatcher = SqlAlchemyDispatchStore(sessions, clock=lambda: current[0], alerts_enabled=True)
+    publishing = dispatcher.claim_due(10)[0]
+    dispatcher.mark_enqueued(publishing)
+    second = execute()
+    assert second.status == "resolved"
+    assert execute().status == "already_resolved"
+    assert len(calls) == 21 and len(set(calls)) == 21
+    with migrated_engine.connect() as connection:
+        rows = connection.execute(select(alert_recipients)).all()
+        assert len(rows) == 23
+        assert {(row.user_id, row.channel) for row in rows if row.status == "pending"} == {
+            (UUID(int=1), "email"),
+            (later, "email"),
+            (later, "sms"),
+        }
+        assert all(row in rows for row in original)
+        job = connection.execute(select(alert_jobs)).one()
+        assert job.status == "delivering"
+        assert job.recipient_resolution_completed_at == current[0]
+        assert connection.execute(select(alert_delivery_attempts)).first() is None
+
+    submitted = []
+
+    class Provider:
+        def submit(self, request):
+            submitted.append((request.channel, request.destination))
+            return SubmissionResult("accepted", reference=str(request.attempt_id))
+
+    assert (
+        deliver_alert(
+            second.claim,
+            SqlAlchemyAlertStore(sessions, clock=lambda: current[0]),
+            SlowSupport(),
+            {"email": Provider(), "sms": Provider()},
+            clock=lambda: elapsed[0],
+            deadline=240,
+            report=lambda *_: None,
+        )
+        == "delivering"
+    )
+    assert set(submitted) == {
+        ("email", f"{UUID(int=1)}@example.invalid"),
+        ("email", f"{later}@example.invalid"),
+        ("sms", "+639171234567"),
+    }
+    with migrated_engine.connect() as connection:
+        attempts = connection.execute(select(alert_delivery_attempts)).all()
+        assert len(attempts) == 3 and all(row.status == "accepted" for row in attempts)
+
+
+def test_only_unsupported_sms_settles_without_delivery_attempts(migrated_engine):
+    dispatch, sessions = queued(migrated_engine)
+    account(migrated_engine, email_enabled=False)
+
+    class Unsupported:
+        def supported(self, phone):
+            return False
+
+    result = resolve_direct(
+        SqlAlchemyAlertStore(sessions, clock=lambda: NOW), Unsupported(), dispatch
+    )
+    assert result.status == "resolved" and result.claim is None
+    with migrated_engine.connect() as connection:
+        recipient = connection.execute(select(alert_recipients)).one()
+        assert recipient.status == "skipped"
+        assert recipient.last_error_code == "sms_sender_unsupported"
+        job = connection.execute(select(alert_jobs)).one()
+        assert job.status == "completed" and job.completed_at == NOW
+        assert job.recipient_resolution_completed_at == NOW
+        assert job.worker_execution_id is None and job.lease_expires_at is None
+        assert (
+            connection.execute(
+                select(job_dispatches).where(job_dispatches.c.dispatch_id == dispatch.dispatch_id)
+            )
+            .one()
+            .status
+            == "stopped"
+        )
+        assert connection.execute(select(alert_delivery_attempts)).first() is None
 
 
 def test_partial_sms_failure_recovery_preserves_email_and_fences_old_claim(migrated_engine):
@@ -430,7 +559,8 @@ def test_known_equatorial_distance_uses_stored_radius_bounds_through_queue(migra
         assert evidence["distance_km"] == pytest.approx(111.1950802335329, abs=1e-10)
 
 
-def test_resolution_succeeds_with_unchanged_restricted_worker_grants(migrated_engine):
+@pytest.mark.parametrize("supported", [True, False])
+def test_resolution_succeeds_with_unchanged_restricted_worker_grants(migrated_engine, supported):
     import re
     from pathlib import Path
 
@@ -439,6 +569,11 @@ def test_resolution_succeeds_with_unchanged_restricted_worker_grants(migrated_en
 
     dispatch, _ = queued(migrated_engine)
     user_id = account(migrated_engine)
+
+    class SenderSupport:
+        def supported(self, phone):
+            return supported
+
     provisioning = (
         Path(__file__).resolve().parents[3] / "infrastructure/postgres/provision-roles.sh"
     ).read_text(encoding="utf-8")
@@ -466,7 +601,7 @@ def test_resolution_succeeds_with_unchanged_restricted_worker_grants(migrated_en
                 return Session(bind=connection, join_transaction_mode="create_savepoint")
 
             result = resolve_direct(
-                SqlAlchemyAlertStore(sessions, clock=lambda: NOW), Support(), dispatch
+                SqlAlchemyAlertStore(sessions, clock=lambda: NOW), SenderSupport(), dispatch
             )
             assert result.status == "resolved"
             rows = connection.execute(select(alert_recipients)).all()
@@ -474,6 +609,9 @@ def test_resolution_succeeds_with_unchanged_restricted_worker_grants(migrated_en
                 (user_id, "email"),
                 (user_id, "sms"),
             }
+            assert next(row for row in rows if row.channel == "sms").status == (
+                "pending" if supported else "skipped"
+            )
             job = connection.execute(select(alert_jobs)).one()
             assert job.status == "delivering"
             assert job.recipient_resolution_completed_at == NOW

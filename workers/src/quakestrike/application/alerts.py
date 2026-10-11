@@ -104,9 +104,7 @@ class ResolveAlertRecipients:
                             except SmsSupportUnavailable as error:
                                 support_failures.add(error.code)
                                 continue
-                            if not supported:
-                                continue
-                            candidate["evidence"]["ordinary_sms_supported"] = True
+                            candidate["evidence"]["ordinary_sms_supported"] = supported
                         recipients.append(candidate)
                 self.store.record(claim, recipients)
                 if budget_exhausted or (deadline is not None and clock() >= deadline - 30):

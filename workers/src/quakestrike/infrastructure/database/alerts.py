@@ -219,6 +219,10 @@ class SqlAlchemyAlertStore:
         with self.sessions() as session, session.begin():
             job, now = self._owned(session, claim)
             for recipient in recipients:
+                unsupported = (
+                    recipient["channel"] == "sms"
+                    and recipient["evidence"].get("ordinary_sms_supported") is False
+                )
                 session.execute(
                     insert(alert_recipients)
                     .values(
@@ -228,6 +232,8 @@ class SqlAlchemyAlertStore:
                         channel=recipient["channel"],
                         destination_snapshot=recipient["destination"],
                         eligibility_snapshot=recipient["evidence"],
+                        status="skipped" if unsupported else "pending",
+                        last_error_code="sms_sender_unsupported" if unsupported else None,
                         resolved_at=now,
                         delivery_idempotency_key=(
                             f"{claim.alert_job_id}:{recipient['user_id']}:{recipient['channel']}"
@@ -250,7 +256,12 @@ class SqlAlchemyAlertStore:
             count = session.scalar(
                 select(func.count())
                 .select_from(alert_recipients)
-                .where(alert_recipients.c.alert_job_id == claim.alert_job_id)
+                .where(
+                    alert_recipients.c.alert_job_id == claim.alert_job_id,
+                    alert_recipients.c.status.in_(
+                        ("pending", "retry_wait", "sending", "accepted", "unknown")
+                    ),
+                )
             )
             now = self._now(session)
             if min(job.lease_expires_at, job.expires_at) <= now:

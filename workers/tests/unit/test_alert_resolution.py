@@ -2,7 +2,9 @@ import logging
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
+
+import pytest
 
 from quakestrike.alert_worker.worker import handle_alert_command
 from quakestrike.application.alerts import AlertClaim, ResolveAlertRecipients, SmsSupportUnavailable
@@ -41,7 +43,17 @@ class MemoryStore:
         return self.root
 
     def candidate_page(self, claim, after):
-        return self.accounts if after is None else []
+        if after is not None:
+            return []
+        return [
+            {
+                **account,
+                "resolved_channels": {
+                    row["channel"] for row in self.recorded if row["user_id"] == account["user_id"]
+                },
+            }
+            for account in self.accounts
+        ]
 
     def renew(self, claim):
         assert claim == self.root
@@ -119,7 +131,8 @@ def test_sms_unavailable_keeps_email_and_does_not_complete_scan():
     assert not store.completed
     store, result = resolve([account()], Support(False))
     assert result.status == "resolved"
-    assert [r["channel"] for r in store.recorded] == ["email"]
+    assert [r["channel"] for r in store.recorded] == ["email", "sms"]
+    assert store.recorded[1]["evidence"]["ordinary_sms_supported"] is False
 
 
 def test_invalid_queue_payload_does_not_access_store():
@@ -144,3 +157,37 @@ def test_support_failure_result_keeps_only_bounded_diagnostics():
     assert result.support_failures == ("sms_support_configuration",)
     _, result = resolve([account()], Support(SmsSupportUnavailable("secret@example.invalid")))
     assert result.support_failures == ("sms_support_unavailable",)
+
+
+@pytest.mark.parametrize("channel", ["email", "sms"])
+def test_confirmed_sms_exclusions_do_not_starve_later_recipients(channel):
+    accounts = [
+        account(user_id=UUID(int=i), email_enabled=False, mobile_number=f"+63917{i:07d}")
+        for i in range(1, 21)
+    ]
+    accounts.append(
+        account(
+            user_id=UUID(int=21), email_enabled=channel == "email", sms_enabled=channel == "sms"
+        )
+    )
+    store = MemoryStore(accounts)
+    elapsed, calls = [0], []
+
+    class SlowSupport:
+        def supported(self, phone):
+            calls.append(phone)
+            elapsed[0] += 11
+            return phone == "+639171234567"
+
+    resolver = ResolveAlertRecipients(store, SlowSupport())
+    first = resolver.execute(uuid4(), uuid4(), uuid4(), clock=lambda: elapsed[0], deadline=240)
+    assert first.status == "incomplete"
+    assert not store.completed
+    elapsed[0] = 0
+    second = resolver.execute(uuid4(), uuid4(), uuid4(), clock=lambda: elapsed[0], deadline=240)
+    assert second.status == "resolved"
+    assert store.completed
+    assert len(calls) == 20 + (channel == "sms")
+    assert [
+        (row["user_id"], row["channel"]) for row in store.recorded if row["user_id"] == UUID(int=21)
+    ] == [(UUID(int=21), channel)]

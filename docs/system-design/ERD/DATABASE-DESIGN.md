@@ -410,6 +410,8 @@ Eligibility requires an active account, completed onboarding, explicit channel o
 
 Resolution JSON records policy version, channel, account/onboarding state, enabled setting, verification state, observed magnitude, threshold, nearby-only state, and saved location/radius/calculated distance when used. Coordinates and snapshots remain private and excluded from public responses and technical logs.
 
+A confirmed unsupported SMS destination also records immutable resolution evidence with `ordinary_sms_supported: false`, status `skipped`, and `last_error_code` `sms_sender_unsupported`. Retries skip that channel for the same alert batch, so negative support checks advance the scan as successful checks do. Support lookup failures remain unresolved; they never prove an unsupported destination or block independent email resolution. Each new alert batch checks support again. A completed scan with only settled recipients completes the batch without creating delivery attempts.
+
 ### `alert_delivery_attempts`
 
 One durable provider-call attempt per recipient; persist sending before the external call, outside that call's SQL transaction.
