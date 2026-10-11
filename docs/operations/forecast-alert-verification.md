@@ -69,7 +69,9 @@ The finite runner executed two actual SMS submissions: one general and one nearb
 The runner then used production polling code twice, once for each retained reference.
 Both polls reported delivery; recipients and attempts became delivered, jobs completed, and dispatches stopped.
 Provider status timestamps remain null because the observed status responses supplied no delivery timestamp.
-Provider-reported delivery does not verify human receipt, exact received content, or provider-added headers.
+Provider-reported delivery alone does not verify human receipt, exact received content, or provider-added headers.
+The user subsequently confirmed that both received SMS variants matched the expected content and their links opened the correct earthquakes.
+The user reported that the IPROG template adds the `QuakeStrike PH` header.
 
 | SMS variant | Local estimated segments | Returned `charging_units` | Durable outcome |
 | --- | --- | --- | --- |
@@ -118,7 +120,10 @@ It retained frozen hashes, public forecast identity, and original expiry, and ve
 The fixture restricted Dispatcher candidate selection to the exact nearby dispatch and job.
 Production code still performed claims, publication, Redis consumption, and finite submission.
 This selected fixture seam does not demonstrate full consumer activation or authorize ordinary-user delivery.
-Human inbox receipt, received sender, exact received content, and received-link navigation remain unverified for both emails.
+The user subsequently confirmed that both received emails matched the expected content and their links opened the correct earthquakes.
+The user reported that the emails reached Spam.
+Received sender identity and SPF, DKIM, and DMARC results remain unverified.
+Human receipt does not establish durable reconciliation of the earlier general attempt.
 After retaining safe evidence, the task-owned webhook was deleted and its absence was verified.
 The temporary tunnel, proxy, relay, disposable PostgreSQL/Redis/Backend resources, egress network, copied environment, and relay credential were removed or stopped.
 The original private configuration and temporary recipient-comparison files remain available.
@@ -126,13 +131,13 @@ The original private configuration and temporary recipient-comparison files rema
 | Observation | Status and required proof |
 | --- | --- |
 | IPROG account/support preflight | Controlled preflight verified designated-destination support and the account balances before and after the submissions. |
-| SMS provider header and content | Unverified: compare received general/nearby messages with immutable snapshots and provider-added header behavior. |
+| SMS provider header and content | User-confirmed content match for both variants; the user reported provider template branding. ADR 0048 removes the repeated application header from new SMS snapshots. |
 | SMS encoding and charging | Local segment estimates and returned credit evidence are recorded above. Actual encoding and billed segments remain unverified; `sms_count` supplied no usable count. |
-| SMS delivery polling | Two actual retained references reconciled to delivered without resubmission. Human receipt and provider delivery timestamps remain unverified. |
+| SMS delivery polling | Two actual retained references reconciled to delivered without resubmission. The user confirmed receipt/content. Provider delivery timestamps remain unavailable. |
 | Brevo authentication | Authorized host and relayed Linux preflight passed; direct Docker outbound IP authorization remains a deployment prerequisite. |
-| Brevo sender/domain and receipt | Authenticated preflight verified sender/domain configuration. Human receipt and received sender/content remain unverified. |
+| Brevo sender/domain and receipt | Authenticated preflight verified sender/domain configuration. The user confirmed receipt/content in Spam. Received sender identity and message authentication remain unverified. |
 | Brevo callback | Nearby authentication/correlation and durable delivery passed. General delivery reconciliation and measured provider retry remain unverified after initial HTTP 429 callbacks. |
-| Received event link | Public event routes loaded the selected forecasts. Opening the full received link and its updated forecast remain unverified. |
+| Received event link | The user confirmed that received SMS/email links opened the correct earthquakes. Navigation after a later forecast update remains unverified. |
 
 Refresh public event/forecast data immediately before a finite live fixture.
 Use separate active public forecasts for general and nearby jobs; one forecast permits only one alert job.
