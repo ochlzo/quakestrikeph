@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from quakestrike.application.alerts import SmsSupportUnavailable
@@ -9,9 +11,16 @@ class Response:
 
     def __init__(self, body):
         self.body = body
+        self.headers = {}
 
     def json(self):
         return self.body
+
+    def iter_content(self, size):
+        yield json.dumps(self.json()).encode()
+
+    def close(self):
+        pass
 
 
 @pytest.mark.parametrize(

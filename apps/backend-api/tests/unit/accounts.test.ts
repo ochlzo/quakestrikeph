@@ -121,8 +121,8 @@ test('IPROG adapter interprets documented string statuses and strips returned OT
   assert.notEqual(proof, provider.proof('NEW_ATTEMPT', '123456'));
   assert.equal(await provider.verify('+639171234567', '123456'), true);
   assert.equal(calls.length, 3);
-  for (const network of ['Smart/TNT', 'Unknown Network', 'Invalid Format']) {
-    const unsupported = new Iprog('TEST_ONLY', (async () => Response.json({ status: 'success', data: { network, is_smart_tnt: false } })) as typeof fetch);
+  for (const network of ['Smart', 'TNT', 'Smart/TNT']) {
+    const unsupported = new Iprog('TEST_ONLY', (async () => Response.json({ status: 'success', data: { network, is_smart_tnt: true } })) as typeof fetch);
     assert.equal(await unsupported.supported('+639171234567'), false);
   }
   await assert.rejects(new Iprog(undefined).send('+639171234567', 'FIXTURE_ATTEMPT'), { code: 'SMS_UNAVAILABLE' });
@@ -154,6 +154,42 @@ test('number detection service errors do not report unsupported networks', async
   const service = new AccountService(f.store, f.attempts, provider);
   await assert.rejects(service.start(identity, { phone: '09171234567' }, randomUUID()), { code: 'SMS_UNAVAILABLE' });
   assert.equal(f.stats().pending, null);
+});
+
+test('malformed network results return unavailable through account HTTP with safe diagnostics', async (t) => {
+  const logs: string[] = [];
+  t.mock.method(console, 'error', (line: string) => logs.push(line));
+  for (const data of [
+    { network: '', is_smart_tnt: false },
+    { network: 'Unknown Network', is_smart_tnt: false },
+    { network: 'Globe/TM', is_smart_tnt: true },
+    { network: 'Smart/TNT', is_smart_tnt: false },
+  ]) {
+    const f = fixture(); let calls = 0;
+    const provider = new Iprog('PRIVATE_TOKEN', (async () => {
+      calls++;
+      return Response.json({ status: 'success', data, message: 'PRIVATE_MESSAGE' });
+    }) as typeof fetch);
+    const service = new AccountService(f.store, f.attempts, provider);
+    const server = createApp({ check: async () => {}, search: async () => [], findById: async () => null }, undefined,
+      { service, authenticate: async () => identity }).listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('No server address');
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/v1/account/phone/attempts`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone: '09171234567' }),
+      });
+      assert.equal(response.status, 503);
+      assert.equal((await response.json()).error.code, 'SMS_UNAVAILABLE');
+      assert.equal(calls, 1); assert.equal(f.stats().pending, null);
+      const diagnostic = JSON.parse(logs.at(-1)!);
+      assert.equal(diagnostic.category, 'malformed_response');
+      assert.equal(diagnostic.operation, 'detect');
+      assert.equal(diagnostic.requestId, response.headers.get('x-request-id'));
+      assert.equal(diagnostic.failureSource, 'body'); assert.equal(diagnostic.httpStatus, 200);
+      assert.doesNotMatch(logs.join(''), /PRIVATE_TOKEN|PRIVATE_MESSAGE|639171234567/);
+    } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+  }
 });
 
 test('IPROG combined credential and credit rejection remains ambiguous under HTTP success', async () => {
@@ -296,7 +332,6 @@ test('an interrupted provider response retains transport uncertainty and HTTP st
 test('account setup preserves documented unsupported network results', async () => {
   for (const body of [
     { status: 'success', data: { network: 'Smart/TNT', is_smart_tnt: true } },
-    { status: 'success', data: { network: 'Unknown Network', is_smart_tnt: false } },
     { status: 'error', message: 'Invalid phone number format. Philippine mobile numbers must be in format: 09XXXXXXXXX or +639XXXXXXXXX (11 digits total)',
       data: { network: 'Invalid Format', is_smart_tnt: false } },
   ]) {

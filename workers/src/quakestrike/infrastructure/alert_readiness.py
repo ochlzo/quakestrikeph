@@ -1,13 +1,12 @@
 """Passive channel configuration and read-only restricted-worker capability gates."""
 
-import re
 from dataclasses import dataclass
 
 from sqlalchemy import text
 
 from quakestrike.application.startup import GateResult
 from quakestrike.infrastructure.database.engine import create_database_engine
-from quakestrike.infrastructure.email.brevo import BrevoEmailProvider
+from quakestrike.infrastructure.email.brevo import BrevoEmailProvider, valid_brevo_configuration
 from quakestrike.infrastructure.sms.iprog import IprogAlertProvider
 from quakestrike.infrastructure.startup import phase_one_startup_gates
 
@@ -25,16 +24,7 @@ def configured_alert_providers(settings, *, channels=("sms", "email")):
     if "email" in channels:
         key = settings.brevo_api_key
         email, name = settings.brevo_sender_email, settings.brevo_sender_name
-        if (
-            key is None
-            or not re.fullmatch(r"[\x21-\x7e]{1,4096}", key.get_secret_value())
-            or not isinstance(email, str)
-            or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email)
-            or not isinstance(name, str)
-            or not name.strip()
-            or len(name) > 200
-            or re.search(r"[\x00-\x1f\x7f]", name)
-        ):
+        if not valid_brevo_configuration(key.get_secret_value() if key else None, email, name):
             raise ValueError("Alert email provider configuration is unavailable.")
         providers["email"] = BrevoEmailProvider(key.get_secret_value(), email, name)
     return providers
