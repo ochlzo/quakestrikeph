@@ -5,12 +5,12 @@ import { FormField } from "../account-ui";
 import type { AccountFlowState } from "../useAccountFlow";
 
 type AccountScreenFlow = Pick<AccountFlowState,
-  "title" | "profile" | "account" | "navigate" | "identityView" | "dirty" | "signOut" | "openPasswordSettings" | "openPhoneSettings">;
+  "title" | "profile" | "account" | "accountActions" | "identityView" | "openPasswordSettings" | "openPhoneSettings">;
 
 export function AccountScreen({ flow }: { flow: AccountScreenFlow; }) {
   const {
     title, profile,
-    account, navigate, identityView, dirty, signOut, openPasswordSettings, openPhoneSettings,
+    account, accountActions, identityView, openPasswordSettings, openPhoneSettings,
   } = flow;
   const { name, savedName, setName, fieldError, clearErrors, busy, saveName } = profile;
   const [editing, setEditing] = useState(false);
@@ -75,7 +75,7 @@ export function AccountScreen({ flow }: { flow: AccountScreenFlow; }) {
         <Button
           variant="link"
           className="text-button"
-          onPress={() => navigate("change-email")}
+          onPress={accountActions.openEmailChange}
         >
           Change
         </Button>
@@ -114,17 +114,14 @@ export function AccountScreen({ flow }: { flow: AccountScreenFlow; }) {
         <Button
           variant="link"
           className="text-button"
-          onPress={() => {
-            if (!dirty || window.confirm("Discard your unsaved changes?"))
-              void signOut();
-          }}
+          onPress={() => void accountActions.signOut()}
         >
           Sign out
         </Button>
         <Button
           variant="link"
           className="danger-link"
-          onPress={() => navigate("close")}
+          onPress={accountActions.openAccountRemoval}
         >
           Remove account
         </Button>
@@ -133,22 +130,22 @@ export function AccountScreen({ flow }: { flow: AccountScreenFlow; }) {
   );
 }
 
-export function UnavailableActionScreen({ flow }: { flow: AccountFlowState; }) {
-  const { title, screen, setScreen } = flow;
+export function UnavailableActionScreen({ flow }: { flow: Pick<AccountFlowState, "title" | "unavailableAction">; }) {
+  const { title, unavailableAction } = flow;
   return (
     <>
       {title(
-        screen === "close"
+        unavailableAction.removing
           ? "Account removal is unavailable"
           : "Email change is unavailable",
         "This account action is not available in the current release.",
       )}
       <p className="support">
-        {screen === "close"
+        {unavailableAction.removing
           ? "Your account and saved settings remain available. You can turn both alert preferences off at any time."
           : "Keep using your current verified email. Your saved preferences are unaffected."}
       </p>
-      <Button className="primary" onPress={() => setScreen("account")}>
+      <Button className="primary" onPress={unavailableAction.returnToAccount}>
         Back to account settings
       </Button>
     </>

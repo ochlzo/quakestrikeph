@@ -92,13 +92,31 @@ Authentication continuations check both workflow lifetime and Clerk identity.
 When the user or session changes, former operations cannot submit follow-up
 requests, clear credentials, notify, or navigate. A provider request already
 submitted may still complete. This fixes the characterized former-session
-password-save notification defect. General navigation restructuring remains
-separate work.
+password-save notification defect.
 Required-task password callbacks also check identity before each request.
 This includes Clerk's automatic retry after interactive proof. A former
 request's late proof requirement cannot open a new proof dialog. Browser
 checks cover successful proof, cancellation, and identity changes before or
 during that proof.
+
+Account navigation uses a restricted destination operation for Alerts,
+Location, and Account. Screen views provide named Back, sensitive-entry,
+placeholder, and sign-out operations. The workflow keeps stage transitions,
+pending departure callbacks, draft reconciliation, and history coordination
+private. The departure dialog receives only its open/error/saving state and
+Save, Discard, and Stay actions. Account sign-out retains native discard
+confirmation; shell sign-out retains Save/Discard; profile and task sign-out
+remain immediate with their existing destinations.
+
+Navigation checks cover dirty Back/Forward, cancel/discard/save/retry,
+sensitive history with cleared credentials, shell save-before-sign-out ordering,
+and delayed location saves after user or session changes on desktop and mobile.
+They also cover guarded settings/public/external links. External destinations
+are intercepted by test fixtures; no live external request is required.
+Synthetic click checks preserve modified/nonprimary clicks, new-tab links,
+downloads, hash links, and the same URL. Synthetic unload checks validate the
+handler, not the browser's native unload dialog. Actual Astro navigation checks
+continue to verify background-save lifetime and notifications.
 
 As with the existing Bulletin browser checks, expose the bundled Playwright
 package via `NODE_PATH` when it is not installed locally. The fixture server

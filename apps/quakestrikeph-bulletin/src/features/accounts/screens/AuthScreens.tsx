@@ -1,11 +1,11 @@
 import { ArrowRight } from "lucide-react";
 import { Button } from "../../../components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger, } from "../../../components/ui/tabs";
-import { capitalizeNameWords, FormField, passwordPattern, passwordRequirements } from "../account-ui";
+import { BackButton, capitalizeNameWords, FormField, passwordPattern, passwordRequirements } from "../account-ui";
 import type { AccountFlowState } from "../useAccountFlow";
 
 type AuthScreenFlow = Pick<AccountFlowState, "authEntry" | "title" | "submit">;
-type EmailCodeScreenFlow = Pick<AccountFlowState, "emailProof" | "back" | "title" | "codeField" | "submit" | "renderResend">;
+type EmailCodeScreenFlow = Pick<AccountFlowState, "emailProof" | "title" | "codeField" | "submit" | "renderResend">;
 
 export function AuthScreen({ flow }: { flow: AuthScreenFlow; }) {
   const { authEntry, title, submit } = flow;
@@ -130,11 +130,11 @@ export function AuthScreen({ flow }: { flow: AuthScreenFlow; }) {
 }
 
 export function EmailCodeScreen({ flow }: { flow: EmailCodeScreenFlow; }) {
-  const { emailProof, back, title, codeField, submit, renderResend } = flow;
+  const { emailProof, title, codeField, submit, renderResend } = flow;
   const { deviceVerification, email, verifyCode, resendCode } = emailProof;
   return (
     <>
-      {back("signin")}
+      <BackButton onPress={emailProof.goBack} />
       {title(
         "Verify your email",
         deviceVerification

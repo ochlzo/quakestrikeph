@@ -8,12 +8,13 @@ import { FormField } from "../account-ui";
 import { locationLabel } from "../LocationPicker";
 import type { AccountFlowState } from "../useAccountFlow";
 
-export function PreferencesScreen({ flow }: { flow: AccountFlowState; }) {
+type PreferencesScreenFlow = Pick<AccountFlowState, "title" | "account" | "draft" | "emailVerified" | "phoneVerified" | "action" | "preferencesNavigation" | "fieldErrors" | "list" | "savePreferences">;
+
+export function PreferencesScreen({ flow }: { flow: PreferencesScreenFlow; }) {
   const {
     title, account,
     draft, emailVerified, phoneVerified,
-    action, setPhone, sensitive,
-    navigate, fieldErrors, list, setScreen,
+    action, preferencesNavigation, fieldErrors, list,
     savePreferences,
   } = flow;
   const [magnitudeText, setMagnitudeText] = useState(draft.magnitude.toFixed(1));
@@ -78,13 +79,7 @@ export function PreferencesScreen({ flow }: { flow: AccountFlowState; }) {
             <Button
               className="secondary verify-destination"
               aria-label={account?.phone ? "Verify mobile number" : "Add number"}
-              onPress={() =>
-                action(async () => {
-                  setPhone(account?.phone ?? "");
-                  if (phoneVerified) await sensitive("phone");
-                  else navigate("phone");
-                })
-              }
+              onPress={() => void preferencesNavigation.openPhone()}
             >
               {account?.phone ? "Verify" : "Add number"}
             </Button>
@@ -147,7 +142,7 @@ export function PreferencesScreen({ flow }: { flow: AccountFlowState; }) {
             <a className="alert-location-link" href="/alerts/location" onClick={(event) => {
               if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
               event.preventDefault();
-              setScreen("location");
+              preferencesNavigation.openLocation();
             }}>
               {locationLabel(draft.latitude, draft.longitude, list)}
               {draft.distanceKm ? ` · Within ${draft.distanceKm} km` : ""}
