@@ -298,8 +298,8 @@ def test_email_keeps_optional_outputs_unavailable(migrated_engine):
     )
     with migrated_engine.connect() as connection:
         body = connection.scalar(select(alert_jobs.c.email_body_snapshot))
-    assert "Median activity radius: Unavailable" in body
-    assert "Maximum magnitude (5th / 50th / 95th percentiles): Unavailable" in body
+    assert "Possible further activity radius: Unavailable" in body
+    assert "Possible maximum magnitude: Unavailable" in body
     assert "not shaking distance or a safety boundary" in body
 
 

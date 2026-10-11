@@ -2,6 +2,8 @@
 
 **Status**: accepted by the user on 11 October 2026.
 
+[ADR 0048](0048-forecast-alert-copy-amendment.md) replaces the rendered window line, maximum-magnitude display, email labels, and SMS header decision below.
+
 The user approved the concrete schema proposal for issue 44 and children 46–51. Approval covers contract amendments, migration/grant implementation, and disposable integration tests. Shared development and production schema application remains separately authorized. Live provider tests and production activation have separate gates.
 
 This extends ADRs 0026, 0027, 0030, 0038, and 0042 while preserving ADR 0043. One current, live, unexpired M1+ forecast creates one alert batch. Historical recovery, historical/backfill work, and expired forecasts create no automatic alert. Forecast, alert snapshots, dispatch, and system audit commit atomically.
