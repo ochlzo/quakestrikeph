@@ -221,7 +221,7 @@ function SelectItem({
     >
       {composeRenderProps(children, (children, { isSelected }) => (
         <>
-          <span className="flex flex-1 shrink-0 gap-2 whitespace-nowrap">
+          <span className="flex flex-1 shrink-0 items-center gap-2 whitespace-nowrap">
             {children}
           </span>
           <span className="pointer-events-none absolute right-2 flex size-4 items-center justify-center">

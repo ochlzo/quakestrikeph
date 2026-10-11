@@ -1,17 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import { Stone } from "lucide-react";
 import {
-  Combobox,
-  ComboboxChip,
-  ComboboxChipList,
-  ComboboxChips,
-  ComboboxChipsInput,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxTrigger,
-} from "@/components/ui/combobox";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { magnitudeBands } from "../lib/magnitude";
 
 const options = [
@@ -26,26 +19,9 @@ type Props = {
 
 export default function MagnitudeFilter({ value, onChange }: Props) {
   const draft = value.length ? value : ["all"];
-  const [search, setSearch] = useState("");
-  const [focused, setFocused] = useState(false);
-  const anchor = useRef<HTMLDivElement>(null);
-  const popover = useRef<HTMLDivElement>(null);
-  const values = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => {
-      const row = values.current;
-      if (!row) return;
-      row.scrollTo({
-        left: row.scrollWidth,
-        behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
-      });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [value]);
 
   return (
-    <Combobox
+    <Select
       aria-label="Magnitude ranges"
       className="magnitude-filter"
       selectionMode="multiple"
@@ -57,76 +33,30 @@ export default function MagnitudeFilter({ value, onChange }: Props) {
         onChange(choseAll ? [] : options
           .filter((band) => band.className !== "all" && bands.includes(band.className))
           .map((band) => band.className));
-        setSearch("");
       }}
-      inputValue={search}
-      onInputChange={setSearch}
-      menuTrigger="focus"
-      allowsEmptyCollection
     >
-      <ComboboxChips
-        ref={anchor}
-        className="magnitude-filter-field"
-        data-all-magnitudes={draft.includes("all") || undefined}
-        onFocus={() => setFocused(true)}
-        onBlur={(event) => {
-          const next = event.relatedTarget as Node | null;
-          if (!anchor.current?.contains(next) && !popover.current?.contains(next)) {
-            setFocused(false);
-            setSearch("");
-          }
-        }}
-      >
-        <Stone className="magnitude-filter-icon size-5" aria-hidden="true" />
-        <div ref={values} className="magnitude-filter-values">
-          {!draft.includes("all") && <ComboboxChipList<(typeof options)[number]>>
-            {(band) => (
-              <ComboboxChip
-                id={band.className}
-                textValue={band.label}
-              >
-                <i className={`dot ${band.className}`} aria-hidden="true" />
-                {band.label}
-              </ComboboxChip>
-            )}
-          </ComboboxChipList>}
-          <ComboboxChipsInput
-            placeholder={draft.includes("all")
-              ? focused ? "Search ranges" : "All magnitudes"
-              : "Add range"}
-            maxLength={50}
-          />
-        </div>
-        <ComboboxTrigger
-          className="magnitude-filter-trigger"
-          aria-label="Show magnitude ranges"
-        />
-      </ComboboxChips>
-      <ComboboxContent
-        ref={popover}
-        anchor={anchor}
-        className="magnitude-filter-popover"
-        shouldCloseOnInteractOutside={(element) => {
-          if (anchor.current?.contains(element)) return false;
-          setFocused(false);
-          setSearch("");
-          return true;
-        }}
-      >
-        <ComboboxList
-          items={options}
-          renderEmptyState={() => <ComboboxEmpty>No matching ranges.</ComboboxEmpty>}
-        >
-          {(band) => (
-            <ComboboxItem id={band.className} textValue={band.label}>
-              {band.className !== "all" && (
-                <i className={`dot ${band.className}`} aria-hidden="true" />
-              )}
-              {band.label}
-            </ComboboxItem>
+      <SelectTrigger className="magnitude-filter-field">
+        <SelectValue className="filter-scroll-value magnitude-filter-values">
+          {() => (
+            <span className="magnitude-filter-value" title={options
+              .filter((band) => draft.includes(band.className))
+              .map((band) => band.label).join(", ")}>
+              {value.length > 1 ? `${value.length} selected` : options
+                .find((band) => band.className === draft[0])?.label}
+            </span>
           )}
-        </ComboboxList>
-      </ComboboxContent>
-    </Combobox>
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent className="magnitude-filter-popover" placement="bottom start">
+        {options.map((band) => (
+          <SelectItem key={band.className} id={band.className} textValue={band.label}>
+            {band.className !== "all" && (
+              <i className={`dot ${band.className}`} aria-hidden="true" />
+            )}
+            {band.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

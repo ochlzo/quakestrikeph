@@ -74,6 +74,29 @@ function release() {
   try {
     browser = await chromium.launch({ channel: 'msedge', headless: true,
       args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+    // An immediate API failure must remain visible when the standalone toaster loads late.
+    const startupPage = await browser.newPage();
+    let releaseToaster;
+    const toasterGate = new Promise(resolve => { releaseToaster = resolve; });
+    await startupPage.route('**/_astro/BackgroundToaster.*.js', async route => {
+      await toasterGate;
+      await route.continue();
+    });
+    await startupPage.route('https://tiles.openfreemap.org/**', route => route.fulfill({ json: mapStyle }));
+    startupPage.on('pageerror', error => errors.push(error.stack));
+    mode = 'error';
+    try {
+      await startupPage.goto(root + '/forecasts/' + eventId, { waitUntil: 'domcontentloaded' });
+      await startupPage.waitForFunction(() => document.querySelector('#replay-load-status')?.textContent === 'Observations incomplete');
+      releaseToaster();
+      await startupPage.getByText('Observed earthquakes could not be loaded.', { exact: true }).waitFor({ timeout: 5000 });
+      mode = 'normal';
+      await startupPage.getByRole('button', { name: 'Retry', exact: true }).click();
+      await startupPage.waitForFunction(() => document.querySelector('#replay-load-status')?.textContent === '');
+    } finally {
+      releaseToaster();
+      await startupPage.close();
+    }
     for (const viewport of [{ width: 1440, height: 900 }, { width: 384, height: 844 }, { width: 320, height: 844 }]) {
       const page = await browser.newPage({ viewport, reducedMotion: 'reduce', hasTouch: viewport.width < 760 });
       page.on('pageerror', error => errors.push(error.stack));
@@ -92,7 +115,7 @@ function release() {
         await page.locator('.selected-card').waitFor();
         assert.equal(await page.getByRole('textbox', { name: 'Search by location' }).inputValue(), 'Test');
         assert.match(await page.locator('.date-filter-trigger').textContent(), /Oct 1.*Oct 2/);
-        assert.match(await page.locator('[data-slot="combobox-chip"]').textContent(), /M3.0/);
+        assert.match(await page.locator('.magnitude-filter-value').textContent(), /M3.0/);
         const url = new URL(page.url());
         assert.equal(url.searchParams.get('selected'), eventId);
         assert.equal(url.searchParams.get('from'), params.get('from'));
@@ -104,7 +127,7 @@ function release() {
         await page.locator('.selected-card').waitFor();
         assert.equal(await page.getByRole('textbox', { name: 'Search by location' }).inputValue(), '');
         assert.match(await page.locator('.date-filter-trigger').textContent(), /All dates/);
-        assert.equal(await page.locator('[data-slot="combobox-chip"]').count(), 0);
+        assert.equal(await page.locator('.magnitude-filter-value').textContent(), 'All magnitudes');
         assert.equal(new URL(page.url()).search, `?selected=${eventId}`);
       }
       await page.goto(listUrl);

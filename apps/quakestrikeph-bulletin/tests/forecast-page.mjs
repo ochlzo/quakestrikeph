@@ -91,6 +91,21 @@ try {
   assert.match(html, /lucide-rotate-ccw/);
   assert.equal(searches.length, 0, 'Forecast rendering must not wait for observation requests');
   mode = 'normal';
+  const probabilityFields = ['probabilityM1Plus24h', 'probabilityM4Plus24h', 'probabilityM5Plus24h'];
+  const originalProbabilities = probabilityFields.map(field => forecast[field]);
+  for (const values of [[0.08, 0.01, 0.001], [0, 0, 0], [0.99, 0.99, 0.99]]) {
+    probabilityFields.forEach((field, index) => { forecast[field] = values[index]; });
+    const chart = (await page()).match(/<svg class="chance-chart"[\s\S]*?<\/svg>/)?.[0];
+    assert.ok(chart);
+    const frame = chart.match(/viewBox="([^"]+)"/)[1].split(' ').map(Number);
+    const outer = chart.match(/<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)"/).slice(1).map(Number);
+    assert.equal(outer[0] - frame[0], 8, 'Small probabilities leave no unused space before the chart');
+    assert.equal(outer[1] - frame[1], 8, 'Small probabilities stay aligned vertically');
+    assert.equal(frame[2] - outer[2], 16, 'The viewport fits the visible boxes');
+    assert.equal(frame[3] - outer[3], 16, 'The viewport preserves padding below the boxes');
+    if (values[0] === 0.08) assert.match(chart, /8%[\s\S]*1%[\s\S]*&lt;1%/);
+  }
+  probabilityFields.forEach((field, index) => { forecast[field] = originalProbabilities[index]; });
   assert.doesNotMatch(await page('/'), /<body class="forecast-page"/);
   const params = new URLSearchParams({ q: 'Test', date: 'custom', from: forecast.windowStart,
     to: forecast.windowEnd, magnitudes: 'mag-3' });

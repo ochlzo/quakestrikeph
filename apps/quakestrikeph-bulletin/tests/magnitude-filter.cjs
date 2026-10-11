@@ -6,7 +6,7 @@ const { chromium } = require("playwright");
 (async () => {
   const browser = await chromium.launch({ headless: true });
   try {
-    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const page = await browser.newPage({ viewport: { width: 1024, height: 768 } });
     const requests = [];
     let holdNextResponse = false;
     let releaseResponse;
@@ -44,24 +44,36 @@ const { chromium } = require("playwright");
         fetchedAt: "2026-09-30T04:00:00Z",
       } });
     });
-    await page.goto(process.env.BULLETIN_URL || "http://localhost:4321");
-    await page.locator('astro-island[ssr]').waitFor({ state: "detached" });
-    const input = page.getByRole("combobox", { name: "Magnitude ranges", exact: true });
-    const chips = page.locator('[data-slot="combobox-chip"]');
-    const chevron = page.locator('.magnitude-filter-trigger > svg');
+    await page.goto(`${process.env.BULLETIN_URL || "http://localhost:4321"}?date=custom&from=2026-08-31T16%3A00%3A00.000Z&to=2026-10-31T16%3A00%3A00.000Z`);
+    await page.locator('astro-island[component-url*=Bulletin][ssr]').waitFor({ state: "detached" });
+    const trigger = page.locator(".magnitude-filter-field");
+    const labels = page.locator(".magnitude-filter-value");
+    const chevron = page.locator('.magnitude-filter-field > svg:last-child');
     const rows = page.locator(".event-row-v2:not(.event-row-skeleton)");
     await rows.filter({ hasText: "Sample location 0" }).first().waitFor();
     const initialCount = requests.length;
-    assert.equal(await chips.count(), 0);
-    assert.equal(await input.getAttribute("placeholder"), "All magnitudes");
+    assert.equal(await labels.textContent(), "All magnitudes");
+    assert.equal(await trigger.textContent(), "All magnitudes");
     assert.equal(await chevron.evaluate((element) => getComputedStyle(element).transform), "none");
     assert.equal(await page.locator('[aria-label="Clear magnitude selections"]').count(), 0);
-    const stone = page.locator(".magnitude-filter-icon");
-    assert.equal(await stone.getAttribute("aria-hidden"), "true");
-    assert.equal(await stone.evaluate((element) => getComputedStyle(element).color),
-      await page.locator(".date-filter-trigger .filter-select-icon").evaluate(
-        (element) => getComputedStyle(element).color));
+    assert.equal(await page.locator(".magnitude-filter-field > svg").count(), 1);
+    assert.equal(await page.locator(".date-filter-trigger > svg").count(), 1);
+    const dateLabel = page.locator(".date-filter-trigger .filter-value-text");
+    assert.equal(await dateLabel.getAttribute("title"), "Sep 1 - Oct 31, 2026");
+    assert.equal(await dateLabel.evaluate((element) => element.lastChild.textContent), "Sep 1 - Oct 31",
+      "The custom date label shortens at 1024px while retaining the complete date in its title");
+    assert.equal((await page.locator(".date-filter-trigger").boundingBox()).height, 52);
     await page.locator(".date-filter-trigger").click();
+    const customOption = page.getByRole("option", { name: "Sep 1 - Oct 31, 2026", exact: true });
+    const customSpacing = await customOption.evaluate((element) => {
+      const check = element.lastElementChild.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(element.firstElementChild);
+      return check.left - range.getBoundingClientRect().right;
+    });
+    assert.ok(customSpacing >= 8, "The custom date label leaves space before its checkmark");
+    await mkdir(".astro/magnitude-verification", { recursive: true });
+    await page.screenshot({ path: ".astro/magnitude-verification/date.png" });
     const dateOption = page.locator('.date-filter-popover [data-slot="select-item"]').first();
     await dateOption.hover();
     const dateHoverColor = await dateOption.evaluate((element) => getComputedStyle(element).backgroundColor);
@@ -77,26 +89,19 @@ const { chromium } = require("playwright");
     await page.keyboard.press("Escape");
     await page.locator(".date-filter-popover").waitFor({ state: "hidden" });
 
-    await input.click();
+    await trigger.click();
     const magnitudeOption = page.getByRole("option").first();
     await magnitudeOption.hover();
     assert.equal(await magnitudeOption.evaluate((element) => getComputedStyle(element).backgroundColor), dateHoverColor);
-    assert.equal(await input.getAttribute("placeholder"), "Search ranges");
+    assert.equal(await trigger.textContent(), "All magnitudes");
     await page.waitForTimeout(200);
     assert.equal(await chevron.evaluate((element) => getComputedStyle(element).transform), "matrix(-1, 0, 0, -1, 0, 0)");
     assert.equal(await page.getByRole("option").count(), 6);
     assert.equal(await page.getByRole("option").first().textContent(), "All magnitudes");
     assert.equal(await page.getByRole("option").first().getAttribute("aria-selected"), "true");
     await page.getByRole("option", { name: "All magnitudes", exact: true }).click();
-    assert.equal(await chips.count(), 0);
-    assert.equal(await input.getAttribute("placeholder"), "Search ranges");
-    await input.fill("5.0");
-    assert.deepEqual(await page.getByRole("option").allTextContents(), [
-      "M5.0 - M5.9",
-    ]);
-    await input.fill("nothing matches");
-    await page.getByText("No matching ranges.").waitFor();
-    await input.fill("");
+    assert.equal(await labels.textContent(), "All magnitudes");
+    assert.equal(await trigger.textContent(), "All magnitudes");
     await page.clock.install();
     await page.clock.pauseAt(new Date(Date.now() + 1000));
     holdNextResponse = true;
@@ -105,8 +110,8 @@ const { chromium } = require("playwright");
     await page.getByRole("option", { name: "M5.0 - M5.9", exact: true }).click();
     await page.clock.runFor(150);
     await page.getByRole("option", { name: "Above M6.0", exact: true }).click();
-    assert.equal(await chips.count(), 3);
-    assert.equal(await chips.filter({ hasText: "All magnitudes" }).count(), 0);
+    assert.equal(await labels.textContent(), "3 selected");
+    assert.equal(await labels.filter({ hasText: "All magnitudes" }).count(), 0);
     await page.clock.runFor(299);
     assert.equal(requests.length, initialCount, "Each selection resets the 300 ms debounce");
     await page.clock.runFor(1);
@@ -122,19 +127,18 @@ const { chromium } = require("playwright");
     releaseResponse();
     await page.waitForFunction(() => document.querySelector('#event-list')?.getAttribute('aria-busy') === 'false');
 
-    // Each dot shares its map legend color, including the selected chips.
+    // Each dot shares its map legend color, in the dropdown.
     for (const className of ["mag-under-3", "mag-5", "mag-6"]) {
       const color = await page.locator(`.map-legend .${className}`).evaluate(
         (element) => getComputedStyle(element).backgroundColor,
       );
-      assert.equal(await page.locator(`.magnitude-filter .${className}`).evaluate(
+      assert.equal(await page.locator(`.magnitude-filter-popover .${className}`).evaluate(
         (element) => getComputedStyle(element).backgroundColor,
       ), color);
     }
-    await mkdir(".astro/magnitude-verification", { recursive: true });
     await page.screenshot({ path: ".astro/magnitude-verification/desktop.png" });
 
-    await page.locator("#events-title").click();
+    await page.keyboard.press("Escape");
     await page.waitForTimeout(200);
     assert.equal(requests.length, initialCount + 1, "Blur must not trigger another request");
     assert.equal(await chevron.evaluate((element) => getComputedStyle(element).transform), "none");
@@ -148,33 +152,33 @@ const { chromium } = require("playwright");
     assert.deepEqual(requests.at(-1).magnitudeRanges, requests.at(-2).magnitudeRanges);
     assert.equal(requests.at(-1).cursor, "2");
 
-    await input.click();
+    await trigger.click();
     const beforeRemove = requests.length;
-    await chips.filter({ hasText: "Above M6.0" }).locator('[data-slot="combobox-chip-remove"]').click();
-    assert.equal(await chips.count(), 2);
+    await page.getByRole("option", { name: "Above M6.0", exact: true }).click();
+    assert.equal(await labels.textContent(), "2 selected");
     await page.waitForTimeout(350);
-    assert.equal(requests.length, beforeRemove + 1, "Chip removal applies without blur");
-    await input.press("Escape");
-    await input.focus();
-    await input.press("Tab"); // The library skips the dropdown trigger in tab order.
+    assert.equal(requests.length, beforeRemove + 1, "Deselecting a range applies without closing");
+    await trigger.press("Escape");
+    await trigger.focus();
+    await trigger.press("Tab");
     await page.waitForFunction(() => document.querySelectorAll(".event-row-skeleton").length === 0);
     assert.deepEqual(requests.at(-1).magnitudeRanges, [{ from: 5, below: 6 }, { below: 3 }]);
 
-    await input.click();
+    await trigger.click();
     const beforeAll = requests.length;
     await page.getByRole("option", { name: "All magnitudes", exact: true }).click();
-    assert.equal(await chips.count(), 0);
-    assert.equal(await input.getAttribute("placeholder"), "Search ranges");
+    assert.equal(await labels.textContent(), "All magnitudes");
+    assert.equal(await trigger.textContent(), "All magnitudes");
     assert.equal(await page.getByRole("option", { selected: true }).count(), 1);
     await page.waitForTimeout(350);
     assert.equal(requests.length, beforeAll + 1, "All magnitudes applies without blur");
-    await page.locator("#events-title").click();
+    await page.keyboard.press("Escape");
     await page.waitForFunction(() => document.querySelectorAll(".event-row-skeleton").length === 0);
     assert.equal(requests.at(-1).magnitudeRanges, undefined);
-    assert.equal(await input.getAttribute("placeholder"), "All magnitudes");
+    assert.equal(await trigger.textContent(), "All magnitudes");
 
     // A slow response for an earlier selection must not replace newer results.
-    await input.click();
+    await trigger.click();
     holdNextResponse = true;
     const beforeSlow = requests.length;
     await page.getByRole("option", { name: "M4.0 - M4.9", exact: true }).click();
@@ -193,56 +197,56 @@ const { chromium } = require("playwright");
       "A stale response must not overwrite the latest magnitude results");
     await page.getByRole("option", { name: "All magnitudes", exact: true }).click();
     await page.waitForTimeout(350);
-    await page.locator("#events-title").click();
+    await page.keyboard.press("Escape");
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole("button", { name: "Show earthquakes" }).click();
     await page.getByRole("dialog", { name: "Earthquake search and results" }).waitFor();
-    await input.click();
+    await trigger.click();
     for (const name of ["Below M3.0", "M3.0 - M3.9", "M4.0 - M4.9", "M5.0 - M5.9", "Above M6.0"]) {
       await page.getByRole("option", { name, exact: true }).click();
-      await page.waitForFunction(() => {
-        const field = document.querySelector(".magnitude-filter-values").getBoundingClientRect();
-        const input = document.querySelector("[data-slot=combobox-chip-input]").getBoundingClientRect();
-        return input.x >= field.x - 1 && input.right <= field.right + 1;
-      });
-      const bounds = await input.boundingBox();
-      const viewport = await page.locator(".magnitude-filter-values").boundingBox();
-      assert.ok(bounds.x >= viewport.x - 1 && bounds.x + bounds.width <= viewport.x + viewport.width + 1,
-        "Adding a chip keeps the Add range input fully visible");
     }
-    assert.equal(await chips.count(), 5);
+    assert.equal(await labels.textContent(), "5 selected");
     await page.waitForTimeout(350);
     await page.waitForFunction(() => document.querySelectorAll(".event-row-skeleton").length === 0);
     const fieldBounds = await page.locator(".magnitude-filter-field").boundingBox();
     const chevronBounds = await chevron.boundingBox();
-    assert.equal(fieldBounds.height, 52, "Selected chips keep the account-sized mobile field at one row");
-    const scroll = await page.locator(".magnitude-filter-values").evaluate((element) => {
-      const overflow = element.scrollWidth > element.clientWidth;
-      element.scrollLeft = 100;
-      return { overflow, offset: element.scrollLeft, scrollbar: getComputedStyle(element).scrollbarWidth };
+    assert.equal(fieldBounds.height, 52, "Selected labels keep the mobile field at one row");
+    const overflow = await page.locator(".magnitude-filter-values").evaluate((element) => {
+      element.style.maxWidth = "40px";
+      element.scrollLeft = element.scrollWidth;
+      const result = {
+        offset: element.scrollLeft,
+        style: getComputedStyle(element).overflowX,
+        scrollbar: getComputedStyle(element).scrollbarWidth,
+      };
+      element.style.maxWidth = "";
+      return result;
     });
-    assert.ok(scroll.overflow && scroll.offset > 0, "Chips scroll horizontally inside the field");
-    assert.equal(scroll.scrollbar, "none");
+    assert.ok(overflow.offset > 0, "The summary scrolls horizontally when wider than the field");
+    assert.equal(overflow.style, "auto");
+    assert.equal(overflow.scrollbar, "none");
     assert.ok(fieldBounds.x + fieldBounds.width - chevronBounds.x - chevronBounds.width <= 20,
-      "Chevron stays at the right edge while chips scroll");
+      "Chevron stays at the right edge while labels are clipped");
     await page.screenshot({ path: ".astro/magnitude-verification/mobile.png" });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await page.keyboard.press("Escape");
     await page.locator(".search-field input").click();
-    await input.click();
+    await trigger.click();
 
     await page.getByRole("option", { name: "All magnitudes", exact: true }).click();
-    await input.fill("Above M6.0");
-    await input.press("ArrowDown");
-    await input.press("Enter");
-    assert.equal(await chips.count(), 1);
-    await input.press("Backspace");
-    assert.equal(await chips.count(), 0);
-    assert.equal(await input.getAttribute("placeholder"), "Search ranges");
+    await page.getByRole("option", { name: "Above M6.0", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await labels.count(), 1);
+    assert.equal(await labels.textContent(), "Above M6.0");
+    await page.keyboard.press("Enter");
+    assert.equal(await labels.textContent(), "All magnitudes");
+    assert.equal(await trigger.textContent(), "All magnitudes");
+    await page.keyboard.press("Escape");
     await page.locator(".search-field input").click();
-    assert.equal(await input.getAttribute("placeholder"), "All magnitudes");
+    assert.equal(await trigger.textContent(), "All magnitudes");
     assert.deepEqual(errors, []);
-    console.log("PASS: default text, focus behavior, exclusive All magnitudes, searchable bands, debounced apply without blur, skeleton loading, unchanged subtitle, stale-response protection, pagination, chip removal, keyboard, and mobile layout");
+    console.log("PASS: default text, dropdown behavior, exclusive All magnitudes, debounced apply without closing, skeleton loading, stale-response protection, pagination, deselection, keyboard, and scrollable summaries and mobile layout");
   } finally {
     await browser.close();
   }

@@ -2,7 +2,6 @@
 import { Activity, ChevronLeft, Earth, Pause, Play, RotateCcw } from 'lucide-react';
 import ForecastActivity from './ForecastActivity';
 import ForecastNavigation from './ForecastNavigation';
-import BackgroundToaster from './BackgroundToaster';
 import { Button, LinkButton } from './ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from './ui/empty';
 import type { EarthquakeDetail } from '../lib/events';
@@ -51,6 +50,8 @@ const chanceBoxes = probabilities.map((item, index) => {
   chanceBounds = { x, y, width, height };
   return { ...item, ...chanceBounds };
 });
+const chanceFrame = chanceBoxes[0];
+const chanceViewBox = chanceFrame && [chanceFrame.x - 8, chanceFrame.y - 8, chanceFrame.width + 16, chanceFrame.height + 16].join(' ');
 const errorMessage = error === 'invalid' ? 'This earthquake link is invalid.' : error === 'missing' ? 'This earthquake was not found.' : 'The earthquake service is temporarily unavailable.';
 const errorTitle = error === 'invalid' ? 'Invalid earthquake link' : error === 'missing' ? 'Earthquake not found' : 'Forecast could not load';
 const canRetry = error !== 'invalid' && error !== 'missing';
@@ -275,7 +276,7 @@ return <>
 <h3 id="chance-title">Chance of at least one earthquake</h3>
 <div class="panel-columns">
 <div class="visual chance-visual">
-<svg class="chance-chart" viewBox="0 0 416 296" role="img" aria-label={'Chance of at least one earthquake during the same 24-hour period: ' + probabilities.map(item => `magnitude ${item.threshold} or higher, ${percent(item.value)}`).join('; ')}>
+<svg class="chance-chart" viewBox={chanceViewBox} role="img" aria-label={'Chance of at least one earthquake during the same 24-hour period: ' + probabilities.map(item => `magnitude ${item.threshold} or higher, ${percent(item.value)}`).join('; ')}>
 {chanceBoxes.map((box, index) => <g class={'chance-tier-' + index}>
 <rect x={box.x} y={box.y} width={box.width} height={box.height} rx="12" />
 <text x={box.x + 16} y={box.y + 34}>{percent(box.value)}</text>
@@ -399,7 +400,6 @@ return <>
 </div>
 </div>
 </footer>
-<BackgroundToaster client:only="react" />
 <script>import { initForecastDetails } from '../lib/forecast-details'; initForecastDetails();</script>
 </body>
 </html>

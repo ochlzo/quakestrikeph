@@ -343,10 +343,6 @@ a {
 .filter-select-trigger:focus-visible {
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 50%, transparent);
 }
-.filter-select-trigger .filter-select-icon {
-  flex: none;
-  color: var(--primary);
-}
 .filter-select-trigger > svg:last-child {
   transition: transform 0.18s ease;
 }
@@ -360,6 +356,7 @@ a {
 
 .magnitude-filter {
   min-width: 0;
+  width: 100%;
 }
 .magnitude-filter-field {
   flex-wrap: nowrap;
@@ -371,11 +368,13 @@ a {
   border-radius: var(--radius-lg);
   background: #fff;
   color: var(--foreground);
+  font-size: 15px;
 }
-.magnitude-filter-field:focus-within {
+.magnitude-filter-field:focus-visible {
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 50%, transparent);
 }
-.magnitude-filter-values {
+.date-filter-trigger [data-slot="select-value"].filter-scroll-value,
+.magnitude-filter-field [data-slot="select-value"].filter-scroll-value {
   display: flex;
   flex: 1;
   flex-wrap: nowrap;
@@ -383,82 +382,50 @@ a {
   gap: 7px;
   min-width: 0;
   overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: none;
-}
-.magnitude-filter-values::-webkit-scrollbar {
-  display: none;
-}
-.magnitude-filter-icon {
-  flex: none;
-  color: var(--primary);
-}
-.magnitude-filter-field [data-slot="combobox-chip"] {
-  flex: none;
-  height: 28px;
-  min-height: 28px;
-  max-width: none;
-  gap: 5px;
-  padding-left: 6px;
-  background: var(--accent);
-  color: var(--foreground);
-  font-size: 11px;
+  -webkit-line-clamp: unset;
   white-space: nowrap;
 }
-.magnitude-filter-field [data-slot="combobox-chip-remove"] {
+.filter-scroll-value::-webkit-scrollbar {
+  display: none;
+}
+.date-filter-trigger [data-slot="select-value"].filter-scroll-value {
+  overflow-x: hidden;
+}
+.filter-value-text,
+.magnitude-filter-value {
+  display: inline-flex;
   flex: none;
-  width: 24px;
-  height: 28px;
-  margin-left: 0;
-  opacity: 1;
-  color: var(--muted-foreground);
-}
-.magnitude-filter-field [data-slot="combobox-chip-input"] {
-  width: 0;
-  min-width: 75px;
-  height: 28px;
-  color: var(--foreground);
-  font-size: 15px;
-  caret-color: var(--primary);
-}
-.magnitude-filter-field [data-slot="combobox-chip-input"]:focus-visible {
-  outline: none;
-}
-.magnitude-filter-field input::placeholder {
-  color: var(--muted-foreground);
-  opacity: 1;
-}
-.magnitude-filter-field[data-all-magnitudes]:not(:focus-within) input::placeholder {
-  color: var(--foreground);
-}
-.magnitude-filter-trigger {
-  flex: none;
-  min-height: 28px;
-  padding: 0 4px;
-  color: var(--muted-foreground);
-}
-.magnitude-filter-trigger {
-  display: flex;
   align-items: center;
-  justify-content: center;
-  width: 24px;
+  gap: 5px;
 }
-.magnitude-filter-trigger > svg {
+.magnitude-filter-field > svg:last-child {
   transition: transform 0.18s ease;
 }
-.magnitude-filter-field:focus-within .magnitude-filter-trigger > svg {
+.magnitude-filter-field[aria-expanded="true"] > svg:last-child {
   transform: rotate(180deg);
 }
+.date-filter-popover,
 .magnitude-filter-popover {
+  width: max-content;
+  min-width: max(220px, var(--trigger-width));
+  max-width: calc(100vw - 24px);
   font-family: var(--font-sans);
   color: var(--foreground);
   background: var(--card);
 }
-.magnitude-filter-popover [data-slot="combobox-item"] {
-  min-height: 38px;
-  gap: 9px;
-  font-size: 12px;
+.magnitude-filter-popover [data-slot="select-list"] {
+  padding: 4px;
 }
-.magnitude-filter-popover [data-slot="combobox-item"][data-focused],
+.date-filter-popover [data-slot="select-item"],
+.magnitude-filter-popover [data-slot="select-item"] {
+  min-height: 36px;
+  padding-left: 8px;
+  gap: 9px;
+  font-size: 14px;
+}
+.magnitude-filter-popover [data-slot="select-item"][data-focused],
 .date-filter-popover [data-slot="select-item"][data-focused] {
   background: var(--accent);
 }
@@ -1244,13 +1211,6 @@ a {
   .date-filter-trigger {
     font-size: 15px;
   }
-  .date-filter-trigger [data-slot="select-value"] {
-    display: block;
-    overflow: visible;
-    -webkit-line-clamp: unset;
-    white-space: pre-line;
-    line-height: 1.25;
-  }
   .content-grid {
     flex: 1;
     grid-template-columns: 1fr;
@@ -1539,9 +1499,6 @@ a {
   .earthquake-drawer .date-filter-trigger {
     font-size: 15px;
   }
-  .earthquake-drawer .magnitude-filter-field input::placeholder {
-    font-size: 15px;
-  }
   .earthquake-drawer .events-panel {
     padding: 0;
     border: 0;
@@ -1620,6 +1577,7 @@ a {
   .terrain-button,
   .map-tools button,
   .forecast-link svg,
+  .magnitude-filter-field > svg:last-child,
   .filter-select-trigger > svg:last-child {
     transition: none;
   }
@@ -1732,8 +1690,6 @@ a {
 .bulletin-sidebar-head .search-field {
   grid-column: 1 / -1;
 }
-.bulletin-sidebar-head .filter-select-icon,
-.bulletin-sidebar-head .magnitude-filter-icon { width: 16px; height: 16px; }
 .bulletin-sidebar-content { min-height: 0; overflow: hidden; gap: 0; }
 .bulletin-sidebar-content .events-panel {
   flex: 1;
