@@ -39,40 +39,63 @@ Its simulated providers exercise delivery through the application boundary; they
 
 ## Recorded evidence on 11 October 2026
 
-Integration base before ticket 52 is `5b5e1e6928c436388de994fac901548fa0b82633`.
-The ticket-51 verification completed against its integrated implementation; CI run `38111904816` passed on that base.
+The final tested application source and controlled SMS image use `2e4f3e876ee98b73fc603614bc534ddd1899f770`.
+[CI run 38114036506](https://github.com/ochlzo/quakestrikeph/actions/runs/38114036506) passed on that source.
 
 | Check | Verified result |
 | --- | --- |
-| Ticket-51 standard disposable worker suite | 301 passed; two expected real-model skips. |
-| Ticket-51 host unit/contract suite | 383 passed; two Windows symlink skips. |
+| Host worker unit/contract suite | 385 passed; 11 platform skips: two Windows symlink cases and nine Linux-only provider cases. |
+| Linux provider boundaries | Ten passed across clean runs: four slow transport cases and six size/timer/thread cases. |
+| Real Redis tracer | One passed; zero skips in the disposable project. Both channels reached simulated delivered states. |
+| Complete disposable worker suite | 302 passed; two expected real-model skips from 304 collected cases. |
 | Separate actual SEIS checks | Two passed; zero skips. |
-| Backend checks | Typecheck/build, 28 unit tests, and five restricted integration tests passed. |
-| Ticket-52 real Redis tracer | One passed; zero skips in the root-coordinated disposable project. Both channels reached simulated delivered states. |
-| Ticket-52 complete disposable worker suite | 302 passed; two expected real-model skips from 304 collected cases. |
-| Ticket-52 separate actual SEIS checks | Two passed; zero skips. |
-| Ticket-52 normal-build Backend suite | Five restricted integration tests passed; zero skips. TypeScript build passed. |
+| Backend unit checks | 29 passed; zero skips. Typecheck and build passed. |
+| Restricted Backend integration | Five passed; zero skips. TypeScript build passed. |
+| Static checks | Ruff check and format-check passed for 187 files; Git whitespace checks passed. |
 
-Record the final tested source and combined ticket-52 results in the implementation handoff after the complete checks finish.
+The broader Linux unit image recorded 378 passes, ten environment skips, and eight environment failures from missing Git or unmounted deployment scripts.
+Host tests cover those existing script cases; the clean targeted Linux runs verify all ten provider cases.
+The broader image run is not reported as a complete pass or as evidence of a production defect.
 Cold tmpfs PostgreSQL restart evidence does not prove retained-data restart recovery.
 The retained-command test establishes bounded simulated dependency failure and recovery against real disposable storage.
 
-## Controlled provider observations still required
+## Controlled provider observations
 
 Use only previously authorized local destinations, supplied through private finite-runner configuration.
 Never commit those destinations, credentials, callback tokens, raw responses, inbox screenshots, or full received content.
 Readiness applies separately to each selected channel; email failure does not authorize an SMS-to-email fallback.
 
+The finite runner executed two actual SMS submissions: one general and one nearby.
+The runner then used production polling code twice, once for each retained reference.
+Both polls reported delivery; recipients and attempts became delivered, jobs completed, and dispatches stopped.
+Provider status timestamps remain null because the observed status responses supplied no delivery timestamp.
+Provider-reported delivery does not verify human receipt, exact received content, or provider-added headers.
+
+| SMS variant | Local estimated segments | Returned `charging_units` | Durable outcome |
+| --- | --- | --- | --- |
+| General | 2 | 1.0 | Delivered recipient/attempt; completed job; stopped dispatch. |
+| Nearby | 3 | 1.0 | Delivered recipient/attempt; completed job; stopped dispatch. |
+
+No usable `sms_count` was returned. Actual billed segments remain unverified.
+The returned `charging_units` values derive from `sms_rate`, which reports credits.
+The account balance changed from 195 to 189 credits.
+That account balance change does not prove billed segments or allocate charges to either message.
+Do not equate returned charging units, local segment estimates, and the account balance change.
+
+The finite fixture mirrored fresh public forecasts into disposable PostgreSQL and retained their original windows and stable event links.
+Its dependency rows used synthetic unseen prediction inputs; no local inference produced the mirrored forecasts.
+The fixture never selected ordinary backlog or shared database accounts.
+
 | Observation | Status and required proof |
 | --- | --- |
-| IPROG account/support preflight | Root observed 195 credits and support for the designated mobile. These read-only observations are not a send or receipt. |
+| IPROG account/support preflight | Controlled preflight verified designated-destination support and the account balances before and after the submissions. |
 | SMS provider header and content | Unverified: compare received general/nearby messages with immutable snapshots and provider-added header behavior. |
-| SMS encoding and charging | Unverified: compare local estimates with actual provider evidence. `sms_rate` means credits; `sms_count` remains a separate provider count. |
-| SMS delivery polling | Unverified live: persist the actual reference and observe the documented result without resubmission. |
+| SMS encoding and charging | Local segment estimates and returned credit evidence are recorded above. Actual encoding and billed segments remain unverified; `sms_count` supplied no usable count. |
+| SMS delivery polling | Two actual retained references reconciled to delivered without resubmission. Human receipt and provider delivery timestamps remain unverified. |
 | Brevo authentication | Root observed HTTP 401; email verification is parked pending the specific account/key correction. Never request secret values in chat. |
 | Brevo sender/domain and receipt | User reported setup ready, but authenticated preflight and actual received sender/content remain unverified. |
 | Brevo callback | Unverified live: observe exact attempt-tag echo, compatible reference/time, bearer authentication, committed updates, and retry behavior. |
-| Received event link | The earlier public event route loaded a forecast. Opening the full received link and its updated forecast remain unverified. |
+| Received event link | Public event routes loaded the selected forecasts. Opening the full received link and its updated forecast remain unverified. |
 
 Refresh public event/forecast data immediately before a finite live fixture.
 Use separate active public forecasts for general and nearby jobs; one forecast permits only one alert job.
