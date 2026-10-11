@@ -29,7 +29,7 @@ export default function AccountApp({
 }) {
   if (!publishableKey)
     return (
-      <Shell screen="signin" name="" navigate={() => { }}>
+      <Shell screen="signin" name="" openDestination={() => { }}>
         <h2 id="form-title">Account access unavailable</h2>
         <p className="form-intro">
           Please try again later. Public earthquake information is still
@@ -92,7 +92,7 @@ function AccountFlow({ initial }: { initial: string; }) {
   const flow = useAccountFlow(initial);
   const {
     screen, account, isAccountLoading, heading,
-    busy, navigate, taskFlow,
+    busy, navigation, taskFlow,
     isSignedIn, isLoaded,
   } = flow;
   const loadingPreferences = screen === "preferences" ||
@@ -123,10 +123,8 @@ function AccountFlow({ initial }: { initial: string; }) {
       email={account?.email ?? undefined}
       avatarUrl={flow.identityView.avatarUrl}
       isLoading={isAccountLoading}
-      navigate={navigate}
-      signOut={() => {
-        flow.confirmLeave(() => void flow.signOut());
-      }}
+      openDestination={navigation.openDestination}
+      signOut={navigation.signOut}
     >
       <div
         key={["preferences", "location", "account"].includes(screen) ? screen : "account-flow"}
@@ -137,24 +135,24 @@ function AccountFlow({ initial }: { initial: string; }) {
       >
         {content}
       </div>
-      <UnsavedChangesDialog flow={flow} />
+      <UnsavedChangesDialog departure={flow.departure} />
     </Shell>
   );
 }
-function UnsavedChangesDialog({ flow }: { flow: ReturnType<typeof useAccountFlow> }) {
-  return <Dialog className="unsaved-dialog" isOpen={!!flow.leaveAction}
-    onOpenChange={open => { if (!open) flow.stay(); }}
-    isDismissable={!flow.savingBeforeLeave} isKeyboardDismissDisabled={flow.savingBeforeLeave} showCloseButton={!flow.savingBeforeLeave}>
+function UnsavedChangesDialog({ departure }: { departure: ReturnType<typeof useAccountFlow>["departure"] }) {
+  return <Dialog className="unsaved-dialog" isOpen={departure.open}
+    onOpenChange={open => { if (!open) departure.stay(); }}
+    isDismissable={!departure.saving} isKeyboardDismissDisabled={departure.saving} showCloseButton={!departure.saving}>
     <DialogHeader>
-      <DialogTitle>{flow.leaveError ? "Changes could not be saved" : "Save changes?"}</DialogTitle>
-      <DialogDescription>{flow.leaveError || "You have unsaved changes. Save them before leaving?"}</DialogDescription>
+      <DialogTitle>{departure.error ? "Changes could not be saved" : "Save changes?"}</DialogTitle>
+      <DialogDescription>{departure.error || "You have unsaved changes. Save them before leaving?"}</DialogDescription>
     </DialogHeader>
     <DialogFooter className="unsaved-actions">
-      <Button variant="outline" onPress={flow.leaveError ? flow.stay : flow.discardAndLeave} isDisabled={flow.savingBeforeLeave}>
-        {flow.leaveError ? "Cancel" : "No, discard it"}
+      <Button variant="outline" onPress={departure.error ? departure.stay : departure.discardAndLeave} isDisabled={departure.saving}>
+        {departure.error ? "Cancel" : "No, discard it"}
       </Button>
-      <Button onPress={() => void flow.saveAndLeave()} isDisabled={flow.savingBeforeLeave}>
-        {flow.savingBeforeLeave ? "Saving…" : flow.leaveError ? "Retry" : "Yes"}
+      <Button onPress={() => void departure.saveAndLeave()} isDisabled={departure.saving}>
+        {departure.saving ? "Saving…" : departure.error ? "Retry" : "Yes"}
       </Button>
     </DialogFooter>
   </Dialog>;

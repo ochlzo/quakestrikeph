@@ -3,13 +3,13 @@ import { Button } from "../../../components/ui/button";
 import { FormField } from "../account-ui";
 import type { AccountFlowState } from "../useAccountFlow";
 
-type ProfileScreenFlow = Pick<AccountFlowState, "title" | "identityView" | "profile" | "submit" | "signOut">;
+type ProfileScreenFlow = Pick<AccountFlowState, "title" | "identityView" | "profile" | "submit">;
 
 export function ProfileScreen({ flow }: { flow: ProfileScreenFlow; }) {
   const {
-    title, identityView, profile, submit, signOut,
+    title, identityView, profile, submit,
   } = flow;
-  const { name, setName, fieldError, busy, continueProfile } = profile;
+  const { name, setName, fieldError, busy, continueProfile, cancelAndSignOut } = profile;
   return (
     <>
       {title(
@@ -48,7 +48,7 @@ export function ProfileScreen({ flow }: { flow: ProfileScreenFlow; }) {
             type="button"
             className="secondary"
             isDisabled={busy}
-            onPress={() => void signOut()}
+            onPress={() => void cancelAndSignOut()}
           >
             Cancel and sign out
           </Button>

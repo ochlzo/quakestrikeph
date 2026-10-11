@@ -1,6 +1,6 @@
 import { TaskChooseOrganization, TaskSetupMFA } from "@clerk/react";
 import { Button } from "../../../components/ui/button";
-import { FormField, passwordRequirements } from "../account-ui";
+import { BackButton, FormField, passwordRequirements } from "../account-ui";
 import type { AccountFlowState } from "../useAccountFlow";
 
 type SessionTaskScreenFlow = Pick<AccountFlowState, "taskFlow" | "title" | "newPasswordFields" | "submit">;
@@ -43,14 +43,14 @@ export function SessionTaskScreen({ flow }: { flow: SessionTaskScreenFlow; }) {
   );
 }
 
-type ReverificationScreenFlow = Pick<AccountFlowState, "reverification" | "back" | "title" | "codeField" | "submit" | "renderResend">;
+type ReverificationScreenFlow = Pick<AccountFlowState, "reverification" | "title" | "codeField" | "submit" | "renderResend">;
 
 export function ReverificationScreen({ flow }: { flow: ReverificationScreenFlow; }) {
-  const { reverification, back, title, codeField, submit, renderResend } = flow;
+  const { reverification, title, codeField, submit, renderResend } = flow;
   const { method: reverifyMethod, currentPassword, setCurrentPassword, verifyIdentity, resendCode } = reverification;
   return (
     <>
-      {back("account")}
+      <BackButton onPress={reverification.goBack} />
       {title(
         "Verify your identity again",
         reverifyMethod === "password"

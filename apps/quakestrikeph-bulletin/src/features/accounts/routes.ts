@@ -18,6 +18,8 @@ export type Screen =
   | "change-email"
   | "close";
 
+export type AccountDestination = "preferences" | "location" | "account";
+
 export const accountRoutes = {
   "/sign-in": "signin",
   "/sign-up": "signup",

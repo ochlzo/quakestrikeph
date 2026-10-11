@@ -1,6 +1,6 @@
 import { useAuth, useClerk, useReverification, useSession, useUser } from "@clerk/react";
 import { useSignIn, useSignUp } from "@clerk/react/legacy";
-import { ArrowLeft, ArrowRight, Loader } from "lucide-react";
+import { ArrowRight, Loader } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, } from "react";
 import { Button } from "../../components/ui/button";
 import { toast } from "../../components/ui/toast";
@@ -14,7 +14,7 @@ import {
   type Preferences,
 } from "./api";
 import { usePlaces } from "./LocationPicker";
-import { initialScreen, isPublicAccountScreen, pathForScreen, screenAtPath, writeAccountRoute, type Screen } from "./routes";
+import { initialScreen, isPublicAccountScreen, pathForScreen, screenAtPath, writeAccountRoute, type AccountDestination, type Screen } from "./routes";
 import { accountPreferences as preferences, preferenceSaves, clearPreferenceSaves, type PreferenceSaves } from './preference-saves';
 const blank: Preferences = {
   emailEnabled: false,
@@ -36,6 +36,7 @@ export type ProfileFlow = {
   clearErrors: () => void;
   saveName: () => Promise<ProfileOutcome>;
   continueProfile: () => Promise<ProfileOutcome>;
+  cancelAndSignOut: () => Promise<void>;
 };
 export type PhoneFlow = {
   verifying: boolean;
@@ -48,7 +49,7 @@ export type PhoneFlow = {
   cooldown: number;
   busy: boolean;
   fieldError: string | undefined;
-  backTo: "account" | "channels";
+  goBack: () => void;
   sendCode: () => Promise<void>;
   resendCode: () => Promise<void>;
   verifyCode: () => Promise<void>;
@@ -173,71 +174,74 @@ export function useAccountFlow(initial: string) {
     };
     document.title = `${labels[screen] ?? "Account verification"} · QuakeStrike PH Bulletin`;
   }, [screen]);
+  function keepsSettingsDraft(next: Screen) {
+    return ["preferences", "location"].includes(screen) && ["preferences", "location"].includes(next);
+  }
+  function restoreHistoryDestination() {
+    if (undoingHistory.current) { undoingHistory.current = false; return; }
+    const nextIndex = history.state?.accountIndex ?? 0;
+    const target = screenAtPath(location.pathname);
+    if (!target) return;
+    const keepsDraft = keepsSettingsDraft(target);
+    if (dirty && (!keepsDraft || locationEdit) && !allowLeave.current) {
+      const delta = nextIndex - historyIndex.current;
+      undoingHistory.current = true;
+      history.go(-delta);
+      requestDeparture(() => history.go(delta));
+      return;
+    }
+    allowLeave.current = false;
+    historyIndex.current = nextIndex;
+    setError("");
+    setFieldErrors({});
+    setPassword("");
+    setCurrentPassword("");
+    setConfirmPassword("");
+    if (!isSignedIn && !isPublicAccountScreen(target)) { setScreen("signin", true); return; }
+    if (isSignedIn && (isPublicAccountScreen(target) || target === "profile")) {
+      void action(async () => { await resume(); });
+      return;
+    }
+    if (target === "password" || (target === "phone" && account?.phone && !pending)) {
+      void action(async () => { setReturnAction(target); await prepareReverification(target); });
+      return;
+    }
+    updateScreen(target === "phone" && pending ? "verify-phone" : target);
+  }
   useEffect(() => {
-    const restoreRoute = () => {
-      if (undoingHistory.current) { undoingHistory.current = false; return; }
-      const nextIndex = history.state?.accountIndex ?? 0;
-      const target = screenAtPath(location.pathname);
-      if (!target) return;
-      const keepsDraft = ["preferences", "location"].includes(screen) && ["preferences", "location"].includes(target);
-      if (dirty && (!keepsDraft || locationEdit) && !allowLeave.current) {
-        const delta = nextIndex - historyIndex.current;
-        undoingHistory.current = true;
-        history.go(-delta);
-        confirmLeave(() => history.go(delta));
-        return;
-      }
-      allowLeave.current = false;
-      historyIndex.current = nextIndex;
-      setError("");
-      setFieldErrors({});
-      setPassword("");
-      setCurrentPassword("");
-      setConfirmPassword("");
-      if (!isSignedIn && !isPublicAccountScreen(target)) { setScreen("signin", true); return; }
-      if (isSignedIn && (isPublicAccountScreen(target) || target === "profile")) {
-        void action(async () => { await resume(); });
-        return;
-      }
-      if (target === "password" || (target === "phone" && account?.phone && !pending)) {
-        void action(async () => { setReturnAction(target); await prepareReverification(target); });
-        return;
-      }
-      updateScreen(target === "phone" && pending ? "verify-phone" : target);
-    };
-    window.addEventListener("popstate", restoreRoute);
-    return () => window.removeEventListener("popstate", restoreRoute);
+    window.addEventListener("popstate", restoreHistoryDestination);
+    return () => window.removeEventListener("popstate", restoreHistoryDestination);
   }, [isSignedIn, screen, dirty, account, pending, locationEdit]);
+  function guardBeforeUnload(event: BeforeUnloadEvent) {
+    if (allowLeave.current) return;
+    event.preventDefault();
+    event.returnValue = "";
+  }
+  function interceptDepartureLink(event: MouseEvent) {
+    if (allowLeave.current) return;
+    const anchor = (event.target as Element).closest<HTMLAnchorElement>("a[href]");
+    if (!anchor || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey ||
+      anchor.getAttribute("target") === "_blank" || anchor.hasAttribute("download") ||
+      anchor.getAttribute("href")?.startsWith("#")) return;
+    const destination = new URL(anchor.getAttribute("href")!, location.href);
+    if (destination.href === location.href) return;
+    const next = destination.origin === location.origin ? screenAtPath(destination.pathname) : null;
+    if (!locationEdit && next && keepsSettingsDraft(next)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    requestDeparture(() => next && ["preferences", "location", "account"].includes(next)
+      ? setScreen(next) : destination.origin === location.origin ? anchor.click() : location.assign(destination.href));
+  }
   useEffect(() => {
     if (!dirty) return;
-    const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (allowLeave.current) return;
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    const click = (event: MouseEvent) => {
-      if (allowLeave.current) return;
-      const anchor = (event.target as Element).closest<HTMLAnchorElement>("a[href]");
-      if (!anchor || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey ||
-        anchor.getAttribute("target") === "_blank" || anchor.hasAttribute("download") ||
-        anchor.getAttribute("href")?.startsWith("#")) return;
-      const destination = new URL(anchor.getAttribute("href")!, location.href);
-      if (destination.href === location.href) return;
-      const next = destination.origin === location.origin ? screenAtPath(destination.pathname) : null;
-      if (!locationEdit && ["preferences", "location"].includes(screen) && next && ["preferences", "location"].includes(next)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      confirmLeave(() => next && ["preferences", "location", "account"].includes(next)
-        ? setScreen(next) : destination.origin === location.origin ? anchor.click() : location.assign(destination.href));
-    };
-    window.addEventListener("beforeunload", beforeUnload);
-    document.addEventListener("click", click, true);
+    window.addEventListener("beforeunload", guardBeforeUnload);
+    document.addEventListener("click", interceptDepartureLink, true);
     return () => {
-      window.removeEventListener("beforeunload", beforeUnload);
-      document.removeEventListener("click", click, true);
+      window.removeEventListener("beforeunload", guardBeforeUnload);
+      document.removeEventListener("click", interceptDepartureLink, true);
     };
   }, [dirty, screen, locationEdit]);
-  function confirmLeave(action: () => void) {
+  function requestDeparture(action: () => void) {
     if (!dirty) { action(); return; }
     setLeaveError("");
     setLeaveAction(() => action);
@@ -427,26 +431,37 @@ export function useAccountFlow(initial: string) {
       })
       .finally(() => setLoading(false));
   }, [isLoaded, isSignedIn, session?.currentTask?.key]);
-  function navigate(next: Screen) {
+  function openScreen(next: Screen) {
     if (next === screen) return;
     setError("");
     setFieldErrors({});
-    if (!locationEdit && ["preferences", "location"].includes(screen) && ["preferences", "location"].includes(next)) {
+    if (!locationEdit && keepsSettingsDraft(next)) {
       setScreen(next);
       return;
     }
-    if (dirty) { confirmLeave(() => setScreen(next)); return; }
+    if (dirty) { requestDeparture(() => setScreen(next)); return; }
     if (account) {
       setDraft(preferences(account));
       setName(account.displayName);
     }
     setScreen(next);
   }
+  function openDestination(next: AccountDestination) { openScreen(next); }
+  function openEmailChange() { openScreen("change-email"); }
+  function openAccountRemoval() { openScreen("close"); }
+  function returnToAccount() { setScreen("account"); }
+  async function openAlertPhoneSettings() {
+    await action(async () => {
+      setPhone(account?.phone ?? "");
+      if (phoneVerified) await sensitive("phone");
+      else openScreen("phone");
+    });
+  }
   function switchAuthMode(next: "signin" | "signup") {
     if (busy || next === screen) return;
     signupProfileName.current = null;
     setPassword("");
-    navigate(next);
+    openScreen(next);
   }
   function reportError(message: string) {
     if ((screen === "signin" || screen === "signup") && !session?.currentTask)
@@ -723,7 +738,7 @@ export function useAccountFlow(initial: string) {
     await authenticationOperation(() => sensitive("password"));
   }
   async function openPhoneSettings() {
-    await authenticationOperation(() => account?.phone ? sensitive("phone") : Promise.resolve(navigate("phone")));
+    await authenticationOperation(() => account?.phone ? sensitive("phone") : Promise.resolve(openScreen("phone")));
   }
   async function saveTaskPassword() {
     await authenticationOperation(async isCurrent => {
@@ -741,11 +756,15 @@ export function useAccountFlow(initial: string) {
       await clerk.signOut({ redirectUrl });
     }, "Sign-out could not be completed. Please try again.");
   }
-  function signOut() { return endSession("/"); }
+  function cancelProfileAndSignOut() { return endSession("/"); }
+  async function signOutFromAccount() {
+    if (!dirty || window.confirm("Discard your unsaved changes?")) await endSession("/");
+  }
+  function signOutFromShell() { requestDeparture(() => void endSession("/")); }
   function signOutTask() { return endSession("/sign-in"); }
   async function sensitive(next: Screen) {
     if (dirty) {
-      confirmLeave(() => void action(async () => {
+      requestDeparture(() => void action(async () => {
         setReturnAction(next);
         await prepareReverification(next);
       }));
@@ -826,16 +845,6 @@ export function useAccountFlow(initial: string) {
       ) : showArrow ? (
         <ArrowRight aria-hidden="true" />
       ) : null}
-    </Button>
-  );
-  const back = (next: Screen, label = "Back") => (
-    <Button
-      variant="link"
-      className="text-button"
-      onPress={() => navigate(next)}
-    >
-      <ArrowLeft />
-      {label}
     </Button>
   );
   const title = (text: string, intro: ReactNode) => (
@@ -933,13 +942,13 @@ export function useAccountFlow(initial: string) {
     name, savedName: account?.displayName ?? "", busy,
     fieldError: fieldErrors.displayName,
     setName, clearErrors: () => setFieldErrors({}),
-    saveName, continueProfile,
+    saveName, continueProfile, cancelAndSignOut: cancelProfileAndSignOut,
   };
   const phoneFlow: PhoneFlow = {
     verifying: screen === "verify-phone", phone, setPhone,
     hasPhone: Boolean(account?.phone), verified: phoneVerified,
     destination: pending?.phone ?? "your phone", expired: phoneExpired, cooldown, busy,
-    fieldError: fieldErrors.phone, backTo: account?.onboardingCompleted ? "account" : "channels",
+    fieldError: fieldErrors.phone, goBack: () => openScreen(account?.onboardingCompleted ? "account" : "channels"),
     sendCode, resendCode, verifyCode, useAnotherNumber, continueWithoutSms,
   };
   const authEntry = {
@@ -952,27 +961,37 @@ export function useAccountFlow(initial: string) {
     openRecovery: () => setScreen("forgot"),
   };
   const emailProof = {
-    deviceVerification: screen === "device-code", email,
+    deviceVerification: screen === "device-code", email, goBack: () => openScreen("signin"),
     verifyCode: verifyEmailCode, resendCode: resendEmailCode,
   };
   const recoveryFlow = {
     stage: screen === "forgot" ? "request" as const : screen === "recovery-code" ? "code" as const : "password" as const,
-    email, setEmail, requestCode: requestRecoveryCode, verifyCode: verifyRecoveryCode,
+    email, setEmail, goBack: () => openScreen("signin"), requestCode: requestRecoveryCode, verifyCode: verifyRecoveryCode,
     savePassword: saveRecoveredPassword, resendCode: resendRecoveryCode,
   };
   const passwordFlow = {
-    hasPassword: Boolean(user?.passwordEnabled), currentPassword, setCurrentPassword, savePassword,
+    hasPassword: Boolean(user?.passwordEnabled), currentPassword, setCurrentPassword, savePassword, goBack: () => openScreen("account"),
   };
-  const reverification = { method: reverifyMethod, currentPassword, setCurrentPassword, verifyIdentity, resendCode: resendIdentityCode };
+  const reverification = { goBack: () => openScreen("account"), method: reverifyMethod, currentPassword, setCurrentPassword, verifyIdentity, resendCode: resendIdentityCode };
   const identityView = {
     hasPassword: Boolean(user?.passwordEnabled), email: user?.primaryEmailAddress?.emailAddress,
     avatarUrl: user?.imageUrl,
   };
   const taskFlow = { task: session?.currentTask?.key ?? null, savePassword: saveTaskPassword, signOut: signOutTask };
+  const navigation = { openDestination, signOut: signOutFromShell };
+  const accountActions = { openEmailChange, openAccountRemoval, signOut: signOutFromAccount };
+  const unavailableAction = { removing: screen === "close", returnToAccount };
+  const preferencesNavigation = { openPhone: openAlertPhoneSettings, openLocation: () => setScreen("location") };
+  const departure = {
+    open: Boolean(leaveAction), error: leaveError, saving: savingBeforeLeave,
+    saveAndLeave, discardAndLeave,
+    stay: () => { if (!savingBeforeLeave) setLeaveAction(null); },
+  };
   return {
+    navigation, accountActions, unavailableAction, preferencesNavigation, departure,
     authEntry, emailProof, recoveryFlow, renderResend,
     passwordFlow, reverification, openPasswordSettings, openPhoneSettings,
-    identityView, taskFlow, signOut,
+    identityView, taskFlow,
     profile,
     phoneFlow,
     screen,
@@ -980,17 +999,14 @@ export function useAccountFlow(initial: string) {
     isAccountLoading,
     heading,
     busy,
-    navigate,
     error,
     isSignedIn,
     isLoaded,
     title,
     action,
     resume,
-    setScreen,
     fieldErrors,
     submit,
-    back,
     codeField,
     newPasswordFields,
     savePreferences,
@@ -998,22 +1014,12 @@ export function useAccountFlow(initial: string) {
     channels,
     setChannels,
     phoneVerified,
-    setPhone,
     draft,
     emailVerified,
     setDraft,
-    sensitive,
     list,
-    dirty,
     setLocationEdit,
     locationValidation,
-    leaveAction,
-    leaveError,
-    savingBeforeLeave,
-    saveAndLeave,
-    discardAndLeave,
-    stay: () => { if (!savingBeforeLeave) setLeaveAction(null); },
-    confirmLeave,
   };
 }
 export type AccountFlowState = ReturnType<typeof useAccountFlow>;

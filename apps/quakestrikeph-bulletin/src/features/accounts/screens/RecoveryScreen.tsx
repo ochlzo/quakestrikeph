@@ -1,17 +1,17 @@
-import { FormField, passwordRequirements } from "../account-ui";
+import { BackButton, FormField, passwordRequirements } from "../account-ui";
 import type { AccountFlowState } from "../useAccountFlow";
 
 type RecoveryScreenFlow = Pick<AccountFlowState,
-  "recoveryFlow" | "back" | "title" | "codeField" | "newPasswordFields" | "submit" | "renderResend">;
+  "recoveryFlow" | "title" | "codeField" | "newPasswordFields" | "submit" | "renderResend">;
 
 export function RecoveryScreen({ flow }: { flow: RecoveryScreenFlow; }) {
   const {
-    recoveryFlow, back, title, codeField, newPasswordFields, submit, renderResend,
+    recoveryFlow, title, codeField, newPasswordFields, submit, renderResend,
   } = flow;
   const { stage, email, setEmail, requestCode, verifyCode, savePassword, resendCode } = recoveryFlow;
   return (
     <>
-      {back("signin")}
+      <BackButton onPress={recoveryFlow.goBack} />
       {title(
         stage === "request"
           ? "Forgot your password?"

@@ -1,19 +1,19 @@
 import { ArrowRight } from "lucide-react";
 import { Button } from "../../../components/ui/button";
-import { FormField } from "../account-ui";
+import { BackButton, FormField } from "../account-ui";
 import type { AccountFlowState } from "../useAccountFlow";
 
-type PhoneScreenFlow = Pick<AccountFlowState, "phoneFlow" | "back" | "title" | "codeField" | "submit">;
+type PhoneScreenFlow = Pick<AccountFlowState, "phoneFlow" | "title" | "codeField" | "submit">;
 
 export function PhoneScreen({ flow }: { flow: PhoneScreenFlow; }) {
-  const { phoneFlow, back, title, codeField, submit } = flow;
+  const { phoneFlow, title, codeField, submit } = flow;
   const {
-    verifying, phone, setPhone, hasPhone, verified, destination, expired, cooldown, busy, fieldError, backTo,
+    verifying, phone, setPhone, hasPhone, verified, destination, expired, cooldown, busy, fieldError, goBack,
     sendCode, resendCode, verifyCode, useAnotherNumber, continueWithoutSms,
   } = phoneFlow;
   return (
     <>
-      {back(backTo)}
+      <BackButton onPress={goBack} />
       {title(
         !verifying
           ? verified

@@ -1,4 +1,4 @@
-import { ChevronsUpDown, Eye, EyeOff, LogOut, MapPin, Settings, UserRound } from "lucide-react";
+import { ArrowLeft, ChevronsUpDown, Eye, EyeOff, LogOut, MapPin, Settings, UserRound } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Menu, MenuItem, MenuTrigger, RouterProvider, Separator } from "react-aria-components";
 import { Button } from "../../components/ui/button";
@@ -10,7 +10,7 @@ import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { useIsMobile } from "../../hooks/use-mobile";
 import BulletinLayout from "../../components/BulletinLayout";
 import AccountHeader from "./AccountHeader";
-import type { Screen } from "./routes";
+import type { AccountDestination, Screen } from "./routes";
 import { screenAtPath } from "./routes";
 export const passwordRequirements =
   "Use at least 8 characters, including one lowercase letter, one uppercase letter, and one number.";
@@ -18,8 +18,8 @@ export const passwordPattern = "(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{8,}";
 export function capitalizeNameWords(value: string) {
   return value.replace(/(^|\s)\p{L}/gu, start => start.toUpperCase());
 }
-function SettingsUserMenu({ name, email, avatarUrl, isLoading, navigate, signOut, onOpenChange }: {
-  name: string; email?: string; avatarUrl?: string; isLoading: boolean; navigate: (screen: Screen) => void; signOut?: () => void; onOpenChange: (open: boolean) => void;
+function SettingsUserMenu({ name, email, avatarUrl, isLoading, openDestination, signOut, onOpenChange }: {
+  name: string; email?: string; avatarUrl?: string; isLoading: boolean; openDestination: (destination: AccountDestination) => void; signOut?: () => void; onOpenChange: (open: boolean) => void;
 }) {
   const { isMobile, setOpenMobile } = useSidebar();
   const identity = (
@@ -45,7 +45,7 @@ function SettingsUserMenu({ name, email, avatarUrl, isLoading, navigate, signOut
             <div className="flex items-center gap-2 px-1 py-1.5">{identity}</div>
             <Menu aria-label="User options" className="settings-user-menu">
               <Separator className="settings-user-separator" />
-              <MenuItem textValue="Account" onAction={() => { setOpenMobile(false); navigate("account"); }}>
+              <MenuItem textValue="Account" onAction={() => { setOpenMobile(false); openDestination("account"); }}>
                 <UserRound aria-hidden="true" />Account
               </MenuItem>
               <Separator className="settings-user-separator" />
@@ -57,6 +57,13 @@ function SettingsUserMenu({ name, email, avatarUrl, isLoading, navigate, signOut
         </MenuTrigger>
       </SidebarMenuItem>
     </SidebarMenu>
+  );
+}
+export function BackButton({ onPress }: { onPress: () => void }) {
+  return (
+    <Button variant="link" className="text-button" onPress={onPress}>
+      <ArrowLeft />Back
+    </Button>
   );
 }
 export function FormField({
@@ -157,7 +164,7 @@ export function Shell({
   avatarUrl,
   isLoading = false,
   children,
-  navigate,
+  openDestination,
   signOut,
 }: {
   screen: Screen;
@@ -166,7 +173,7 @@ export function Shell({
   avatarUrl?: string;
   isLoading?: boolean;
   children: ReactNode;
-  navigate: (screen: Screen) => void;
+  openDestination: (destination: AccountDestination) => void;
   signOut?: () => void;
 }) {
   const wide = ["preferences", "location", "account"].includes(screen);
@@ -201,7 +208,7 @@ export function Shell({
           <aside className="settings-rail">
             <RouterProvider navigate={(path) => {
               const next = screenAtPath(path);
-              if (next) navigate(next);
+              if (next === "preferences" || next === "location" || next === "account") openDestination(next);
             }}>
               <Tabs className="settings-mobile-tabs" selectedKey={screen} keyboardActivation="manual" isDisabled={isLoading}>
                 <TabsList aria-label="Settings">
@@ -215,7 +222,7 @@ export function Shell({
               <Button
                 isDisabled={isLoading}
                 aria-current={screen === "preferences" ? "page" : undefined}
-                onPress={() => navigate("preferences")}
+                onPress={() => openDestination("preferences")}
               >
                 <Settings />
                 Alert preferences
@@ -223,7 +230,7 @@ export function Shell({
               <Button
                 isDisabled={isLoading}
                 aria-current={screen === "location" ? "page" : undefined}
-                onPress={() => navigate("location")}
+                onPress={() => openDestination("location")}
               >
                 <MapPin />
                 Alert location
@@ -231,7 +238,7 @@ export function Shell({
               <Button
                 isDisabled={isLoading}
                 aria-current={screen === "account" ? "page" : undefined}
-                onPress={() => navigate("account")}
+                onPress={() => openDestination("account")}
               >
                 <UserRound />
                 Account
@@ -285,7 +292,7 @@ export function Shell({
       }}>
       {wide ? (
         <BulletinLayout settings filters={null} results={null} sidebarMenuOpen={sidebarMenuOpen}
-          sidebarFooter={<SettingsUserMenu name={name} email={email} avatarUrl={avatarUrl} isLoading={isLoading} navigate={navigate} signOut={signOut} onOpenChange={setSidebarMenuOpen} />}>
+          sidebarFooter={<SettingsUserMenu name={name} email={email} avatarUrl={avatarUrl} isLoading={isLoading} openDestination={openDestination} signOut={signOut} onOpenChange={setSidebarMenuOpen} />}>
           {content}
         </BulletinLayout>
       ) : (

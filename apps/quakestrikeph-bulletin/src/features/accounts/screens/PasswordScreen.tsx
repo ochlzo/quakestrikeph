@@ -1,16 +1,16 @@
-import { FormField, passwordRequirements } from "../account-ui";
+import { BackButton, FormField, passwordRequirements } from "../account-ui";
 import type { AccountFlowState } from "../useAccountFlow";
 
-type PasswordScreenFlow = Pick<AccountFlowState, "passwordFlow" | "back" | "title" | "newPasswordFields" | "submit">;
+type PasswordScreenFlow = Pick<AccountFlowState, "passwordFlow" | "title" | "newPasswordFields" | "submit">;
 
 export function PasswordScreen({ flow }: { flow: PasswordScreenFlow; }) {
   const {
-    passwordFlow, back, title, newPasswordFields, submit,
+    passwordFlow, title, newPasswordFields, submit,
   } = flow;
   const { hasPassword, currentPassword, setCurrentPassword, savePassword } = passwordFlow;
   return (
     <>
-      {back("account")}
+      <BackButton onPress={passwordFlow.goBack} />
       {title(
         hasPassword
           ? "Change your password"
