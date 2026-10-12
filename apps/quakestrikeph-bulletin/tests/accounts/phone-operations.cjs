@@ -101,6 +101,39 @@ async function idle(page) {
   const errors = [];
   try {
     for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+      // First sign-in retains the account island; enrollment must adopt the authenticated session.
+      for (const onboarding of [true, false]) {
+        const { page, state } = await fixture(browser, viewport, errors, {
+          ...baseline, onboardingCompleted: !onboarding,
+        });
+        await page.goto(`${root}/sign-in?signed=0`);
+        await page.getByRole('textbox', { name: 'Email address' }).fill('maria@example.invalid');
+        await page.getByRole('textbox', { name: 'Password', exact: true }).fill('fixture-password');
+        await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+        await page.getByRole('heading', { name: 'Verify your email', exact: true }).waitFor();
+        await page.getByRole('textbox', { name: 'Verification code' }).fill('111111');
+        await page.getByRole('button', { name: 'Verify email', exact: true }).click();
+        if (onboarding) {
+          await page.getByRole('heading', { name: 'How would you like to receive alerts?', exact: true }).waitFor();
+          await page.getByRole('button', { name: 'Continue', exact: true }).click();
+        } else {
+          await page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
+          await page.getByRole('button', { name: 'Add number', exact: true }).click();
+        }
+        await page.getByRole('heading', { name: 'Add your mobile number', exact: true }).waitFor();
+        await send(page);
+        await page.getByRole('heading', { name: 'Verify your mobile number', exact: true }).waitFor();
+        assert.equal(state.account.smsEnabled, false, 'Sending a code must not enable SMS');
+        await verify(page);
+        await page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
+        await idle(page);
+        assert.equal(state.account.smsEnabled, onboarding);
+        assert.deepEqual(state.trace.map(item => item.key), onboarding
+          ? ['GET ', 'PUT /preferences', 'POST /phone/attempts', 'POST /phone/verify', 'PUT /preferences']
+          : ['GET ', 'POST /phone/attempts', 'POST /phone/verify']);
+        await page.close();
+      }
+      console.log(`PASS ${viewport.width}: first sign-in, channel confirmation, and SMS enrollment`);
       // Replacement refresh runs after both sending outcomes, with independent refresh failures.
       for (const sendFails of [false, true]) for (const refreshFails of [false, true]) {
         const { page, state, enqueue } = await fixture(browser, viewport, errors, {
