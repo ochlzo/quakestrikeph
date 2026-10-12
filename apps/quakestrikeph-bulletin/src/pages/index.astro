@@ -3,10 +3,9 @@ import Bulletin from '../components/Bulletin';
 import { ClientRouter } from 'astro:transitions';
 import BackgroundToaster from '../components/BackgroundToaster';
 import '../styles/globals.css';
-import type { components } from '../lib/api/schema';
-import { getSecret } from 'astro:env/server';
 import { readBulletinState } from '../lib/bulletin-navigation';
-import { magnitudeRangesForBands } from '../lib/magnitude';
+import { prepareEventResults } from '../features/event-results/server';
+import { searchInitialEvents } from '../lib/api/event-results.server';
 
 const earthquakeId = Astro.url.searchParams.get('earthquake');
 const initialState = readBulletinState(Astro.url.searchParams);
@@ -14,23 +13,7 @@ if (earthquakeId !== null) {
   if (!earthquakeId) return Astro.redirect('/');
   return Astro.redirect(`/forecasts/${encodeURIComponent(earthquakeId)}`);
 }
-let initialResults: components['schemas']['SearchResponse'] | null = null;
-if (initialState.query.trim().length !== 1) try {
-  const response = await fetch(new URL('/api/v1/earthquakes/search', getSecret('API_TARGET') || 'https://quakestrikeph.qzz.io'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ limit: 30, location: initialState.query.trim() || undefined,
-      dateFrom: initialState.date.from, dateTo: initialState.date.to,
-      magnitudeRanges: magnitudeRangesForBands(initialState.magnitudes) }),
-    signal: AbortSignal.timeout(1500),
-  });
-  if (response.ok) {
-    const data: components['schemas']['SearchResponse'] = await response.json();
-    initialResults = { ...data, items: data.items.slice(0, 30) };
-  }
-} catch {
-  // The browser can restore saved rows and retry if the initial request fails.
-}
+const initialResults = await prepareEventResults(initialState, searchInitialEvents);
 ---
 <!doctype html>
 <html lang="en">

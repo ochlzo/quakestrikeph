@@ -57,9 +57,9 @@ const response = { items, fetchedAt: '2026-10-05T05:00:00Z', nextCursor: null, h
           else if (hadRows) window.blankList = true;
         }).observe(document, { subtree: true, childList: true });
       }, { items });
-      let release;
+      let release, browserSearches = 0;
       await page.route('**/api/v1/earthquakes/search', async route => {
-        await new Promise(resolve => { release = resolve; });
+        if (browserSearches++ === 0) await new Promise(resolve => { release = resolve; });
         await route.fulfill({ json: { ...response, items: [{ ...items[0], locationDescription: 'Updated server result' }, ...items.slice(1)] } });
       });
       await page.goto(root, { waitUntil: 'domcontentloaded' });
@@ -78,6 +78,12 @@ const response = { items, fetchedAt: '2026-10-05T05:00:00Z', nextCursor: null, h
         console.error({ viewport, errors, rows: await page.locator('.event-row-v2').allTextContents() });
         throw error;
       });
+      const restoredRefresh = page.waitForResponse(response => response.url().includes('/earthquakes/search'));
+      await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+      await restoredRefresh;
+      assert.equal(browserSearches, 2, 'Restoring a persisted page must refresh the list');
+      assert.equal(await page.locator('.event-row-v2').count(), 30);
+      assert.equal(await page.locator('.event-list-skeleton').count(), 0);
       assert.deepEqual(errors, []);
       await page.close();
     }
@@ -90,7 +96,7 @@ const response = { items, fetchedAt: '2026-10-05T05:00:00Z', nextCursor: null, h
       child.on('error', reject);
       child.on('exit', code => code === 0 ? resolve() : reject(new Error(`Cache checks exited ${code}`)));
     });
-    console.log('Initial HTML, hydration without a blank list, server freshness and background updates passed.');
+    console.log('Initial HTML, hydration without a blank list, server freshness, background updates and persisted-page refresh passed.');
   } finally {
     if (browser) await browser.close();
     server.kill();

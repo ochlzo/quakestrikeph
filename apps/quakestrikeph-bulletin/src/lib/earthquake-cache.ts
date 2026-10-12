@@ -19,9 +19,9 @@ function isEarthquake(value: unknown): value is Earthquake {
       [row.forecast.probabilityM4Plus24h, row.forecast.probabilityM5Plus24h].every(Number.isFinite)));
 }
 
-export function readEarthquakeCache(query: EarthquakeSearch): { items: Earthquake[]; fetchedAt: string } | null {
+export function readEarthquakeCache(query: EarthquakeSearch, storage?: Pick<Storage, 'getItem'>): { items: Earthquake[]; fetchedAt: string } | null {
   try {
-    const cached = JSON.parse(sessionStorage.getItem(storageKey) ?? "null");
+    const cached = JSON.parse((storage ?? sessionStorage).getItem(storageKey) ?? "null");
     if (!cached || cached.query !== JSON.stringify(query) ||
       !Array.isArray(cached.items) || cached.items.length > 30 ||
       !cached.items.every(isEarthquake) || typeof cached.fetchedAt !== "string" ||
@@ -32,9 +32,9 @@ export function readEarthquakeCache(query: EarthquakeSearch): { items: Earthquak
   }
 }
 
-export function writeEarthquakeCache(query: EarthquakeSearch, data: components["schemas"]["SearchResponse"]): void {
+export function writeEarthquakeCache(query: EarthquakeSearch, data: components["schemas"]["SearchResponse"], storage?: Pick<Storage, 'setItem'>): void {
   try {
-    sessionStorage.setItem(storageKey, JSON.stringify({
+    (storage ?? sessionStorage).setItem(storageKey, JSON.stringify({
       query: JSON.stringify(query), items: data.items.slice(0, 30), fetchedAt: data.fetchedAt,
     }));
   } catch {

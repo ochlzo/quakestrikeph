@@ -1,4 +1,4 @@
-import { magnitudeBands, magnitudeRangesForBands } from './magnitude';
+import { magnitudeBands, magnitudeRangesForBands } from './magnitude.ts';
 import type { Earthquake } from './events';
 
 export type DateFilter = { value: string; from?: string; to?: string };

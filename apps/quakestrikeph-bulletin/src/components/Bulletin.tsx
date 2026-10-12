@@ -16,11 +16,10 @@ import MapPanel from "./MapPanel";
 import BulletinLayout from "./BulletinLayout";
 import { useIsMobile } from "../hooks/use-mobile";
 import MagnitudeFilter from "./MagnitudeFilter";
-import { magnitudeBand, magnitudeRangesForBands } from "../lib/magnitude";
-import { bulletinApi } from "../lib/api/client";
+import { magnitudeBand } from "../lib/magnitude";
 import type { components } from "../lib/api/schema";
-import { readEarthquakeCache, writeEarthquakeCache, type EarthquakeSearch } from "../lib/earthquake-cache";
-import { bulletinParams, matchesBulletinFilters, type BulletinState, type DateFilter } from "../lib/bulletin-navigation";
+import type { BulletinState } from "../lib/bulletin-navigation";
+import { useEventResults } from "../features/event-results/useEventResults";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
 import { RangeCalendar } from "@/components/ui/calendar";
@@ -48,8 +47,6 @@ import {
   displayTime,
   locationLabel,
   magnitude,
-  type Earthquake,
-  type EarthquakeDetail,
 } from "../lib/events";
 
 const dateOptions = [
@@ -128,7 +125,9 @@ export default function Bulletin({ initialResults = null, initialState = { query
   initialResults?: components["schemas"]["SearchResponse"] | null;
   initialState?: BulletinState;
 }) {
-  const initialPage = useRef(initialResults);
+  const { state: { query, date: dateFilter, magnitudes: magnitudeFilter }, events: visible,
+    selected, selectedDetail, detailStatus, searching, resultsCurrent, failed, canLoadMore,
+    pageStatus, previousId, changeFilters, select, refresh, loadMore } = useEventResults(initialState, initialResults);
   useEffect(() => {
     const url = new URL(window.location.href);
     if (url.searchParams.get('preferences') !== 'saved') return;
@@ -139,10 +138,6 @@ export default function Bulletin({ initialResults = null, initialState = { query
   const mobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerSnap, setDrawerSnap] = useState<number | string | null>(0.65);
-  const [query, setQuery] = useState(initialState.query);
-  const [dateFilter, setDateFilter] = useState<DateFilter>(initialState.date);
-  const [settledDateFilter, setSettledDateFilter] =
-    useState<DateFilter>(dateFilter);
   const [customRange, setCustomRange] = useState<RangeValue<DateValue>>(() => {
     if (initialState.date.value === 'custom' && initialState.date.from && initialState.date.to) {
       return {
@@ -155,61 +150,14 @@ export default function Bulletin({ initialResults = null, initialState = { query
   });
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [calendarMonths, setCalendarMonths] = useState(1);
-  const [magnitudeFilter, setMagnitudeFilter] = useState<string[]>(initialState.magnitudes);
-  const [settledMagnitudeFilter, setSettledMagnitudeFilter] = useState(magnitudeFilter);
-  const [events, setEvents] = useState<Earthquake[]>(initialResults?.items ?? []);
-  const [settledLocation, setSettledLocation] = useState(initialState.query.trim());
-  const [selectedId, setSelectedId] = useState<string | null>(initialState.selectedId);
   const [focusRequest, setFocusRequest] = useState(0);
-  const [previousId, setPreviousId] = useState<string | null>(null);
-  const [selectedDetail, setSelectedDetail] = useState<EarthquakeDetail | null>(
-    null,
-  );
-  const [detailStatus, setDetailStatus] = useState<
-    "loading" | "ready" | "error"
-  >("loading");
-  const [status, setStatus] = useState<"restoring" | "loading" | "ready" | "error">(
-    initialResults ? "ready" : "restoring",
-  );
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [pageStatus, setPageStatus] = useState<"idle" | "loading" | "error">(
-    "idle",
-  );
-  const pageController = useRef<AbortController | null>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const drawerClose = useRef<HTMLButtonElement>(null);
   const dateSelectTrigger = useRef<HTMLButtonElement>(null);
   const eventList = useRef<HTMLDivElement>(null);
   const selectedCard = useRef<HTMLElement>(null);
   const pendingMapSelection = useRef<string | null>(null);
-  const [requestAttempt, setRequestAttempt] = useState(0);
   const location = query.trim();
-  const previousFilters = useRef({ location, dateFilter, magnitudeFilter });
-
-  useEffect(() => {
-    const previous = previousFilters.current;
-    if (previous.location !== location || previous.dateFilter !== dateFilter || previous.magnitudeFilter !== magnitudeFilter) {
-      setSelectedId(null);
-      setPreviousId(null);
-    }
-    previousFilters.current = { location, dateFilter, magnitudeFilter };
-  }, [location, dateFilter, magnitudeFilter]);
-
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    for (const key of ['q', 'date', 'from', 'to', 'magnitudes', 'selected']) url.searchParams.delete(key);
-    bulletinParams({ query, date: dateFilter, magnitudes: magnitudeFilter, selectedId }).forEach((value, key) => url.searchParams.set(key, value));
-    window.history.replaceState(window.history.state, '', url);
-  }, [query, dateFilter, magnitudeFilter, selectedId]);
-
-  useEffect(() => () => pageController.current?.abort(), []);
-  useEffect(() => {
-    const refreshRestoredPage = (event: PageTransitionEvent) => {
-      if (event.persisted) setRequestAttempt((attempt) => attempt + 1);
-    };
-    window.addEventListener("pageshow", refreshRestoredPage);
-    return () => window.removeEventListener("pageshow", refreshRestoredPage);
-  }, []);
 
   useEffect(() => {
     setDrawerOpen(false);
@@ -225,161 +173,6 @@ export default function Bulletin({ initialResults = null, initialState = { query
     return () => media.removeEventListener("change", update);
   }, []);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    pageController.current?.abort();
-    pageController.current = null;
-    setPageStatus("idle");
-    setNextCursor(null);
-
-    if (location.length === 1) return () => controller.abort();
-
-    const search: EarthquakeSearch = {
-      limit: 30,
-      location: location || undefined,
-      dateFrom: dateFilter.from,
-      dateTo: dateFilter.to,
-      magnitudeRanges: magnitudeRangesForBands(magnitudeFilter),
-    };
-    const initial = initialPage.current;
-    initialPage.current = null;
-    const cached = initial ? null : readEarthquakeCache(search);
-    if (initial) writeEarthquakeCache(search, initial);
-    if (cached) {
-      setEvents(cached.items);
-      setSettledLocation(location);
-      setSettledDateFilter(dateFilter);
-      setSettledMagnitudeFilter(magnitudeFilter);
-      setStatus("ready");
-    } else if (!initial) setStatus("loading");
-
-    async function loadEvents() {
-      try {
-        const { data } = await bulletinApi.POST("/earthquakes/search", {
-          body: search,
-          signal: controller.signal,
-        });
-        if (controller.signal.aborted) return;
-        if (!data) throw new Error("Search failed");
-        writeEarthquakeCache(search, data);
-        setEvents((current) => JSON.stringify(current) === JSON.stringify(data.items) ? current : data.items);
-        setNextCursor(data.nextCursor);
-        setSettledLocation(location);
-        setSettledDateFilter(dateFilter);
-        setSettledMagnitudeFilter(magnitudeFilter);
-        setPreviousId(null);
-        setStatus("ready");
-      } catch {
-        if (!controller.signal.aborted) {
-          if (cached || initial) {
-            toast.add({ type: "error", title: "Earthquakes could not be refreshed.", description: "Showing saved results. Reload to try again." });
-            return;
-          }
-          setSettledLocation(location);
-          setSettledDateFilter(dateFilter);
-          setSettledMagnitudeFilter(magnitudeFilter);
-          setStatus("error");
-        }
-      }
-    }
-
-    const timer = window.setTimeout(
-      () => void loadEvents(),
-      location || magnitudeFilter !== settledMagnitudeFilter ? 300 : 0,
-    );
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [location, dateFilter, magnitudeFilter, requestAttempt]);
-
-  async function loadMore() {
-    if (
-      !nextCursor ||
-      pageController.current ||
-      status !== "ready" ||
-      settledLocation !== location ||
-      settledDateFilter !== dateFilter ||
-      settledMagnitudeFilter !== magnitudeFilter
-    )
-      return;
-    const controller = new AbortController();
-    pageController.current = controller;
-    setPageStatus("loading");
-    try {
-      const { data } = await bulletinApi.POST("/earthquakes/search", {
-        body: {
-          limit: 30,
-          cursor: nextCursor,
-          location: location || undefined,
-          dateFrom: dateFilter.from,
-          dateTo: dateFilter.to,
-          magnitudeRanges: magnitudeRangesForBands(magnitudeFilter),
-        },
-        signal: controller.signal,
-      });
-      if (controller.signal.aborted) return;
-      if (!data) throw new Error("Search failed");
-      setEvents((current) => {
-        const seen = new Set(current.map((event) => event.eventId));
-        return [
-          ...current,
-          ...data.items.filter((event) => !seen.has(event.eventId)),
-        ];
-      });
-      setNextCursor(data.nextCursor);
-      setPageStatus("idle");
-    } catch {
-      if (!controller.signal.aborted) setPageStatus("error");
-    } finally {
-      if (pageController.current === controller) pageController.current = null;
-    }
-  }
-
-  useEffect(() => {
-    if (!selectedId) {
-      setSelectedDetail(null);
-      return;
-    }
-    const controller = new AbortController();
-    setSelectedDetail(null);
-    setDetailStatus("loading");
-    bulletinApi
-      .GET("/earthquakes/{eventId}", {
-        params: { path: { eventId: selectedId } },
-        signal: controller.signal,
-      })
-      .then(({ data }) => {
-        if (!data) throw new Error("Detail failed");
-        if (controller.signal.aborted) return;
-        setSelectedDetail(data.item);
-        setDetailStatus("ready");
-      })
-      .catch(() => {
-        if (controller.signal.aborted) return;
-        setSelectedDetail(null);
-        setDetailStatus("error");
-      });
-    return () => controller.abort();
-  }, [selectedId]);
-
-  const resultsCurrent =
-    status === "ready" &&
-    settledLocation === location &&
-    settledDateFilter === dateFilter &&
-    settledMagnitudeFilter === magnitudeFilter;
-  // A restored selection can be older than the first search page.
-  const restoredSelection = selectedDetail && selectedDetail.eventId === selectedId &&
-    !events.some(event => event.eventId === selectedId) &&
-    matchesBulletinFilters(selectedDetail, { query, date: dateFilter, magnitudes: magnitudeFilter, selectedId })
-      ? selectedDetail : null;
-  const visible = resultsCurrent ? (restoredSelection ? [...events, restoredSelection] : events) : [];
-  const searching =
-    location.length !== 1 &&
-    (status === "loading" ||
-      settledLocation !== location ||
-      settledDateFilter !== dateFilter ||
-      settledMagnitudeFilter !== magnitudeFilter);
   const activeFilterCount = Number(Boolean(location)) +
     Number(dateFilter.value !== "all") + Number(magnitudeFilter.length > 0);
   const emptyStateKind = activeFilterCount > 1 || magnitudeFilter.length > 0
@@ -392,7 +185,6 @@ export default function Bulletin({ initialResults = null, initialState = { query
   const selectedDateLabel = dateFilter.value === "custom"
     ? formatCalendarRange(customRange)
     : dateOptions.find((option) => option.value === dateFilter.value)?.label;
-  const selected = visible.find((event) => event.eventId === selectedId);
   const sourceUrl =
     selectedDetail &&
     selected &&
@@ -410,8 +202,8 @@ export default function Bulletin({ initialResults = null, initialState = { query
       return;
     }
     setCalendarOpen(false);
-    setDateFilter(
-      value === "all"
+    changeFilters({
+      date: value === "all"
         ? { value }
         : {
             value: String(value),
@@ -419,14 +211,16 @@ export default function Bulletin({ initialResults = null, initialState = { query
               Date.now() - Number(value) * 24 * 60 * 60 * 1000,
             ).toISOString(),
           },
-    );
+    });
   };
   const chooseCustomRange = (range: RangeValue<DateValue>) => {
     setCustomRange(range);
-    setDateFilter({
-      value: "custom",
-      from: phtDayBoundary(range.start),
-      to: phtDayBoundary(range.end, true),
+    changeFilters({
+      date: {
+        value: "custom",
+        from: phtDayBoundary(range.start),
+        to: phtDayBoundary(range.end, true),
+      },
     });
     setCalendarOpen(false);
   };
@@ -434,9 +228,7 @@ export default function Bulletin({ initialResults = null, initialState = { query
     pendingMapSelection.current = fromMap ? id : null;
     setFocusRequest((current) => current + 1);
     if (id === selected?.eventId) return;
-    setDetailStatus("loading");
-    setPreviousId(selected?.eventId ?? null);
-    setSelectedId(id);
+    select(id);
   };
   useEffect(() => {
     if (pendingMapSelection.current !== selected?.eventId) return;
@@ -538,7 +330,7 @@ export default function Bulletin({ initialResults = null, initialState = { query
           id="location-search"
           ref={searchInput}
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => changeFilters({ query: event.target.value })}
           aria-busy={location.length >= 2 && searching}
           maxLength={100}
           placeholder="Search by location (e.g. Legazpi, Albay)"
@@ -605,11 +397,7 @@ export default function Bulletin({ initialResults = null, initialState = { query
       </Popover>
       <MagnitudeFilter
         value={magnitudeFilter}
-        onChange={(keys) => setMagnitudeFilter((current) =>
-          current.length === keys.length && current.every((key, index) => key === keys[index])
-            ? current
-            : keys,
-        )}
+        onChange={(magnitudes) => changeFilters({ magnitudes })}
       />
     </div>
   );
@@ -661,15 +449,12 @@ export default function Bulletin({ initialResults = null, initialState = { query
           Enter at least 2 characters to search locations.
         </div>
       )}
-      {status === "error" &&
-        settledLocation === location &&
-        settledDateFilter === dateFilter &&
-        settledMagnitudeFilter === magnitudeFilter && (
+      {failed && (
           <div className="notice" role="alert">
             <p>Earthquake data is unavailable right now.</p>
             <Button
               className="retry-button"
-              onPress={() => setRequestAttempt((attempt) => attempt + 1)}
+              onPress={refresh}
             >
               Try again
             </Button>
@@ -709,9 +494,11 @@ export default function Bulletin({ initialResults = null, initialState = { query
               variant="outline"
               className="clear-search-button"
               onPress={() => {
-                if (emptyStateKind !== "date") setQuery("");
-                if (emptyStateKind !== "search") setDateFilter({ value: "all" });
-                if (emptyStateKind === "generic") setMagnitudeFilter([]);
+                changeFilters({
+                  query: emptyStateKind !== "date" ? "" : query,
+                  date: emptyStateKind !== "search" ? { value: "all" } : dateFilter,
+                  magnitudes: emptyStateKind === "generic" ? [] : magnitudeFilter,
+                });
                 if (emptyStateKind === "search") searchInput.current?.focus();
               }}
             >
@@ -735,7 +522,7 @@ export default function Bulletin({ initialResults = null, initialState = { query
           }
         >
           {renderRows()}
-          {resultsCurrent && (nextCursor || pageStatus === "error") && (
+          {resultsCurrent && (canLoadMore || pageStatus === "error") && (
             <div className="load-more">
               {pageStatus === "error" && (
                 <p role="alert">
