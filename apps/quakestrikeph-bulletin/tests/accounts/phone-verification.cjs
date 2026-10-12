@@ -2,6 +2,7 @@
 const assert = require('node:assert/strict');
 const { mkdir } = require('node:fs/promises');
 const { chromium } = require('playwright');
+const root = process.env.ACCOUNTS_FIXTURE_URL || 'http://127.0.0.1:4332';
 (async () => {
   const browser = await chromium.launch({ channel: 'msedge', headless: true });
   try {
@@ -18,7 +19,7 @@ const { chromium } = require('playwright');
           ? { account, pending: pending(true), nextStep: 'verify-phone', deliveryAvailable: false }
           : request.url().endsWith('/phone/attempts') ? pending(false) : account });
       });
-      await page.goto('http://127.0.0.1:4332/?signed=1');
+      await page.goto(`${root}/?signed=1`);
       const resend = page.getByRole('button', { name: 'Resend code', exact: true });
       await resend.waitFor();
       assert.equal(await page.getByRole('button', { name: 'Verify code', exact: true }).count(), 0);

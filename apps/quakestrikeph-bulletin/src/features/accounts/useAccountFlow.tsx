@@ -15,6 +15,7 @@ import {
 import { usePlaces } from "./LocationPicker";
 import { initialScreen, isPublicAccountScreen, pathForScreen, screenAtPath, writeAccountRoute, type AccountDestination, type Screen } from "./routes";
 import { accountPreferences as preferences, preferenceSaves, clearPreferenceSaves, type PreferenceSaves } from './preference-saves';
+import { SmsEnrollment, SmsOptInFailure } from './sms-enrollment';
 const blank: Preferences = {
   emailEnabled: false,
   smsEnabled: false,
@@ -55,10 +56,6 @@ export type PhoneFlow = {
   useAnotherNumber: () => Promise<void>;
   continueWithoutSms: () => Promise<void>;
 };
-// Keep the original failure available to the shared authorization and field handling.
-class SmsOptInFailure extends Error {
-  constructor(readonly failure: unknown) { super("SMS alerts could not be enabled."); }
-}
 function showAuthError(message: string, mode: "signin" | "signup") {
   return toast.add({
     id: "account-auth-error",
@@ -88,7 +85,6 @@ export function useAccountFlow(initial: string) {
   const [pending, setPending] = useState<PendingPhone | null>(null);
   const [draft, setDraft] = useState<Preferences>({ ...blank });
   const [saves, setSaves] = useState<PreferenceSaves | null>(null);
-  const onboardingSms = useRef(false);
   const [name, setName] = useState(""),
     [email, setEmail] = useState(""),
     [password, setPassword] = useState("");
@@ -124,6 +120,35 @@ export function useAccountFlow(initial: string) {
     (locationEdit !== null ||
       (screen === "account" && name !== account.displayName));
   const active = useRef(true);
+  const enrollmentContext = useRef({ account, saves, identity, updateAccount, setScreen });
+  enrollmentContext.current = { account, saves, identity, updateAccount, setScreen };
+  const enrollment = useRef<SmsEnrollment | null>(null);
+  const enrollmentMarker = useRef(identity.session.marker);
+  function createEnrollment() {
+    const marker = enrollmentContext.current.identity.session.marker;
+    return new SmsEnrollment({
+      request: (path, method, body) => enrollmentContext.current.identity.screenRequest(accountRequest, path, method, body),
+      read: () => enrollmentContext.current,
+      reconcile: next => {
+        if (next) return enrollmentContext.current.updateAccount(next);
+        setAccount(null);
+        return null;
+      },
+      isCurrent: () => active.current && enrollmentContext.current.identity.session.marker === marker,
+      emit: event => {
+        if (event.kind === 'pending') setPending(event.pending);
+        else if (event.kind === 'verified') {
+          toast.add({ type: 'success', title: 'Mobile number verified.' });
+          enrollmentContext.current.setScreen('preferences', true, '/alerts');
+        } else toast.add({ type: 'success', title: 'SMS alerts enabled.' });
+      },
+    });
+  }
+  if (!enrollment.current || enrollmentMarker.current !== identity.session.marker) {
+    enrollment.current?.dispose();
+    enrollmentMarker.current = identity.session.marker;
+    enrollment.current = createEnrollment();
+  }
   const historyIndex = useRef<number>(history.state?.accountIndex ?? 0);
   const undoingHistory = useRef(false);
   function setScreen(next: Screen, replace = false, path?: string) {
@@ -134,8 +159,11 @@ export function useAccountFlow(initial: string) {
   }
   useLayoutEffect(() => {
     active.current = true;
+    if (!enrollment.current) enrollment.current = createEnrollment();
     return () => {
       active.current = false;
+      enrollment.current?.dispose();
+      enrollment.current = null;
     };
   }, []);
   useEffect(() => {
@@ -325,40 +353,14 @@ export function useAccountFlow(initial: string) {
     saves.save(patch, delay);
   }
   async function saveOnboardingChannels() {
-    if (!account || !saves) return;
-    const sms = channels.includes('sms');
-    const next = await saves.saveConfirmed({
-      emailEnabled: channels.includes('email') && emailVerified,
-      smsEnabled: sms && phoneVerified,
-    });
-    if (!active.current) return;
-    updateAccount(next);
-    onboardingSms.current = sms && !phoneVerified;
-    setScreen(onboardingSms.current ? 'phone' : 'preferences', true,
-      onboardingSms.current ? '/onboarding' : '/alerts');
-  }
-  async function finishPhone(next: Account) {
-    const queue = updateAccount(next);
-    toast.add({ type: "success", title: "Mobile number verified." });
-    setScreen('preferences', true, '/alerts');
-    if (onboardingSms.current) {
-      // Destination proof must commit before the separate explicit SMS opt-in.
-      try {
-        const enabled = await queue.saveConfirmed({ smsEnabled: true });
-        if (!active.current) return;
-        updateAccount(enabled);
-        onboardingSms.current = false;
-        if (enabled.smsEnabled && queue.snapshot.preferences.smsEnabled)
-          toast.add({ type: "success", title: "SMS alerts enabled." });
-      } catch (failure) { throw new SmsOptInFailure(failure); }
-    }
+    const result = await enrollment.current!.confirmChannels({ email: channels.includes('email'), sms: channels.includes('sms') });
+    if (result.kind !== 'completed') return;
+    setScreen(result.value ? 'phone' : 'preferences', true, result.value ? '/onboarding' : '/alerts');
   }
   async function continueWithoutSms() {
     await action(async () => {
-      if (pending) await api('/phone/attempts', 'DELETE');
-      if (!active.current) return;
-      onboardingSms.current = false;
-      setPending(null);
+      const result = await enrollment.current!.skip();
+      if (result.kind !== 'completed') return;
       setScreen('preferences', true, '/alerts');
     });
   }
@@ -370,7 +372,7 @@ export function useAccountFlow(initial: string) {
       state = await api<AccountState>();
     }
     if (state.account) updateAccount(state.account);
-    setPending(state.pending);
+    enrollment.current!.resume(state.pending);
     if (state.nextStep === "complete") {
       const requested = screenAtPath(location.pathname) ?? initialScreen(initial);
       if (requested === "password" || (requested === "phone" && state.account?.phone && !state.pending)) {
@@ -499,7 +501,6 @@ export function useAccountFlow(initial: string) {
           if (failure instanceof SmsOptInFailure) reportFailure(e.message);
         } else reportFailure(e.message);
         if (e.code === "ATTEMPT_EXPIRED") {
-          setPending(null);
           setScreen("phone");
           reportFailure(e.message);
         }
@@ -642,55 +643,29 @@ export function useAccountFlow(initial: string) {
     setReturnAction(next);
     await prepareReverification(next);
   }
-  async function requestPhone(nextPhone: string) {
-    try {
-      return await api<PendingPhone>("/phone/attempts", "POST", {
-        phone: nextPhone,
-      });
-    } finally {
-      // Replacement can pause SMS even when the provider request fails.
-      if (account?.phone) {
-        try {
-          const state = await api<AccountState>();
-          if (state.account) updateAccount(state.account);
-        } catch {
-          setAccount(null);
-        }
-      }
-    }
-  }
   async function sendCode() {
     await action(async () => {
-      const next = await requestPhone(phone);
-      if (!active.current) return;
-      setPending(next);
-      setPhone(next.phone);
+      const result = await enrollment.current!.send(phone);
+      if (result.kind !== 'completed') return;
+      setPhone(result.value.phone);
       setScreen("verify-phone");
     });
   }
   async function resendCode() {
     await action(async () => {
-      const next = await requestPhone(pending?.phone ?? phone);
-      if (!active.current) return;
-      setPending(next);
+      const result = await enrollment.current!.resend(phone);
+      if (result.kind !== 'completed') return;
       setCode("");
       toast.add({ type: "success", title: "A new SMS code was requested." });
     });
   }
   async function verifyCode() {
-    await action(async () => {
-      if (!pending || phoneExpired) return;
-      const next = await api<Account>("/phone/verify", "POST", { attemptId: pending.id, code });
-      if (!active.current) return;
-      setPending(null);
-      await finishPhone(next);
-    });
+    await action(async () => { await enrollment.current!.verify(code, now); });
   }
   async function useAnotherNumber() {
     await action(async () => {
-      await api("/phone/attempts", "DELETE");
-      if (!active.current) return;
-      setPending(null);
+      const result = await enrollment.current!.changeNumber();
+      if (result.kind !== 'completed') return;
       setScreen("phone");
     });
   }
@@ -743,13 +718,12 @@ export function useAccountFlow(initial: string) {
       />
     </>
   );
-  const cooldown =
+  const phoneState = enrollment.current.view(now);
+  const cooldown = screen === 'verify-phone' ? phoneState.cooldown :
     Math.max(
       0,
       Math.ceil(
-        ((screen === "verify-phone"
-          ? Date.parse(pending?.resendAt ?? "")
-          : sentAt + 60000) -
+        ((sentAt + 60000) -
           now) /
         1000,
       ),
@@ -767,7 +741,7 @@ export function useAccountFlow(initial: string) {
       </Button>
     </div>
   );
-  const phoneExpired = !!pending && Date.parse(pending.expiresAt) <= now;
+  const phoneExpired = phoneState.expired;
   const codeField = (
     <FormField
       id="code"

@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
+const root = process.env.ACCOUNTS_FIXTURE_URL || 'http://127.0.0.1:4332';
 (async () => {
   const browser = await chromium.launch({ channel: 'msedge', headless: true });
   try {
@@ -7,7 +8,7 @@ const { chromium } = require('playwright');
     await page.route('**/api/v1/account**', route => route.fulfill(route.request().method() === 'GET'
       ? { json: { account: { userId: '11111111-1111-4111-8111-111111111111', displayName: 'Maria', email: 'maria@example.com', phone: null, onboardingCompleted: false, status: 'active', emailEnabled: false, smsEnabled: false, magnitude: 4.5, nearbyOnly: false, latitude: null, longitude: null, distanceKm: null }, pending: null, nextStep: 'phone', deliveryAvailable: false } }
       : { status: 429, json: { error: { code: 'SEND_LIMIT', message: 'Wait 60 seconds between code requests.' } } }));
-    await page.goto('http://127.0.0.1:4332/?signed=1');
+    await page.goto(`${root}/?signed=1`);
     await page.getByLabel('Mobile number', { exact: true }).fill('09171234567');
     await page.getByRole('button', { name: 'Send verification code' }).click();
     await page.locator('[data-slot="toast-title"]').filter({ hasText: 'Wait 60 seconds' }).waitFor();
