@@ -21,7 +21,14 @@ import type { components } from "../lib/api/schema";
 import type { BulletinState } from "../lib/bulletin-navigation";
 import { useEventResults } from "../features/event-results/useEventResults";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@/components/ui/drawer";
 import { RangeCalendar } from "@/components/ui/calendar";
 import {
   Empty,
@@ -43,11 +50,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  displayTime,
-  locationLabel,
-  magnitude,
-} from "../lib/events";
+import { displayTime, locationLabel, magnitude } from "../lib/events";
 
 const dateOptions = [
   { label: "All dates", value: "all" },
@@ -75,7 +78,8 @@ function formatCalendarDate(date: DateValue, year = true) {
 function formatCalendarRange(range: RangeValue<DateValue>, year = true) {
   const { start, end } = range;
   if (start.compare(end) === 0) return formatCalendarDate(start, year);
-  if (!year) return `${formatCalendarDate(start, false)} - ${formatCalendarDate(end, false)}`;
+  if (!year)
+    return `${formatCalendarDate(start, false)} - ${formatCalendarDate(end, false)}`;
   if (start.year !== end.year) {
     return `${formatCalendarDate(start)} - ${formatCalendarDate(end)}`;
   }
@@ -89,7 +93,13 @@ function phtDayBoundary(date: DateValue, nextDay = false) {
   ).toISOString();
 }
 
-function DateFilterText({ text, compactText = text }: { text: string; compactText?: string }) {
+function DateFilterText({
+  text,
+  compactText = text,
+}: {
+  text: string;
+  compactText?: string;
+}) {
   const ref = useRef<HTMLSpanElement>(null);
   const [compact, setCompact] = useState(false);
 
@@ -115,34 +125,78 @@ function DateFilterText({ text, compactText = text }: { text: string; compactTex
 
   return (
     <span className="filter-value-text" title={text}>
-      <span ref={ref} className="absolute invisible pointer-events-none" aria-hidden="true">{text}</span>
+      <span
+        ref={ref}
+        className="absolute invisible pointer-events-none"
+        aria-hidden="true"
+      >
+        {text}
+      </span>
       {compact ? compactText : text}
     </span>
   );
 }
 
-export default function Bulletin({ initialResults = null, initialState = { query: '', date: { value: 'all' }, magnitudes: [], selectedId: null } }: {
+export default function Bulletin({
+  initialResults = null,
+  initialState = {
+    query: "",
+    date: { value: "all" },
+    magnitudes: [],
+    selectedId: null,
+  },
+}: {
   initialResults?: components["schemas"]["SearchResponse"] | null;
   initialState?: BulletinState;
 }) {
-  const { state: { query, date: dateFilter, magnitudes: magnitudeFilter }, events: visible,
-    selected, selectedDetail, detailStatus, searching, resultsCurrent, failed, canLoadMore,
-    pageStatus, previousId, changeFilters, select, refresh, loadMore } = useEventResults(initialState, initialResults);
+  const {
+    state: { query, date: dateFilter, magnitudes: magnitudeFilter },
+    events: visible,
+    selected,
+    selectedDetail,
+    detailStatus,
+    searching,
+    resultsCurrent,
+    failed,
+    canLoadMore,
+    pageStatus,
+    previousId,
+    changeFilters,
+    select,
+    refresh,
+    loadMore,
+  } = useEventResults(initialState, initialResults);
   useEffect(() => {
     const url = new URL(window.location.href);
-    if (url.searchParams.get('preferences') !== 'saved') return;
-    toast.add({ type: 'success', title: 'Alert preferences saved.', description: 'Automatic alert delivery is not yet available.' });
-    url.searchParams.delete('preferences');
-    window.history.replaceState(window.history.state, '', url);
+    if (url.searchParams.get("preferences") !== "saved") return;
+    toast.add({
+      type: "success",
+      title: "Alert preferences saved.",
+      description: "Automatic alert delivery is not yet available.",
+    });
+    url.searchParams.delete("preferences");
+    window.history.replaceState(window.history.state, "", url);
   }, []);
   const mobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerSnap, setDrawerSnap] = useState<number | string | null>(0.65);
   const [customRange, setCustomRange] = useState<RangeValue<DateValue>>(() => {
-    if (initialState.date.value === 'custom' && initialState.date.from && initialState.date.to) {
+    if (
+      initialState.date.value === "custom" &&
+      initialState.date.from &&
+      initialState.date.to
+    ) {
       return {
-        start: parseDate(new Date(Date.parse(initialState.date.from) + 8 * 3600000).toISOString().slice(0, 10)),
-        end: parseDate(new Date(Date.parse(initialState.date.to) - 1 + 8 * 3600000).toISOString().slice(0, 10)),
+        start: parseDate(
+          new Date(Date.parse(initialState.date.from) + 8 * 3600000)
+            .toISOString()
+            .slice(0, 10),
+        ),
+        end: parseDate(
+          new Date(Date.parse(initialState.date.to) - 1 + 8 * 3600000)
+            .toISOString()
+            .slice(0, 10),
+        ),
       };
     }
     const end = today("Asia/Manila");
@@ -164,7 +218,6 @@ export default function Bulletin({ initialResults = null, initialState = { query
     setCalendarOpen(false);
   }, [mobile]);
 
-
   useEffect(() => {
     const media = window.matchMedia("(min-width: 640px)");
     const update = () => setCalendarMonths(media.matches ? 2 : 1);
@@ -173,18 +226,22 @@ export default function Bulletin({ initialResults = null, initialState = { query
     return () => media.removeEventListener("change", update);
   }, []);
 
-  const activeFilterCount = Number(Boolean(location)) +
-    Number(dateFilter.value !== "all") + Number(magnitudeFilter.length > 0);
-  const emptyStateKind = activeFilterCount > 1 || magnitudeFilter.length > 0
-    ? "generic"
-    : location
-      ? "search"
-      : dateFilter.value !== "all"
-        ? "date"
-        : "none";
-  const selectedDateLabel = dateFilter.value === "custom"
-    ? formatCalendarRange(customRange)
-    : dateOptions.find((option) => option.value === dateFilter.value)?.label;
+  const activeFilterCount =
+    Number(Boolean(location)) +
+    Number(dateFilter.value !== "all") +
+    Number(magnitudeFilter.length > 0);
+  const emptyStateKind =
+    activeFilterCount > 1 || magnitudeFilter.length > 0
+      ? "generic"
+      : location
+        ? "search"
+        : dateFilter.value !== "all"
+          ? "date"
+          : "none";
+  const selectedDateLabel =
+    dateFilter.value === "custom"
+      ? formatCalendarRange(customRange)
+      : dateOptions.find((option) => option.value === dateFilter.value)?.label;
   const sourceUrl =
     selectedDetail &&
     selected &&
@@ -203,14 +260,15 @@ export default function Bulletin({ initialResults = null, initialState = { query
     }
     setCalendarOpen(false);
     changeFilters({
-      date: value === "all"
-        ? { value }
-        : {
-            value: String(value),
-            from: new Date(
-              Date.now() - Number(value) * 24 * 60 * 60 * 1000,
-            ).toISOString(),
-          },
+      date:
+        value === "all"
+          ? { value }
+          : {
+              value: String(value),
+              from: new Date(
+                Date.now() - Number(value) * 24 * 60 * 60 * 1000,
+              ).toISOString(),
+            },
     });
   };
   const chooseCustomRange = (range: RangeValue<DateValue>) => {
@@ -236,7 +294,8 @@ export default function Bulletin({ initialResults = null, initialState = { query
     const list = eventList.current;
     const card = selectedCard.current;
     if (!list || !card) return;
-    const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    const behavior = window.matchMedia("(prefers-reduced-motion: reduce)")
+      .matches
       ? "auto"
       : "smooth";
     if (window.matchMedia("(max-width: 760px)").matches) {
@@ -265,7 +324,11 @@ export default function Bulletin({ initialResults = null, initialState = { query
           aria-label="Selected earthquake"
         >
           <div className="card-top">
-            <div className={`selected-mag magnitude-value ${magnitudeBand(event.magnitude).className}`}>{magnitude(event.magnitude)}</div>
+            <div
+              className={`selected-mag magnitude-value ${magnitudeBand(event.magnitude).className}`}
+            >
+              {magnitude(event.magnitude)}
+            </div>
             <time dateTime={event.eventTime}>
               {displayTime(event.eventTime)}
             </time>
@@ -303,7 +366,11 @@ export default function Bulletin({ initialResults = null, initialState = { query
           onPress={() => selectEvent(event.eventId)}
         >
           <span className="row-v2-measure">
-            <strong className={`magnitude-value ${magnitudeBand(event.magnitude).className}`}>{magnitude(event.magnitude)}</strong>
+            <strong
+              className={`magnitude-value ${magnitudeBand(event.magnitude).className}`}
+            >
+              {magnitude(event.magnitude)}
+            </strong>
             <small>
               {event.depthKm === null
                 ? "Unknown depth"
@@ -325,7 +392,7 @@ export default function Bulletin({ initialResults = null, initialState = { query
     <div className="filter-bar" aria-label="Earthquake filters">
       <label className="search-field">
         <Search size={20} aria-hidden="true" />
-        <span className="sr-only">Search by location</span>
+        <span className="sr-only">Search by Province</span>
         <input
           id="location-search"
           ref={searchInput}
@@ -333,7 +400,7 @@ export default function Bulletin({ initialResults = null, initialState = { query
           onChange={(event) => changeFilters({ query: event.target.value })}
           aria-busy={location.length >= 2 && searching}
           maxLength={100}
-          placeholder="Search by location (e.g. Legazpi, Albay)"
+          placeholder="Search by Province (e.g. Albay)"
         />
         {location.length >= 2 && searching && (
           <span className="search-spinner" aria-hidden="true" />
@@ -351,10 +418,20 @@ export default function Bulletin({ initialResults = null, initialState = { query
         >
           <SelectValue className="filter-scroll-value">
             {() => (
-              <DateFilterText text={dateFilter.value === "custom"
-                ? formatCalendarRange(customRange)
-                : dateOptions.find((option) => option.value === dateFilter.value)?.label ?? "All dates"}
-                compactText={dateFilter.value === "custom" ? formatCalendarRange(customRange, false) : undefined} />
+              <DateFilterText
+                text={
+                  dateFilter.value === "custom"
+                    ? formatCalendarRange(customRange)
+                    : (dateOptions.find(
+                        (option) => option.value === dateFilter.value,
+                      )?.label ?? "All dates")
+                }
+                compactText={
+                  dateFilter.value === "custom"
+                    ? formatCalendarRange(customRange, false)
+                    : undefined
+                }
+              />
             )}
           </SelectValue>
         </SelectTrigger>
@@ -419,9 +496,7 @@ export default function Bulletin({ initialResults = null, initialState = { query
           <div
             className="event-list event-list-skeleton"
             aria-label={
-              location
-                ? "Earthquake search results"
-                : "Recent earthquakes"
+              location ? "Earthquake search results" : "Recent earthquakes"
             }
             aria-busy="true"
           >
@@ -446,20 +521,17 @@ export default function Bulletin({ initialResults = null, initialState = { query
       )}
       {location.length === 1 && (
         <div className="notice" role="status">
-          Enter at least 2 characters to search locations.
+          Enter at least 2 characters to search provinces.
         </div>
       )}
       {failed && (
-          <div className="notice" role="alert">
-            <p>Earthquake data is unavailable right now.</p>
-            <Button
-              className="retry-button"
-              onPress={refresh}
-            >
-              Try again
-            </Button>
-          </div>
-        )}
+        <div className="notice" role="alert">
+          <p>Earthquake data is unavailable right now.</p>
+          <Button className="retry-button" onPress={refresh}>
+            Try again
+          </Button>
+        </div>
+      )}
       {resultsCurrent && !visible.length && emptyStateKind === "none" && (
         <div className="notice" role="status">
           No earthquake information is available right now.
@@ -477,7 +549,11 @@ export default function Bulletin({ initialResults = null, initialState = { query
               ) : (
                 <>
                   No earthquakes found
-                  <span>for “{emptyStateKind === "search" ? location : selectedDateLabel}”</span>
+                  <span>
+                    for “
+                    {emptyStateKind === "search" ? location : selectedDateLabel}
+                    ”
+                  </span>
                 </>
               )}
             </EmptyTitle>
@@ -496,8 +572,10 @@ export default function Bulletin({ initialResults = null, initialState = { query
               onPress={() => {
                 changeFilters({
                   query: emptyStateKind !== "date" ? "" : query,
-                  date: emptyStateKind !== "search" ? { value: "all" } : dateFilter,
-                  magnitudes: emptyStateKind === "generic" ? [] : magnitudeFilter,
+                  date:
+                    emptyStateKind !== "search" ? { value: "all" } : dateFilter,
+                  magnitudes:
+                    emptyStateKind === "generic" ? [] : magnitudeFilter,
                 });
                 if (emptyStateKind === "search") searchInput.current?.focus();
               }}
@@ -587,22 +665,49 @@ export default function Bulletin({ initialResults = null, initialState = { query
               onSnapPointChange={setDrawerSnap}
               showSwipeHandle
             >
-              <DrawerTrigger className={buttonVariants({ className: "earthquake-drawer-trigger" })}>
+              <DrawerTrigger
+                className={buttonVariants({
+                  className: "earthquake-drawer-trigger",
+                })}
+              >
                 <ListCollapse aria-hidden="true" />
                 Show earthquakes
               </DrawerTrigger>
-              <DrawerContent className="earthquake-drawer" initialFocus={drawerClose}>
-                <DrawerTitle className="sr-only">Earthquake search and results</DrawerTitle>
+              <DrawerContent
+                className="earthquake-drawer"
+                initialFocus={drawerClose}
+              >
+                <DrawerTitle className="sr-only">
+                  Earthquake search and results
+                </DrawerTitle>
                 <DrawerDescription className="sr-only">
-                  Filter earthquakes by location, date, and magnitude. Drag the handle to expand or close.
+                  Filter earthquakes by location, date, and magnitude. Drag the
+                  handle to expand or close.
                 </DrawerDescription>
                 <div className="earthquake-drawer-actions">
-                  <button type="button" className={buttonVariants({ variant: "ghost", size: "icon" })}
-                    aria-label={drawerSnap === 1 ? "Collapse earthquake drawer" : "Expand earthquake drawer"}
-                    onClick={() => setDrawerSnap(drawerSnap === 1 ? 0.65 : 1)}>
+                  <button
+                    type="button"
+                    className={buttonVariants({
+                      variant: "ghost",
+                      size: "icon",
+                    })}
+                    aria-label={
+                      drawerSnap === 1
+                        ? "Collapse earthquake drawer"
+                        : "Expand earthquake drawer"
+                    }
+                    onClick={() => setDrawerSnap(drawerSnap === 1 ? 0.65 : 1)}
+                  >
                     <ChevronsUpDown aria-hidden="true" />
                   </button>
-                  <DrawerClose ref={drawerClose} className={buttonVariants({ variant: "ghost", size: "icon" })} aria-label="Close earthquakes">
+                  <DrawerClose
+                    ref={drawerClose}
+                    className={buttonVariants({
+                      variant: "ghost",
+                      size: "icon",
+                    })}
+                    aria-label="Close earthquakes"
+                  >
                     <X aria-hidden="true" />
                   </DrawerClose>
                 </div>
