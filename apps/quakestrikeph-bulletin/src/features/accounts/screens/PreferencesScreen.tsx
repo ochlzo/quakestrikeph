@@ -5,7 +5,7 @@ import { FieldError } from "../../../components/ui/field";
 import { Switch } from "../../../components/ui/switch";
 import { toast } from "../../../components/ui/toast";
 import { FormField } from "../account-ui";
-import { locationLabel } from "../LocationPicker";
+import { locationLabel } from "../location-places";
 import type { AccountFlowState } from "../useAccountFlow";
 
 type PreferencesScreenFlow = Pick<AccountFlowState, "title" | "account" | "draft" | "emailVerified" | "phoneVerified" | "action" | "preferencesNavigation" | "fieldErrors" | "list" | "savePreferences">;

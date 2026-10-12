@@ -1,6 +1,6 @@
 import { useIdentity, type IdentityOutcome, type ProofMethod } from "../../lib/auth";
 import { ArrowRight, Loader } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode, } from "react";
 import { Button } from "../../components/ui/button";
 import { toast } from "../../components/ui/toast";
 import { capitalizeNameWords, FormField, passwordRequirements } from "./account-ui";
@@ -12,7 +12,8 @@ import {
   type PendingPhone,
   type Preferences,
 } from "./api";
-import { usePlaces } from "./LocationPicker";
+import { usePlaces } from "./location-places";
+import { browserLocation, LocationEdit } from "./location-edit";
 import { initialScreen, isPublicAccountScreen, pathForScreen, screenAtPath, writeAccountRoute, type AccountDestination, type Screen } from "./routes";
 import { accountPreferences as preferences, preferenceSaves, clearPreferenceSaves, type PreferenceSaves } from './preference-saves';
 const blank: Preferences = {
@@ -113,15 +114,19 @@ export function useAccountFlow(initial: string) {
     signedOnce = useRef(false);
   const signupProfileName = useRef<string | null>(null);
   const { list } = usePlaces();
-  const [locationEdit, setLocationEdit] = useState<Pick<Preferences, "latitude" | "longitude" | "distanceKm"> | null>(null);
+  const [locationEdit] = useState(() => new LocationEdit(blank, browserLocation));
+  const locationChanged = useSyncExternalStore(locationEdit.subscribe,
+    () => locationEdit.snapshot.dirty, () => false);
+  useLayoutEffect(() => {
+    locationEdit.refresh(draft);
+  }, [locationEdit, draft.latitude, draft.longitude, draft.distanceKm]);
   const [leaveAction, setLeaveAction] = useState<(() => void) | null>(null);
   const [leaveError, setLeaveError] = useState("");
-  const [locationValidation, setLocationValidation] = useState(0);
   const [savingBeforeLeave, setSavingBeforeLeave] = useState(false);
   const allowLeave = useRef(false);
   const dirty =
     account &&
-    (locationEdit !== null ||
+    (locationChanged ||
       (screen === "account" && name !== account.displayName));
   const active = useRef(true);
   const historyIndex = useRef<number>(history.state?.accountIndex ?? 0);
@@ -136,6 +141,7 @@ export function useAccountFlow(initial: string) {
     active.current = true;
     return () => {
       active.current = false;
+      locationEdit.dispose();
     };
   }, []);
   useEffect(() => {
@@ -170,7 +176,7 @@ export function useAccountFlow(initial: string) {
     const target = screenAtPath(location.pathname);
     if (!target) return;
     const keepsDraft = keepsSettingsDraft(target);
-    if (dirty && (!keepsDraft || locationEdit) && !allowLeave.current) {
+    if (dirty && (!keepsDraft || locationChanged) && !allowLeave.current) {
       const delta = nextIndex - historyIndex.current;
       undoingHistory.current = true;
       history.go(-delta);
@@ -198,7 +204,7 @@ export function useAccountFlow(initial: string) {
   useEffect(() => {
     window.addEventListener("popstate", restoreHistoryDestination);
     return () => window.removeEventListener("popstate", restoreHistoryDestination);
-  }, [isSignedIn, screen, dirty, account, pending, locationEdit]);
+  }, [isSignedIn, screen, dirty, account, pending, locationChanged]);
   function guardBeforeUnload(event: BeforeUnloadEvent) {
     if (allowLeave.current) return;
     event.preventDefault();
@@ -213,7 +219,7 @@ export function useAccountFlow(initial: string) {
     const destination = new URL(anchor.getAttribute("href")!, location.href);
     if (destination.href === location.href) return;
     const next = destination.origin === location.origin ? screenAtPath(destination.pathname) : null;
-    if (!locationEdit && next && keepsSettingsDraft(next)) return;
+    if (!locationChanged && next && keepsSettingsDraft(next)) return;
     event.preventDefault();
     event.stopPropagation();
     requestDeparture(() => next && ["preferences", "location", "account"].includes(next)
@@ -227,7 +233,7 @@ export function useAccountFlow(initial: string) {
       window.removeEventListener("beforeunload", guardBeforeUnload);
       document.removeEventListener("click", interceptDepartureLink, true);
     };
-  }, [dirty, screen, locationEdit]);
+  }, [dirty, screen, locationChanged]);
   function requestDeparture(action: () => void) {
     if (!dirty) { action(); return; }
     setLeaveError("");
@@ -236,7 +242,7 @@ export function useAccountFlow(initial: string) {
   function discardAndLeave() {
     if (!leaveAction || savingBeforeLeave) return;
     if (account) { setDraft(saves?.snapshot.preferences ?? preferences(account)); setName(account.displayName); }
-    setLocationEdit(null);
+    locationEdit.cancel();
     allowLeave.current = true;
     const action = leaveAction;
     setLeaveAction(null);
@@ -244,32 +250,32 @@ export function useAccountFlow(initial: string) {
   }
   async function saveAndLeave() {
     if (!account || !leaveAction || savingBeforeLeave) return;
-    if (locationEdit && (locationEdit.latitude === null || locationEdit.longitude === null ||
-      !Number.isInteger(locationEdit.distanceKm) || locationEdit.distanceKm! < 1 || locationEdit.distanceKm! > 1000)) {
+    const location = locationChanged ? locationEdit.commit('confirmed') : null;
+    if (locationChanged && !location) {
       setLeaveAction(null);
-      setLocationValidation(attempt => attempt + 1);
       return;
     }
     setSavingBeforeLeave(true);
     setLeaveError("");
     try {
       let next = account;
-      if (locationEdit) {
+      if (location) {
         if (!saves) throw new Error("Alert settings could not be saved. Try again.");
-        next = await saves.saveConfirmed(locationEdit);
+        next = await saves.saveConfirmed(location);
       }
       if (screen === "account" && name !== account.displayName)
         next = await writeProfile(name);
       if (!active.current) return;
       updateAccount(next);
       toast.add({ type: "success", title: screen === "account" ? "Changes saved." : "Alert preferences saved." });
-      setLocationEdit(null);
+      locationEdit.complete(true);
       allowLeave.current = true;
       const action = leaveAction;
       setLeaveAction(null);
       action();
     } catch (failure) {
       if (!active.current) return;
+      locationEdit.complete(false);
       setLeaveError(failure instanceof Error ? failure.message : "Changes could not be saved. Try again.");
     } finally { setSavingBeforeLeave(false); }
   }
@@ -413,7 +419,7 @@ export function useAccountFlow(initial: string) {
     if (next === screen) return;
     setError("");
     setFieldErrors({});
-    if (!locationEdit && keepsSettingsDraft(next)) {
+    if (!locationChanged && keepsSettingsDraft(next)) {
       setScreen(next);
       return;
     }
@@ -880,8 +886,7 @@ export function useAccountFlow(initial: string) {
     emailVerified,
     setDraft,
     list,
-    setLocationEdit,
-    locationValidation,
+    locationEdit,
   };
 }
 export type AccountFlowState = ReturnType<typeof useAccountFlow>;

@@ -30,7 +30,7 @@ const baseline = { userId: 'fixture-user', displayName: 'Maria', email: 'maria@e
       await page.getByText('No alert location yet', { exact: true }).waitFor();
       assert.equal(await page.locator('.location-map').count(), 0);
       assert.equal(await page.locator('[data-slot="empty-icon"] .lucide-earth').count(), 1);
-      await page.screenshot({ path: `C:/Users/cholo/.codex/visualizations/2026/10/06/01a10ed2-23cb-7282-b68b-c65bda2bc29f/location-empty-${viewport.width}.png` });
+      await page.screenshot({ path: require('node:path').join(require('node:os').tmpdir(), `location-edit-empty-${viewport.width}.png`) });
       await page.getByRole('button', { name: 'Set location', exact: true }).click();
       assert.equal(await page.locator('.location-map').count(), 1);
       await page.getByRole('button', { name: 'Use this location', exact: true }).click();

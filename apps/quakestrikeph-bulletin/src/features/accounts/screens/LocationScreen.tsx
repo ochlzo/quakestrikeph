@@ -1,18 +1,9 @@
 import LocationPicker from "../LocationPicker";
-import { useEffect } from "react";
+import { useLayoutEffect } from "react";
 import type { AccountFlowState } from "../useAccountFlow";
 
 export function LocationScreen({ flow }: { flow: AccountFlowState; }) {
-  const { draft, savePreferences, setLocationEdit } = flow;
-  useEffect(() => () => setLocationEdit(null), [setLocationEdit]);
-  return (
-    <LocationPicker
-      draft={draft}
-      onEditChange={setLocationEdit}
-      validationAttempt={flow.locationValidation}
-      onUse={(p) => {
-        savePreferences(p, 0);
-      }}
-    />
-  );
+  const { locationEdit, savePreferences } = flow;
+  useLayoutEffect(() => () => locationEdit.dispose(), [locationEdit]);
+  return <LocationPicker edit={locationEdit} onUse={p => savePreferences(p, 0)} />;
 }

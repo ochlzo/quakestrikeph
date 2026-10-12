@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Map, Marker } from "maplibre-gl";
 import { Label } from "react-aria-components";
 import { CircleX, Earth, MapPinSearch, MapPin, Pencil, Search } from "lucide-react";
@@ -21,70 +21,15 @@ import {
   ComboboxTrigger,
 } from "../../components/ui/combobox";
 import { loadMapRuntime } from "../../lib/map-runtime";
-import type { Preferences } from "./api";
+import type { AlertLocation, LocationEdit } from "./location-edit";
+import { locationLabel, usePlaces, type Place } from "./location-places";
 import "maplibre-gl/dist/maplibre-gl.css";
 
-type Place = [string, string, number, number, string];
 const normalized = (s: string) =>
   s
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
-let placeRequest: Promise<Place[]> | undefined;
-function places() {
-  return (placeRequest ??= fetch("/assets/accounts/philippine-places.json")
-    .then((r) => {
-      if (!r.ok) throw new Error("Place search unavailable");
-      return r.json() as Promise<Place[]>;
-    })
-    .catch((error) => {
-      placeRequest = undefined;
-      throw error;
-    }));
-}
-export function locationLabel(
-  latitude: number | null,
-  longitude: number | null,
-  list: Place[],
-) {
-  if (latitude === null || longitude === null)
-    return "Choose your alert location";
-  let closest: Place | undefined,
-    distance = Infinity;
-  for (const p of list) {
-    const d =
-      (p[2] - latitude) ** 2 +
-      ((p[3] - longitude) * Math.cos((latitude * Math.PI) / 180)) ** 2;
-    if (d < distance) {
-      distance = d;
-      closest = p;
-    }
-  }
-  return closest
-    ? `${distance > 0.000001 ? "Pin near " : ""}${closest[0]}, ${closest[1]}`
-    : "Your selected map pin";
-}
-export function usePlaces() {
-  const [list, setList] = useState<Place[]>([]);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    let active = true;
-    places()
-      .then((x) => {
-        if (active) setList(x);
-      })
-      .catch(() => {
-        if (active)
-          setError(
-            "Place search is unavailable. You can still choose a map pin.",
-          );
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-  return { list, error };
-}
 function radius(
   latitude: number,
   longitude: number,
@@ -127,45 +72,23 @@ function fitRadius(map: Map, point: [number, number], km: number) {
   );
 }
 
-export default function LocationPicker({
-  draft,
-  onUse,
-  onEditChange,
-  validationAttempt = 0,
-}: {
-  draft: Preferences;
-  onUse: (
-    location: Pick<Preferences, "latitude" | "longitude" | "distanceKm">,
-  ) => void;
-  onEditChange: (location: Pick<Preferences, "latitude" | "longitude" | "distanceKm"> | null) => void;
-  validationAttempt?: number;
+export default function LocationPicker({ edit, onUse }: {
+  edit: LocationEdit;
+  onUse: (location: AlertLocation) => void;
 }) {
   const { list, error: searchError } = usePlaces();
+  const state = useSyncExternalStore(edit.subscribe, edit.getSnapshot, edit.getSnapshot);
+  const { editing, point, distance, locating, errors } = state;
+  const pinError = errors.pin, distanceError = errors.distance;
   const [query, setQuery] = useState("");
-  const [editing, setEditing] = useState(false);
   const editingRef = useRef(editing);
   editingRef.current = editing;
-  const locationRequest = useRef(0);
   const editButton = useRef<HTMLButtonElement>(null);
   const previousEditing = useRef(false);
   const searchAnchor = useRef<HTMLDivElement>(null);
-  const [point, setPoint] = useState<[number, number] | null>(
-    draft.latitude == null || draft.longitude == null
-      ? null
-      : [draft.latitude, draft.longitude],
-  );
-  const [distance, setDistance] = useState(String(draft.distanceKm ?? 50));
-  useEffect(() => {
-    if (editing) return;
-    setPoint(draft.latitude === null || draft.longitude === null ? null : [draft.latitude, draft.longitude]);
-    setDistance(String(draft.distanceKm ?? 50));
-  }, [draft.latitude, draft.longitude, draft.distanceKm, editing]);
   const showMap = editing || point !== null;
-  const [pinError, setPinError] = useState("");
-  const [distanceError, setDistanceError] = useState("");
   const [mapError, setMapError] = useState<"runtime" | "tiles" | null>(null);
   const [mapAttempt, setMapAttempt] = useState(0);
-  const [locating, setLocating] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const container = useRef<HTMLDivElement>(null),
     map = useRef<Map | null>(null),
@@ -174,33 +97,15 @@ export default function LocationPicker({
   pointRef.current = point;
   const distanceRef = useRef(distance);
   distanceRef.current = distance;
-  function validate() {
-    const km = Number(distance);
-    const missingPin = !point;
-    const invalidDistance = !Number.isInteger(km) || km < 1 || km > 1000;
-    setPinError(missingPin ? "Choose a location using search or the map." : "");
-    if (missingPin) toast.add({
-      id: "account-location-pin-error",
-      type: "error",
-      title: "Choose a location using search or the map.",
-      timeout: 8000,
+  useEffect(() => {
+    if (!errors.focus) return;
+    if (errors.pin) toast.add({
+      id: "account-location-pin-error", type: "error", title: errors.pin, timeout: 8000,
     });
-    setDistanceError(invalidDistance ? "Enter a whole-kilometre distance from 1 to 1,000 km." : "");
-    if (missingPin) searchAnchor.current?.querySelector("input")?.focus();
-    else if (invalidDistance) document.getElementById("distance")?.focus();
-    return !missingPin && !invalidDistance;
-  }
-  const previousValidation = useRef(validationAttempt);
-  useEffect(() => {
-    if (validationAttempt !== previousValidation.current) validate();
-    previousValidation.current = validationAttempt;
-  }, [validationAttempt]);
-  useEffect(() => { if (point) setPinError(""); }, [point]);
-  useEffect(() => {
-    const changed = editing && (point?.[0] !== (draft.latitude ?? undefined) ||
-      point?.[1] !== (draft.longitude ?? undefined) || Number(distance) !== (draft.distanceKm ?? 50));
-    onEditChange(changed ? { latitude: point?.[0] ?? null, longitude: point?.[1] ?? null, distanceKm: Number(distance) } : null);
-  }, [editing, point, distance, draft.latitude, draft.longitude, draft.distanceKm, onEditChange]);
+    if (errors.focus === "pin") searchAnchor.current?.querySelector("input")?.focus();
+    else document.getElementById("distance")?.focus();
+  }, [errors]);
+  useEffect(() => { if (!editing) setQuery(""); }, [editing]);
   const matches = useMemo(() => {
     const terms = normalized(query.trim()).split(/\s+/);
     const text = normalized(query.trim());
@@ -250,10 +155,10 @@ export default function LocationPicker({
         pin.on("dragend", () => {
           if (!editingRef.current) return;
           const position = pin.getLngLat();
-          setPoint([position.lat, position.lng]);
+          choose([position.lat, position.lng]);
         });
         instance.on("click", (event) => {
-          if (editingRef.current) setPoint([event.lngLat.lat, event.lngLat.lng]);
+          if (editingRef.current) choose([event.lngLat.lat, event.lngLat.lng]);
         });
         instance.on("error", () =>
           { if (active) setMapError("tiles"); },
@@ -297,7 +202,6 @@ export default function LocationPicker({
       .catch(() => { if (active) setMapError("runtime"); });
     return () => {
       active = false;
-      locationRequest.current++;
       marker.current?.remove();
       map.current?.remove();
       map.current = null;
@@ -325,72 +229,25 @@ export default function LocationPicker({
     else if (previousEditing.current) editButton.current?.focus({ preventScroll: true });
     previousEditing.current = editing;
   }, [editing]);
-  function cancel() {
-    locationRequest.current++;
-    setLocating(false);
-    setPoint(draft.latitude == null || draft.longitude == null ? null : [draft.latitude, draft.longitude]);
-    setDistance(String(draft.distanceKm ?? 50));
-    setQuery("");
-    setPinError("");
-    setDistanceError("");
-    setEditing(false);
-  }
+  function cancel() { edit.cancel(); }
   function choose(next: [number, number]) {
-    setPinError("");
-    setPoint(next);
+    edit.choose(next);
     setMapReady(false);
   }
   function locate() {
-    const request = ++locationRequest.current;
-    setLocating(true);
-    setPinError("");
-    setDistanceError("");
-    if (!navigator.geolocation) {
-      toast.add({
-        id: "account-location-error",
-        type: "error",
-        title:
-          "Location is unavailable on this device. Search or choose a map pin.",
-        timeout: 8000,
-      });
-      setLocating(false);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        if (request !== locationRequest.current || !editingRef.current) return;
-        choose([position.coords.latitude, position.coords.longitude]);
-        setLocating(false);
-      },
-      () => {
-        if (request !== locationRequest.current || !editingRef.current) return;
-        toast.add({
-          id: "account-location-error",
-          type: "error",
-          title:
-            "Your location could not be used. Search for a place or choose a map pin.",
-          timeout: 8000,
-        });
-        setLocating(false);
-      },
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 0 },
-    );
+    edit.locate(message => toast.add({
+      id: "account-location-error", type: "error", title: message, timeout: 8000,
+    }));
   }
   function use() {
-    const km = Number(distance);
-    if (!validate() || !point) return;
-    onUse({ latitude: point[0], longitude: point[1], distanceKm: km });
-    locationRequest.current++;
-    setQuery("");
-    setPinError("");
-    setDistanceError("");
-    setEditing(false);
+    const location = edit.commit('immediate');
+    if (location) onUse(location);
   }
   return (
     <>
       <div className="location-heading">
         <h2 id="form-title">{editing ? "Choose your alert location" : "Alert location"}</h2>
-        {!editing && point && <Button className="secondary location-heading-edit" ref={editButton} onPress={() => setEditing(true)}>
+        {!editing && point && <Button className="secondary location-heading-edit" ref={editButton} onPress={() => edit.begin()}>
           <Pencil aria-hidden="true" />Edit
         </Button>}
       </div>
@@ -404,7 +261,7 @@ export default function LocationPicker({
           <EmptyTitle>No alert location yet</EmptyTitle>
           <EmptyDescription>Choose a location to set your nearby alert area.</EmptyDescription>
         </EmptyHeader>
-        <EmptyContent><Button className="secondary" ref={editButton} onPress={() => setEditing(true)}>Set location</Button></EmptyContent>
+        <EmptyContent><Button className="secondary" ref={editButton} onPress={() => edit.begin()}>Set location</Button></EmptyContent>
       </Empty>}
       {showMap && <div className="location-map" data-map-ready={mapReady}>
         <div className="location-map-canvas" ref={container}
@@ -506,12 +363,7 @@ export default function LocationPicker({
             pattern="[0-9]+"
             title="Enter a whole-kilometre distance from 1 to 1,000 km."
             value={distance}
-            onChange={(e) => {
-              if (/^\d*$/.test(e.target.value)) {
-                setDistance(e.target.value);
-                setDistanceError("");
-              }
-            }}
+            onChange={(e) => edit.setDistance(e.target.value)}
           />
           {distanceError && <FieldError id="distance-error">{distanceError}</FieldError>}
         </Field>

@@ -181,6 +181,10 @@ with one saved alert location and the user's maximum distance in kilometres.
 It applies to both enabled channels. It does not use the forecast activity
 radius or track the user's device.
 
+**Alert location edit**:
+An unfinished choice of one alert location and nearby distance. It remains
+separate from saved alert settings until the user submits it.
+
 ## Operations
 
 **Console operator**:
