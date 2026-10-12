@@ -72,8 +72,8 @@ Run checks that match your change:
 
 ```powershell
 uv run --project workers pytest --config-file workers/pyproject.toml workers/tests
-uv run --project workers ruff check workers
-uv run --project workers ruff format --check workers
+uv run --project workers ruff check workers database
+uv run --project workers ruff format --check workers database
 ```
 
 The Python commands apply when you change worker code or tests. Keep automated

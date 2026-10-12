@@ -10,7 +10,7 @@ services:
       BACKEND_DB_PASSWORD: ${BACKEND_DB_PASSWORD:-}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./postgres:/opt/quakestrike:ro
+      - ../database/initialization:/opt/quakestrike:ro
     networks:
       - private-data
     restart: unless-stopped

@@ -123,7 +123,7 @@ def test_alert_startup_capabilities_require_restricted_worker_role(migrated_engi
     from quakestrike.infrastructure.alert_readiness import alert_capabilities
 
     provisioning = (
-        Path(__file__).resolve().parents[3] / "infrastructure/postgres/provision-roles.sh"
+        Path(__file__).resolve().parents[3] / "database/initialization/provision-roles.sh"
     ).read_text(encoding="utf-8")
     worker_sql = re.search(
         r"<<'SQL'\n(.*?)\nSQL", provisioning.split("  grant-worker)", 1)[1], re.S

@@ -6,7 +6,6 @@ from pathlib import Path
 from uuid import UUID
 
 from alembic import command as alembic_command
-from alembic.config import Config as AlembicConfig
 from sqlalchemy.exc import SQLAlchemyError
 
 from quakestrike.application.historical_recovery import (
@@ -27,7 +26,10 @@ from quakestrike.infrastructure.database.engine import (
 from quakestrike.infrastructure.database.historical_recovery import (
     SqlAlchemyHistoricalRecovery,
 )
-from quakestrike.infrastructure.database.migration_state import AlembicMigrationStateGate
+from quakestrike.infrastructure.database.migration_state import (
+    AlembicMigrationStateGate,
+    worker_alembic_config,
+)
 from quakestrike.infrastructure.database.model_releases import SqlAlchemyModelReleaseRegistry
 from quakestrike.infrastructure.database.prediction_backlog import (
     SqlAlchemyPredictionBacklogReissuer,
@@ -50,7 +52,7 @@ from quakestrike.operator_output import print_json
 def migrate() -> int:
     try:
         settings = Settings()
-        alembic_command.upgrade(AlembicConfig("alembic.ini"), "head")
+        alembic_command.upgrade(worker_alembic_config(), "head")
         result = AlembicMigrationStateGate(settings).check()
         print_json(
             {

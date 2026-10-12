@@ -1255,7 +1255,7 @@ def test_prediction_runs_with_the_provisioned_worker_role(migrated_engine):
     with migrated_engine.connect() as connection:
         release_id = connection.scalar(select(model_releases.c.model_release_id))
     script = (
-        Path(__file__).resolve().parents[3] / "infrastructure/postgres/provision-roles.sh"
+        Path(__file__).resolve().parents[3] / "database/initialization/provision-roles.sh"
     ).read_text(encoding="utf-8")
     grants = script.split("  grant-worker)", 1)[1].split("<<'SQL'\n", 1)[1].split("\nSQL", 1)[0]
     with migrated_engine.begin() as connection:

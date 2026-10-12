@@ -192,7 +192,7 @@ def test_failed_success_transaction_keeps_summary_and_checkpoints(migrated_engin
 
 def test_worker_role_can_delete_successful_scheduled_checkpoints(migrated_engine) -> None:
     script = (
-        Path(__file__).resolve().parents[3] / "infrastructure/postgres/provision-roles.sh"
+        Path(__file__).resolve().parents[3] / "database/initialization/provision-roles.sh"
     ).read_text(encoding="utf-8")
     grants = script.split("  grant-worker)", 1)[1].split("<<'SQL'\n", 1)[1].split("\nSQL", 1)[0]
     with migrated_engine.begin() as connection:

@@ -1,7 +1,7 @@
 # PostgreSQL backups on the VPS
 
-The host runs installed copies of `infrastructure/backup/postgres-backup.sh`
-daily and `infrastructure/backup/postgres-restore-test.sh` weekly, independently of Celery
+The host runs installed copies of `database/maintenance/postgres-backup.sh`
+daily and `database/maintenance/postgres-restore-test.sh` weekly, independently of Celery
 Beat. The backup takes a PostgreSQL logical dump and a cluster-role export,
 records SHA-256 checksums, and uploads the files through Restic's encrypted S3
 repository in a private Backblaze B2 bucket. Temporary plaintext files are
@@ -110,9 +110,9 @@ change:
 
 ```bash
 sudo install -d -m 755 /usr/local/libexec/quakestrike
-sudo install -m 755 infrastructure/backup/*.sh /usr/local/libexec/quakestrike/
-sudo install -m 644 infrastructure/backup/*.sql /usr/local/libexec/quakestrike/
-sudo install -m 644 infrastructure/backup/*.service infrastructure/backup/*.timer /etc/systemd/system/
+sudo install -m 755 database/maintenance/*.sh /usr/local/libexec/quakestrike/
+sudo install -m 644 database/maintenance/*.sql /usr/local/libexec/quakestrike/
+sudo install -m 644 database/maintenance/*.service database/maintenance/*.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl start quakestrike-postgres-backup.service
 sudo systemctl start quakestrike-postgres-restore-test.service

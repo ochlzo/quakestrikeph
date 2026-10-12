@@ -4,8 +4,8 @@ services:
     profiles: ["init"]
     image: quakestrike-workers:local
     build:
-      context: ../workers
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: workers/Dockerfile
     environment:
       DATABASE_URL: ${MIGRATION_DATABASE_URL:?Set MIGRATION_DATABASE_URL in .env}
       REDIS_URL: ${REDIS_URL:?Set REDIS_URL in .env}

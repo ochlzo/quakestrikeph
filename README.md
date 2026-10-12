@@ -61,7 +61,9 @@ server. See the
 | --- | --- |
 | `workers/src/quakestrike/` | Scheduling, ingestion, prediction, and shared application code. |
 | `workers/tests/` | Unit and integration tests. |
-| `workers/migrations/` | PostgreSQL schema migrations. |
+| `database/migrations/` | PostgreSQL schema migrations. |
+| `database/initialization/` | Explicit role provisioning and release preparation scripts. |
+| `database/maintenance/` | Backup, restore-test, and retention scripts with host scheduler units. |
 | `packages/contracts/queue/` | Versioned ingestion, prediction, and alert command schemas. |
 | `packages/contracts/openapi.yaml` | Public Backend HTTP contract. |
 | `apps/backend-api/` | Read-only Node/Express/TypeScript earthquake and forecast API. |

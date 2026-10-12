@@ -1,0 +1,2 @@
+extend = "../workers/pyproject.toml"
+src = ["../workers/src", "../workers/tests"]

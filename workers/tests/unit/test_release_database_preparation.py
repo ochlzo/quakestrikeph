@@ -13,11 +13,11 @@ def test_release_database_preparation_stops_at_first_failure(tmp_path, failure):
         bash = "C:/Program Files/Git/bin/bash.exe"
     if not bash or not Path(bash).exists():
         pytest.skip("Bash is unavailable")
-    scripts = tmp_path / "infrastructure/postgres"
+    scripts = tmp_path / "database/initialization"
     scripts.mkdir(parents=True)
     (scripts / "provision-roles.sh").write_text("# reviewed grants\n")
     sha = "b" * 40
-    script = Path("infrastructure/scripts/prepare-release-database.sh").read_text()
+    script = Path("database/initialization/prepare-release-database.sh").read_text()
     script = script.replace("cd /srv/quakestrikeph", f"cd '{tmp_path.as_posix()}'")
     mocks = r"""
 git() { echo bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; }

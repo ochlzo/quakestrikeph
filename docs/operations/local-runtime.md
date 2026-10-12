@@ -84,6 +84,13 @@ configured in `.env` and refuses to replace an existing image tag. Keep the
 previous tested image tag for rollback. The containers do not run migrations
 or import history for you.
 
+Database scripts now live in `database/initialization/`; migrations live in
+`database/migrations/` and use `database/alembic.ini`. Worker images build from
+the repository root. When adopting this layout, rebuild the worker images and
+refresh PostgreSQL's bind mount through the Compose `up` command above. Stop
+producers and consumers before recreating an existing PostgreSQL container.
+The named database volume remains attached; do not remove it.
+
 ## 5. Initialize the database and model release
 
 For an existing database, stop all work producers and consumers before these

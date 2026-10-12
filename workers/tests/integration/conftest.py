@@ -19,7 +19,7 @@ def _database_url() -> str:
 
 def alembic_config() -> Config:
     workers_directory = Path(__file__).resolve().parents[2]
-    config = Config(str(workers_directory / "alembic.ini"))
+    config = Config(str(workers_directory.parent / "database" / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", _database_url().replace("%", "%%"))
     return config
 

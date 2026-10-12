@@ -34,7 +34,7 @@ def test_verify_release_is_a_separate_read_only_action(monkeypatch, capsys) -> N
 def test_migration_is_an_explicit_action(monkeypatch, capsys) -> None:
     calls: list[str] = []
     monkeypatch.setattr(operator_setup, "Settings", lambda: object())
-    monkeypatch.setattr(operator_setup, "AlembicConfig", lambda _: object())
+    monkeypatch.setattr(operator_setup, "worker_alembic_config", lambda: object())
     monkeypatch.setattr(
         operator_setup.alembic_command,
         "upgrade",

@@ -17,7 +17,7 @@ from quakestrike.infrastructure.settings import Settings
 
 def worker_alembic_config() -> Config:
     workers_directory = Path(__file__).resolve().parents[4]
-    return Config(str(workers_directory / "alembic.ini"))
+    return Config(str(workers_directory.parent / "database" / "alembic.ini"))
 
 
 @dataclass(frozen=True, slots=True)

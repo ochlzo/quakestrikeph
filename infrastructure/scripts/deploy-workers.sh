@@ -166,13 +166,13 @@ fi
 if docker image inspect "quakestrike-workers:$sha" >/dev/null 2>&1; then
     [[ $(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "quakestrike-workers:$sha") == "$sha" ]]
 else
-    docker build --quiet --label "org.opencontainers.image.revision=$sha" -t "quakestrike-workers:$sha" -f workers/Dockerfile workers
+    docker build --quiet --label "org.opencontainers.image.revision=$sha" -t "quakestrike-workers:$sha" -f workers/Dockerfile .
 fi
 if (( prediction_count > 0 )); then
     if docker image inspect "quakestrike-prediction:$sha" >/dev/null 2>&1; then
         [[ $(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "quakestrike-prediction:$sha") == "$sha" ]]
     else
-        docker build --quiet --build-arg "BASE_IMAGE_TAG=$sha" --label "org.opencontainers.image.revision=$sha" -t "quakestrike-prediction:$sha" -f workers/prediction-worker/Dockerfile workers
+        docker build --quiet --build-arg "BASE_IMAGE_TAG=$sha" --label "org.opencontainers.image.revision=$sha" -t "quakestrike-prediction:$sha" -f workers/prediction-worker/Dockerfile .
     fi
 fi
 
@@ -188,7 +188,7 @@ stop_processing
 web_started=1
 web_compose stop backend-api
 # Serialize database writes with host backup, restore, and retention jobs.
-sudo -n env WORKER_IMAGE_TAG="$sha" flock -w 120 --close /run/quakestrike-postgres-backup.lock bash infrastructure/scripts/prepare-release-database.sh "$sha" </dev/null
+sudo -n env WORKER_IMAGE_TAG="$sha" flock -w 120 --close /run/quakestrike-postgres-backup.lock bash database/initialization/prepare-release-database.sh "$sha" </dev/null
 compose --profile init run -T --rm --no-deps release-init quakestrike startup-check --run-manifest /app/bootstrap-snapshots/bootstrap-readiness.json </dev/null
 web_compose up -d --wait --no-deps backend-api
 start_processing

@@ -34,7 +34,7 @@ try {
         exit 0
     }
 
-    $null = & docker build --quiet --label "org.opencontainers.image.revision=$commit" -t $tag -f workers/Dockerfile workers
+    $null = & docker build --quiet --label "org.opencontainers.image.revision=$commit" -t $tag -f workers/Dockerfile .
     if ($LASTEXITCODE -ne 0) {
         Fail-Build 'image_build_failed'
     }

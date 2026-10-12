@@ -37,6 +37,8 @@ model-artifacts
 **/model-artifacts
 bootstrap-snapshots
 **/bootstrap-snapshots
+database/initialization/bootstrap-readiness*.json
+database/initialization/source-snapshots
 datasets
 **/datasets
 data

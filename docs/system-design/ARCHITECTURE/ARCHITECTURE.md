@@ -29,17 +29,17 @@ quakestrikeph/
 │   └── tests/
 ├── packages/
 │   ├── contracts/                   # OpenAPI and versioned queue schemas
-│   └── generated-clients/           # generated TypeScript/Python contract code
+│   └── generated-clients/           # only when multiple apps need the same generated output
 ├── database/
+│   ├── alembic.ini                  # paths relative to this configuration file
 │   ├── migrations/                  # hand-reviewed Alembic revisions
-│   ├── initialization/              # release registration and readiness
+│   ├── initialization/              # role provisioning and explicit release preparation
 │   └── maintenance/                 # retention, backup, restore-test commands
 ├── infrastructure/
 │   ├── compose.yml
 │   ├── compose.production.yml
 │   ├── traefik/
 │   ├── cloudflared/
-│   ├── backup/
 │   └── scripts/
 ├── model-artifacts/                # local, Git-ignored, build-excluded, read-only mount
 ├── .env.example
@@ -233,7 +233,7 @@ Redis has separate ingestion, prediction, and alert queues. Commands carry a ver
 
 ## Contracts, data, and model assets
 
-`packages/contracts` holds the versioned Bulletin OpenAPI definition, queue-message schemas, and their compatibility rules. Generated clients and models are derived outputs, not a second source of truth. A contract change must remain compatible with still-running containers during deployment or require a coordinated release. The Backend, Console server, and Python workers can read shared PostgreSQL data only through purpose-specific adapters and restricted roles. The [database specification](../ERD/DATABASE-DESIGN.md) controls tables, ownership, constraints, and transactions.
+`packages/contracts` holds the versioned Bulletin OpenAPI definition, queue-message schemas, and their compatibility rules. Generated clients and models are derived outputs, not a second source of truth. The Bulletin owns its generated schema and client wrapper in `apps/quakestrikeph-bulletin/src/lib/api/`. Use `packages/generated-clients/` only when multiple applications need the same generated output. A contract change must remain compatible with still-running containers during deployment or require a coordinated release. The Backend, Console server, and Python workers can read shared PostgreSQL data only through purpose-specific adapters and restricted roles. The [database specification](../ERD/DATABASE-DESIGN.md) controls tables, ownership, constraints, and transactions.
 
 | Records | Writer | Other consumers |
 | --- | --- | --- |

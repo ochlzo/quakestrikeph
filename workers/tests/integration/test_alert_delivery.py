@@ -598,7 +598,7 @@ def test_delivery_lifecycle_uses_only_approved_worker_grants(migrated_engine):
     dispatch, _ = queued(migrated_engine)
     account(migrated_engine, sms_enabled=False)
     provisioning = (
-        Path(__file__).resolve().parents[3] / "infrastructure/postgres/provision-roles.sh"
+        Path(__file__).resolve().parents[3] / "database/initialization/provision-roles.sh"
     ).read_text(encoding="utf-8")
     worker_sql = re.search(
         r"<<'SQL'\n(.*?)\nSQL", provisioning.split("  grant-worker)", 1)[1], re.S

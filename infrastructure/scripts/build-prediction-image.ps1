@@ -39,7 +39,7 @@ try {
         exit 0
     }
 
-    $null = & docker build --quiet --build-arg "BASE_IMAGE_TAG=$commit" --label "org.opencontainers.image.revision=$commit" -t $tag -f workers/prediction-worker/Dockerfile workers
+    $null = & docker build --quiet --build-arg "BASE_IMAGE_TAG=$commit" --label "org.opencontainers.image.revision=$commit" -t $tag -f workers/prediction-worker/Dockerfile .
     if ($LASTEXITCODE -ne 0) {
         Fail-Build 'image_build_failed'
     }

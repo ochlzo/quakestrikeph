@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def test_observer_password_is_sent_as_bytes(monkeypatch):
-    script = Path(__file__).resolve().parents[3] / "infrastructure/scripts/create-observer.py"
+    script = Path(__file__).resolve().parents[3] / "database/initialization/create-observer.py"
     main = runpy.run_path(str(script))["main"]
     calls = []
 

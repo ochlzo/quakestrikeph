@@ -12,10 +12,10 @@ pytestmark = pytest.mark.integration
 
 def test_provisioning_transfers_legacy_functions_to_migration_role(migrated_engine):
     root = Path(__file__).resolve().parents[3]
-    script = (root / "infrastructure/postgres/provision-roles.sh").read_text()
+    script = (root / "database/initialization/provision-roles.sh").read_text()
     block = re.search(r"DO \$function_ownership\$.*?\$function_ownership\$;", script, re.S)
     migration = runpy.run_path(
-        str(root / "workers/migrations/versions/20260924_08_maintenance_runs.py")
+        str(root / "database/migrations/versions/20260924_08_maintenance_runs.py")
     )
     with migrated_engine.connect() as connection:
         transaction = connection.begin()

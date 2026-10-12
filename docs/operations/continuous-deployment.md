@@ -45,6 +45,13 @@ Future successful main runs deploy the full application. A failed rollout restor
 
 ## Routine release sequence
 
+Database tooling lives under `database/`; worker image builds use the repository
+root as their context. When adopting this layout, refresh PostgreSQL's bind
+mount during a planned database restart with producers and consumers stopped.
+Follow the [local runtime guide](local-runtime.md#4-start-postgresql-and-redis).
+Routine deployment streams reviewed grants into PostgreSQL but does not recreate
+the PostgreSQL container. Installed maintenance tools keep their existing host paths.
+
 Deployment verifies the clean checkout, previous images, and current main SHA. It builds images before downtime. The installed encrypted backup and isolated restore services must both succeed. A second main check rejects stale releases before stopping services.
 
 Deployment stops Beat, Dispatcher, consumers, reconciliation, and Backend. The existing host maintenance lock serializes migration and grants with backup, restore, and retention. `release-init` uses the migration login for reviewed DDL. The reviewed checkout's provisioning script refreshes approved grants through stdin.
@@ -113,8 +120,8 @@ if docker image inspect "quakestrike-workers:$sha" >/dev/null 2>&1 ||
     exit 1
 fi
 export WORKER_IMAGE_TAG=$sha
-docker build --label "org.opencontainers.image.revision=$sha" -t "quakestrike-workers:$sha" -f workers/Dockerfile workers
-docker build --build-arg "BASE_IMAGE_TAG=$sha" --label "org.opencontainers.image.revision=$sha" -t "quakestrike-prediction:$sha" -f workers/prediction-worker/Dockerfile workers
+docker build --label "org.opencontainers.image.revision=$sha" -t "quakestrike-workers:$sha" -f workers/Dockerfile .
+docker build --build-arg "BASE_IMAGE_TAG=$sha" --label "org.opencontainers.image.revision=$sha" -t "quakestrike-prediction:$sha" -f workers/prediction-worker/Dockerfile .
 compose=(docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml)
 "${compose[@]}" up -d --wait postgres redis
 "${compose[@]}" exec -T postgres sh /opt/quakestrike/provision-roles.sh create

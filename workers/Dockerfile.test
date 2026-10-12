@@ -16,10 +16,9 @@ COPY workers/pyproject.toml workers/uv.lock ./workers/
 RUN if [ -n "$TEST_EXTRA" ]; then uv sync --project workers --frozen --no-install-project --extra "$TEST_EXTRA"; else uv sync --project workers --frozen --no-install-project; fi
 
 COPY workers ./workers
+COPY database ./database
 COPY packages ./packages
 COPY infrastructure/compose.yml ./infrastructure/compose.yml
-COPY infrastructure/postgres/provision-roles.sh ./infrastructure/postgres/provision-roles.sh
-COPY infrastructure/backup/ingestion-checkpoint-retention.sql ./infrastructure/backup/ingestion-checkpoint-retention.sql
 COPY .dockerignore ./.dockerignore
 COPY .env.example ./.env.example
 RUN if [ -n "$TEST_EXTRA" ]; then uv sync --project workers --frozen --extra "$TEST_EXTRA"; else uv sync --project workers --frozen; fi

@@ -17,13 +17,14 @@ RUN pip install --no-cache-dir "uv==${UV_VERSION}" \
 
 USER quakestrike
 
-COPY --chown=quakestrike:quakestrike pyproject.toml uv.lock ./
+COPY --chown=quakestrike:quakestrike workers/pyproject.toml workers/uv.lock ./workers/
+WORKDIR /app/workers
 RUN uv sync --frozen --no-dev --no-install-project
 
-COPY --chown=quakestrike:quakestrike src ./src
-COPY --chown=quakestrike:quakestrike model-release-manifests ./model-release-manifests
-COPY --chown=quakestrike:quakestrike alembic.ini ./alembic.ini
-COPY --chown=quakestrike:quakestrike migrations ./migrations
+COPY --chown=quakestrike:quakestrike workers/src ./src
+COPY --chown=quakestrike:quakestrike workers/model-release-manifests ./model-release-manifests
+COPY --chown=quakestrike:quakestrike database/alembic.ini /app/database/alembic.ini
+COPY --chown=quakestrike:quakestrike database/migrations /app/database/migrations
 RUN uv sync --frozen --no-dev
 
 

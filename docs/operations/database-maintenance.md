@@ -26,8 +26,8 @@ docker compose --env-file .env -f infrastructure/compose.yml exec -T postgres sh
 ```
 
 If you use pgAdmin, also set `OBSERVER_DB_PASSWORD` in `.env` and update its
-read-only database login with `python infrastructure/scripts/create-observer.py`
-on Windows or `python3 infrastructure/scripts/create-observer.py` on the VPS.
+read-only database login with `python database/initialization/create-observer.py`
+on Windows or `python3 database/initialization/create-observer.py` on the VPS.
 There is no `observer-init` Compose service. Recreate application containers
 through the normal deployment steps so they receive the updated credentials.
 Changing `PGADMIN_DEFAULT_PASSWORD` on an existing pgAdmin volume requires a
@@ -49,7 +49,7 @@ passwords. Apply migrations first, then create the read-only login and start
 the optional pgAdmin container:
 
 ```bash
-python3 infrastructure/scripts/create-observer.py
+python3 database/initialization/create-observer.py
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.admin.yml --profile admin up -d --wait pgadmin
 sudo tailscale serve --bg --https=443 http://127.0.0.1:5050
 tailscale serve status

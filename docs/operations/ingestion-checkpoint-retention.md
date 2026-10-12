@@ -12,10 +12,10 @@ applied, and a verified PostgreSQL backup exists. From `/srv/quakestrikeph`:
 
 ```bash
 docker compose --env-file .env -f infrastructure/compose.yml exec -T postgres sh /opt/quakestrike/provision-roles.sh create-maintenance
-sudo install -m 755 infrastructure/backup/ingestion-checkpoint-retention.sh /usr/local/libexec/quakestrike/
-sudo install -m 755 infrastructure/backup/maintenance-run.sh /usr/local/libexec/quakestrike/
-sudo install -m 644 infrastructure/backup/ingestion-checkpoint-retention.sql /usr/local/libexec/quakestrike/
-sudo install -m 644 infrastructure/backup/quakestrike-ingestion-checkpoint-retention.service infrastructure/backup/quakestrike-ingestion-checkpoint-retention.timer /etc/systemd/system/
+sudo install -m 755 database/maintenance/ingestion-checkpoint-retention.sh /usr/local/libexec/quakestrike/
+sudo install -m 755 database/maintenance/maintenance-run.sh /usr/local/libexec/quakestrike/
+sudo install -m 644 database/maintenance/ingestion-checkpoint-retention.sql /usr/local/libexec/quakestrike/
+sudo install -m 644 database/maintenance/quakestrike-ingestion-checkpoint-retention.service database/maintenance/quakestrike-ingestion-checkpoint-retention.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl start quakestrike-ingestion-checkpoint-retention.service
 sudo systemctl enable --now quakestrike-ingestion-checkpoint-retention.timer

@@ -11,7 +11,7 @@ services:
     tmpfs:
       - /var/lib/postgresql/data
     volumes:
-      - ./postgres:/opt/quakestrike:ro
+      - ../database/initialization:/opt/quakestrike:ro
     networks:
       - phase2-test
     healthcheck:

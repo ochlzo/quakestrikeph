@@ -575,7 +575,7 @@ def test_resolution_succeeds_with_unchanged_restricted_worker_grants(migrated_en
             return supported
 
     provisioning = (
-        Path(__file__).resolve().parents[3] / "infrastructure/postgres/provision-roles.sh"
+        Path(__file__).resolve().parents[3] / "database/initialization/provision-roles.sh"
     ).read_text(encoding="utf-8")
     worker_sql = re.search(
         r"<<'SQL'\n(.*?)\nSQL", provisioning.split("  grant-worker)", 1)[1], re.S

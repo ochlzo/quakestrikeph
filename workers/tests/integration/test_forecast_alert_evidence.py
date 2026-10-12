@@ -306,7 +306,7 @@ def test_email_keeps_optional_outputs_unavailable(migrated_engine):
 def test_restricted_worker_and_callback_grants_do_not_allow_unrelated_data(migrated_engine):
     alert_id = completed_alert(migrated_engine)
     provisioning = (
-        Path(__file__).resolve().parents[3] / "infrastructure/postgres/provision-roles.sh"
+        Path(__file__).resolve().parents[3] / "database/initialization/provision-roles.sh"
     ).read_text(encoding="utf-8")
     worker_block = provisioning.split("  grant-worker)", 1)[1]
     worker_sql = re.search(r"<<'SQL'\n(.*?)\nSQL", worker_block, re.S).group(1)

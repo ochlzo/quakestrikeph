@@ -13,7 +13,7 @@ from quakestrike.infrastructure.database.tables import ingestion_run_inputs, ing
 
 pytestmark = pytest.mark.integration
 RETENTION_SCRIPT = (
-    Path(__file__).resolve().parents[3] / "infrastructure/backup/ingestion-checkpoint-retention.sql"
+    Path(__file__).resolve().parents[3] / "database/maintenance/ingestion-checkpoint-retention.sql"
 ).read_text(encoding="utf-8")
 RETENTION_SQL = "WITH doomed" + RETENTION_SCRIPT.split("WITH doomed", 1)[1].split(";", 1)[0]
 
