@@ -9,9 +9,16 @@ export default defineConfig({
   cacheDir: './node_modules/.astro-background-fixture',
   vite: {
     ...base.vite,
+    // The native Windows transform fails on the first inherited Astro tsconfig read.
+    // Keep its equivalent transform settings local to this fixture.
+    oxc: { tsconfig: { compilerOptions: {
+      target: 'ESNext', module: 'ESNext', verbatimModuleSyntax: true,
+      jsx: 'react-jsx', jsxImportSource: 'react',
+    } } },
     cacheDir: path('../../node_modules/.vite-background-fixture'),
-    resolve: { alias: [
+    resolve: { tsconfigPaths: false, alias: [
       ...base.vite.resolve.alias,
+      { find: '@', replacement: path('../../src') },
       { find: /^@clerk\/react\/legacy$/, replacement: path('./clerk-fixture.tsx') },
       { find: /^@clerk\/react$/, replacement: path('./clerk-fixture.tsx') },
     ] },

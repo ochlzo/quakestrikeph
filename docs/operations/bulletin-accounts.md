@@ -70,6 +70,11 @@ foreach ($accountCheckPath in (rg --files tests/accounts -g '*.cjs' -g '!backgro
 node --experimental-strip-types --test tests/accounts/preference-saves.test.mjs
 ```
 
+`pnpm test:identity` runs the identity protocol and preference queue checks
+without a browser or live provider. The identity checks replace raw Clerk
+operations below the real production sequencing. Browser checks retain the
+Clerk fixture alias and exercise that same sequencing through the screens.
+
 The checks include profile operations, phone operations, authentication,
 routes, session isolation, preferences, location, and motion. Phone checks
 cover replacement refresh failures, attempt deletion retries, partial success,
@@ -81,14 +86,19 @@ record their ordering. Unused fixture branches and obsolete
 positive actions must not remain in fixture scripts.
 
 Authentication screens use specific views and named workflow operations.
-The workflow owns Clerk requests, activation, credential clearing, notifications,
-and operation-specific transitions. Form and resend controls invoke an operation
-directly; each operation owns busy/error handling exactly once. Clerk task
-widgets retain their configured `/alerts` destination. The existing native
+`src/lib/auth` owns all direct Clerk access, including setup, OAuth callbacks,
+task widgets, proof selection, activation, provider failures and token handoff.
+Its named operations return application steps, safe failures or ignored results.
+The account workflow owns form values, password validation, credential clearing,
+notifications and navigation. Identity signals credential consumption at the
+existing points, including before delayed device proof and task activation.
+Form and resend controls invoke an operation directly; the account workflow owns
+busy/error handling exactly once. Clerk task widgets retain their configured
+`/alerts` destination. The existing native
 account sign-out confirmation, shell departure dialog, and immediate profile
 cancellation remain distinct.
 
-Authentication continuations check both workflow lifetime and Clerk identity.
+Identity continuations check both screen lifetime and an opaque session marker.
 When the user or session changes, former operations cannot submit follow-up
 requests, clear credentials, notify, or navigate. A provider request already
 submitted may still complete. This fixes the characterized former-session
@@ -98,6 +108,17 @@ This includes Clerk's automatic retry after interactive proof. A former
 request's late proof requirement cannot open a new proof dialog. Browser
 checks cover successful proof, cancellation, and identity changes before or
 during that proof.
+
+`screenRequest` acquires tokens through identity and checks screen/session
+lifetime before transport and after its response. `backgroundRequest` checks
+only session lifetime, so preference saves continue across Astro navigation.
+Both call the existing account HTTP helper; identity imports no account
+transport or domain types. The live Clerk client supplies session observations
+after an account island unmounts. The account feature retains private-state
+reset and preference-queue cancellation. No extra global runtime is required.
+First anonymous activation preserves the signup profile handoff. Token refresh
+rejection blocks proof continuation; a null refresh retains the existing
+continuation, and the HTTP helper rejects a later missing token.
 
 Account navigation uses a restricted destination operation for Alerts,
 Location, and Account. Screen views provide named Back, sensitive-entry,

@@ -1,4 +1,4 @@
-import { TaskChooseOrganization, TaskSetupMFA } from "@clerk/react";
+import { IdentityTask } from "../../../lib/auth";
 import { Button } from "../../../components/ui/button";
 import { BackButton, FormField, passwordRequirements } from "../account-ui";
 import type { AccountFlowState } from "../useAccountFlow";
@@ -12,26 +12,22 @@ export function SessionTaskScreen({ flow }: { flow: SessionTaskScreenFlow; }) {
   return (
     <>
       {title(
-        task === "reset-password"
+        task === "new-password"
           ? "Choose a new password"
           : "Complete account verification",
-        task === "reset-password"
+        task === "new-password"
           ? `${passwordRequirements} Other sessions will be signed out.`
           : "Complete this required step to access your saved settings.",
       )}
-      {task === "reset-password" ? (
+      {task === "new-password" ? (
         <form
           onSubmit={event => { event.preventDefault(); void savePassword(); }}
         >
           {newPasswordFields}
           {submit("Save new password")}
         </form>
-      ) : task === "setup-mfa" ? (
-        <TaskSetupMFA redirectUrlComplete="/alerts" />
-      ) : task === "choose-organization" ? (
-        <TaskChooseOrganization redirectUrlComplete="/alerts" />
       ) : (
-        <p>Please sign in again to complete account verification.</p>
+        <IdentityTask />
       )}
       <Button
         className="secondary"
@@ -53,14 +49,14 @@ export function ReverificationScreen({ flow }: { flow: ReverificationScreenFlow;
       <BackButton onPress={reverification.goBack} />
       {title(
         "Verify your identity again",
-        reverifyMethod === "password"
+        reverifyMethod === "current-password"
           ? "Enter your current password before changing sensitive account details."
           : "Enter the verification code sent to your account email.",
       )}
       <form
         onSubmit={event => { event.preventDefault(); void verifyIdentity(); }}
       >
-        {reverifyMethod === "password" ? (
+        {reverifyMethod === "current-password" ? (
           <FormField
             id="current-password"
             label="Current password"
@@ -75,7 +71,7 @@ export function ReverificationScreen({ flow }: { flow: ReverificationScreenFlow;
         )}
         {submit("Verify identity")}
       </form>
-      {reverifyMethod === "email_code" && renderResend(resendCode)}
+      {reverifyMethod === "email-code" && renderResend(resendCode)}
     </>
   );
 }

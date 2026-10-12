@@ -1,4 +1,4 @@
-import { ClerkProvider, useAuth } from "@clerk/react";
+import { IdentityProvider, useIdentitySession } from "../lib/auth";
 import { Bell } from "lucide-react";
 import { LinkButton } from "./ui/button";
 
@@ -12,16 +12,16 @@ function AlertsLink({ signedIn = false }: { signedIn?: boolean }) {
 }
 
 function SessionAlertsLink() {
-  const { isSignedIn } = useAuth();
-  return <AlertsLink signedIn={isSignedIn} />;
+  const { signedIn } = useIdentitySession();
+  return <AlertsLink signedIn={signedIn} />;
 }
 
 export default function AlertsButton({ withinAccount = false }: { withinAccount?: boolean } = {}) {
   if (withinAccount) return <SessionAlertsLink />;
   const publishableKey = import.meta.env.PUBLIC_CLERK_PUBLISHABLE_KEY;
   return publishableKey ? (
-    <ClerkProvider publishableKey={publishableKey}>
+    <IdentityProvider publishableKey={publishableKey}>
       <SessionAlertsLink />
-    </ClerkProvider>
+    </IdentityProvider>
   ) : <AlertsLink />;
 }
