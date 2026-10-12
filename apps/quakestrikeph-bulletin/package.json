@@ -12,6 +12,7 @@
     "check": "astro check",
     "build": "astro build",
     "test:event-results": "node --test tests/event-results.test.mjs",
+    "test:identity": "node --experimental-strip-types --test tests/accounts/identity.test.mjs tests/accounts/preference-saves.test.mjs",
     "test:forecast": "node tests/forecast-page.mjs",
     "test:forecast-navigation": "node tests/forecast-navigation.cjs",
     "generate:api": "openapi-typescript ../../packages/contracts/openapi.yaml -o src/lib/api/schema.d.ts",

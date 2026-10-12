@@ -86,6 +86,8 @@ const session = {
 };
 export const useSession = () => ({ session });
 export const useClerk = () => ({
+  get user() { return signed ? { id: userId } : null; },
+  get session() { return signed ? { ...session, id: sessionId } : null; },
   setActive: (options: unknown) => provider('setActive', options, () => { signed = true; sessionStorage.setItem('fixture:signed', '1'); session.currentTask = null; listeners.forEach(fn => fn()); }),
   signOut: (options?: { redirectUrl?: string }) => provider('signOut', options, () => {
     if (query.has('signout-error')) throw new Error('Fixture sign-out failure');

@@ -1,5 +1,4 @@
-import { useAuth, useClerk, useReverification, useSession, useUser } from "@clerk/react";
-import { useSignIn, useSignUp } from "@clerk/react/legacy";
+import { useIdentity, type IdentityOutcome, type ProofMethod } from "../../lib/auth";
 import { ArrowRight, Loader } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, } from "react";
 import { Button } from "../../components/ui/button";
@@ -73,25 +72,17 @@ function showAuthError(message: string, mode: "signin" | "signup") {
   });
 }
 export function useAccountFlow(initial: string) {
-  const { isLoaded, isSignedIn, getToken, userId, sessionId } = useAuth({
-    treatPendingAsSignedOut: false,
-  });
-  const { user } = useUser();
-  const { session } = useSession();
-  const clerk = useClerk();
-  const resetTaskPassword = useReverification(async (newPassword: string, isCurrent: () => boolean) => {
-    // Clerk can invoke this callback again after its interactive proof completes.
-    if (!isCurrent()) return;
-    if (!user) throw new Error("Sign in again");
-    try {
-      await user.updatePassword({ newPassword, signOutOfOtherSessions: true });
-    } catch (failure) {
-      // A late proof requirement must not open a modal for a different session.
-      if (isCurrent()) throw failure;
+  const identity = useIdentity(event => {
+    if (event === 'authentication-fields-consumed') {
+      setPassword('');
+      setCurrentPassword('');
+      setCode('');
+    } else {
+      setPassword('');
+      setConfirmPassword('');
     }
   });
-  const { signIn } = useSignIn();
-  const { signUp } = useSignUp();
+  const { loaded: isLoaded, signedIn: isSignedIn, requiredStep } = identity.session;
   const [screen, updateScreen] = useState<Screen>(() => screenAtPath(location.pathname) ?? initialScreen(initial));
   const [account, setAccount] = useState<Account | null>(null);
   const [pending, setPending] = useState<PendingPhone | null>(null);
@@ -117,9 +108,7 @@ export function useAccountFlow(initial: string) {
   const [returnAction, setReturnAction] = useState<Screen>("phone");
   const [sentAt, setSentAt] = useState(0),
     [now, setNow] = useState(Date.now());
-  const [reverifyMethod, setReverifyMethod] = useState<
-    "password" | "email_code"
-  >("password");
+  const [reverifyMethod, setReverifyMethod] = useState<ProofMethod>("current-password");
   const heading = useRef<HTMLDivElement>(null),
     signedOnce = useRef(false);
   const signupProfileName = useRef<string | null>(null);
@@ -135,8 +124,6 @@ export function useAccountFlow(initial: string) {
     (locationEdit !== null ||
       (screen === "account" && name !== account.displayName));
   const active = useRef(true);
-  const authenticationIdentity = useRef("");
-  authenticationIdentity.current = isSignedIn ? `${userId}:${sessionId}` : "signed-out";
   const historyIndex = useRef<number>(history.state?.accountIndex ?? 0);
   const undoingHistory = useRef(false);
   function setScreen(next: Screen, replace = false, path?: string) {
@@ -286,15 +273,8 @@ export function useAccountFlow(initial: string) {
       setLeaveError(failure instanceof Error ? failure.message : "Changes could not be saved. Try again.");
     } finally { setSavingBeforeLeave(false); }
   }
-  async function api<T>(path = "", method = "GET", body?: unknown) {
-    const token = await getToken({ skipCache: method !== "GET" });
-    if (!active.current) throw new Error("The account session changed.");
-    try {
-      return await accountRequest<T>(token, path, method, body);
-    } finally {
-      // Ignore old successes and errors before state changes or reverification.
-      if (!active.current) throw new Error("The account session changed.");
-    }
+  function api<T>(path = "", method = "GET", body?: unknown) {
+    return identity.screenRequest<T>(accountRequest, path, method, body);
   }
   function writeProfile(displayName: string) {
     return api<Account>("/profile", "PUT", { displayName });
@@ -319,10 +299,8 @@ export function useAccountFlow(initial: string) {
     return submitProfile("onboarding");
   }
   function updateAccount(next: Account) {
-    const queue = preferenceSaves(`${userId}:${sessionId}`, next, async (value) => {
-      const token = await getToken({ skipCache: true });
-      return accountRequest<Account>(token, '/preferences', 'PUT', value);
-    }, (message) => toast.add({ id: 'account-preference-save-error', type: 'error', title: message, timeout: 0 }));
+    const queue: PreferenceSaves = preferenceSaves(identity.session.marker, next, value =>
+      identity.backgroundRequest<Account>(accountRequest, '/preferences', 'PUT', value, () => queue.cancel()), (message) => toast.add({ id: 'account-preference-save-error', type: 'error', title: message, timeout: 0 }));
     setSaves(queue);
     setAccount(queue.snapshot.account);
     setDraft(queue.snapshot.preferences);
@@ -406,7 +384,7 @@ export function useAccountFlow(initial: string) {
   }
   useEffect(() => {
     if (!isLoaded) return;
-    if (session?.currentTask) {
+    if (requiredStep) {
       signedOnce.current = false;
       setLoading(false);
       return;
@@ -430,7 +408,7 @@ export function useAccountFlow(initial: string) {
         );
       })
       .finally(() => setLoading(false));
-  }, [isLoaded, isSignedIn, session?.currentTask?.key]);
+  }, [isLoaded, isSignedIn, requiredStep]);
   function openScreen(next: Screen) {
     if (next === screen) return;
     setError("");
@@ -464,9 +442,9 @@ export function useAccountFlow(initial: string) {
     openScreen(next);
   }
   function reportError(message: string) {
-    if ((screen === "signin" || screen === "signup") && !session?.currentTask)
+    if ((screen === "signin" || screen === "signup") && !requiredStep)
       showAuthError(message, screen);
-    else if (isSignedIn && !account && screen !== "profile" && !session?.currentTask)
+    else if (isSignedIn && !account && screen !== "profile" && !requiredStep)
       setError(message);
     else toast.add({ id: `account-${screen}-error`, type: "error", title: message, timeout: 8000 });
   }
@@ -487,20 +465,6 @@ export function useAccountFlow(initial: string) {
           toast.add({ id: "account-sms-opt-in-error", type: "error", title: failure.message, description: message, timeout: 0 });
         } else reportError(message);
       };
-      if (
-        screen === "signup" &&
-        typeof e === "object" &&
-        e &&
-        "errors" in e &&
-        Array.isArray(e.errors) &&
-        e.errors.some((item) => item?.code === "form_password_pwned")
-      ) {
-        setFieldErrors({
-          password:
-            "This password has appeared in a data breach. Choose a different password.",
-        });
-        return;
-      }
       if (e instanceof AccountFailure) {
         if (
           e.code === "SEND_LIMIT" &&
@@ -547,214 +511,115 @@ export function useAccountFlow(initial: string) {
       setBusy(false);
     }
   }
-  function authenticationGuard() {
-    const identity = authenticationIdentity.current;
-    return () => active.current && authenticationIdentity.current === identity;
+  async function identityAction(work: () => Promise<IdentityOutcome>, done?: (result: Extract<IdentityOutcome, { kind: 'completed' }>) => void) {
+    await action(async () => {
+      const result = await work();
+      if (result.kind === 'failed') {
+        if (result.field) setFieldErrors({ [result.field]: result.message });
+        else reportError(result.message);
+      } else if (result.kind === 'completed') done?.(result);
+    });
   }
-  async function authenticationOperation(work: (isCurrent: () => boolean) => Promise<void>, generic?: string) {
-    const isCurrent = authenticationGuard();
-    if (!isCurrent()) return;
-    await action(() => work(isCurrent), generic, isCurrent);
-  }
-  async function completeAuth(attempt: {
-    status: string | null;
-    createdSessionId: string | null;
-  }, isCurrent: () => boolean) {
-    if (!isCurrent()) return;
-    setPassword("");
-    setCurrentPassword("");
-    setCode("");
-    if (attempt.status === "complete" && attempt.createdSessionId) {
-      await clerk.setActive({ session: attempt.createdSessionId });
-    } else if (
-      attempt.status === "needs_client_trust" ||
-      attempt.status === "needs_second_factor"
-    ) {
-      const factor = signIn?.supportedSecondFactors?.find(
-        (f) => f.strategy === "email_code",
-      );
-      if (!factor || !signIn)
-        throw new Error("A verification factor is unavailable");
-      await signIn.prepareSecondFactor({
-        strategy: "email_code",
-        emailAddressId: factor.emailAddressId,
-      });
-      if (!isCurrent()) return;
-      setSentAt(Date.now());
-      setScreen("device-code");
-    } else throw new Error("Additional account information is needed");
+  function authenticationCompleted(result: Extract<IdentityOutcome, { kind: 'completed' }>) {
+    if (result.step === 'device-code') {
+      setSentAt(result.sentAt!);
+      setScreen('device-code');
+    }
   }
   async function signInWithPassword() {
-    await authenticationOperation(async isCurrent => {
-      if (signIn) await completeAuth(await signIn.create({ identifier: email, password }), isCurrent);
-    }, "Check your email and password, then try again.");
+    await identityAction(() => identity.signInWithPassword(email, password), authenticationCompleted);
   }
   async function createAccount() {
-    await authenticationOperation(async isCurrent => {
-      if (!signUp) return;
+    await identityAction(async () => {
       const displayName = capitalizeNameWords(name);
       setName(displayName);
-      await signUp.create({ emailAddress: email, password });
-      if (!isCurrent()) return;
-      signupProfileName.current = displayName;
-      await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
-      if (!isCurrent()) return;
-      setPassword("");
-      setSentAt(Date.now());
-      setScreen("verify-email");
-    }, "The account could not be created. Check the password requirements, or try sign-in and recovery.");
+      return identity.createAccount(email, password, () => { signupProfileName.current = displayName; });
+    }, result => {
+      if (result.step !== 'signup-code') return;
+      setPassword('');
+      setSentAt(result.sentAt!);
+      setScreen('verify-email');
+    });
   }
   async function signInWithGoogle() {
-    await authenticationOperation(async () => {
-      if (!signIn) return;
-      await signIn.authenticateWithRedirect({
-        strategy: "oauth_google", redirectUrl: "/sso-callback",
-        redirectUrlComplete: "/alerts", oidcPrompt: "select_account",
-      });
-    }, "Google sign-in was not completed. Try again or use your password.");
+    await identityAction(() => identity.signInWithGoogle());
   }
   async function verifyEmailCode() {
-    await authenticationOperation(async isCurrent => {
-      if (screen === "verify-email" && signUp)
-        await completeAuth(await signUp.attemptEmailAddressVerification({ code }), isCurrent);
-      else if (signIn)
-        await completeAuth(await signIn.attemptSecondFactor({ strategy: "email_code", code }), isCurrent);
-    }, "That code did not work. Check it or request a new code.");
+    await identityAction(() => screen === 'verify-email'
+      ? identity.verifySignupEmail(code) : identity.verifySignInEmail(code), authenticationCompleted);
   }
   async function resendEmailCode() {
-    await authenticationOperation(async isCurrent => {
-      if (screen === "verify-email") await signUp?.prepareEmailAddressVerification({ strategy: "email_code" });
-      else {
-        const factor = signIn?.supportedSecondFactors?.find(f => f.strategy === "email_code");
-        if (factor) await signIn?.prepareSecondFactor({ strategy: "email_code", emailAddressId: factor.emailAddressId });
-      }
-      if (!isCurrent()) return;
-      setSentAt(Date.now());
-      toast.add({ type: "success", title: "A new email code was requested." });
+    await identityAction(() => screen === 'verify-email'
+      ? identity.resendSignupEmail() : identity.resendSignInEmail(), result => {
+      setSentAt(result.sentAt!);
+      toast.add({ type: 'success', title: 'A new email code was requested.' });
     });
   }
   async function requestRecoveryCode() {
-    await authenticationOperation(async isCurrent => {
-      if (!signIn) return;
-      try {
-        await signIn.create({ strategy: "reset_password_email_code", identifier: email });
-      } catch { /* Same public result for existing, Google-only and unknown addresses. */ }
-      if (!isCurrent()) return;
-      setSentAt(Date.now());
-      setScreen("recovery-code");
-    }, "Recovery could not be completed. Check your code or request a new one.");
+    await identityAction(() => identity.requestRecoveryCode(email), result => {
+      setSentAt(result.sentAt!);
+      setScreen('recovery-code');
+    });
   }
   async function verifyRecoveryCode() {
-    await authenticationOperation(async isCurrent => {
-      if (!signIn) return;
-      await signIn.attemptFirstFactor({ strategy: "reset_password_email_code", code });
-      if (isCurrent()) setScreen("reset");
-    }, "Recovery could not be completed. Check your code or request a new one.");
+    await identityAction(() => identity.verifyRecoveryCode(code), () => setScreen('reset'));
   }
   function passwordsMatch() {
     if (password === confirmPassword) return true;
-    setFieldErrors({ confirmPassword: "The passwords do not match." });
+    setFieldErrors({ confirmPassword: 'The passwords do not match.' });
     return false;
   }
   async function saveRecoveredPassword() {
-    await authenticationOperation(async isCurrent => {
-      if (!signIn || !passwordsMatch()) return;
-      await completeAuth(await signIn.resetPassword({ password, signOutOfOtherSessions: true }), isCurrent);
-    }, "Recovery could not be completed. Check your code or request a new one.");
+    await identityAction(() => passwordsMatch() ? identity.saveRecoveredPassword(password) : Promise.resolve({ kind: 'ignored' }), authenticationCompleted);
   }
   async function resendRecoveryCode() {
-    await authenticationOperation(async isCurrent => {
-      try {
-        await signIn?.create({ strategy: "reset_password_email_code", identifier: email });
-      } catch { /* Enumeration-safe resend result. */ }
-      if (!isCurrent()) return;
-      setSentAt(Date.now());
-      toast.add({ type: "success", title: "Recovery code requested, if available." });
+    await identityAction(() => identity.resendRecoveryCode(email), result => {
+      setSentAt(result.sentAt!);
+      toast.add({ type: 'success', title: 'Recovery code requested, if available.' });
     });
   }
-  async function prepareReverification(target: Screen = returnAction, isCurrent = authenticationGuard()) {
-    if (!session) throw new Error("Sign in again");
-    const verification = await session.startVerification({
-      level: "first_factor",
-    });
-    if (!isCurrent()) return;
-    if (
-      user?.passwordEnabled &&
-      verification.supportedFirstFactors?.some((f) => f.strategy === "password")
-    )
-      setReverifyMethod("password");
-    else {
-      const factor = verification.supportedFirstFactors?.find(
-        (f) => f.strategy === "email_code",
-      );
-      if (!factor || factor.strategy !== "email_code")
-        throw new Error("Email verification is unavailable");
-      await session.prepareFirstFactorVerification({
-        strategy: "email_code",
-        emailAddressId: factor.emailAddressId,
-      });
-      if (!isCurrent()) return;
-      setReverifyMethod("email_code");
-      setSentAt(Date.now());
-    }
-    setScreen("reverify", false, pathForScreen(target));
+  async function prepareReverification(target: Screen = returnAction) {
+    const result = await identity.prepareReverification();
+    if (result.kind === 'failed') throw new Error(result.message);
+    if (result.kind !== 'completed') return;
+    if (result.step !== 'current-password' && result.step !== 'email-code') return;
+    setReverifyMethod(result.step);
+    if (result.sentAt !== undefined) setSentAt(result.sentAt);
+    setScreen('reverify', false, pathForScreen(target));
   }
   async function verifyIdentity() {
-    await authenticationOperation(async isCurrent => {
-      if (!session) return;
-      const verification = await session.attemptFirstFactorVerification(
-        reverifyMethod === "password"
-          ? { strategy: "password", password: currentPassword }
-          : { strategy: "email_code", code },
-      );
-      if (!isCurrent()) return;
-      if (verification.status !== "complete") throw new Error("Verification is incomplete");
-      await getToken({ skipCache: true });
-      if (!isCurrent()) return;
-      setCurrentPassword("");
+    await identityAction(() => identity.verifyIdentity(reverifyMethod, reverifyMethod === 'current-password' ? currentPassword : code), () => {
+      setCurrentPassword('');
       setScreen(returnAction);
-    }, "Identity verification did not work. Check your password or code and try again.");
+    });
   }
   async function resendIdentityCode() {
-    await authenticationOperation(isCurrent => prepareReverification(returnAction, isCurrent));
+    await action(() => prepareReverification(returnAction));
   }
   async function savePassword() {
-    await authenticationOperation(async isCurrent => {
-      if (!passwordsMatch()) return;
-      await user?.updatePassword({
-        newPassword: password,
-        ...(user.passwordEnabled ? { currentPassword } : {}),
-        signOutOfOtherSessions: true,
-      });
-      if (!isCurrent()) return;
-      setPassword("");
-      setConfirmPassword("");
-      setCurrentPassword("");
-      setScreen("account");
-      toast.add({ type: "success", title: "Password saved." });
-    }, `The password could not be saved. Check your current password. ${passwordRequirements}`);
+    await identityAction(async () => {
+      if (!passwordsMatch()) return { kind: 'ignored' };
+      const result = await identity.savePassword(password, currentPassword);
+      return result.kind === 'failed' ? { ...result, message: result.message + ' ' + passwordRequirements } : result;
+    }, () => {
+      setPassword('');
+      setConfirmPassword('');
+      setCurrentPassword('');
+      setScreen('account');
+      toast.add({ type: 'success', title: 'Password saved.' });
+    });
   }
   async function openPasswordSettings() {
-    await authenticationOperation(() => sensitive("password"));
+    await action(() => sensitive('password'));
   }
   async function openPhoneSettings() {
-    await authenticationOperation(() => account?.phone ? sensitive("phone") : Promise.resolve(openScreen("phone")));
+    await action(() => account?.phone ? sensitive('phone') : Promise.resolve(openScreen('phone')));
   }
   async function saveTaskPassword() {
-    await authenticationOperation(async isCurrent => {
-      if (!passwordsMatch()) return;
-      await resetTaskPassword(password, isCurrent);
-      if (!isCurrent()) return;
-      setPassword("");
-      setConfirmPassword("");
-      await clerk.setActive({ session });
-      if (isCurrent()) location.assign("/alerts");
-    }, "The password could not be saved. Please try again.");
+    await identityAction(() => passwordsMatch() ? identity.saveRequiredPassword(password) : Promise.resolve({ kind: 'ignored' }), () => location.assign('/alerts'));
   }
-  async function endSession(redirectUrl: "/" | "/sign-in") {
-    await authenticationOperation(async () => {
-      await clerk.signOut({ redirectUrl });
-    }, "Sign-out could not be completed. Please try again.");
+  async function endSession(redirectUrl: '/' | '/sign-in') {
+    await identityAction(() => identity.signOut(redirectUrl));
   }
   function cancelProfileAndSignOut() { return endSession("/"); }
   async function signOutFromAccount() {
@@ -937,7 +802,7 @@ export function useAccountFlow(initial: string) {
     />
   );
   const isAccountLoading = !isLoaded || loading ||
-    (isSignedIn && !session?.currentTask && !signedOnce.current);
+    (isSignedIn && !requiredStep && !signedOnce.current);
   const profile: ProfileFlow = {
     name, savedName: account?.displayName ?? "", busy,
     fieldError: fieldErrors.displayName,
@@ -970,14 +835,11 @@ export function useAccountFlow(initial: string) {
     savePassword: saveRecoveredPassword, resendCode: resendRecoveryCode,
   };
   const passwordFlow = {
-    hasPassword: Boolean(user?.passwordEnabled), currentPassword, setCurrentPassword, savePassword, goBack: () => openScreen("account"),
+    hasPassword: identity.view.hasPassword, currentPassword, setCurrentPassword, savePassword, goBack: () => openScreen("account"),
   };
   const reverification = { goBack: () => openScreen("account"), method: reverifyMethod, currentPassword, setCurrentPassword, verifyIdentity, resendCode: resendIdentityCode };
-  const identityView = {
-    hasPassword: Boolean(user?.passwordEnabled), email: user?.primaryEmailAddress?.emailAddress,
-    avatarUrl: user?.imageUrl,
-  };
-  const taskFlow = { task: session?.currentTask?.key ?? null, savePassword: saveTaskPassword, signOut: signOutTask };
+  const identityView = identity.view;
+  const taskFlow = { task: requiredStep, savePassword: saveTaskPassword, signOut: signOutTask };
   const navigation = { openDestination, signOut: signOutFromShell };
   const accountActions = { openEmailChange, openAccountRemoval, signOut: signOutFromAccount };
   const unavailableAction = { removing: screen === "close", returnToAccount };

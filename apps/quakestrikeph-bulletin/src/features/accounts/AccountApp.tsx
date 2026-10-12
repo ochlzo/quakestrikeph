@@ -1,4 +1,4 @@
-import { AuthenticateWithRedirectCallback, ClerkProvider, useAuth } from "@clerk/react";
+import { IdentityCallback, IdentityProvider, useIdentitySession } from "../../lib/auth";
 import { ArrowRight } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "../../components/ui/dialog";
@@ -41,49 +41,28 @@ export default function AccountApp({
       </Shell>
     );
   return (
-    <ClerkProvider
-      publishableKey={publishableKey}
-      signInUrl="/sign-in"
-      signUpUrl="/sign-up"
-      signInFallbackRedirectUrl="/alerts"
-      signUpFallbackRedirectUrl="/alerts"
-      taskUrls={{
-        "reset-password": "/sign-in",
-        "setup-mfa": "/sign-in",
-        "choose-organization": "/sign-in",
-      }}
-    >
+    <IdentityProvider publishableKey={publishableKey} account>
       {initial === "callback" ? (
-        <AuthenticateWithRedirectCallback
-          signInUrl="/sign-in"
-          signUpUrl="/sign-up"
-          signInFallbackRedirectUrl="/alerts"
-          signUpFallbackRedirectUrl="/alerts"
-        />
+        <IdentityCallback />
       ) : (
         <SessionAccountFlow initial={initial} />
       )}
       {!externalToaster && <Toaster />}
-    </ClerkProvider>
+    </IdentityProvider>
   );
 }
 function SessionAccountFlow({ initial }: { initial: string; }) {
-  const { isLoaded, isSignedIn, userId, sessionId } = useAuth({
-    treatPendingAsSignedOut: false,
-  });
-  const identity = !isLoaded
-    ? "loading"
-    : isSignedIn
-      ? `${userId}:${sessionId}`
-      : "signed-out";
-  const [boundary, setBoundary] = useState({ identity, generation: 0 });
-  if (boundary.identity !== identity) {
+  const session = useIdentitySession({ allowPending: true });
+  const signedOut = session.loaded && !session.signedIn;
+  const [boundary, setBoundary] = useState({ marker: session.marker, signedOut, generation: 0 });
+  if (boundary.marker !== session.marker) {
     // Keep the anonymous signup draft at first sign-in. Leaving an authenticated
     // session always discards its private state, even when switching accounts.
     setBoundary({
-      identity,
+      marker: session.marker,
+      signedOut,
       generation:
-        boundary.generation + (boundary.identity === "signed-out" ? 0 : 1),
+        boundary.generation + (boundary.signedOut ? 0 : 1),
     });
   }
   return <AccountFlow key={boundary.generation} initial={initial} />;
