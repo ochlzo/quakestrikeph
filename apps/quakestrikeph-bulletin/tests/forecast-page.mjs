@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { ForecastObservationCache } from '../src/lib/forecast-observation-cache.ts';
-import { loadObservationWindow } from '../src/lib/forecast-observations.ts';
+import { loadObservationWindow } from '../src/lib/api/forecast-observations.ts';
 import { occurrenceRelativeTo } from '../src/lib/events.ts';
 
 const triggerTime = '2026-10-01T12:00:00.000Z';
@@ -84,6 +84,10 @@ try {
   const html = await page();
   assert.match(html, /80%/);
   assert.match(html, /Loading observations/);
+  assert.match(html, /<section[^>]*data-forecast-replay/);
+  assert.match(html, /id="time-viewport"/);
+  assert.match(html, /id="play"[^>]*disabled/);
+  assert.match(html, /Enable JavaScript to use the map and replay/);
   assert.doesNotMatch(html, /data-timeline-root|timeline-event-list|What appeared during this window/);
   assert.doesNotMatch(html, /include-history|Start from previous earthquakes/);
   assert.match(html, /lucide-play/);

@@ -1,0 +1,59 @@
+---
+import { Pause, Play, RotateCcw } from 'lucide-react';
+import { Button } from '../../components/ui/button';
+import ReplayMap from './ReplayMap';
+import type { EarthquakeDetail } from '../../lib/events';
+interface Props { event: EarthquakeDetail; }
+const { event } = Astro.props;
+---
+<section class="map-column" id="activity-map" data-forecast-replay aria-labelledby="map-title">
+<h2 class="sr-only" id="map-title">Observed activity</h2>
+<ReplayMap event={event} client:only="react" />        <div class="replay">
+          <p class="ruler-date-range" id="timeline-dates"></p>
+          <div class="time-viewport" id="time-viewport" tabindex="0" role="group" aria-label="Scrollable replay timeline" aria-describedby="timeline-dates" aria-description="Scroll horizontally to explore time up to Now. Arrow keys move six hours; Page Up and Page Down move 24 hours.">
+            <div class="time-canvas" id="time-canvas">
+              <div class="forecast-band" id="forecast-band">
+<span>24-hour forecast</span>
+</div>
+              <div id="ruler" aria-hidden="true">
+</div>
+              <div class="time-future" id="time-future" hidden>
+<time class="time-now" id="time-now">Now</time>
+<p>Future observations are not available</p>
+</div>
+              <div class="visible-period" id="visible-period" aria-hidden="true">
+</div>
+              <!-- Lucide Play, ISC license: https://lucide.dev/license. Icon and line share one cursor SVG. -->
+              <button class="time-handle" id="replay-handle" aria-label="Replay time" aria-description="Drag to seek. Arrow keys move 15 minutes; Shift and arrow keys move one hour. Page Up and Page Down move 24 hours.">
+<svg class="time-cursor" viewBox="0 0 44 116" aria-hidden="true">
+<path class="cursor-line" d="M22 20v94" fill="none" stroke="currentColor" stroke-width="2.5"/>
+<g transform="translate(22 20) scale(.8) translate(-22 -20) translate(10 0) rotate(90 12 12)">
+<path class="cursor-icon" d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</svg>
+</button>
+              <button class="time-handle history" id="history-handle" aria-label="Observation range starts" aria-description="Drag to change the start of the observation range. Arrow keys move 15 minutes; Shift and arrow keys move one hour. Page Up and Page Down move 24 hours.">
+</button>
+            </div>
+          </div>
+          <div class="replay-controls" role="group" aria-label="Playback controls">
+<button id="play" data-activity-play disabled class="replay-control" aria-label="Play replay" aria-pressed="false" title="Play replay">
+<span id="play-icon"><Play fill="currentColor" aria-hidden="true" /></span>
+<span id="pause-icon" hidden>
+<Pause fill="currentColor" aria-hidden="true" />
+</span>
+</button>
+<button class="replay-control" id="reset" aria-label="Restart at forecast start" title="Restart at forecast start">
+<RotateCcw aria-hidden="true" />
+</button>
+<Button variant="outline" className="replay-speed" id="playback-speed" aria-label="Playback speed, 1x. Switch to 2x."><span>1x</span></Button>
+<Button variant="outline" className="replay-zoom" id="timeline-zoom" aria-label="Timeline zoom, 24h view. Switch to 48h view."><span>24h view</span></Button>
+</div>
+        </div>
+<span class="replay-load-status" id="replay-load-status" role="status">Loading observations…</span>
+<noscript>Enable JavaScript to use the map and replay.</noscript>
+<div class="replay-note">
+<p>Playback shows recorded earthquakes within the selected time range. These earthquakes are not necessarily aftershocks of the original earthquake. Moving the timeline does not change the forecast’s original 24-hour period.</p>
+<p>Reports can arrive late or change. An empty map does not prove that no earthquakes occurred.</p>
+</div>
+</section>

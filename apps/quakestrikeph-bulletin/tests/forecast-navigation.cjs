@@ -97,6 +97,22 @@ function release() {
       releaseToaster();
       await startupPage.close();
     }
+    const scopedPage = await browser.newPage();
+    scopedPage.on('pageerror', error => errors.push(error.stack));
+    await scopedPage.route('https://tiles.openfreemap.org/**', route => route.fulfill({ json: mapStyle }));
+    await scopedPage.route(root + '/forecasts/' + eventId, async route => {
+      const response = await route.fetch();
+      const body = (await response.text()).replace('<body class="forecast-page">',
+        '<body class="forecast-page"><div id="time-viewport" data-replay-decoy hidden></div>');
+      await route.fulfill({ response, body });
+    });
+    await scopedPage.goto(root + '/forecasts/' + eventId);
+    await scopedPage.waitForFunction(() => document.querySelector('#replay-load-status')?.textContent === '');
+    assert.ok(await scopedPage.locator('[data-forecast-replay] .ruler-tick').count(),
+      'Replay initializes its own timeline despite a matching ID outside the feature');
+    assert.equal(await scopedPage.locator('[data-replay-decoy]').getAttribute('style'), null);
+    await scopedPage.close();
+
     for (const viewport of [{ width: 1440, height: 900 }, { width: 384, height: 844 }, { width: 320, height: 844 }]) {
       const page = await browser.newPage({ viewport, reducedMotion: 'reduce', hasTouch: viewport.width < 760 });
       page.on('pageerror', error => errors.push(error.stack));

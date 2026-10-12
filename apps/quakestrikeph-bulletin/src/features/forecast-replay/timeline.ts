@@ -1,16 +1,17 @@
-import type { Earthquake, EarthquakeDetail } from "./events";
-import { displayTime } from "./events";
-import { loadObservationWindow } from "./forecast-observations";
-import { ForecastObservationCache } from "./forecast-observation-cache";
-import { toast } from "../components/ui/toast";
+import type { Earthquake, EarthquakeDetail } from "../../lib/events";
+import { displayTime } from "../../lib/events";
+import { loadObservationWindow } from "../../lib/api/forecast-observations";
+import { ReplayController } from "./controller";
+import { toast } from "../../components/ui/toast";
 
-export function initForecastActivity(
+export function initReplayTimeline(
+  root: HTMLElement,
   event: EarthquakeDetail,
   showObservations: (items: Earthquake[]) => void,
 ) {
   if (!event.forecast) return;
   const get = <T extends HTMLElement>(id: string) =>
-    document.getElementById(id) as T;
+    root.querySelector<T>(`[id="${id}"]`)!;
   const viewport = get<HTMLDivElement>("time-viewport");
   if (!viewport) return;
   const canvas = get<HTMLDivElement>("time-canvas");
@@ -27,11 +28,38 @@ export function initForecastActivity(
   history.replaceChildren(replay.querySelector("svg")!.cloneNode(true));
   const start = Date.parse(event.forecast.windowStart);
   const endMinutes = (Date.parse(event.forecast.windowEnd) - start) / 60000;
-  const cache = new ForecastObservationCache(start, loadObservationWindow);
-  // Refresh Now during interactions rather than polling during playback.
-  let availableThrough = Date.now();
-  let replayTime = 0, rangeStart = 0;
-  let playbackSpeed = 1;
+  const controller = new ReplayController(event, {
+    load: loadObservationWindow,
+    now: Date.now,
+    onChange(next) {
+      const previous = state;
+      state = next;
+      play.disabled = !state.ready;
+      play.setAttribute("aria-pressed", String(state.playing));
+      play.setAttribute("aria-label", state.playing ? "Pause replay" : "Play replay");
+      play.title = state.playing ? "Pause replay" : "Play replay";
+      get<HTMLElement>("play-icon").toggleAttribute("hidden", state.playing);
+      get<HTMLElement>("pause-icon").toggleAttribute("hidden", !state.playing);
+      status.textContent = state.loadStatus === "complete" ? ""
+        : state.loadStatus === "incomplete" ? "Observations incomplete" : "Loading observations…";
+      if (state.observations !== previous.observations) showObservations(state.observations);
+      if (state.playing !== previous.playing) cancelPlaybackScroll();
+      if (state.playing && (!previous.playing || state.replayMinutes !== previous.replayMinutes)) keepInView();
+      render();
+    },
+    onLoadError() {
+      toast.add({
+        id: "forecast-observations-error",
+        type: "error",
+        timeout: 0,
+        title: "Observed earthquakes could not be loaded.",
+        description: "Some observations are missing. Retry to load the selected period.",
+        actionProps: { children: "Retry", onClick: () => controller.retry() },
+      });
+    },
+    onLoadSuccess: () => toast.close("forecast-observations-error"),
+  });
+  let state = controller.snapshot;
   const zoomLevels = [360, 1440, 2880, 5760];
   const minZoomMinutes = zoomLevels[0], maxZoomMinutes = zoomLevels[3];
   let zoomMinutes = 1440, viewSpan = 1440;
@@ -43,12 +71,7 @@ export function initForecastActivity(
   let firstVisibleTime = 0;
   let canvasStart = -6480,
     width = 0;
-  let timer: ReturnType<typeof setInterval> | null = null;
-  let disposed = false,
-    revision = 0;
-  let loadTimer: ReturnType<typeof setTimeout> | null = null;
   let stretchTimer: ReturnType<typeof setTimeout> | null = null;
-  let requested = "";
   const listeners = new AbortController();
   const options = { signal: listeners.signal };
   const date = (minutes: number) => new Date(start + minutes * 60000);
@@ -77,9 +100,7 @@ export function initForecastActivity(
   const x = (minutes: number) => ((minutes - canvasStart) / viewSpan) * width;
   const viewStart = () =>
     canvasStart + (viewport.scrollLeft / width) * viewSpan;
-  const nowMinutes = () => (availableThrough - start) / 60000;
-  const playbackEnd = () =>
-    replayTime < endMinutes ? Math.min(endMinutes, nowMinutes()) : nowMinutes();
+  const nowMinutes = () => (state.availableThrough - start) / 60000;
   const rulerFraction = () => width >= 560 ? 0.75 : 0.65;
   const edgeMinutes = () => 8 * viewSpan / width;
   const latestViewStart = () => Math.max(-edgeMinutes(), nowMinutes() - viewSpan * rulerFraction());
@@ -112,7 +133,7 @@ export function initForecastActivity(
     cancelPlaybackScroll();
     finishZoom?.();
     fittedView = false;
-    availableThrough = Date.now();
+    controller.refreshNow();
     const limit = x(latestViewStart());
     const target = viewport.scrollLeft + pixels;
     viewport.scrollLeft = Math.min(target, limit);
@@ -134,11 +155,11 @@ export function initForecastActivity(
     future.hidden = boundary >= width * 5;
     future.style.left = `${boundary}px`;
     future.style.setProperty("--future-copy-width", `${Math.max(70, Math.min(180, width * (1 - rulerFraction()) - 24))}px`);
-    nowLabel.dateTime = new Date(availableThrough).toISOString();
+    nowLabel.dateTime = new Date(state.availableThrough).toISOString();
     nowLabel.title = displayTime(nowLabel.dateTime);
     for (const [handle, minutes] of [
-      [replay, replayTime],
-      [history, rangeStart],
+      [replay, state.replayMinutes],
+      [history, state.rangeStartMinutes],
     ] as const) {
       const position = x(minutes);
       handle.hidden =
@@ -151,8 +172,8 @@ export function initForecastActivity(
       );
     }
     const trace = get<HTMLDivElement>("visible-period");
-    trace.style.left = `${Math.max(0, x(rangeStart))}px`;
-    trace.style.width = `${Math.max(0, Math.min(width * 5, x(replayTime)) - Math.max(0, x(rangeStart)))}px`;
+    trace.style.left = `${Math.max(0, x(state.rangeStartMinutes))}px`;
+    trace.style.width = `${Math.max(0, Math.min(width * 5, x(state.replayMinutes)) - Math.max(0, x(state.rangeStartMinutes)))}px`;
     updateVisibleDates();
   }
   function buildRuler() {
@@ -169,7 +190,7 @@ export function initForecastActivity(
     for (
       let localHour = first;
       localHour < originHour + (canvasStart + viewSpan * 5) / 60 + 8 &&
-        (localHour - 8) * 3600000 <= availableThrough;
+        (localHour - 8) * 3600000 <= state.availableThrough;
       localHour += tickHours
     ) {
       const minutes = (localHour - 8 - originHour) * 60;
@@ -255,7 +276,7 @@ export function initForecastActivity(
   }
   function zoomTo(minutes: number, anchorPixels: number, anchorTime = viewStart() + anchorPixels / width * viewSpan) {
     if (!width) return;
-    availableThrough = Date.now();
+    controller.refreshNow();
     fittedView = false;
     releaseStretch();
     // Accumulate gesture movement before choosing a level, including small trackpad deltas.
@@ -272,11 +293,11 @@ export function initForecastActivity(
       fitForecast(true);
       return;
     }
-    const selectedPosition = x(replayTime) - viewport.scrollLeft;
+    const selectedPosition = x(state.replayMinutes) - viewport.scrollLeft;
     zoomTo(minutes, selectedPosition >= 0 && selectedPosition <= width ? selectedPosition : width / 2);
   }
   function fitForecast(animate = false) {
-    availableThrough = Date.now();
+    controller.refreshNow();
     zoomMinutes = endMinutes;
     requestedZoomMinutes = zoomMinutes;
     releaseStretch();
@@ -295,14 +316,14 @@ export function initForecastActivity(
   function keepInView() {
     if (finishZoom || playbackScrollFrame || !width) return;
     const first = viewStart();
-    if (replayTime >= first + viewSpan * 0.08 &&
-        replayTime <= first + viewSpan * 0.9) return;
+    if (state.replayMinutes >= first + viewSpan * 0.08 &&
+        state.replayMinutes <= first + viewSpan * 0.9) return;
     if (reducedMotion.matches) {
-      showTime(replayTime);
+      showTime(state.replayMinutes);
       return;
     }
     fittedView = false;
-    const target = Math.min(replayTime - viewSpan * 0.25, latestViewStart());
+    const target = Math.min(state.replayMinutes - viewSpan * 0.25, latestViewStart());
     const started = performance.now();
     const step = (time: number) => {
       const progress = Math.min(1, (time - started) / 250);
@@ -315,120 +336,16 @@ export function initForecastActivity(
     };
     playbackScrollFrame = requestAnimationFrame(step);
   }
-  function paintObservations() {
-    const from = date(rangeStart).getTime(),
-      to = date(replayTime).getTime();
-    const items = cache.observations(
-      from,
-      Math.min(to, availableThrough),
-      event.eventId,
-    );
-    showObservations(items);
-    const complete = cache.covered(from, to, availableThrough);
-    status.textContent = complete ? "" : "Loading observations…";
-  }
-  function loadingFailed() {
-    setPlaying(false);
-    paintObservations();
-    status.textContent = "Observations incomplete";
-    toast.add({
-      id: "forecast-observations-error",
-      type: "error",
-      timeout: 0,
-      title: "Observed earthquakes could not be loaded.",
-      description:
-        "Some observations are missing. Retry to load the selected period.",
-      actionProps: {
-        children: "Retry",
-        onClick: () => {
-          requested = "";
-          requestObservations();
-        },
-      },
-    });
-  }
-  function requestObservations(prefetch = false) {
-    const from = date(rangeStart).getTime();
-    const to = date(
-      prefetch ? Math.min(replayTime + 120, playbackEnd()) : replayTime,
-    ).getTime();
-    const key = `${Math.floor((from - start) / 86400000)}:${Math.floor((to - start) / 86400000)}`;
-    if (cache.covered(from, to, availableThrough) || requested === key) return;
-    requested = key;
-    const token = revision;
-    void cache
-      .ensure(from, to, availableThrough, () => !disposed && token === revision)
-      .then(() => {
-        if (!disposed && token === revision) {
-          paintObservations();
-          toast.close("forecast-observations-error");
-        }
-      })
-      .catch(() => {
-        if (!disposed && token === revision) loadingFailed();
-      })
-      .finally(() => {
-        if (requested === key) requested = "";
-      });
-  }
   function setPlaying(playing: boolean) {
     cancelPlaybackScroll();
-    if (timer !== null) clearInterval(timer);
-    timer = null;
-    playing = playing && replayTime < playbackEnd();
-    play.setAttribute("aria-pressed", String(playing));
-    play.setAttribute("aria-label", playing ? "Pause replay" : "Play replay");
-    play.title = playing ? "Pause replay" : "Play replay";
-    get<HTMLElement>("play-icon").toggleAttribute("hidden", playing);
-    get<HTMLElement>("pause-icon").toggleAttribute("hidden", !playing);
-    if (playing) {
-      keepInView();
-      requestObservations(true);
-      timer = setInterval(() => {
-        const limit = playbackEnd();
-        const next = Math.min(replayTime + 6 * playbackSpeed, limit);
-        if (
-          !cache.covered(
-            date(rangeStart).getTime(),
-            date(next).getTime(),
-            availableThrough,
-          )
-        ) {
-          requestObservations(true);
-          status.textContent = "Loading observations…";
-          return;
-        }
-        replayTime = next;
-        keepInView();
-        render();
-        paintObservations();
-        if (replayTime >= limit) {
-          setPlaying(false);
-          return;
-        }
-        requestObservations(true);
-      }, 100);
-    }
+    controller.setPlaying(playing);
   }
   function seek(handle: HTMLButtonElement, minutes: number) {
-    setPlaying(false);
-    availableThrough = Date.now();
+    cancelPlaybackScroll();
+    controller.seek(handle === history ? "history" : "replay", minutes);
     const snapped = Math.round(minutes / 15) * 15;
-    const target =
-      handle === history
-        ? Math.min(snapped, replayTime)
-        : Math.min(Math.max(snapped, rangeStart), nowMinutes());
     if (handle === replay && snapped > nowMinutes())
       resistFuture(((snapped - nowMinutes()) / viewSpan) * width);
-    if (target === (handle === history ? rangeStart : replayTime)) return;
-    revision++;
-    requested = "";
-    if (handle === history) rangeStart = target;
-    else replayTime = target;
-    render();
-    paintObservations();
-    if (loadTimer !== null) clearTimeout(loadTimer);
-    loadTimer = setTimeout(() => requestObservations(), 150);
   }
   const dragFrames = new Set<number>();
   const cancelDrags: (() => void)[] = [];
@@ -465,7 +382,7 @@ export function initForecastActivity(
         offset =
           lastX -
           viewport.getBoundingClientRect().left -
-          (x(handle === history ? rangeStart : replayTime) -
+          (x(handle === history ? state.rangeStartMinutes : state.replayMinutes) -
             viewport.scrollLeft);
         handle.classList.add("pointer-focus");
         handle.focus({ preventScroll: true });
@@ -514,9 +431,9 @@ export function initForecastActivity(
         event.stopPropagation();
         seek(
           handle,
-          (handle === history ? rangeStart : replayTime) + changes[event.key],
+          (handle === history ? state.rangeStartMinutes : state.replayMinutes) + changes[event.key],
         );
-        showTime(handle === history ? rangeStart : replayTime);
+        showTime(handle === history ? state.rangeStartMinutes : state.replayMinutes);
       },
       options,
     );
@@ -637,7 +554,7 @@ export function initForecastActivity(
       };
       if (!(event.key in changes) || event.target !== viewport) return;
       event.preventDefault();
-      availableThrough = Date.now();
+      controller.refreshNow();
       const first = viewStart() + changes[event.key];
       if (first > latestViewStart())
         resistFuture(((first - latestViewStart()) / viewSpan) * width);
@@ -656,7 +573,7 @@ export function initForecastActivity(
   });
   resize.observe(viewport);
   function setPlaybackSpeed(value: 1 | 2) {
-    playbackSpeed = value;
+    controller.setPlaybackSpeed(value);
     const next = value === 1 ? 2 : 1;
     speed.querySelector("span")!.textContent = `${value}x`;
     speed.setAttribute("aria-label", `Playback speed, ${value}x. Switch to ${next}x.`);
@@ -664,29 +581,24 @@ export function initForecastActivity(
   }
   setPlaybackSpeed(1);
   speed.addEventListener("click", () => {
-    setPlaybackSpeed(playbackSpeed === 1 ? 2 : 1);
+    setPlaybackSpeed(state.playbackSpeed === 1 ? 2 : 1);
   }, options);
   zoom.addEventListener("click", cycleZoom, options);
   play.addEventListener(
     "click",
     () => {
-      availableThrough = Date.now();
+      controller.refreshNow();
       buildRuler();
-      setPlaying(timer === null);
+      setPlaying(!state.playing);
     },
     options,
   );
   get<HTMLButtonElement>("reset").addEventListener(
     "click",
     () => {
-      setPlaying(false);
-      revision++;
-      requested = "";
-      availableThrough = Date.now();
-      replayTime = rangeStart = 0;
+      cancelPlaybackScroll();
+      controller.reset();
       showTime(0);
-      paintObservations();
-      requestObservations();
     },
     options,
   );
@@ -706,30 +618,15 @@ export function initForecastActivity(
       cancelPlaybackScroll();
       finishZoom?.();
       releaseStretch();
-      if (timer !== null) keepInView();
+      if (state.playing) keepInView();
     }
   }, options);
-  void cache
-    .ensure(start, start + 86400000 - 1, availableThrough)
-    .then(() => {
-      if (!disposed) {
-        play.disabled = false;
-        paintObservations();
-      }
-    })
-    .catch(() => {
-      if (!disposed) {
-        play.disabled = false;
-        if (revision === 0) loadingFailed();
-      }
-    });
+  controller.start();
   return () => {
-    disposed = true;
-    revision++;
-    setPlaying(false);
+    controller.dispose();
+    cancelPlaybackScroll();
     listeners.abort();
     resize.disconnect();
-    if (loadTimer !== null) clearTimeout(loadTimer);
     releaseStretch();
     cancelAnimationFrame(zoomFrame);
     finishZoom = null;
