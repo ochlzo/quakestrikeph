@@ -178,7 +178,12 @@ export function createIdentity(provider: ClerkIdentity, options: {
     }, 'Sign-out could not be completed. Please try again.'),
     screenRequest: <T>(send: AccountRequest, path = '', method = 'GET', body?: unknown) =>
       request<T>(send, path, method, body, screenCurrent),
-    backgroundRequest: <T>(send: AccountRequest, path = '', method = 'GET', body?: unknown) =>
-      request<T>(send, path, method, body, sessionCurrent),
+    backgroundRequest: async <T>(send: AccountRequest, path = '', method = 'GET', body?: unknown, onSessionChanged?: () => void) => {
+      try { return await request<T>(send, path, method, body, sessionCurrent); }
+      finally {
+        // Cancel the caller's surviving queue before an obsolete rejection can notify.
+        if (!sessionCurrent()) onSessionChanged?.();
+      }
+    },
   };
 }

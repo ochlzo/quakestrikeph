@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createIdentity, updateRequiredPassword } from '../../src/lib/auth/protocol.ts';
+import { PreferenceSaves } from '../../src/features/accounts/preference-saves.ts';
 
 const complete = { status: 'complete', createdSessionId: 'created-session' };
 const emailFactor = { strategy: 'email_code', emailAddressId: 'verified-email' };
@@ -226,6 +227,35 @@ for (const result of ['success', 'failure']) {
     if (result === 'success') response.resolve({ saved: true });
     else response.reject(new Error('Late backend error'));
     await rejected;
+  });
+}
+
+for (const result of ['success', 'failure']) {
+  test(`session change after navigation cancels preference saves without an obsolete ${result} notification`, async () => {
+    const f = fixture(), response = deferred(), submitted = deferred();
+    const notices = [];
+    const account = { emailEnabled: false, smsEnabled: false, magnitude: 4.5, nearbyOnly: false,
+      latitude: null, longitude: null, distanceKm: null };
+    let writes = 0;
+    const queue = new PreferenceSaves(account, value => f.identity.backgroundRequest(() => {
+      writes++;
+      submitted.resolve();
+      return response.promise;
+    }, '/preferences', 'PUT', value, () => queue.cancel()), message => notices.push(message));
+    queue.save({ emailEnabled: true }, 0);
+    await submitted.promise;
+    f.state.active = false;
+    queue.save({ magnitude: 5 }, 0);
+    f.state.marker = 'another-session';
+    if (result === 'success') response.resolve({ ...account, emailEnabled: true });
+    else response.reject(new Error('Late backend failure'));
+    await tick();
+    queue.save({ smsEnabled: true }, 0);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.deepEqual(notices, []);
+    assert.equal(writes, 1, 'The obsolete queue must cancel later writes');
+    assert.equal(queue.snapshot.account.emailEnabled, false, 'The old result must not update the account');
+    queue.cancel();
   });
 }
 

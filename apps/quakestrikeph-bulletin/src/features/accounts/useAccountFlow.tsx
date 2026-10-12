@@ -299,8 +299,8 @@ export function useAccountFlow(initial: string) {
     return submitProfile("onboarding");
   }
   function updateAccount(next: Account) {
-    const queue = preferenceSaves(identity.session.marker, next, value =>
-      identity.backgroundRequest<Account>(accountRequest, '/preferences', 'PUT', value), (message) => toast.add({ id: 'account-preference-save-error', type: 'error', title: message, timeout: 0 }));
+    const queue: PreferenceSaves = preferenceSaves(identity.session.marker, next, value =>
+      identity.backgroundRequest<Account>(accountRequest, '/preferences', 'PUT', value, () => queue.cancel()), (message) => toast.add({ id: 'account-preference-save-error', type: 'error', title: message, timeout: 0 }));
     setSaves(queue);
     setAccount(queue.snapshot.account);
     setDraft(queue.snapshot.preferences);
