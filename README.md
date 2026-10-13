@@ -109,7 +109,7 @@ integration suite in [CONTRIBUTING.md](CONTRIBUTING.md#local-setup-for-contribut
 It requires Docker with Compose v2. Host pytest skips those integration tests
 when its test database and Redis variables are absent.
 
-Before changing domain behavior, read [CONTEXT.md](CONTEXT.md). Read the
+Before changing domain behavior, read [GLOSSARY.md](GLOSSARY.md). Read the
 relevant [ADRs](docs/adr/) before changing behavior, architecture, data,
 dependencies, queues, runtime, deployment, or interfaces. The specifications
 describe the intended system; check the code to see what is implemented.

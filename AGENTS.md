@@ -2,7 +2,7 @@
 
 ## Read first: repository context and ADRs
 
-Read `CONTEXT.md` before working on the related domain behavior or workflow.
+Read `GLOSSARY.md` before working on the related domain behavior or workflow.
 It defines the terms and rules used by the current implementation.
 
 Read the relevant records in `docs\adr\` before changing behavior, architecture,
@@ -80,7 +80,7 @@ the relevant repository design material:
   Consult the matching Level 2 diagram when changing that process or its data
   flow.
 
-The repository specifications, diagrams, `CONTEXT.md`, and accepted ADRs
+The repository specifications, diagrams, `GLOSSARY.md`, and accepted ADRs
 describe intended design; they do not prove that behavior is implemented. If
 implementation must deviate, identify the deviation and preserve documented
 ownership and security rules unless the design is intentionally changed.

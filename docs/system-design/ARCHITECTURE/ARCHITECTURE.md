@@ -43,7 +43,7 @@ quakestrikeph/
 │   └── scripts/
 ├── model-artifacts/                # local, Git-ignored, build-excluded, read-only mount
 ├── .env.example
-├── CONTEXT.md
+├── GLOSSARY.md
 └── docs/
 ```
 
@@ -288,5 +288,5 @@ IPROG SMS is selected for provider-managed phone OTP and SMS alert delivery with
 ## References
 
 - [Architecture diagram](system-architecture-layers.png), [context diagram](../CFD-DFD/CFD.png), and [ERD](../ERD/ERD.png).
-- [Domain context](../../../CONTEXT.md), [database design](../ERD/DATABASE-DESIGN.md), [Console decision](../../adr/0035-cloudflare-access-operations-console.md), [independent phone-verification decision](../../adr/0036-google-accounts-and-independent-phone-verification.md), [auth decision](../../adr/0037-clerk-free-bulletin-authentication.md), and [alert-channel decision](../../adr/0038-email-and-sms-alert-preferences.md).
+- [Domain context](../../../GLOSSARY.md), [database design](../ERD/DATABASE-DESIGN.md), [Console decision](../../adr/0035-cloudflare-access-operations-console.md), [independent phone-verification decision](../../adr/0036-google-accounts-and-independent-phone-verification.md), [auth decision](../../adr/0037-clerk-free-bulletin-authentication.md), and [alert-channel decision](../../adr/0038-email-and-sms-alert-preferences.md).
 - Source design: `C:\Projects\SAM_Capstone\capstone\docs\03-proposed-architecture.md`. The source remains unchanged.

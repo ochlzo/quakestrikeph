@@ -46,7 +46,7 @@ QuakeStrike PH connects source-linked PHIVOLCS observations and their correction
 
 ## Evidence on Hand
 
-- `CONTEXT.md` defines the domain language; accepted records in `docs/adr/` and the repository specifications define intended behavior.
+- `GLOSSARY.md` defines the domain language; accepted records in `docs/adr/` and the repository specifications define intended behavior.
 - PHIVOLCS bulletins are the observation source. The repository includes a versioned `SEIS 1.0.1` prediction runtime contract and model verification workflow; model artifacts are kept outside Git.
 - The current Bulletin page contains only its title. The repository has no approved testimonials, public performance claims, or marketing proof assets to use as product claims.
 
