@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Activity, ArrowRight, Check, CheckCheck, Clock3, History, Radio, Send,
   Settings2, Square, TriangleAlert, UserCog, Users,
@@ -12,6 +12,7 @@ import {
 } from "@quakestrikeph/ui/sidebar";
 import { Separator } from "@quakestrikeph/ui/separator";
 import { useSession } from "./use-session";
+import { useWorkspace } from "../workspace/use-workspace";
 
 type Section = "scenario" | "testers" | "history";
 const sections = [
@@ -72,6 +73,12 @@ function OperatorSidebar({ section }: { section: Section }) {
 // The prototype session presentation uses server-confirmed state and actions.
 export default function Workspace({ section, children }: { section: Section; children: ReactNode }) {
   const { session, state, pending, remaining, error, canStart, needsCleanup, refresh, act } = useSession();
+  useWorkspace();
+  useEffect(() => {
+    if (session && state !== "unavailable") window.dispatchEvent(new CustomEvent("alert-testing-session", {
+      detail: { ...session, status: state === "expired" ? "expired" : session.status },
+    }));
+  }, [session, state]);
   const [confirmEnd, setConfirmEnd] = useState<string | null>(null);
   const active = state === "active";
   const minutes = Math.ceil(remaining / 60000);
@@ -122,7 +129,7 @@ export default function Workspace({ section, children }: { section: Section; chi
               {state === "inactive" && <>
                 <div className="session-explanation">
                   <div><Clock3 /><div><strong>Four hours, one shared deadline</strong><span>Starting again preserves the session and its fixed deadline.</span></div></div>
-                  <div><Users /><div><strong>Only selected Bulletin accounts</strong><span>Tester selection is not enabled in this session slice.</span></div></div>
+                  <div><Users /><div><strong>Only selected Bulletin accounts</strong><span>Choose testers without changing their saved alert preferences.</span></div></div>
                   <div><Send /><div><strong>You choose when to send</strong><span>Start Test opens the session. Scenario creation and alert delivery are not enabled yet.</span></div></div>
                 </div>
                 <Button isPending={pending === "start"} onPress={() => void act("start")}>Start Test<ArrowRight /></Button>

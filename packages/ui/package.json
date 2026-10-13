@@ -14,13 +14,26 @@
     "./tooltip": "./tooltip.tsx",
     "./use-mobile": "./use-mobile.ts",
     "./sidebar.css": "./sidebar.css",
-    "./theme.css": "./theme.css"
+    "./theme.css": "./theme.css",
+    "./checkbox": "./checkbox.tsx",
+    "./pagination": "./pagination.tsx",
+    "./table": "./table.tsx",
+    "./field": "./field.tsx",
+    "./input-group": "./input-group.tsx",
+    "./select": "./select.tsx",
+    "./calendar": "./calendar.tsx",
+    "./popover": "./popover.tsx",
+    "./label": "./label.tsx",
+    "./textarea": "./textarea.tsx",
+    "./empty": "./empty.tsx",
+    "./toast": "./toast.tsx"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
     "lucide-react": "1.48.0",
-    "react-aria-components": "^1.21.1"
+    "react-aria-components": "^1.21.1",
+    "@base-ui/react": "1.8.0"
   },
   "peerDependencies": {
     "react": "19.3.0",

@@ -34,7 +34,7 @@ importers:
         version: 4.3.2
       '@quakestrikeph/ui':
         specifier: file:../../packages/ui
-        version: file:../../packages/ui(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: file:../../packages/ui(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       astro:
         specifier: 7.3.5
         version: 7.3.5(jiti@2.7.0)(yaml@2.9.1)
@@ -4305,14 +4305,19 @@ snapshots:
 
   '@oxc-project/types@0.151.0': {}
 
-  '@quakestrikeph/ui@file:../../packages/ui(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@quakestrikeph/ui@file:../../packages/ui(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
+      '@base-ui/react': 1.8.0(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       class-variance-authority: 0.7.1
       cn: 0.4.0
       lucide-react: 1.48.0(react@19.3.0)
       react: 19.3.0
       react-aria-components: 1.21.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       react-dom: 19.3.0(react@19.3.0)
+    transitivePeerDependencies:
+      - '@date-fns/tz'
+      - '@types/react'
+      - date-fns
 
   '@react-types/shared@3.36.1(react@19.3.0)':
     dependencies:

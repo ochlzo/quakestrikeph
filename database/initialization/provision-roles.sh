@@ -106,6 +106,32 @@ SQL
       exit 2
     fi
     ;;
+  create-alert-testing)
+    if [ -z "${ALERT_TEST_DB_PASSWORD:-}" ]; then
+      echo '{"action":"create-alert-testing","status":"failed","reason":"missing_password"}'
+      exit 2
+    fi
+    if psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set ON_ERROR_STOP=1 >/dev/null 2>&1 <<'SQL'
+\getenv alert_test_password ALERT_TEST_DB_PASSWORD
+\getenv database_name POSTGRES_DB
+SELECT format('CREATE ROLE quakestrike_alert_testing LOGIN NOINHERIT PASSWORD %L', :'alert_test_password')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'quakestrike_alert_testing') \gexec
+ALTER ROLE quakestrike_alert_testing NOSUPERUSER NOCREATEROLE NOCREATEDB NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD :'alert_test_password';
+ALTER ROLE quakestrike_alert_testing SET default_transaction_read_only = on;
+GRANT CONNECT ON DATABASE :"database_name" TO quakestrike_alert_testing;
+GRANT USAGE ON SCHEMA public TO quakestrike_alert_testing;
+GRANT SELECT (user_id,display_name,email,email_verified_at,email_enabled,mobile_number,
+ mobile_verified_at,sms_enabled,alert_trigger_magnitude,nearby_alerts_only,
+ alert_location_latitude,alert_location_longitude,alert_trigger_distance_km,
+ account_status,onboarding_completed_at) ON public.users TO quakestrike_alert_testing;
+SQL
+    then
+      echo '{"action":"create-alert-testing","status":"ready"}'
+    else
+      echo '{"action":"create-alert-testing","status":"failed","reason":"role_provisioning_failed"}'
+      exit 2
+    fi
+    ;;
   create-observer)
     if [ -z "${OBSERVER_DB_PASSWORD:-}" ]; then
       echo '{"action":"create-observer","status":"failed","reason":"missing_observer_password"}'
@@ -200,7 +226,7 @@ SQL
     fi
     ;;
   *)
-    echo 'Usage: provision-roles.sh create|grant-worker|create-observer|create-backend|create-maintenance' >&2
+    echo 'Usage: provision-roles.sh create|grant-worker|create-alert-testing|create-observer|create-backend|create-maintenance' >&2
     exit 2
     ;;
 esac

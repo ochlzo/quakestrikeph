@@ -8,9 +8,12 @@ from redis import Redis
 from redis.backoff import NoBackoff
 from redis.exceptions import RedisError
 from redis.retry import Retry
+from sqlalchemy import create_engine
 
 from quakestrike.alert_testing.application.sessions import Sessions
+from quakestrike.alert_testing.application.testers import Testers
 from quakestrike.alert_testing.domain.sessions import SessionConflict
+from quakestrike.alert_testing.infrastructure.accounts import PostgresAccountReader
 from quakestrike.alert_testing.infrastructure.redis import RedisSessionStore
 from quakestrike.alert_testing.interface.http import PrivateServer
 from quakestrike.infrastructure.logging.json_logging import configure_logging, log_event
@@ -42,7 +45,27 @@ def main() -> None:
         retry=Retry(NoBackoff(), 0),
     )
     sessions = Sessions(RedisSessionStore(client))
-    server = PrivateServer(sessions, args.static_directory, args.port, args.origin)
+    account_url = os.environ.get("ALERT_TEST_DATABASE_URL")
+    engine = (
+        create_engine(
+            account_url,
+            pool_size=2,
+            max_overflow=0,
+            pool_timeout=2,
+            connect_args={"connect_timeout": 2},
+            hide_parameters=True,
+        )
+        if account_url
+        else None
+    )
+    testers = Testers(PostgresAccountReader(engine), sessions) if engine is not None else None
+    server = PrivateServer(
+        sessions,
+        args.static_directory,
+        args.port,
+        args.origin,
+        testers=testers,
+    )
     logger = configure_logging("alert-testing")
     stopped = Event()
 
@@ -79,6 +102,8 @@ def main() -> None:
         server.server_close()
         maintenance.join(timeout=3)
         client.close()
+        if engine is not None:
+            engine.dispose()
 
 
 if __name__ == "__main__":

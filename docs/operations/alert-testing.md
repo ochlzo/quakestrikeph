@@ -1,9 +1,11 @@
-# Private alert-testing session controls
+# Private alert-testing session and draft controls
 
 Issue [57](https://github.com/ochlzo/quakestrikeph/issues/57) implements the
 shared session only. Starting creates no scenario, queue command, or provider
-request. No account connection, consumer, provider credentials, public control
-route, or production deployment is included.
+request. Issue [58](https://github.com/ochlzo/quakestrikeph/issues/58) adds
+restricted account search and independent drafts in browser memory. Consumer,
+provider credentials, public control routes, and production deployment remain
+outside these slices.
 
 Container packaging and release-readiness work belong to
 [issue 63](https://github.com/ochlzo/quakestrikeph/issues/63).
@@ -51,18 +53,102 @@ If Docker is unavailable, stop at the Docker command and report the error.
    $env:ALERT_TEST_REDIS_URL = 'redis://127.0.0.1:6387/0'
    ```
 
-5. Start the private control server.
+5. If tester search is required, configure the restricted account connection.
+
+   ```powershell
+   $env:ALERT_TEST_DATABASE_URL = 'postgresql+psycopg://quakestrike_alert_testing:<URL-encoded-password>@127.0.0.1:<disposable-port>/<disposable-database>'
+   ```
+
+   Use a separately migrated disposable PostgreSQL database with illustrative
+   Bulletin accounts for browser acceptance. Provision the role described
+   below first. Without this variable, sessions and scenario drafts work;
+   account search reports dependency-unavailable.
+
+6. Start the private control server.
 
    ```powershell
    uv run --project workers --frozen quakestrike-alert-testing
    ```
 
-6. Open [the loopback tool](http://127.0.0.1:4341/).
+7. Open [the loopback tool](http://127.0.0.1:4341/).
 
 The server binds only to `127.0.0.1:4341` and serves the built app. Rebuild the
 private app after UI edits. `--port` changes the loopback port;
 `--static-directory` selects another build directory. The server requires an
 explicit `ALERT_TEST_REDIS_URL` and never reads root `.env` itself.
+
+## Restricted account connection
+
+The PostgreSQL container mounts `database/initialization` at
+`/opt/quakestrike`. Supply `ALERT_TEST_DB_PASSWORD` through that container's
+managed environment. In the chosen disposable database container, run:
+
+```sh
+sh /opt/quakestrike/provision-roles.sh create-alert-testing
+```
+
+This explicit command creates or updates the `quakestrike_alert_testing`
+login and grants SELECT only on the account columns used by the tool.
+The reader refuses a login with broader application privileges. It never
+falls back to worker, Backend, observer, or migration credentials.
+Provisioning does not migrate the schema or create accounts. Keep test
+fixture mutations and migration credentials in the disposable setup process.
+Never supply those credentials to the control server or browser.
+
+The control server uses a pool of two PostgreSQL connections and read-only
+transactions. Connection, pool, and query waits each have two-second bounds.
+Search text is parameterized, capped at 100 characters, and matched literally.
+Account responses have at most 50 rows. Name and email search stays private;
+the browser receives names and masked destinations, not complete destinations
+or saved coordinates. SMS support remains unknown; the server makes no
+provider request to determine support.
+
+## Browser memory and ticket 58 acceptance
+
+The user amended ticket 58 on 13 October 2026: unfinished inputs and tester
+selection stay in browser memory only. Redis draft persistence, autosave,
+revision checks, recovery storage, and unsaved-navigation guards are removed.
+This amendment replaces the published ticket's Redis draft and reload-recovery
+criteria. Session state still uses the existing Redis session contract.
+
+Specifically, the amendment supersedes ticket 58's Redis draft saves,
+reload recovery, failed-save navigation behavior, and draft-persistence API
+checks. It also supersedes the parent specification's Save draft workflow
+and ticket 59's Redis storage of unsubmitted preparation. Internal continuity,
+independent workspaces, separate pages, restricted account reads, and session
+ownership still apply. Submitted scenario storage and queueing remain ticket 61.
+
+Separate Scenario, Testers, and History Astro pages share the Astro ClientRouter.
+Internal navigation, Back, and Forward retain the tab's memory workspace.
+Reloading, closing the tab, or leaving the tool may discard unfinished edits.
+Separate tabs have independent inputs and selections. Session closure, expiry,
+or replacement resets the workspace. No draft save request or synthetic record
+is created by edits, tester selection, or internal navigation.
+
+Scenario fields, presets, tester controls, table, numbered pagination, footer,
+and mobile styles reuse the accepted prototype. Randomize replay, the prepared
+replay diagram, public preview, and Simulate and Send remain unavailable.
+Ticket 59 owns preparation, which will also remain in browser memory.
+Ticket 61 owns scenario submission and queueing. This amendment does not
+implement those later tickets. Simulate and Send is the future explicit
+save/freeze boundary, rather than a draft save.
+
+1. Start a disposable session.
+2. Confirm that Testers initially shows five rows.
+3. Select rows across searches, filters, and numbered pages.
+4. Confirm that the header checkbox changes only visible rows.
+5. Change search, filters, and page size; confirm page one opens.
+6. Inspect independent settings, verification, and provisional eligibility.
+7. Change Scenario inputs and the forecast preset.
+8. Navigate between Scenario and Testers; confirm inputs and selections remain in memory.
+9. Use Back and Forward; confirm the same tab's workspace remains intact.
+10. Open another tab; confirm each tab has independent inputs and selections.
+11. Reload the page; confirm unfinished inputs and selections reset.
+12. Inspect desktop and mobile table, pagination, footer, calendar, and back navigation.
+13. End the session; confirm a new session starts with an empty selection.
+
+Browser acceptance remains the user's check. API tests do not prove visual
+parity or browser history behavior on the user's devices.
 
 ## Manual acceptance steps
 
@@ -137,7 +223,7 @@ or retry. Future business records must expire at the original deadline and
 enforce the atomic active-session gate. No provider-call coordination is
 implemented or needed until a later ticket adds a consumer.
 
-## Ticket 57 review record — 13 October 2026
+## Ticket 57 review record â€” 13 October 2026
 
 Starting HEAD: `46356db3fef9b0a17c03d3525366bce43c6159da`.
 The implementation uses `main` in
@@ -227,3 +313,80 @@ only real session controls. Text identifies later-ticket features as
 unavailable. Tailscale Serve admission and target activation remain explicit
 operator actions. No real SMS/email submission or production data write occurs
 in this slice.
+
+## Ticket 58 implementation record — 13 October 2026
+
+Source branch: `codex/alert-testing-tester-drafts`.
+Starting commit: `6988320d65d0277f569305c715f13c9b657e3ade`.
+Implementation changes remain uncommitted for review.
+
+The final slice implements restricted account search, independent channel
+settings and provisional eligibility, real status/onboarding labels, and
+selection across filters and pagination. Separate Scenario and Testers React
+components reuse the prototype markup, calendar, form controls, table, footer,
+and responsive stylesheet. Shared controls move to `packages/ui`, with
+Bulletin re-exports retaining its import paths. The accepted stylesheet also
+retains preparation, replay, History, and Results rules for later tickets.
+
+Astro ClientRouter preserves the tab's memory inputs and selected account
+IDs during internal navigation. There is no draft HTTP route, Redis draft,
+autosave coordinator, revision handling, recovery storage, or navigation guard.
+The user amendment above intentionally supersedes older published persistence
+criteria. Ticket 59 preparation and ticket 61 submission remain unimplemented.
+No target activation, Tailscale Serve, account mutation, queue publication,
+provider credentials, or actual provider submission was performed.
+
+| Check | Result |
+| --- | --- |
+| `uv run --project workers pytest --config-file workers/pyproject.toml workers/tests` | 424 passed, 330 skipped. Host skips comprise 319 integration cases and 11 existing platform cases. |
+| Exact isolated Compose integration procedure in CONTRIBUTING.md | 317 passed, two expected real-model skips. The integration cases executed against disposable PostgreSQL and Redis. |
+| Documented `prediction-smoke-runner` command with `-k test_real_seis -s` | Both real-model cases passed; 24 deselected, none skipped. The known forecast and replica benchmark both succeeded. |
+| `uv run --project workers ruff check workers database` | Passed. |
+| `uv run --project workers ruff format --check workers database` | Passed; 212 files already formatted. |
+| `pnpm --dir apps/quakestrikeph-alert-testing check` and `build` | Passed; no errors or warnings, four Select deprecation hints. |
+| `pnpm --dir apps/quakestrikeph-alert-testing test` | Seven session request coordinator cases passed. |
+| `pnpm --dir apps/quakestrikeph-bulletin check` and `build` | Passed; no check errors or warnings, seven existing hints. Build reports the large-chunk warning. |
+| `create-alert-testing` in the disposable PostgreSQL container, twice | Both calls returned ready; provisioning is repeatable. |
+| `git diff --check` and `git diff --cached --check` | Passed; no changes staged. |
+
+The API checks exercise literal bounded search, pagination, selected identities,
+masked destinations, returned status and onboarding, independent eligibility,
+denied account writes, denied unrelated reads, broad-login refusal, inactive
+and expired ownership, replacement sessions, closure during account reads,
+absence of Redis child records and production jobs, and removed draft routes.
+The pure eligibility tests cover magnitude equality, account state, incomplete
+onboarding, nearby rejection, invalid event input, channel independence, and
+unknown SMS support. Production eligibility code remains unchanged.
+
+Desktop/mobile presentation, internal Back/Forward continuity, independent
+tabs, and reload discard still require the user's manual acceptance steps
+above. The automated results do not establish that browser acceptance.
+Use the documented disposable setup and loopback launch commands; configuring
+a runtime or database URL does not authorize target activation.
+
+### P3 Standards correction — 13 October 2026
+
+Account-load failure now replaces the table and pagination with the incumbent
+shadcn Empty composition, a Lucide CircleX icon, and Retry accounts. The error
+composition stays visible during retry and clears only after a successful
+account response. Selected IDs remain in the browser workspace throughout.
+Exceeding the selection limit now uses the shared error toast with a stable
+ID, rather than changing the section's account-load state. Repeated limit
+failures update the same toast. The existing prototype toast placement applies.
+
+Empty and toast controls move unchanged to `packages/ui`, with Bulletin
+re-exports preserving its callers. The shared package uses the Bulletin's
+existing Base UI 1.8.0 dependency. Browser-memory behavior, separate pages,
+private server behavior, and session request protections remain unchanged.
+
+Private app and Bulletin checks/builds passed again. The private app's seven
+session request coordinator tests passed. Whitespace checks passed. The checks
+retain the four private-app and seven Bulletin hints; Bulletin still reports
+its large-chunk build warning. No worker or integration rerun was needed for
+this UI correction. Manual error-state acceptance remains unverified.
+
+For manual acceptance, block `/api/test/testers` after selecting accounts.
+Change the search and confirm the dedicated error composition replaces rows.
+Unblock requests and use Retry accounts. Confirm the selected IDs remain
+selected after the accounts return. If enough accounts are available, exceed
+500 selections and confirm one error toast appears without disabling rows.
