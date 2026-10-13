@@ -21,7 +21,7 @@ for tests, and `chore/` for maintenance. Codex-created branches use `codex/`.
 Push only to a branch you own. Changes reach `main` through a reviewed pull
 request.
 
-Read [CONTEXT.md](CONTEXT.md) before changing domain behavior. Read the
+Read [GLOSSARY.md](GLOSSARY.md) before changing domain behavior. Read the
 relevant [ADRs](docs/adr/) before changing behavior, architecture,
 dependencies, data, queues, runtime, deployment, or interfaces. For changes to
 schema, ownership, or module boundaries, consult the matching specification in
