@@ -1,5 +1,210 @@
 # Private alert-testing session, draft, and preparation controls
 
+## Ticket 62 P3 Standards correction: polling diagnostics, 14 October 2026
+
+The polling workflow now reports normalized operational errors instead of
+discarding them. The existing runtime logger emits structured JSON warnings
+for unavailable SMS polling and information events for verified recovery.
+Context includes the service, operation, provider, event/job UUID, attempt UUID,
+and an allowlisted error category. Logs exclude provider references, complete
+destinations, message content, raw exceptions, credentials, and payloads.
+
+One in-memory failure category bounds diagnostics to one warning per outage
+and one recovery event. Repeated failures, including changes in error category,
+remain quiet until a verified accepted, failed, or delivered provider response.
+Ordinary unknown responses without operational errors remain quiet and cannot
+prove recovery. No due candidate or inactive session can establish recovery.
+Provider exceptions become the fixed `provider_transport_uncertain` category.
+The report callback receives normalized outcomes, never the private row.
+
+The fix changes only `application/reconciliation.py`, `consumer_runtime.py`,
+the existing consumer runtime unit test, this record, and the new
+`workers/tests/unit/test_alert_testing_reconciliation.py`. Poll scheduling,
+Redis authorization, accepted/delivered meanings, and the no-resubmission rule
+remain unchanged. All ticket 62 and unrelated edits remain uncommitted and
+unstaged on `codex/alert-testing-reconciliation`.
+
+Verification for this correction:
+
+| Command/check | Result |
+| --- | --- |
+| `uv run --project workers pytest --config-file workers/pyproject.toml workers/tests/unit/test_alert_testing_reconciliation.py workers/tests/unit/test_alert_testing_consumer_runtime.py -q` | Seven passed. |
+| `uv run --project workers pytest --config-file workers/pyproject.toml workers/tests -q` | 496 passed; 397 expected skips (386 integration cases without test URLs and 11 Windows platform cases). |
+| `uv run --project workers ruff check workers database` | Passed. |
+| `uv run --project workers ruff format --check workers database` | Passed; 229 files formatted. |
+| Exact isolated Compose integration sequence below | 384 passed; two expected real-model skips. All 20 reconciliation and 33 delivery cases ran and passed. |
+| Separate real-model checks below | Two passed; 24 deselected; no skips or retry attempts. |
+| Unstaged, staged, and new-file whitespace checks | Passed; nothing staged. |
+
+The focused regressions exercise each operational category, exceptions,
+unrecognized error sanitization, ordinary unknown responses, missing candidates,
+category changes during an outage, accepted/failed/delivered recovery,
+correlation fields, privacy, runtime wiring, and no submission calls.
+
+Suppression uses process memory and resets when the consumer restarts. A
+recovery event confirms a usable provider status response, not handset receipt.
+
+The disposable checks use the required project and fake providers:
+
+```powershell
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test redis-test
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --build --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile prediction-smoke run --build --rm prediction-smoke-runner pytest --config-file workers/pyproject.toml workers/tests/integration/test_prediction_worker.py -k test_real_seis -s
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v
+```
+
+Backend and private-app checks were not repeated because this correction changes
+only Python diagnostics and its tests. Their earlier ticket 62 results remain
+recorded below. Manual browser acceptance, independent re-review, and controlled
+provider verification remain separate. No live provider calls or target
+activation belong to this correction.
+
+The documented `down -v` completed after verification and removed only the
+disposable project's PostgreSQL, Redis, and network. Existing local services
+remain untouched. The correction is ready for independent re-review.
+
+## Ticket 62: evidence reconciliation and session closure, 14 October 2026
+
+Branch: `codex/alert-testing-reconciliation`.
+Baseline: `93e8903af5ae2a77174e9fc2e857b2ba56256753`.
+Implementation re-review passed with zero Standards and Spec findings. Dependency PRs
+66–69 remain the starting implementation; their earlier checks do not verify
+this slice. Unrelated Bulletin and local Compose edits remain preserved.
+
+The Backend authenticates Brevo callbacks before inspecting the test marker.
+Test callbacks update only active session-owned Redis attempts. Ordinary
+callbacks keep the established PostgreSQL route, authentication, response
+mapping, and narrow write capability. Early callbacks use the pre-call attempt
+index; duplicate and older evidence cannot regress delivered outcomes.
+Reference collisions return conflicts. Submission responses merge with early
+evidence. Closed, expired, replaced, or deleted test sessions acknowledge late
+authenticated callbacks without restoring children. Redis outages and missing
+active correlation retain 429 with `Retry-After: 60`, never false absence.
+
+The isolated consumer polls one known SMS reference per pass. Each claim
+postpones the attempt's next poll by 60 seconds, including unknown responses
+and interrupted processes. Polling uses the existing authenticated IPROG
+adapter and never submits messages. Delivered and failed evidence strengthen
+outcomes without automatic resend. Timestamp-free polls do not invent a
+provider event time. Private Results display masked destinations and bounded
+reference-conflict notes; references and message content remain private.
+
+End Test closes creation, reservations, and public reads before cleanup.
+The private UI presents server-confirmed call waiting, record deletion,
+cleanup failure/retry, ended, and expired states across separate pages.
+Waiting uses the conservative maximum 15-second authorization grace period,
+not a count of calls. Closure and completion timestamps remain bounded
+lifecycle metadata until the existing tombstone expires. Polling and retries
+never extend metadata or child retention. Cleanup removes only the owning
+UUID's keys, including attempts, references, poll scheduling, and Stream state.
+Unfinished inputs and preparation remain only in browser memory.
+
+### Configuration and verification setup
+
+The Backend's `ALERT_TEST_REDIS_URL` must select the same explicit Redis
+instance as the control and consumer. The existing `BREVO_CALLBACK_TOKEN`
+authenticates `/api/v1/callbacks/brevo` before production or test routing.
+Test email submissions retain
+`quakestrike-attempt:test:<session>:<event>:<attempt>` in `X-Mailin-custom`.
+A missing test connection returns a retry response and cannot use PostgreSQL.
+IPROG polling uses the existing `ALERT_TEST_IPROG_TOKEN`; no additional provider
+credential or activation setting is added. Runtime packaging remains ticket 63.
+
+Run the exact disposable Compose integration procedure in CONTRIBUTING.md.
+After worker migrations and checks finish, run the Backend integration runner
+against those same disposable services:
+
+```powershell
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml exec -T postgres-test sh /opt/quakestrike/provision-roles.sh create-backend
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile backend run --build --rm backend-test-runner
+```
+
+The first command provisions only the disposable database's restricted Backend
+role, using its configured integration-only password. The worker suite creates
+and migrates the database but does not provision that login password.
+
+Backend integration files run serially because the public-reader and callback
+fixtures both own the shared control key in disposable Redis. Tests refuse a
+pre-existing active fixture. Never run worker and Backend fixtures concurrently.
+Run the separate documented real-model checks when the local bundle exists.
+Finish the isolated project with the documented `down -v` command.
+
+### Ticket 62 checks
+
+| Check | Observed result |
+| --- | --- |
+| `uv run --project workers pytest --config-file workers/pyproject.toml workers/tests -q` | 490 passed; 397 skipped. Host skips include 386 integration cases and 11 Windows platform cases. |
+| Exact isolated Compose worker integration procedure | 384 passed; two expected real-model skips. All 20 reconciliation cases and 33 existing delivery cases executed. |
+| Focused reconciliation file through disposable Compose with source/test mounts | 20 passed. |
+| Backend integration runner after disposable role provisioning | Seven passed; none skipped. Ordinary PostgreSQL callbacks, test Redis callbacks, account grants, and public reads all executed. |
+| Separate documented `prediction-smoke-runner` with `-k test_real_seis -s` | Two passed; 24 deselected; none skipped. Known forecast and replica benchmark passed with no retry attempts. |
+| Backend unit files through `node --test` | 35 passed; none skipped. |
+| Backend build and `typecheck` | Passed. |
+| Private app `check`, `test`, and `build` | Passed; 24 tests, zero errors/warnings, four incumbent Select hints, four static pages. |
+| Worker Ruff check and format check | Passed; 228 files formatted. |
+| Python producer/consumer with actual authenticated Backend callback | Passed: early delivered email survived its acceptance response; known-reference SMS polling delivered; closure waited; late callbacks acknowledged without revival. |
+| Local desktop and 390px mobile inspection | Real waiting/deletion pages and cleanup failure/retry/ended states inspected with disposable Redis. Retry invoked the actual cleanup endpoint. |
+| Unstaged, staged, and new-file whitespace checks | Passed; nothing staged. |
+
+The first full worker integration run exposed two reference-conflict paths that
+shared the session-conflict result code: 373 passed, two failed, two skipped.
+Using a separate bounded reference-conflict result corrected both paths.
+The 20-case focused rerun and final 384-case full rerun passed afterward.
+
+The initial Backend integration run lacked the disposable Backend login
+password. Four existing checks failed authentication or dependent assertions.
+The new Redis case also exposed a timing-sensitive TTL assertion, which now
+checks the exact absolute expiry instead of comparing separate clock reads.
+The documented disposable role provisioning step supplies the existing
+integration-only password and grants before the final Backend rerun.
+
+The local compatibility smoke and browser fixture used a separate disposable
+Redis container, read-only fictional accounts, and fake providers. Preview
+servers, the browser tab, and the container were stopped afterward.
+No live provider call or target-environment action occurred. The screenshot
+`C:/Users/cholo/AppData/Local/Temp/ticket62-ended-ui.png` records the real cleanup
+page after its server action. Browser inspection does not replace the user's
+full manual acceptance or controlled handset/inbox verification.
+
+The final `docker compose ... down -v` completed successfully for
+`quakestrike-data-ingestion-test`. Its PostgreSQL, Redis, and network were
+removed. Existing local services and unrelated edits remain preserved.
+
+Host integration skips do not establish Redis verification. Fake acceptance or
+delivery reports do not prove handset or inbox receipt.
+
+### Ticket 62 review scope
+
+The 24 changed files for this ticket, including the P3 correction, are:
+
+| Directory | Files |
+| --- | --- |
+| `apps/backend-api/` | `package.json`; `src/application/alerts/brevo.ts`; `src/interface/http/routes/brevo.ts`; `src/ports/alertDelivery.ts`; `src/server.ts`; new `src/infrastructure/redis/testBrevo.ts`; `tests/unit/brevo.test.ts`; `tests/integration/brevo.test.ts`. |
+| `apps/quakestrikeph-alert-testing/src/features/` | `delivery/DeliveryPages.tsx`; `sessions/Workspace.tsx`; `sessions/use-session.ts`. |
+| `packages/contracts/alert-testing/` | `README.md`; `session-v1.ts`; `delivery-v1.ts`. |
+| `workers/src/quakestrike/alert_testing/` | New `application/reconciliation.py`; `consumer_runtime.py`; `domain/sessions.py`; `infrastructure/deliveries.py`; `infrastructure/redis.py`. |
+| `workers/tests/` | New `integration/test_alert_testing_reconciliation.py`; new `unit/test_alert_testing_reconciliation.py`; `unit/test_alert_testing_consumer_runtime.py`. |
+| `docs/` | `adr/0050-private-alert-testing-session-runtime.md`; `operations/alert-testing.md`. |
+
+Outdated DFDs do not control this review. Written specifications, the glossary,
+and accepted ADRs govern the implementation. The ignored prototype remains
+unchanged and supplies only the accepted visual reference. The private app
+uses real lifecycle controls and excludes simulated completion actions.
+
+### Remaining manual acceptance
+
+1. End a session during an authorized call on desktop and mobile.
+2. Confirm every operator sees closure and bounded waiting before deletion.
+3. Confirm public links fail immediately, including already-open replay pages.
+4. Confirm expired sessions show cleanup progress without accepting new work.
+5. Exercise cleanup failure and Retry cleanup while other operators remain closed.
+6. Confirm no simulated completion or preview controls appear in the private app.
+7. Verify controlled provider callback behavior under separate authorization.
+
+Submitted messages and provider-held history cannot be recalled or deleted by
+End Test. No target activation, Serve configuration, production account write,
+live provider call, commit, push, PR, or deployment belongs to this slice.
+
 ## Ticket 61 review corrections, 14 October 2026
 
 The final Redis authorization gate now reads the submitted scenario's immutable

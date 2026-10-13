@@ -23,7 +23,8 @@ local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
 local id = redis.call('HGET', key, 'session_id')
 if id and redis.call('HGET', key, 'lifecycle') == 'active'
     and tonumber(redis.call('HGET', key, 'expires_at_ms')) <= now then
-    redis.call('HSET', key, 'lifecycle', 'expired', 'cleanup', 'pending')
+    redis.call('HSET', key, 'lifecycle', 'expired', 'cleanup', 'pending',
+        'closed_at_ms', tostring(now))
 end
 local function view()
     local result = redis.call('HGETALL', key)
@@ -52,7 +53,8 @@ if id ~= ARGV[2] then return {'conflict'} end
 if operation == 'owned' then return view() end
 if operation == 'close' then
     if redis.call('HGET', key, 'lifecycle') == 'active' then
-        redis.call('HSET', key, 'lifecycle', 'closed', 'cleanup', 'pending')
+        redis.call('HSET', key, 'lifecycle', 'closed', 'cleanup', 'pending',
+            'closed_at_ms', tostring(now))
     end
     return view()
 end
@@ -73,6 +75,7 @@ if redis.call('HGET', key, 'cleanup_token') ~= ARGV[3] then return view() end
 if operation == 'finish' then
     redis.call('HSET', key, 'cursor', ARGV[4], 'cleanup',
         ARGV[4] == '0' and 'complete' or 'pending')
+    if ARGV[4] == '0' then redis.call('HSET', key, 'cleanup_completed_at_ms', tostring(now)) end
 elseif operation == 'fail' then
     redis.call('HSET', key, 'cleanup', 'failed')
 end
@@ -104,6 +107,9 @@ class RedisSessionStore:
             lifecycle=fields["lifecycle"],
             cleanup=fields["cleanup"],
             server_time_ms=int(fields["server_time_ms"]),
+            calls_until_ms=int(fields.get("calls_until_ms", "0")),
+            closed_at_ms=int(fields.get("closed_at_ms", "0")),
+            cleanup_completed_at_ms=int(fields.get("cleanup_completed_at_ms", "0")),
         )
 
     def read(self) -> Session | None:

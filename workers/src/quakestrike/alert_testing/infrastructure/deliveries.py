@@ -113,6 +113,8 @@ row.reserved_until_ms = now + tonumber(ARGV[6])
 redis.call('HSET', KEYS[3], ARGV[3], cjson.encode(row))
 redis.call('PEXPIREAT', KEYS[3], deadline)
 if ARGV[5] == 'call' then
+ redis.call('HSET', KEYS[4], row.token, ARGV[3])
+ redis.call('PEXPIREAT', KEYS[4], deadline)
  local untilMs = now + tonumber(ARGV[6])
  redis.call('HSET', KEYS[1], 'calls_until_ms', tostring(math.max(untilMs,
   tonumber(redis.call('HGET', KEYS[1], 'calls_until_ms') or '0'))))
@@ -143,7 +145,35 @@ local raw = redis.call('HGET', KEYS[2], ARGV[2])
 if not raw then return {'missing'} end
 local row = cjson.decode(raw)
 if row.token ~= ARGV[3] then return {'stale'} end
-redis.call('HSET', KEYS[2], ARGV[2], ARGV[4])
+local submitted = cjson.decode(ARGV[4])
+local reference = submitted.provider_reference
+local identity = ARGV[5] .. ':' .. row.token
+if reference and reference ~= cjson.null then
+ local mapped = redis.call('HGET', KEYS[3], row.channel .. ':' .. reference)
+ if (row.provider_reference and row.provider_reference ~= cjson.null
+  and row.provider_reference ~= reference)
+  or (mapped and mapped ~= identity) then
+  row.evidence_note = 'Provider reference conflict; reconciliation requires investigation.'
+  redis.call('HSET', KEYS[2], ARGV[2], cjson.encode(row))
+  return {'reference-conflict'}
+ end
+ redis.call('HSET', KEYS[3], row.channel .. ':' .. reference, identity)
+ redis.call('PEXPIREAT', KEYS[3], deadline)
+ row.provider_reference = reference
+end
+row.submission_status = submitted.status
+row.provider_evidence = submitted.provider_evidence
+if not row.provider_status_at_ms and not row.delivery_evidence then
+ row.status = submitted.status
+ row.reason = submitted.reason
+ row.error_code = submitted.error_code
+end
+if row.channel == 'sms' and row.provider_reference and row.provider_reference ~= cjson.null
+ and (row.status == 'accepted' or row.status == 'unknown') then
+ redis.call('ZADD', KEYS[4], now, ARGV[5] .. ':' .. ARGV[2])
+ redis.call('PEXPIREAT', KEYS[4], deadline)
+end
+redis.call('HSET', KEYS[2], ARGV[2], cjson.encode(row))
 return {'finished'}
 """
 )
@@ -175,6 +205,57 @@ return {tostring(page), tostring(pages), redis.call('ZREVRANGE', KEYS[2],
 )
 OUTBOX = GATE + "return redis.call('ZRANGE', KEYS[2], 0, 49)"
 
+# Each sweep claims one known reference and postpones its next poll before transport.
+POLL = (
+    GATE
+    + """
+local entries = redis.call('ZRANGEBYSCORE', KEYS[2], '-inf', now, 'LIMIT', 0, 1)
+if #entries == 0 then return {} end
+local member = entries[1]
+local event, slot = string.match(member, '^([^:]+):(.+)$')
+local key = ARGV[2] .. 'recipients:' .. event
+local raw = redis.call('HGET', key, slot)
+if not raw then redis.call('ZREM', KEYS[2], member) return {} end
+local row = cjson.decode(raw)
+if row.channel ~= 'sms' or (row.status ~= 'accepted' and row.status ~= 'unknown')
+ or not row.provider_reference or row.provider_reference == cjson.null then
+ redis.call('ZREM', KEYS[2], member) return {}
+end
+redis.call('ZADD', KEYS[2], now + 60000, member)
+redis.call('HSET', KEYS[1], 'calls_until_ms', tostring(math.max(now + 15000,
+ tonumber(redis.call('HGET', KEYS[1], 'calls_until_ms') or '0'))))
+return {event, raw}
+"""
+)
+
+RECONCILE_SMS = (
+    GATE
+    + """
+local raw = redis.call('HGET', KEYS[2], ARGV[2])
+if not raw then return {'missing'} end
+local row = cjson.decode(raw)
+if row.token ~= ARGV[3] or row.channel ~= 'sms' or row.provider_reference ~= ARGV[4]
+ or redis.call('HGET', KEYS[3], 'sms:' .. ARGV[4]) ~= ARGV[5] .. ':' .. row.token then
+ return {'reference-conflict'}
+end
+local status = ARGV[6]
+local rank = {unknown=0, accepted=1, failed=2, delivered=3}
+if row.status == 'delivered' or rank[row.status] >= rank[status] then return {'ignored'} end
+row.status = status
+row.delivery_evidence = true
+row.error_code = ARGV[7] ~= '' and ARGV[7] or cjson.null
+row.provider_evidence = cjson.decode(ARGV[8])
+row.reason = status == 'delivered' and 'Provider confirmed delivery.'
+ or status == 'failed' and 'Provider reported delivery failure.'
+ or 'Provider accepted the request; delivery is not confirmed.'
+redis.call('HSET', KEYS[2], ARGV[2], cjson.encode(row))
+if status == 'delivered' or status == 'failed' then
+ redis.call('ZREM', KEYS[4], ARGV[5] .. ':' .. ARGV[2])
+end
+return {'applied'}
+"""
+)
+
 
 class RedisDeliveryStore:
     def __init__(self, client, public_base_url):
@@ -193,6 +274,8 @@ class RedisDeliveryStore:
                 "rows": ROWS,
                 "history": HISTORY,
                 "outbox": OUTBOX,
+                "poll": POLL,
+                "reconcile_sms": RECONCILE_SMS,
             }.items()
         }
 
@@ -258,7 +341,7 @@ class RedisDeliveryStore:
         result = self.execute(
             "begin",
             owner,
-            [f"job:{event}", f"recipients:{event}"],
+            [f"job:{event}", f"recipients:{event}", f"attempts:{event}"],
             user,
             f"{user}:{channel}",
             json.dumps(row),
@@ -271,10 +354,11 @@ class RedisDeliveryStore:
         return self.execute(
             "finish",
             owner,
-            [f"recipients:{event}"],
+            [f"recipients:{event}", "references", "sms-polls"],
             f"{row['user_id']}:{row['channel']}",
             row["token"],
             json.dumps(row),
+            event,
         )
 
     def allow(self, owner, event, row):
@@ -303,7 +387,7 @@ class RedisDeliveryStore:
         projected = [
             {
                 key: row[key]
-                for key in ("user_id", "channel", "status", "reason", "name")
+                for key in ("user_id", "channel", "status", "reason", "name", "evidence_note")
                 if key in row
             }
             for user in job["selected"]
@@ -352,3 +436,21 @@ class RedisDeliveryStore:
     def recover_publications(self, owner):
         for event in self.execute("outbox", owner, ["outbox"]):
             self.publish(owner, event)
+
+    def poll_candidate(self, owner):
+        result = self.execute("poll", owner, ["sms-polls"], self.key(owner, ""))
+        return (result[0], json.loads(result[1])) if result else None
+
+    def reconcile_sms(self, owner, event, row, outcome):
+        return self.execute(
+            "reconcile_sms",
+            owner,
+            [f"recipients:{event}", "references", "sms-polls"],
+            f"{row['user_id']}:sms",
+            row["token"],
+            row["provider_reference"],
+            event,
+            outcome.status,
+            outcome.error_code or "",
+            json.dumps(outcome.evidence),
+        )

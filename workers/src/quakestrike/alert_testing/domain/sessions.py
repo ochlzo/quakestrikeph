@@ -16,6 +16,17 @@ class Session:
     lifecycle: str
     cleanup: str
     server_time_ms: int
+    calls_until_ms: int = 0
+    closed_at_ms: int = 0
+    cleanup_completed_at_ms: int = 0
+
+    @property
+    def closure_phase(self) -> str:
+        if self.lifecycle == "active":
+            return "none"
+        if self.cleanup in {"failed", "complete"}:
+            return self.cleanup
+        return "waiting" if self.calls_until_ms > self.server_time_ms else "deleting"
 
     @property
     def status(self) -> str:
@@ -35,4 +46,8 @@ class Session:
             "expires_at_ms": self.expires_at_ms,
             "server_time_ms": self.server_time_ms,
             "cleanup": self.cleanup,
+            "closure_phase": self.closure_phase,
+            "calls_until_ms": self.calls_until_ms,
+            "closed_at_ms": self.closed_at_ms,
+            "cleanup_completed_at_ms": self.cleanup_completed_at_ms,
         }

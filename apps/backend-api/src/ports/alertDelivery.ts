@@ -7,3 +7,9 @@ export interface BrevoEvidence {
 }
 export type ReconcileOutcome = 'applied' | 'ignored' | 'uncorrelated' | 'conflict';
 export interface AlertReconciler { reconcile(evidence: BrevoEvidence): Promise<ReconcileOutcome> }
+export interface TestBrevoEvidence extends BrevoEvidence {
+  testSessionId: string;
+  testEventId: string;
+  attemptId: string;
+}
+export interface TestAlertReconciler { reconcile(evidence: TestBrevoEvidence): Promise<ReconcileOutcome> }
