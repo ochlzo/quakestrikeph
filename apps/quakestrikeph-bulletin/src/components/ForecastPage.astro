@@ -8,8 +8,9 @@ import type { EarthquakeDetail } from '../lib/events';
 import { displayTime, likelihoodLevel, locationLabel, magnitude } from '../lib/events';
 import '../styles/globals.css';
 import '../styles/forecast.css';
-interface Props { event: EarthquakeDetail | null; error: 'invalid' | 'missing' | 'unavailable' | null; backHref: string; }
-const { event, error, backHref } = Astro.props;
+interface Props { event: EarthquakeDetail | null; error: 'invalid' | 'missing' | 'unavailable' | null; backHref: string; testMode?: boolean; expiresAt?: string | null; }
+const { event, error, backHref, testMode = false, expiresAt } = Astro.props;
+const retryHref = Astro.url.pathname + (testMode ? '?test=true' : '');
 const forecast = event?.forecast;
 const availability = event?.forecastAvailability;
 const unavailableMessages = {
@@ -66,7 +67,7 @@ const radiusCopy = forecast && forecast.activityRadiusMedianKm24h !== null ? `Th
 <title>{event ? 'Forecast · ' + magnitude(event.magnitude) + ' · QuakeStrike PH' : 'Forecast · QuakeStrike PH'}</title>
 <meta name="description" content="An experimental 24-hour earthquake activity forecast from QuakeStrike PH." />
 </head>
-<body class="forecast-page">
+<body class="forecast-page" data-synthetic-event={testMode && event ? event.eventId : undefined} data-synthetic-expiry={expiresAt ?? undefined}>
 <a class="skip" href="#forecast-content">Skip to forecast</a>
 <header class="forecast-header">
 <div class="shell header-inner">
@@ -93,7 +94,7 @@ const radiusCopy = forecast && forecast.activityRadiusMedianKm24h !== null ? `Th
 </EmptyDescription>
 </EmptyHeader>
 <EmptyContent>
-<LinkButton href={canRetry ? Astro.url.pathname : backHref}>{canRetry ? 'Try again' : 'Back to earthquakes'}</LinkButton>
+<LinkButton href={canRetry ? retryHref : backHref}>{canRetry ? 'Try again' : 'Back to earthquakes'}</LinkButton>
 </EmptyContent>
 </Empty>
 </section> : <>
@@ -136,7 +137,7 @@ const radiusCopy = forecast && forecast.activityRadiusMedianKm24h !== null ? `Th
 <p>An unavailable forecast does not mean further earthquake activity is unlikely.</p>
 <div class="availability-actions">
 <a href={event.source.url} target="_blank" rel="noreferrer">View PHIVOLCS bulletin</a>
-{availability?.status === 'processing' && <a href={Astro.url.pathname}>Reload forecast page</a>}
+{availability?.status === 'processing' && <a href={retryHref}>Reload forecast page</a>}
 </div>
 </section> : <>
 <div class="window">
@@ -216,7 +217,7 @@ return <>
 <p class="essential-note">Forecasts are estimates, not exact predictions.</p>
 </>}
 </section>
-{forecast && <ForecastReplay event={event} />}
+{forecast && <ForecastReplay event={event} testMode={testMode} />}
 </div>
 {forecast && <section class="details-section" id="forecast-details" aria-labelledby="details-title">
 <div class="details-intro">
@@ -351,5 +352,6 @@ return <>
 </div>
 </footer>
 <script>import { initForecastDetails } from '../lib/forecast-details'; initForecastDetails();</script>
+<script>import { monitorSyntheticForecast } from '../lib/api/synthetic-validity'; monitorSyntheticForecast();</script>
 </body>
 </html>

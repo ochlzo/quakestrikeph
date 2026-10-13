@@ -41,6 +41,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/earthquakes/{eventId}/observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read saved synthetic observations within one active session
+         * @description Returns all observation kinds without distance or magnitude filters. Reads never generate data or queue work. Responses use Cache-Control no-store.
+         */
+        post: operations["searchSyntheticObservations"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account": {
         parameters: {
             query?: never;
@@ -264,8 +284,23 @@ export interface components {
             /** Format: date-time */
             fetchedAt: string;
         };
+        /** @description Half-open time window [dateFrom, dateTo), at most 24 hours. No distance, location or magnitude filtering. */
+        SyntheticObservationRequest: {
+            /** Format: date-time */
+            dateFrom: string;
+            /** Format: date-time */
+            dateTo: string;
+            /** @default 25 */
+            limit: number;
+            cursor?: string;
+        };
         DetailResponse: {
             item: components["schemas"]["EarthquakeDetail"];
+            /**
+             * Format: date-time
+             * @description Fixed session deadline, present only for synthetic detail. Does not extend session lifetime.
+             */
+            expiresAt?: string;
             /** Format: date-time */
             fetchedAt: string;
         };
@@ -358,7 +393,10 @@ export interface operations {
     };
     getEarthquake: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Select immutable submitted synthetic data. Never falls back to production. Responses use Cache-Control no-store. */
+                test?: "true";
+            };
             header?: never;
             path: {
                 eventId: string;
@@ -379,6 +417,37 @@ export interface operations {
             400: components["responses"]["InvalidRequest"];
             404: components["responses"]["NotFound"];
             429: components["responses"]["RateLimited"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    searchSyntheticObservations: {
+        parameters: {
+            query: {
+                test: "true";
+            };
+            header?: never;
+            path: {
+                eventId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SyntheticObservationRequest"];
+            };
+        };
+        responses: {
+            /** @description Saved observations, newest first, including background and spillover */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResponse"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            404: components["responses"]["NotFound"];
             503: components["responses"]["Unavailable"];
         };
     };

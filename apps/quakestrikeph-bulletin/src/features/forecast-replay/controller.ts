@@ -183,6 +183,7 @@ export class ReplayController {
 
   dispose() {
     this.disposed = true;
+    this.cache.clear();
     this.revision++;
     if (this.timer !== null) clearInterval(this.timer);
     if (this.loadTimer !== null) clearTimeout(this.loadTimer);

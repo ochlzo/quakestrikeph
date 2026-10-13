@@ -6,8 +6,10 @@ import { Toaster } from "../../components/ui/toast";
 
 export default function ReplayMap({
   event,
+  testMode = false,
 }: {
   event: EarthquakeDetail;
+  testMode?: boolean;
 }) {
   const anchor = useRef<HTMLSpanElement>(null);
   const [events, setEvents] = useState<Earthquake[]>([event]);
@@ -17,8 +19,8 @@ export default function ReplayMap({
     if (!root) return;
     return initReplayTimeline(root, event, (observations) => {
       setEvents([event, ...observations]);
-    });
-  }, [event]);
+    }, testMode);
+  }, [event, testMode]);
   return (
     <>
       <span ref={anchor} hidden />

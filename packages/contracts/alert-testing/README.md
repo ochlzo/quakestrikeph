@@ -103,3 +103,45 @@ Randomize replay changes editable settings and requests fresh spatial values.
 Prepare scenario also generates a new replay from the edited settings.
 No public link, scenario persistence, submission, or provider call exists
 in preparation. Ticket 61 must persist the exact reviewed values unchanged.
+
+## Submitted public record, version 1 (ticket 60)
+
+`SubmittedScenarioRecord` in `scenarios-v1.ts` defines the producer contract.
+Store one immutable JSON string at
+`quakestrike:alert-testing:<session_id>:scenario:<event_id>`.
+The envelope contains `version: 1`, `submitted: true`, `submitted_at_ms`,
+`event_revision_id`, `forecast_id`, `model_release_id`, and `scenario`.
+`scenario` is the exact reviewed `PreparedScenario`, including its observation
+identities and values. Do not regenerate observations or replace reviewed values.
+Use canonical lowercase UUIDs and millisecond integers. Preserve the session's
+original `expires_at_ms`; expire the key at that same deadline with `PEXPIREAT`.
+Keep the record below 256 KiB, with at most 200 observations.
+Private recipients and delivery records belong in separate session-owned keys.
+Public projections ignore unknown fields and never return the raw envelope.
+
+Ticket 61 must atomically validate active ownership and deadline, write once
+with no overwrite, and queue the submitted identity. Allocate globally unique
+event UUIDs; never reuse an event UUID across sessions. Persist submission,
+revision, forecast, and model identities once. The submitted time follows
+preparation and precedes the deadline. Validation and queueing are not
+implemented by ticket 60. No HTTP route creates fixtures or submits scenarios.
+
+The Backend's `SyntheticScenarioReader.findSubmitted(eventId)` is the read
+interface. Its Redis adapter atomically reads the active control hash, checks
+Redis time against the deadline, and reads only that session's scenario key.
+It never extends expiry, updates lifecycle, scans keys, creates records, or
+contacts the private control server. Closed, expired, missing, and unsubmitted
+records return absence. Storage outages and corrupt submitted records return
+503 because they cannot establish absence. No production fallback exists.
+
+`GET /api/v1/earthquakes/{eventId}?test=true` returns the incumbent detail shape
+and `expiresAt`. Synthetic revision/forecast/model UUIDs come from the envelope;
+the source URL is the real PHIVOLCS bulletin index. Observation summaries have
+no independent forecast. `POST /api/v1/earthquakes/{eventId}/observations?test=true`
+accepts `dateFrom`, `dateTo`, optional `limit` (1–100), and optional `cursor`.
+The half-open window is at most 24 hours. Pagination uses descending occurrence
+time and UUID, matching ordinary search. All saved observation kinds remain
+included without distance, location, or magnitude filtering. Readers return
+stored future values; the incumbent replay clock hides them until occurrence.
+Both routes use `Cache-Control: no-store`, including absence and failures.
+Production search remains unchanged and never reads this storage.

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import express, { type ErrorRequestHandler } from 'express';
 import type { EarthquakeReader } from '../../ports/earthquakeReader.js';
+import type { SyntheticScenarioReader } from '../../ports/syntheticScenarioReader.js';
 import { DataUnavailable } from '../../application/information/errors.js';
 import { InvalidRequest } from './searchRequest.js';
 import { earthquakeRoutes } from './routes/earthquakes.js';
@@ -9,7 +10,7 @@ import { AccountError, SmsProviderError } from '../../domain/accounts.js';
 import { brevoRoutes, type BrevoDependencies } from './routes/brevo.js';
 
 export function createApp(reader: EarthquakeReader, now: () => Date = () => new Date(), accounts?: AccountDependencies,
-  brevo?: BrevoDependencies) {
+  brevo?: BrevoDependencies, synthetic?: SyntheticScenarioReader) {
   const app = express();
   app.disable('x-powered-by');
   app.use((req, res, next) => {
@@ -26,6 +27,10 @@ export function createApp(reader: EarthquakeReader, now: () => Date = () => new 
   });
 
   app.use('/api/v1/callbacks/brevo', brevoRoutes(brevo, now));
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api/v1/earthquakes/') && req.query.test === 'true') res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
   app.use(express.json({ limit: '8kb', strict: true }));
 
   app.get('/healthz', async (_req, res) => {
@@ -33,7 +38,7 @@ export function createApp(reader: EarthquakeReader, now: () => Date = () => new 
     res.json({ status: 'ready' });
   });
 
-  app.use('/api/v1/earthquakes', earthquakeRoutes(reader, now));
+  app.use('/api/v1/earthquakes', earthquakeRoutes(reader, now, synthetic));
   app.use('/api/v1/account', accountRoutes(accounts));
 
   app.use((_req, res) => {

@@ -8,6 +8,7 @@ export function initReplayTimeline(
   root: HTMLElement,
   event: EarthquakeDetail,
   showObservations: (items: Earthquake[]) => void,
+  testMode = false,
 ) {
   if (!event.forecast) return;
   const get = <T extends HTMLElement>(id: string) =>
@@ -29,7 +30,7 @@ export function initReplayTimeline(
   const start = Date.parse(event.forecast.windowStart);
   const endMinutes = (Date.parse(event.forecast.windowEnd) - start) / 60000;
   const controller = new ReplayController(event, {
-    load: loadObservationWindow,
+    load: (from, to) => loadObservationWindow(from, to, testMode ? event.eventId : undefined),
     now: Date.now,
     onChange(next) {
       const previous = state;
@@ -73,6 +74,10 @@ export function initReplayTimeline(
     width = 0;
   let stretchTimer: ReturnType<typeof setTimeout> | null = null;
   const listeners = new AbortController();
+  if (testMode) window.addEventListener('synthetic-forecast-invalidated', () => {
+    controller.dispose();
+    showObservations([]);
+  }, { signal: listeners.signal });
   const options = { signal: listeners.signal };
   const date = (minutes: number) => new Date(start + minutes * 60000);
   const dateFormat = new Intl.DateTimeFormat("en-PH", {
