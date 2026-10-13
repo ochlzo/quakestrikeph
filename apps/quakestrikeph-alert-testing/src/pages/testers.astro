@@ -1,0 +1,8 @@
+---
+import ToolLayout from "../layouts/ToolLayout.astro";
+import { Users } from "lucide-react";
+---
+<ToolLayout title="Testers" page="testers">
+  <div class="page-heading"><div><h1>Testers</h1><p>Select existing Bulletin accounts for the shared session.</p></div></div>
+  <div class="empty-state"><Users /><h2>No testers selected</h2><p>Tester selection is not enabled in this session slice. No accounts are loaded or changed.</p></div>
+</ToolLayout>

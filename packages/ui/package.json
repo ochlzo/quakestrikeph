@@ -1,0 +1,29 @@
+{
+  "name": "@quakestrikeph/ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./button": "./button.tsx",
+    "./dialog": "./dialog.tsx",
+    "./sidebar": "./sidebar.tsx",
+    "./sheet": "./sheet.tsx",
+    "./input": "./input.tsx",
+    "./separator": "./separator.tsx",
+    "./skeleton": "./skeleton.tsx",
+    "./tooltip": "./tooltip.tsx",
+    "./use-mobile": "./use-mobile.ts",
+    "./sidebar.css": "./sidebar.css",
+    "./theme.css": "./theme.css"
+  },
+  "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "cn": "^0.4.0",
+    "lucide-react": "1.48.0",
+    "react-aria-components": "^1.21.1"
+  },
+  "peerDependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  }
+}

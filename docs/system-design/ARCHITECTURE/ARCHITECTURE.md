@@ -6,11 +6,17 @@ QuakeStrike PH is a client-server system on one OVHcloud VPS-2 with 4 vCores, 8 
 
 ## Intended monorepo
 
+[ADR 0050](../../adr/0050-private-alert-testing-session-runtime.md) adds a
+separate Tailscale-only alert testing tool. Its synthetic state is a temporary
+Redis exception; PostgreSQL remains authoritative for ordinary business data.
+The implemented session slice adds no public controls or provider consumer.
+
 ```text
 quakestrikeph/
 ├── apps/
 │   ├── quakestrikeph-bulletin/       # Astro, React, TypeScript
 │   ├── operations-console/          # Astro, React, TypeScript
+│   ├── quakestrikeph-alert-testing/  # private Astro static UI, Python controls
 │   └── backend-api/                 # Node.js, Express, TypeScript
 ├── workers/                         # one Python 3.12 / uv workspace
 │   ├── pyproject.toml
@@ -25,10 +31,12 @@ quakestrikeph/
 │   │   ├── data_ingestor/
 │   │   ├── prediction_worker/
 │   │   ├── alert_worker/
+│   │   ├── alert_testing/            # isolated synthetic workflows and adapters
 │   │   └── cli.py
 │   └── tests/
 ├── packages/
 │   ├── contracts/                   # OpenAPI and versioned queue schemas
+│   ├── ui/                          # reused theme and React Aria controls
 │   └── generated-clients/           # only when multiple apps need the same generated output
 ├── database/
 │   ├── alembic.ini                  # paths relative to this configuration file

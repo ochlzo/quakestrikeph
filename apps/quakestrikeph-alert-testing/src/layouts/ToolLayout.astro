@@ -1,0 +1,16 @@
+---
+import "../styles/tool.css";
+import Workspace from "../features/sessions/Workspace";
+interface Props { title: string; page: "scenario" | "testers" | "history"; }
+const { title, page } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>{title} · QuakeStrike PH alert testing</title>
+  </head>
+  <body><Workspace section={page} client:load><slot /></Workspace></body>
+</html>

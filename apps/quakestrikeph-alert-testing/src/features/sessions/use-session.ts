@@ -1,0 +1,71 @@
+import { useEffect, useRef, useState } from "react";
+import { ApiError, sessionRequest, type SessionState } from "../../lib/api";
+import { SessionRequests } from "./session-requests";
+
+export function useSession() {
+  const [session, setSession] = useState<SessionState | null>(null);
+  const [pending, setPending] = useState<"start" | "end" | "cleanup" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [remaining, setRemaining] = useState(0);
+  const mounted = useRef(true);
+  const requests = useRef<SessionRequests | null>(null);
+  const baseline = useRef({ received: 0, remaining: 0 });
+
+  function accept(result: SessionState) {
+    setSession(result);
+    setError(null);
+    const milliseconds = Math.max(0, (result.expires_at_ms ?? 0) - (result.server_time_ms ?? 0));
+    baseline.current = { received: performance.now(), remaining: milliseconds };
+    setRemaining(milliseconds);
+  }
+
+  function failure(reason: unknown) {
+    const code = reason instanceof ApiError ? reason.code : "dependency-unavailable";
+    setError(code === "session-conflict"
+      ? "The shared session changed or cleanup is incomplete. Refresh the session before acting again."
+      : code === "private-origin-required"
+        ? "This origin cannot control the session. Open the configured private URL."
+        : "Session status unavailable. Redis or the private server could not complete the request. Refresh to check the result.");
+  }
+
+  if (!requests.current) {
+    requests.current = new SessionRequests(
+      sessionRequest,
+      result => { if (mounted.current) accept(result); },
+      reason => { if (mounted.current) failure(reason); },
+      action => { if (mounted.current) { setPending(action); if (action) setError(null); } },
+    );
+  }
+  const coordinator = requests.current;
+  const refresh = () => coordinator.refresh();
+
+  useEffect(() => {
+    mounted.current = true;
+    void refresh();
+    const poll = window.setInterval(() => void refresh(), 5000);
+    const tick = window.setInterval(() => {
+      setRemaining(Math.max(0, baseline.current.remaining - (performance.now() - baseline.current.received)));
+    }, 1000);
+    return () => {
+      mounted.current = false;
+      coordinator.invalidate();
+      window.clearInterval(poll);
+      window.clearInterval(tick);
+    };
+  }, []);
+
+  async function act(action: "start" | "end" | "cleanup", owner = session?.session_id) {
+    await coordinator.act(action, owner);
+  }
+
+  const deadlineReached = session?.status === "active" && remaining === 0;
+  const status = deadlineReached ? "expired" : session?.status;
+  const canStart = !error && !!session && ["inactive", "ended", "expired"].includes(session.status)
+    && (!session.cleanup || session.cleanup === "complete");
+  const needsCleanup = !error && !!session && session.status !== "active"
+    && session.cleanup !== "complete" && session.cleanup !== undefined;
+  const state = error ? "unavailable" : pending === "start" ? "starting"
+    : pending ? "closing" : status ?? "checking";
+
+  return { session, state, pending, remaining, error, canStart, needsCleanup, refresh, act };
+}
