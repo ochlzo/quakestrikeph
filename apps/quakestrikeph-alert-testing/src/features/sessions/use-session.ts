@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, sessionRequest, type SessionState } from "../../lib/api";
+import { SessionRequests } from "./session-requests";
 
 export function useSession() {
   const [session, setSession] = useState<SessionState | null>(null);
   const [pending, setPending] = useState<"start" | "end" | "cleanup" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [remaining, setRemaining] = useState(0);
-  const busy = useRef(false);
   const mounted = useRef(true);
+  const requests = useRef<SessionRequests | null>(null);
   const baseline = useRef({ received: 0, remaining: 0 });
 
   function accept(result: SessionState) {
@@ -27,16 +28,16 @@ export function useSession() {
         : "Session status unavailable. Redis or the private server could not complete the request. Refresh to check the result.");
   }
 
-  async function refresh() {
-    if (busy.current) return;
-    busy.current = true;
-    try {
-      const result = await sessionRequest();
-      if (mounted.current) accept(result);
-    } catch (reason) {
-      if (mounted.current) failure(reason);
-    } finally { busy.current = false; }
+  if (!requests.current) {
+    requests.current = new SessionRequests(
+      sessionRequest,
+      result => { if (mounted.current) accept(result); },
+      reason => { if (mounted.current) failure(reason); },
+      action => { if (mounted.current) { setPending(action); if (action) setError(null); } },
+    );
   }
+  const coordinator = requests.current;
+  const refresh = () => coordinator.refresh();
 
   useEffect(() => {
     mounted.current = true;
@@ -47,19 +48,14 @@ export function useSession() {
     }, 1000);
     return () => {
       mounted.current = false;
+      coordinator.invalidate();
       window.clearInterval(poll);
       window.clearInterval(tick);
     };
   }, []);
 
   async function act(action: "start" | "end" | "cleanup", owner = session?.session_id) {
-    if (busy.current) return;
-    busy.current = true;
-    setPending(action);
-    setError(null);
-    try { accept(await sessionRequest(action, owner)); }
-    catch (reason) { failure(reason); }
-    finally { busy.current = false; setPending(null); }
+    await coordinator.act(action, owner);
   }
 
   const deadlineReached = session?.status === "active" && remaining === 0;

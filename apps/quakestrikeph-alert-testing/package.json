@@ -6,6 +6,7 @@
   "packageManager": "pnpm@11.11.0",
   "engines": { "node": ">=22.19.0" },
   "scripts": {
+    "test:session": "node --experimental-strip-types --test tests/session-requests.test.mjs",
     "check": "astro check",
     "build": "astro build"
   },

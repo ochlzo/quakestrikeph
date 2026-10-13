@@ -13,6 +13,7 @@ from quakestrike.alert_testing.application.sessions import Sessions
 from quakestrike.alert_testing.domain.sessions import SessionConflict
 from quakestrike.alert_testing.infrastructure.redis import RedisSessionStore
 from quakestrike.alert_testing.interface.http import PrivateServer
+from quakestrike.infrastructure.logging.json_logging import configure_logging, log_event
 
 
 def main() -> None:
@@ -42,6 +43,7 @@ def main() -> None:
     )
     sessions = Sessions(RedisSessionStore(client))
     server = PrivateServer(sessions, args.static_directory, args.port, args.origin)
+    logger = configure_logging("alert-testing")
     stopped = Event()
 
     def maintain() -> None:
@@ -49,14 +51,24 @@ def main() -> None:
             try:
                 sessions.maintain()
             except RedisError:
-                logging.warning("Alert-testing maintenance: Redis unavailable")
+                log_event(
+                    logger,
+                    logging.WARNING,
+                    "Alert-testing maintenance: Redis unavailable",
+                    event_code="alert_testing_dependency_unavailable",
+                    context={"operation": "session_maintenance", "reason": "redis_unavailable"},
+                )
             except SessionConflict:
                 pass
 
     maintenance = Thread(target=maintain, daemon=True)
     maintenance.start()
-    print(
-        f"Private alert-testing controls: {server.origin}; bound to 127.0.0.1:{server.server_port}"
+    log_event(
+        logger,
+        logging.INFO,
+        f"Private alert-testing controls bound to 127.0.0.1:{server.server_port}",
+        event_code="alert_testing_started",
+        context={"operation": "private_http", "status": "listening"},
     )
     try:
         server.serve_forever()
