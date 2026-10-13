@@ -30,7 +30,7 @@ Create enum types before their tables in the migration that first uses them. Add
 | D4 Alerts | `alert_jobs`, `alert_recipients`, `alert_delivery_attempts` | Automatic email/SMS authorization and delivery evidence. |
 | D5 Operational records | `audit_logs`, `operator_access_events`, `technical_logs`, `maintenance_runs` | Business evidence, Console access evidence, selected diagnostics, and maintenance history. |
 
-`job_dispatches` is placed with D2 for the DFD, but it targets ingestion, prediction, or alert work. PostgreSQL is live truth; Redis carries commands and does not replace these records. CSV and bootstrap snapshots are finite import inputs, not live stores. See the [Level 1 DFD](../CFD-DFD/DFD-Level1.png) and [domain glossary](../../../CONTEXT.md).
+`job_dispatches` is placed with D2 for the DFD, but it targets ingestion, prediction, or alert work. PostgreSQL is live truth; Redis carries commands and does not replace these records. CSV and bootstrap snapshots are finite import inputs, not live stores. See the [Level 1 DFD](../CFD-DFD/DFD-Level1.png) and [domain glossary](../../../GLOSSARY.md).
 
 ## Accounts and access
 
@@ -677,6 +677,6 @@ Choose and version the recipient policy before enabling delivery; `recipient_pol
 
 ## References
 
-- [ERD](ERD.png), [architecture](../ARCHITECTURE/ARCHITECTURE.md), [DFD](../CFD-DFD/DFD-Level1.png), [context](../../../CONTEXT.md), and [ADRs](../../adr/).
+- [ERD](ERD.png), [architecture](../ARCHITECTURE/ARCHITECTURE.md), [DFD](../CFD-DFD/DFD-Level1.png), [context](../../../GLOSSARY.md), and [ADRs](../../adr/).
 - Source schema: `C:\Projects\SAM_Capstone\capstone\docs\07-erd-schema-specification.md`.
 - Source table guide: `C:\Projects\SAM_Capstone\capstone\docs\08-database-table-guide.md`. Both sources remain unchanged.

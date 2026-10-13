@@ -332,7 +332,7 @@ retains five approximately 20 MiB files per container. Logs can rotate and are
 not a replacement for durable run and dispatch records.
 
 The local enablement execution record is in
-[the issue #13 report](../reports/issue-13-local-enablement-2026-09-19.md).
+[the issue #13 report](https://github.com/ochlzo/quakestrikeph/blob/813ef6cd5312b373614c2d8bba506e43b035f554/docs/reports/issue-13-local-enablement-2026-09-19.md).
 The identifier-only alert runtime defaults to disabled. The Dispatcher uses
 `ALERT_RESOLUTION_ENABLED`; submission requires `ALERT_DELIVERY_ENABLED` as well.
 The explicit `alerts` profile adds the Alert Worker and independent reconciliation.
