@@ -45,10 +45,12 @@ class PrivateServer(ThreadingHTTPServer):
         origin: str | None = None,
         testers=None,
         scenarios=None,
+        submissions=None,
     ):
         self.sessions = sessions
         self.testers = testers
         self.scenarios = scenarios
+        self.submissions = submissions
         self.static_directory = static_directory.resolve()
         self.slots = BoundedSemaphore(16)
         if origin is not None:
@@ -138,6 +140,8 @@ class PrivateHandler(BaseHTTPRequestHandler):
             "/history": "history/index.html",
         }
         relative = pages.get(path.rstrip("/") or "/")
+        if re.fullmatch(r"/results/[0-9a-f-]{36}/?", path):
+            relative = "results/index.html"
         if relative is None and path.startswith("/_astro/"):
             relative = path.lstrip("/")
         if relative is None:
@@ -170,7 +174,17 @@ class PrivateHandler(BaseHTTPRequestHandler):
         }
         account_action = self.path == "/api/test/testers"
         preparation_action = self.path == "/api/test/scenarios/prepare"
-        if self.path not in actions and not account_action and not preparation_action:
+        submission_action = self.path in {
+            "/api/test/scenarios/submit",
+            "/api/test/scenarios/history",
+            "/api/test/scenarios/results",
+        }
+        if (
+            self.path not in actions
+            and not account_action
+            and not preparation_action
+            and not submission_action
+        ):
             self._json(404, {"error": "not-found"})
             return
         try:
@@ -179,12 +193,51 @@ class PrivateHandler(BaseHTTPRequestHandler):
             if len(self.headers.get_all("Content-Length") or []) != 1:
                 raise ValueError
             length = int(self.headers["Content-Length"])
-            if not 0 < length <= (65536 if account_action else 8192 if preparation_action else 512):
+            limit = (
+                262144
+                if self.path.endswith("/submit")
+                else 65536
+                if account_action
+                else 8192
+                if preparation_action
+                else 512
+            )
+            if not 0 < length <= limit:
                 raise ValueError
             if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
                 raise ValueError
             body = json.loads(self.rfile.read(length))
-            if preparation_action:
+            if submission_action:
+                operation = self.path.rsplit("/", 1)[1]
+                fields = (
+                    {"session_id", "inputs", "scenario", "selected"}
+                    if operation == "submit"
+                    else {"session_id", "event_id"}
+                    if operation == "results"
+                    else {"session_id"}
+                )
+                if operation == "history" and isinstance(body, dict) and "page" in body:
+                    fields.add("page")
+                if not isinstance(body, dict) or set(body) != fields:
+                    raise ValueError
+                workflow = self.server.submissions
+                if workflow is None:
+                    self._json(503, {"error": "dependency-unavailable"})
+                    return
+                action = getattr(workflow, operation)
+                args = tuple(
+                    body[key]
+                    for key in (
+                        ("session_id", "inputs", "scenario", "selected")
+                        if operation == "submit"
+                        else ("session_id", "event_id")
+                        if operation == "results"
+                        else ("session_id",)
+                    )
+                )
+                if operation == "history":
+                    args = (body["session_id"], body.get("page", 1))
+            elif preparation_action:
                 if not isinstance(body, dict) or set(body) != {"session_id", "inputs"}:
                     raise ValueError
                 workflow = self.server.scenarios
@@ -221,7 +274,10 @@ class PrivateHandler(BaseHTTPRequestHandler):
             self._json(400, {"error": "invalid-request"})
             return
         self._workflow(
-            action if account_action or preparation_action else actions[self.path], *args
+            action
+            if account_action or preparation_action or submission_action
+            else actions[self.path],
+            *args,
         )
 
     def do_OPTIONS(self):

@@ -1,5 +1,214 @@
 # Private alert-testing session, draft, and preparation controls
 
+## Ticket 61 review corrections, 14 October 2026
+
+The final Redis authorization gate now reads the submitted scenario's immutable
+forecast deadline before allowing transport. Session ownership and reservation
+lifetime remain separate checks. The new regression test expires only the
+forecast fixture between reservation and authorization, while retaining an
+active session and its original deadline. Neither provider receives a submission.
+
+The isolated consumer uses the existing JSON logging adapter for sanitized
+dependency-failure and recovery events. Repeated failures in the same dependency
+reuse the existing outage state rather than logging every retry. Routine
+`SessionConflict` handling stays quiet. Redis recovery requires a successful
+Redis pass; account recovery requires successful consumption. An inactive
+session cannot establish account recovery. Messages and context contain fixed
+event names and dependency categories, never raw exception text, destinations,
+message bodies, credentials, or private payloads.
+
+These fixes change only `consumer_runtime.py`, `infrastructure/deliveries.py`,
+the delivery integration test, the new `test_alert_testing_consumer_runtime.py`,
+and this operations record. All other ticket 61 changes and unrelated Bulletin
+and Compose edits remain preserved, uncommitted, and unstaged.
+
+Review-fix verification:
+
+- Host worker suite: 490 passed, 377 skipped because integration URLs were unset
+  or Windows did not support the platform-specific checks.
+- Consumer diagnostics regression: passed after the account-recovery refinement.
+- Required isolated Compose integration suite: 364 passed, two expected real-model
+  skips. All 33 delivery workflow cases ran and passed.
+- Ruff check and format check: passed; 226 files formatted.
+- Unstaged and staged whitespace checks: passed; no files staged.
+- Separate real-model forecast and replica benchmark: two passed, 24 deselected;
+  no skips. Both replicas completed without retry attempts.
+
+Commands used the documented `up -d --wait`, `run --build --rm test-runner`,
+separate `--profile prediction-smoke` runner, and `down -v` sequence with the
+`quakestrike-data-ingestion-test` Compose project. The disposable services were
+removed after verification. No target-server changes or live provider calls
+were performed by these corrections. Manual browser acceptance remains separate;
+these review fixes change no UI behavior.
+
+## Ticket 61: local submission and delivery implementation
+
+Branch: `codex/alert-testing-delivery`.
+Review baseline: `61a0c219bed299f89830e14aaca2104edd77726b`.
+Dependency PRs 66–68 were open and unmerged when this branch was created.
+Implementation review passed with zero Standards and Spec findings.
+
+Simulate and Send authenticates the browser-held preparation, saves its exact
+values, freezes selected account IDs, and queues the event identity. The
+control process never renders messages or contacts providers. The isolated
+consumer reads only selected accounts and rechecks each channel immediately
+before transport. History and Results follow the accepted prototype, with
+desktop tables and stacked mobile outcomes. History pages retain older links.
+Accepted confirms submission only; delivered evidence belongs to ticket 62.
+
+### Local control setup
+
+Use the existing disposable Redis and private-app setup below. Never select a
+development or production database for migrating or truncating test fixtures.
+The account connection, when configured, must use the restricted
+`quakestrike_alert_testing` login; the adapter rejects broader grants.
+
+1. Build the private application.
+
+   ```powershell
+   pnpm --dir apps/quakestrikeph-alert-testing build
+   ```
+
+2. Generate the local preparation key.
+
+   ```powershell
+   $env:ALERT_TEST_PREPARATION_KEY = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+   ```
+
+3. Set `ALERT_TEST_REDIS_URL` to the disposable Redis instance.
+4. Set `ALERT_TEST_DATABASE_URL` to the restricted account connection, when account reads are needed.
+5. Set `ALERT_TEST_PUBLIC_BULLETIN_URL` to the public or local Bulletin origin.
+6. Start the loopback control process.
+
+   ```powershell
+   uv run --project workers python -m quakestrike.alert_testing.runtime --port 4341
+   ```
+
+Keep the same preparation key across control restarts. Generating another key
+invalidates unfinished preparations; it does not change saved scenarios.
+Both control and consumer must use the same explicit test Redis connection.
+Message links use the origin frozen on the submitted job, even if a later
+consumer configuration changes. The Backend's `ALERT_TEST_REDIS_URL` must
+select that instance for public synthetic reads.
+
+### Consumer runtime and fake-provider verification
+
+The separate runtime is `python -m quakestrike.alert_testing.consumer_runtime`.
+It refuses startup unless `ALERT_TEST_CONSUMER_ENABLED=true`. It requires
+explicit test Redis and restricted account URLs. Real transport additionally
+uses `ALERT_TEST_IPROG_TOKEN`, `ALERT_TEST_BREVO_API_KEY`,
+`ALERT_TEST_BREVO_SENDER_EMAIL`, and `ALERT_TEST_BREVO_SENDER_NAME`.
+Existing adapters require the Linux main thread for their 12-second deadline.
+No production environment variable or queue enables this consumer implicitly.
+This ticket does not authorize setting those credentials, running live sends,
+or activating a target environment. Packaging and Serve remain ticket 63.
+
+Reproduce the authorized fake-provider workflow checks from the repository root:
+
+```powershell
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test redis-test
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --build --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v
+```
+
+`workers/tests/integration/test_alert_testing_delivery.py` starts the private
+HTTP API with disposable Redis, read-only account fixtures, and injected fake
+providers. It consumes the actual isolated Stream. It covers unchanged reviewed
+observations, request and command duplicates, interrupted storage, queue outages,
+concurrent reservations, lost responses, malformed or stale preparation, changed
+settings, SMS uncertainty, forecast expiry, closure, replacement, and late writes.
+It also checks masked Results projections, independent channels, frozen content,
+the original public URL, and earlier links across History pages.
+
+No test account adapter offers a write interface. PostgreSQL synthetic writes
+and production queue publication are absent from this module. Queue isolation
+checks retain unrelated commands. Diagnostic output excludes destinations,
+saved coordinates, content, provider credentials, and complete provider responses.
+
+### Verification on 14 October 2026
+
+| Check | Observed result |
+| --- | --- |
+| Required Compose integration suite | 362 passed; two expected real-model skips. |
+| Final delivery workflow regression checks with source/test mounts | 32 passed. |
+| Separate real-model smoke and replica checks | 2 passed; 24 deselected; no skips. |
+| Host worker unit and contract checks | 487 passed; 11 Windows-specific skips. |
+| Final host worker suite (`workers/tests`) | 489 passed; 376 skips for unconfigured integration services and Windows restrictions. |
+| New preparation-signature unit checks | 2 passed. |
+| Linux transport and signature checks with source/test mounts | 12 passed. |
+| Ruff check and format check | Passed; 225 files formatted. |
+| Private app check | Zero errors/warnings; four incumbent Select deprecation hints. |
+| Private app tests | 24 passed. |
+| Private app static build | Passed; four separate pages. |
+| Backend build and actual producer/reader compatibility | Passed; reader loaded the submitted scenario and all 22 observations. |
+| Local desktop and 390px mobile inspection | History rows, Results table, and stacked outcomes inspected with fake providers. |
+| Unstaged, staged, and new-file whitespace checks | Passed; nothing staged. |
+
+An additional repo-wide Linux unit run in the integration image produced
+16 failures, 472 passes, and 10 skips. That image omits deployment scripts and
+Git context required by unrelated repository tests. A focused rerun confirmed
+missing `infrastructure/scripts/deploy-workers.sh` and the absent Git context
+for the preserved-snapshot check. The supported host checks passed; the focused
+Linux deadline checks passed. No runtime or deployment code was changed to
+accommodate that image limitation.
+
+The local preview used a separate disposable Redis container, fictional accounts,
+and fake providers. The preview process and Redis container were stopped.
+The user still performs manual browser acceptance. No live provider calls,
+actual sends, target-server edits, deployment, commit, push, or PR occurred.
+
+### Review scope
+
+The worker changes are confined to `workers/src/quakestrike/alert_testing/`:
+`application/scenarios.py`, new `application/submissions.py` and
+`application/delivery.py`, `domain/testers.py`, `infrastructure/redis.py`, new
+`infrastructure/preparation.py` and `infrastructure/deliveries.py`,
+`interface/http.py`, new `interface/consumer.py`, `runtime.py`, and new
+`consumer_runtime.py`. Production worker implementations and account grants
+remain unchanged. The restricted account reader is reused without modification.
+
+The private app changes cover `ScenarioForm.tsx`, browser workspace memory and
+its hook, `lib/api.ts`, `pages/history.astro`, new `pages/results.astro`, new
+`features/delivery/DeliveryPages.tsx`, `styles/tool.css`, and new
+`styles/delivery.css`. No prototype or public Bulletin component was edited
+for ticket 61.
+
+Contracts add `packages/contracts/alert-testing/delivery-v1.ts` and amend
+`scenarios-v1.ts` and its README. ADR 0050 records signing, retry, consumer,
+reservation, and bounded cleanup decisions. Tests add
+`workers/tests/integration/test_alert_testing_delivery.py` and
+`workers/tests/unit/test_alert_testing_preparation.py`, amend the control-runtime
+unit fixture, and extend the private app's `workspace-memory.test.mjs`.
+
+Preserved unrelated edits include `infrastructure/compose.local.yml`, the
+Bulletin's `astro.config.mjs`, and Bulletin component, event-result, cache,
+stylesheet, and test edits that appeared during implementation. They are outside
+ticket 61's review scope. Nothing is staged. Review this scoped change against
+the baseline above; the branch contains all three dependency implementations.
+
+### Manual acceptance
+
+Use a separately authorized fake-provider fixture environment for these checks.
+
+1. Start Test and select fixture accounts on Testers.
+2. Prepare a scenario and inspect its reviewed observation diagram.
+3. Select Simulate and Send and confirm navigation to Results.
+4. Confirm email and SMS have separate outcomes and masked destinations.
+5. Open History and revisit each saved Results and forecast link.
+6. Inspect the desktop table and stacked mobile outcomes.
+7. Interrupt the submission response and retry the same reviewed request.
+8. Confirm that an uncertain submission blocks edits until its result is resolved.
+9. After confirmed acceptance, prepare another replay and confirm a new event identity.
+10. Change fixture settings after queueing and confirm the consumer respects those changes.
+11. End Test during a fake call and confirm the session closes before cleanup completes.
+12. Confirm that late outcomes cannot restore records or affect a replacement session.
+
+Closure may retain the metadata's 15-second authorization grace after calls
+finish. Business records always keep the original session deadline. Full
+callback reconciliation and closure presentation remain ticket 62. The
+incumbent tailnet-origin validator does not yet accept HTTPS 8443; ticket 63
+owns that packaging/configuration change. This ticket configured no Serve route.
+
 ## Ticket 60: public forecast reads and local acceptance
 
 Branch: `codex/alert-testing-public-forecasts`.

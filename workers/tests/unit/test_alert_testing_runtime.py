@@ -11,6 +11,7 @@ def test_runtime_startup_and_maintenance_emit_sanitized_json(monkeypatch, tmp_pa
     (tmp_path / "index.html").write_text("private app")
     secret_url = "redis://operator:private-password@private-host/0"
     monkeypatch.setenv("ALERT_TEST_REDIS_URL", secret_url)
+    monkeypatch.setenv("ALERT_TEST_PREPARATION_KEY", "test-only-preparation-key-32-bytes")
     monkeypatch.setattr("sys.argv", ["alert-testing", "--static-directory", str(tmp_path)])
     client = Mock()
     monkeypatch.setattr(runtime.Redis, "from_url", Mock(return_value=client))

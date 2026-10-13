@@ -145,3 +145,60 @@ included without distance, location, or magnitude filtering. Readers return
 stored future values; the incumbent replay clock hides them until occurrence.
 Both routes use `Cache-Control: no-store`, including absence and failures.
 Production search remains unchanged and never reads this storage.
+
+## Submission and delivery, version 1 (ticket 61)
+
+| Private POST path | JSON input | Result |
+| --- | --- | --- |
+| `/api/test/scenarios/submit` | `session_id`, `inputs`, `scenario`, `selected` | Saved identity, queue status, independent channel results. |
+| `/api/test/scenarios/history` | `session_id`, optional `page` | Shared submitted scenarios, newest first, 50 per page. |
+| `/api/test/scenarios/results` | `session_id`, `event_id` | Saved event and approved recipient projection, or `missing: true`. |
+
+All routes require the incumbent exact private Host/Origin, JSON type, and custom
+header. Submission permits 256 KiB; History and Results permit 512 bytes.
+Responses remain private and no-store. Validation returns 400; inactive or stale
+ownership returns 409; unavailable dependencies return 503 without claiming success.
+`delivery-v1.ts` defines the request and result types. `selected` contains 1–500
+distinct canonical account UUIDs. Only those identities may become recipients.
+History pages are integers from 1 through 10000, clamped to the available pages.
+The response includes `page` and `pages`; paging retains earlier forecast links.
+
+New preparation responses contain `preparation_token`, a server-generated HMAC.
+The optional TypeScript field preserves compatibility with older public fixtures;
+real submission requires a valid token. Submit the exact reviewed scenario and
+the input strings used to prepare it. Changing either invalidates the signature.
+The server also checks session ownership, preparation time, the original deadline,
+and forecast expiry. No draft or preparation record exists in Redis.
+
+The preparation's event UUID identifies the logical request and job. Repeated
+identical submissions preserve the submitted envelope and all allocated UUIDs.
+A changed selected-ID set cannot reuse that UUID. Lost-response retries retain
+one frozen browser request. While its result remains uncertain or queue-pending,
+editing and new preparation are blocked. Confirmed validation rejection retains
+the reviewed workspace and releases that lock. After successful queue acceptance,
+Prepare new replay creates the next deliberate submission identity.
+
+`queue_status: pending` confirms saving only. `enqueued` confirms Stream acceptance,
+not provider execution. The immutable public envelope uses the documented key;
+private `job:<event>`, `recipients:<event>`, `history`, `outbox`, and `queue` keys share
+the session prefix and original deadline. The Stream command contains exactly
+`message_version: "1"`, `session_id`, `event_id`, and `job_id` (equal to event ID).
+Consumer group recovery and atomic per-account/channel reservations deduplicate
+commands. Unavailable queue publication stays pending for repair or identical retry.
+The private job contains the original public-envelope JSON for recovery of an
+interrupted initial save. Repair never allocates new public UUIDs or overwrites
+the submitted key. The outbox index limits each publication-repair pass to 50
+pending jobs and removes an entry only after queue acceptance is recorded.
+
+Results expose selected account IDs, display names, masked destinations, channel,
+status, and a bounded explanation. Complete destinations, coordinates, content,
+provider references, and attempt tokens remain server-side. Pending means no
+attempt started; skipped explains current eligibility; failed means explicit
+rejection. Accepted confirms provider submission only. An authorized but
+interrupted attempt is unknown and cannot be resent automatically. Delivered
+requires later provider evidence, implemented by ticket 62.
+
+The control server serves a static Results shell at `/results/<eventId>`.
+History and Results remain separate Astro pages using the accepted prototype's
+desktop table and stacked mobile outcomes. See ADR 0050 for the bounded
+authorization grace and late-write rules.

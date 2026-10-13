@@ -19,6 +19,14 @@ def selection(value: object) -> list[str]:
     return result
 
 
+def masked_destination(channel, value):
+    value = value or ""
+    if channel == "email":
+        local, _, domain = value.partition("@")
+        return f"{local[:1]}•••@{domain}" if domain else "Unavailable"
+    return f"+63 ••• ••• {value[-4:]}" if value else "Unavailable"
+
+
 def account_view(account, event: dict) -> dict:
     reason = ""
     try:
@@ -60,11 +68,7 @@ def account_view(account, event: dict) -> dict:
         ("sms", "mobile_number", "mobile_verified_at", "sms_enabled"),
     ):
         value = account[destination] or ""
-        if channel == "email":
-            local, _, domain = value.partition("@")
-            masked = f"{local[:1]}•••@{domain}" if domain else "Unavailable"
-        else:
-            masked = f"+63 ••• ••• {value[-4:]}" if value else "Unavailable"
+        masked = masked_destination(channel, value)
         explanation = reason or (
             f"{channel.upper() if channel == 'sms' else 'Email'} disabled."
             if not account[enabled]

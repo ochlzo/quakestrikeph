@@ -125,3 +125,67 @@ through the incumbent server-rendered invalid-link or unavailable state.
 Back/forward cache restoration also reloads. No test labels or layout changes.
 Without JavaScript, validity is checked on each server request; automatic
 open-page invalidation requires JavaScript, as do the incumbent replay controls.
+
+## Ticket 61: signed preparation, submission, and isolated consumption
+
+Preparation remains stateless. The control process adds a SHA-256 HMAC
+`preparation_token` over the complete preparation and editable input strings.
+`ALERT_TEST_PREPARATION_KEY` is an explicit server-only key of at least 32 bytes.
+Keep the key stable across control restarts to validate retained browser requests.
+Canonical JSON normalizes whole floats to integers for browser interoperability.
+Submission validates the input rules, signature, owning active session, original
+deadline, preparation time, and forecast expiry. A stale preparation means
+changed reviewed values or inputs, wrong ownership/deadline, or an expired
+forecast. Multiple independent valid preparations may coexist in browser memory;
+there is no persisted preparation revision or global newest-preparation rule.
+
+The prepared event UUID is the logical submission and job identity. Retry the
+same reviewed request and selected-ID set after an uncertain response. A changed
+payload or roster cannot reuse that identity. A new deliberate submission
+requires a new preparation and event UUID. Public scenario envelopes remain
+write-once at ticket 60's key. Revision, forecast, and model UUIDs are assigned
+once. The public reader ignores the signature and projects only approved data.
+
+An atomic owning-session gate saves the envelope, private job, and history entry.
+The private job is an outbox: `pending` never claims queue acceptance. A second
+gated Lua operation publishes versioned identifier-only commands to the session
+Stream and records `enqueued`. Lost responses reuse the original job. Stream
+duplicates remain possible after interrupted publication; recipient reservations
+make those duplicates safe. The separately enabled consumer repairs pending
+publication and uses one group, `test-delivery-v1`, with 30-second pending-entry
+recovery. Neither runtime uses production queues or Dispatcher code.
+The job's original envelope JSON repairs an interrupted first save without
+allocating another identity. A separate scoped outbox index limits publication
+repair to 50 pending jobs per pass. History uses 50-row pages rather than
+truncating older scenarios; every earlier saved link remains addressable.
+
+Consumer execution freezes production general/nearby content using unchanged
+rendering and geographic functions, then appends `?test=true` to the complete
+forecast URL. The restricted account adapter reads only selected IDs. Each
+channel rechecks eligibility; SMS additionally checks ordinary sender support
+and reads account settings again afterward. SMS uncertainty does not block email.
+
+The consumer persists one fenced attempt before transport. An authorized attempt
+starts as unknown, so process loss cannot authorize an automatic resend. A final
+gate checks the attempt token, active ownership, and sufficient transport time.
+The caller also rejects a reservation older than three monotonic seconds.
+Existing provider adapters bound actual calls to 12 seconds on the Linux main
+thread, without transport retries. Explicit rejections become failed; accepted
+and unknown remain distinct. This slice does not automatically retry failed
+provider submissions or establish delivered evidence.
+
+The control hash retains only `calls_until_ms`, the maximum 15-second reservation
+deadline, as additional coordination metadata. Cleanup waits through that bound,
+including after session expiry; business records still expire at the original
+deadline. Completed calls do not shorten this conservative grace period.
+The field has the control hash's existing fixed retention of 24 hours after the
+session deadline. It contains no account, destination, message, or delivery
+history. Closure blocks reservations before waiting. Outcome writes require the
+same active owner and an existing attempt token; late results cannot recreate
+records or modify a replacement session.
+
+Brevo receives `quakestrike-attempt:test:<session>:<event>:<attempt>` through the
+incumbent adapter's custom-header construction. The marker identifies test
+callbacks after deletion. Authenticated callback reconciliation, delivered proof,
+and full closure presentation remain ticket 62. Packaging and Serve configuration
+remain ticket 63. None of these decisions authorizes live sends or activation.

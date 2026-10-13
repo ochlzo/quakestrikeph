@@ -14,6 +14,80 @@ const prepared = (owner = "owner", id = "event") => ({ session_id: owner, event_
   forecast: { quantiles: [2, 4, 6] } });
 const workspace = () => { const memory = new WorkspaceMemory(); memory.accept(active()); return memory; };
 
+test("lost submission responses freeze the reviewed request and reuse its identity", async () => {
+  const memory = workspace();
+  memory.edit({ ...memory.state.draft, selected: ["tester"] });
+  await memory.prepare(async () => prepared());
+  let original;
+  await memory.submit(async body => { original = body; throw new Error("lost response"); });
+  assert.equal(memory.state.submissionPending, true);
+  assert.equal(memory.state.prepared.event_id, "event");
+  const reviewed = memory.state.draft;
+  memory.edit({ ...reviewed, selected: ["different"] });
+  await memory.prepare(async () => prepared("owner", "different"));
+  assert.equal(memory.state.draft, reviewed);
+  await memory.submit(async body => {
+    assert.equal(body, original);
+    assert.deepEqual(body.selected, ["tester"]);
+    return { event_id: "event", queue_status: "enqueued" };
+  });
+  assert.equal(memory.state.submission.event_id, "event");
+  assert.equal(memory.state.submissionPending, false);
+});
+
+test("a new deliberate submission requires a newly prepared event", async () => {
+  const memory = workspace();
+  memory.edit({ ...memory.state.draft, selected: ["tester"] });
+  await memory.prepare(async () => prepared());
+  let calls = 0;
+  const send = async body => { calls++; return { event_id: body.scenario.event_id, queue_status: "enqueued" }; };
+  await memory.submit(send);
+  await memory.submit(send);
+  assert.equal(calls, 1);
+  await memory.prepare(async () => prepared("owner", "new-event"));
+  await memory.submit(send);
+  assert.equal(memory.state.submission.event_id, "new-event");
+  assert.equal(calls, 2);
+});
+
+test("pending publication retains preparation and retries the same request", async () => {
+  const memory = workspace();
+  memory.edit({ ...memory.state.draft, selected: ["tester"] });
+  await memory.prepare(async () => prepared());
+  let first;
+  await memory.submit(async body => { first = body; return { event_id: "event", queue_status: "pending" }; });
+  assert.equal(memory.state.submission, null);
+  assert.equal(memory.state.submissionPending, true);
+  await memory.submit(async body => { assert.equal(body, first); return { event_id: "event", queue_status: "enqueued" }; });
+  assert.equal(memory.state.submissionPending, false);
+});
+
+test("replacement clears submission and rejects the delayed response", async () => {
+  const memory = workspace();
+  memory.edit({ ...memory.state.draft, selected: ["tester"] });
+  await memory.prepare(async () => prepared());
+  const response = deferred();
+  const submission = memory.submit(() => response.promise);
+  memory.accept(active("replacement"));
+  response.resolve({ event_id: "event", queue_status: "enqueued" });
+  await submission;
+  assert.equal(memory.state.submission, null);
+  assert.equal(memory.state.submissionPending, false);
+  assert.equal(memory.state.owner, "replacement");
+});
+
+test("validation rejection preserves reviewed values and unlocks editing", async () => {
+  const memory = workspace();
+  memory.edit({ ...memory.state.draft, selected: ["tester"] });
+  await memory.prepare(async () => prepared());
+  const original = memory.state.prepared;
+  await memory.submit(async () => { throw { code: "invalid-request" }; });
+  assert.equal(memory.state.prepared, original);
+  assert.equal(memory.state.submissionPending, false);
+  memory.edit({ ...memory.state.draft, selected: ["other"] });
+  assert.deepEqual(memory.state.draft.selected, ["other"]);
+});
+
 test("default event is approximately one hour ago in Philippine time", () => {
   const memory = workspace();
   const elapsed = Date.now() - Date.parse(memory.state.draft.inputs.time + "+08:00");

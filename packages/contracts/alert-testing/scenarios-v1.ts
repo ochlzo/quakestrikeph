@@ -5,6 +5,7 @@ export type ScenarioInputs = Record<
 
 export type PreparedScenario = Readonly<{
   version: 1;
+  preparation_token?: string;
   session_id: string;
   event_id: string;
   prepared_at_ms: number;

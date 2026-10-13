@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { navigate } from "astro:transitions/client";
-import { preparationRequest, type SessionState } from "../../lib/api";
+import { preparationRequest, submissionRequest, type SessionState } from "../../lib/api";
 import { WorkspaceMemory } from "./workspace-memory";
 export { initialInputs, type Inputs } from "./workspace-memory";
 
@@ -24,5 +24,9 @@ export function useWorkspace() {
     return () => { memory.listeners.delete(listener); };
   }, []);
   return { ...view, edit: memory.edit.bind(memory),
-    prepare: () => memory.prepare(preparationRequest), navigate };
+    prepare: () => memory.prepare(preparationRequest),
+    submit: async () => {
+      await memory.submit(submissionRequest);
+      if (memory.state.submission) await navigate(`/results/${memory.state.submission.event_id}`);
+    }, navigate };
 }
