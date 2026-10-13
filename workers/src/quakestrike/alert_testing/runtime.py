@@ -10,6 +10,7 @@ from redis.exceptions import RedisError
 from redis.retry import Retry
 from sqlalchemy import create_engine
 
+from quakestrike.alert_testing.application.scenarios import Scenarios
 from quakestrike.alert_testing.application.sessions import Sessions
 from quakestrike.alert_testing.application.testers import Testers
 from quakestrike.alert_testing.domain.sessions import SessionConflict
@@ -65,6 +66,7 @@ def main() -> None:
         args.port,
         args.origin,
         testers=testers,
+        scenarios=Scenarios(sessions),
     )
     logger = configure_logging("alert-testing")
     stopped = Event()

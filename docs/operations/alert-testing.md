@@ -1,4 +1,4 @@
-# Private alert-testing session and draft controls
+# Private alert-testing session, draft, and preparation controls
 
 Issue [57](https://github.com/ochlzo/quakestrikeph/issues/57) implements the
 shared session only. Starting creates no scenario, queue command, or provider
@@ -6,6 +6,10 @@ request. Issue [58](https://github.com/ochlzo/quakestrikeph/issues/58) adds
 restricted account search and independent drafts in browser memory. Consumer,
 provider credentials, public control routes, and production deployment remain
 outside these slices.
+
+Issue [59](https://github.com/ochlzo/quakestrikeph/issues/59) adds validated
+scenario preparation and the review diagram. Preparation remains in browser
+memory and creates no scenario record or sending work.
 
 Container packaging and release-readiness work belong to
 [issue 63](https://github.com/ochlzo/quakestrikeph/issues/63).
@@ -390,3 +394,92 @@ Change the search and confirm the dedicated error composition replaces rows.
 Unblock requests and use Retry accounts. Confirm the selected IDs remain
 selected after the accounts return. If enough accounts are available, exceed
 500 selections and confirm one error toast appears without disabling rows.
+
+## Ticket 59 implementation record — 13 October 2026
+
+Source branch: `codex/alert-testing-scenario-preparation`.
+Starting commit: `6b6199053e8d81c5eafd32e0653c504f1a9a62f5`.
+PR [66](https://github.com/ochlzo/quakestrikeph/pull/66) remained open when
+implementation began. This branch depends on its ticket 58 implementation.
+Ticket 59 changes remain uncommitted for the coordinating session's review.
+
+The Scenario page preserves the accepted prototype controls and styles.
+Prepare scenario validates edited values and generates the exact observations
+shown in the review diagram. Randomize replay changes replay settings and
+requests fresh positions, including when visible settings repeat.
+Field errors appear beside their controls. Preparation failures also use the
+existing action toast. Public preview and Simulate and Send remain unavailable.
+
+The isolated Domain modules validate values and generate frozen observations
+from supplied time and randomness. Application checks session ownership before
+and after generation. The private preparation endpoint returns event, forecast,
+replay settings, and exact observation values without writing scenario records
+or publishing commands. Browser memory freezes that response recursively.
+Scenario edits invalidate preparation. Tester selection edits preserve it.
+Request identities and workspace revisions reject older responses.
+Closure, expiry, and replacement clear the browser workspace.
+
+The forecast covers exactly 24 elapsed hours. Past anchors generate successors
+through preparation time or forecast end, whichever occurs first.
+Future anchors retain future timestamps within the same forecast window.
+Ticket 61 must validate an unexpired forecast before submission and preserve
+the reviewed observations unchanged.
+
+The geometry validation adds an upper radius bound below Earth's maximum
+great-circle distance, approximately 20,015.11 km. Larger radii cannot have
+outside observations. Depth is bounded to 0–700 km; replay spread is 0–100
+percent. These private fixture bounds do not change production forecasts.
+Optional quantiles retain production's finite, ordered, all-or-none rule.
+
+| Check | Result |
+| --- | --- |
+| Worker pytest command in CONTRIBUTING.md | 487 passed, 344 skipped. Host skips include 333 integration cases and 11 existing platform cases. |
+| Exact isolated Compose integration procedure | 331 passed, two expected real-model skips. All 14 preparation API cases executed against disposable Redis. |
+| Final preparation API rerun after adding observation location descriptions | 14 passed against disposable Redis. |
+| Documented `prediction-smoke-runner` command with `-k test_real_seis -s` | Both model cases passed; 24 deselected, none skipped. The known forecast and replica benchmark succeeded. |
+| `uv run --project workers ruff check workers database` | Passed. |
+| `uv run --project workers ruff format --check workers database` | Passed; 217 files formatted. |
+| Private app `check` and `build` | Passed; zero errors or warnings, four existing Select deprecation hints. |
+| Private app `test` | 19 passed, including 12 browser-memory cases. |
+| `git diff --check` and `git diff --cached --check` | Passed; nothing staged. |
+
+The tests cover field errors, optional quantiles, geometry near poles and the
+date line, exact spillover counts, unique identities, valid depths and
+magnitudes, location descriptions, ordered timestamps, and edited event clocks.
+API checks cover private request protections, bounded bodies, active ownership,
+closure during generation, replacement, expiry, and absence of scenario records
+or queue publication. Browser-memory tests cover retained immutable values,
+input invalidation, repeated settings, older failures, closure, deadlines, and
+independent tabs.
+
+A temporary local server used only a separate disposable Redis container.
+Desktop and 390px mobile inspection showed the prepared diagram and accepted
+responsive layout. The server and preview container were stopped afterward.
+This inspection does not establish the user's manual browser acceptance.
+No account connection, provider call, target-server operation, production
+activation, commit, push, or pull request occurred for ticket 59.
+
+### Ticket 59 manual acceptance
+
+Use the disposable setup above. Complete these checks on desktop and mobile.
+
+1. Start Test and confirm the default event time is approximately one hour ago in Philippine time.
+2. Open the calendar and change the event date and time.
+3. Use Done and Escape to check calendar dismissal and keyboard focus.
+4. Select each forecast preset and edit individual values.
+5. Enter zero radius, unordered probabilities, and partial quantiles, then select Prepare scenario.
+6. Confirm field errors identify each problem and the optional estimates expand when invalid.
+7. Correct the inputs and select Prepare scenario.
+8. Confirm the diagram contains inside observations, requested spillover, and distant background observations.
+9. Select Randomize replay repeatedly and confirm the settings and observation positions change.
+10. Navigate to Testers and return through internal links, Back, and Forward.
+11. Confirm the prepared diagram retains its exact positions through navigation and tester selection changes.
+12. Edit one scenario value and confirm the diagram clears until preparation succeeds again.
+13. Delay the preparation response using a browser debugging proxy or request interception tool.
+14. While that response waits, edit one scenario value and then release the response.
+15. Confirm the old response does not restore the diagram or replace the edited value.
+16. Repeat the delayed-response check while ending or replacing the session.
+17. Confirm the workspace clears and the old response cannot restore preparation.
+18. Open a second tab and confirm its draft and preparation remain independent.
+19. Reload the private page and confirm the unfinished workspace may reset.
+20. Confirm public preview and Simulate and Send remain unavailable.
