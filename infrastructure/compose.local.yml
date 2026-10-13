@@ -42,6 +42,7 @@ services:
       DEV_USE_POLLING: "true"
     volumes:
       - ../apps/quakestrikeph-bulletin:/app
+      - ../packages/ui:/packages/ui:ro
       - /app/node_modules
     ports: ["127.0.0.1:4321:4321"]
     networks: [backend-edge]

@@ -1,0 +1,8 @@
+---
+import ToolLayout from "../layouts/ToolLayout.astro";
+import { History } from "lucide-react";
+---
+<ToolLayout title="History" page="history">
+  <div class="page-heading"><div><h1>History</h1><p>Saved scenarios remain available during the shared session.</p></div></div>
+  <div class="empty-state"><History /><h2>No scenarios yet</h2><p>Starting a session creates no scenario, queue command, or provider submission.</p></div>
+</ToolLayout>

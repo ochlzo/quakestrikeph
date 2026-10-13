@@ -2,6 +2,7 @@ FROM node:24.21.0-bookworm-slim AS development
 WORKDIR /app
 
 RUN npm install -g pnpm@11.11.0
+COPY packages/ui /packages/ui
 COPY apps/quakestrikeph-bulletin/package.json apps/quakestrikeph-bulletin/pnpm-lock.yaml apps/quakestrikeph-bulletin/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY apps/quakestrikeph-bulletin/astro.config.mjs apps/quakestrikeph-bulletin/tsconfig.json ./

@@ -1,0 +1,30 @@
+/* Match sidebar-04's full offscreen slide, without fading the drawer. */
+[data-slot="sidebar"][data-mobile="true"] {
+  background: transparent;
+  opacity: 1;
+  transition: none;
+}
+[data-slot="sidebar"][data-mobile="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 40%);
+  opacity: 1;
+  transition: opacity 150ms;
+}
+[data-slot="sidebar"][data-mobile="true"]:is([data-entering], [data-exiting])::before {
+  opacity: 0;
+}
+[data-mobile="true"] [data-slot="sheet-content"] {
+  opacity: 1;
+  transition: translate 500ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+[data-mobile="true"] [data-slot="sheet-content"][data-exiting] {
+  transition-duration: 300ms;
+}
+[data-mobile="true"] [data-side="left"]:is([data-entering], [data-exiting]) {
+  translate: -100% 0;
+}
+[data-mobile="true"] [data-side="right"]:is([data-entering], [data-exiting]) {
+  translate: 100% 0;
+}

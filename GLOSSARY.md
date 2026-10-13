@@ -187,6 +187,22 @@ separate from saved alert settings until the user submits it.
 
 ## Operations
 
+**Test operator**:
+A person admitted through the private Tailscale network to control an alert
+test. This person is separate from a Console operator or Bulletin account.
+
+**Tester**:
+An existing Bulletin account explicitly selected to receive alerts in a test.
+The account's ordinary alert settings continue to govern eligibility.
+
+**Test session**:
+One shared, temporary period for alert testing with a fixed four-hour deadline.
+Ending or expiry closes access before cleanup finishes.
+
+**Test scenario**:
+One frozen synthetic earthquake, forecast, and set of replay observations
+belonging to a test session.
+
 **Console operator**:
 A person admitted by the Operations Console's Cloudflare Access policy through
 a named Google identity and MFA. This identity is separate from a Bulletin
