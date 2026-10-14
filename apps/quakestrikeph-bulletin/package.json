@@ -16,7 +16,7 @@
     "test:identity": "node --experimental-strip-types --test tests/accounts/identity.test.mjs tests/accounts/preference-saves.test.mjs",
     "test:sms-enrollment": "node --experimental-strip-types --test tests/accounts/sms-enrollment.test.mjs",
     "test:forecast": "node tests/forecast-page.mjs",
-    "test:forecast-replay": "node --experimental-strip-types --test tests/forecast-replay.test.mjs",
+    "test:forecast-replay": "node --experimental-strip-types --test tests/forecast-replay.test.mjs tests/synthetic-validity.test.mjs",
     "test:forecast-navigation": "node tests/forecast-navigation.cjs",
     "generate:api": "openapi-typescript ../../packages/contracts/openapi.yaml -o src/lib/api/schema.d.ts",
     "start": "node ./dist/server/entry.mjs"

@@ -1,5 +1,151 @@
 # Private alert-testing session, draft, and preparation controls
 
+## Ticket 60: public forecast reads and local acceptance
+
+Branch: `codex/alert-testing-public-forecasts`.
+Starting commit: `a68023fd3c98a627da79d34c691e846efb26a95e`.
+PRs 66 and 67 were open and unmerged when the branch was created.
+The ticket 60 implementation remains uncommitted for coordinating review.
+
+The Backend reads submitted records through `SyntheticScenarioReader` and a
+read-only Redis adapter. The contract is documented in
+[the submitted-record contract](../../packages/contracts/alert-testing/README.md#submitted-public-record-version-1-ticket-60).
+Ticket 61 supplies the producer: validate the reviewed scenario, persist the
+exact values once under the owning active session, and queue its identity.
+No save action, submission endpoint, queue consumer, history, or provider
+workflow is implemented by ticket 60.
+
+The Bulletin preserves `test=true` through server detail, observation pages,
+retry, and reload. Back to earthquakes opens `/` without dummy selection.
+The existing layout, copy, map, and replay controls remain in use.
+The PHIVOLCS link opens the real bulletin index. Synthetic responses and HTML
+use `no-store`. JavaScript checks open-page validity every 15 seconds, on
+focus/visibility restoration, and at expiry. Invalidation clears replay data
+and reloads the existing invalid-link or service-unavailable state.
+Back/forward cache restoration also reloads. Without JavaScript, validity is
+checked on each page request; open-page polling and replay require JavaScript.
+
+### Disposable browser fixture
+
+This test-only harness needs no production database, accounts, or providers.
+It binds only to loopback and refuses any Redis URL other than the disposable
+instance below. Normal fixture lists are empty. It adds no public write route.
+Do not use development or production Redis for fixture seeding.
+
+1. Create the disposable Redis container.
+
+   ```powershell
+   docker run --rm --detach --name quakestrike-alert-testing-preview --publish 127.0.0.1:6387:6379 redis:7.4.11-bookworm redis-server --save "" --appendonly no
+   ```
+
+2. Build the Backend fixture code.
+
+   ```powershell
+   pnpm --dir apps/backend-api build
+   ```
+
+3. Start the fixture API in a separate terminal.
+
+   ```powershell
+   $env:TEST_REDIS_URL = 'redis://127.0.0.1:6387/0'
+   node apps/backend-api/dist/tests/fixtures/previewSynthetic.js
+   ```
+
+4. Start the Bulletin with the fixture API in another terminal.
+
+   ```powershell
+   $env:API_TARGET = 'http://127.0.0.1:4312'
+   pnpm --dir apps/quakestrikeph-bulletin dev --host 127.0.0.1 --port 4321
+   ```
+
+5. Open [the synthetic forecast](http://127.0.0.1:4321/forecasts/11111111-1111-4111-8111-111111111111?test=true).
+6. Play and seek past 30 minutes to inspect inside, spillover, and background observations.
+7. Reload the page and confirm that values and observation identities remain unchanged.
+8. Confirm that replay stops at Now and retains the forecast's original 24-hour window.
+9. Check the map, disclosures, replay controls, and navigation at desktop and mobile widths.
+10. Open PHIVOLCS and confirm that the bulletin index loads.
+11. Use Back to earthquakes and confirm that `/` has no dummy selection or test mode.
+12. Open the same event without `test=true` and confirm that no synthetic data appears.
+13. Close the fixture session while leaving its scenario key present.
+
+   ```powershell
+   docker exec quakestrike-alert-testing-preview redis-cli HSET quakestrike:alert-testing:session lifecycle closed cleanup failed
+   ```
+
+14. Confirm that the open page changes to Invalid earthquake link within 15 seconds plus request time.
+15. Reload the link and confirm that the invalid-link state remains.
+16. Stop disposable Redis and reload the link to check service-unavailable and its test-preserving retry URL.
+
+   ```powershell
+   docker stop quakestrike-alert-testing-preview
+   ```
+
+Stop both local terminals with Ctrl+C after acceptance. Remove process-scoped
+`TEST_REDIS_URL` and `API_TARGET` from those terminals if you reuse them.
+The fixture harness also deletes its own keys on ordinary shutdown.
+
+These loopback steps establish fixture-backed behavior only. They do not
+establish access from outside Tailscale or an end-to-end send. The user must
+verify public access without Tailscale after a separately authorized deployment
+and ticket 61 submission. No Tailscale configuration, deployment, provider
+send, or production operation occurred during ticket 60 implementation.
+
+### Contributor verification for public reads
+
+Run the three isolated Compose commands in `CONTRIBUTING.md` first. Before
+teardown, provision only the disposable Backend role and run its integration
+runner:
+
+```powershell
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml exec -T postgres-test sh /opt/quakestrike/provision-roles.sh create-backend
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile backend run --build --rm backend-test-runner
+```
+
+Then run the documented `down -v` command. Never run the Backend fixtures
+against a development or production database. The synthetic Redis workflow
+requires the isolated Compose hostname `redis-test` and refuses a pre-existing
+control hash. It covers repeated detail reads, paging, privacy, missing and
+unsubmitted records, closure before cleanup, failed-cleanup gating, expiry,
+replacement, corrupt storage, dependency failure, and production isolation.
+
+Host verification uses Backend typecheck/build/unit tests and Bulletin
+check/build, `test:forecast`, `test:forecast-replay`, and
+`test:forecast-navigation`. The navigation script needs Playwright and Edge;
+the bundled runtime can supply Playwright through `NODE_PATH` without adding
+a project dependency. Git whitespace and full-diff inspection complete the
+local checks. Browser acceptance remains the user's verification.
+
+The shared checkout also contains an unrelated edit to
+`infrastructure/compose.local.yml`. Ticket 60 preserves that edit.
+
+### Ticket 60 verification record
+
+| Check | Result |
+| --- | --- |
+| Backend `typecheck` and `build` | Passed. |
+| Backend build plus `node --test apps/backend-api/dist/tests/unit/*.test.js` | 32 passed; no skips. Equivalent to `test` because host npm is unavailable. |
+| Exact worker Compose integration procedure in `CONTRIBUTING.md` | 331 passed; two expected real-model skips. Integration cases executed. |
+| Isolated Backend role provisioning and `backend-test-runner` | Six passed; no skips, including the submitted-scenario Redis workflow. |
+| Bulletin `check` | Zero errors/warnings; seven existing hints. |
+| Bulletin `build` | Passed; existing large-chunk warning. |
+| Bulletin `test:forecast` | Passed, including synthetic routes, canonical query, invalid links, retry, and escaping. |
+| Bulletin `test:forecast-replay` | 20 passed, including six new validity/source/cache checks. |
+| Bulletin `test:forecast-navigation` with bundled Playwright via `NODE_PATH` | Passed desktop/mobile navigation, replay, accessibility interactions, and error rendering. |
+| `git diff --check` and `git diff --cached --check` | Passed. |
+
+The initial navigation invocation could not resolve `playwright`; the bundled
+runtime supplied that existing test prerequisite without a project dependency.
+No worker code or tests changed, so separate worker unit/Ruff checks were not
+required. The real-model runner was not run; model behavior is outside ticket 60.
+The fixture preview harness is provided for manual acceptance; no deployed
+end-to-end send or user browser acceptance is claimed.
+
+The package runner created an untracked Bulletin `.pnpm-store/` cache.
+Automatic approval review blocked both recursive cache removal and deletion
+of the identified cache file, without a more specific reason. The generated
+cache remains on disk. A repository-local `.git/info/exclude` entry prevents
+accidental staging; no shared ignore file changed.
+
 Issue [57](https://github.com/ochlzo/quakestrikeph/issues/57) implements the
 shared session only. Starting creates no scenario, queue command, or provider
 request. Issue [58](https://github.com/ochlzo/quakestrikeph/issues/58) adds

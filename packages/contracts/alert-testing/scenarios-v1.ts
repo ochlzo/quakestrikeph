@@ -22,3 +22,14 @@ export type PreparedScenario = Readonly<{
     distance_km: number; bearing_radians: number;
   }>[];
 }>;
+
+// Persist only after submission validation; retain the exact reviewed scenario.
+export type SubmittedScenarioRecord = Readonly<{
+  version: 1;
+  submitted: true;
+  submitted_at_ms: number;
+  event_revision_id: string;
+  forecast_id: string;
+  model_release_id: string;
+  scenario: PreparedScenario;
+}>;

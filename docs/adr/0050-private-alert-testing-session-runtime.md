@@ -93,3 +93,35 @@ boundary when ticket 61 implements submission. It remains unavailable here,
 along with replay randomization, the prepared replay diagram, and public preview.
 Incumbent prototype controls
 move to `packages/ui`; Bulletin re-exports preserve their existing callers.
+
+## Ticket 60: submitted public reads
+
+The public Backend reads Redis directly through a purpose-specific read-only
+Infrastructure adapter and the `SyntheticScenarioReader` Application interface.
+The private Python control server remains private. The reader performs one
+atomic Lua operation using Redis time, active lifecycle, the fixed deadline,
+and the active UUID's scoped scenario key. It neither mutates lifecycle nor
+extends TTL. Closure and expiry reject reads before cleanup completes.
+Replacement selects only the new UUID's keys. Event identities are globally
+unique and cannot be reused by the producer across sessions.
+
+The versioned submitted envelope is recorded in
+`packages/contracts/alert-testing/README.md`. Ticket 61 writes that envelope
+only at Simulate and Send, retaining the exact prepared scenario and allocating
+stable revision and forecast identities. Ticket 60 adds only disposable test
+fixtures. Domain validates stored values and projects approved public fields;
+Application coordinates reads and observation paging; Interface validates
+request windows and maps responses. No production PostgreSQL ownership changes.
+
+`ALERT_TEST_REDIS_URL` supplies a separate Backend client. Missing configuration
+or a storage failure returns 503 for synthetic requests while ordinary reads
+remain independent. No new deployment configuration or target activation is
+part of ticket 60. The existing detail endpoint selects synthetic data with
+`test=true`; a scenario-scoped observations endpoint cannot read production.
+Public responses and synthetic HTML use `no-store`. Open pages check validity
+every 15 seconds, on focus/visibility restoration, and at the fixed deadline.
+Confirmed absence or dependency failure clears the replay cache and reloads
+through the incumbent server-rendered invalid-link or unavailable state.
+Back/forward cache restoration also reloads. No test labels or layout changes.
+Without JavaScript, validity is checked on each server request; automatic
+open-page invalidation requires JavaScript, as do the incumbent replay controls.

@@ -41,13 +41,13 @@ const injection = '</script><script>window.injected=true</script>';
 globalThis.fetch = async (input, init) => {
   const url = new URL(String(input), 'http://forecast-fixture.invalid');
   assert.equal(url.hostname, 'forecast-fixture.invalid', 'Page data must use the configured Backend');
-  if (!url.pathname.endsWith('/search')) {
+  if (!url.pathname.endsWith('/search') && !url.pathname.endsWith('/observations')) {
     details++;
     if (mode === 'backend-error') return new Response(null, { status: 500 });
     if (mode === 'network-error') throw new TypeError('Network unavailable');
     if (mode === 'timeout') throw new DOMException('Timed out', 'TimeoutError');
     if (mode === 'detail-error') return new Response(null, { status: 404 });
-    return Response.json({ item: {
+    return Response.json({ ...(url.searchParams.get('test') === 'true' ? { expiresAt: new Date(Date.now() + 3600000).toISOString() } : {}), item: {
       ...event, forecast: mode === 'no-forecast' ? null : forecast,
       forecastAvailability: mode === 'no-forecast' ? availabilityFixture : { status: 'available', reason: null },
       locationDescription: mode === 'xss' ? injection : event.locationDescription,
@@ -94,6 +94,18 @@ try {
   assert.match(html, /lucide-pause/);
   assert.match(html, /lucide-rotate-ccw/);
   assert.equal(searches.length, 0, 'Forecast rendering must not wait for observation requests');
+  mode = 'normal';
+  const synthetic = await page(`/forecasts/${eventId}?test=true`);
+  assert.match(synthetic, /class="forecast-back" href="\/"/);
+  assert.match(synthetic, new RegExp(`data-synthetic-event="${eventId}"`));
+  assert.match(synthetic, /https:\/\/earthquake.phivolcs.dost.gov.ph\//);
+  assert.doesNotMatch(synthetic, /Test forecast|Synthetic forecast/);
+  const canonicalTest = await nativeFetch(`${base}/forecasts/${eventId}?test=true&q=extra`, { redirect: 'manual' });
+  assert.equal(canonicalTest.headers.get('location'), `/forecasts/${eventId}?test=true`);
+  mode = 'backend-error';
+  assert.match(await page(`/forecasts/${eventId}?test=true`, 503), new RegExp(`href="/forecasts/${eventId}\\?test=true"`));
+  mode = 'detail-error';
+  assert.match(await page(`/forecasts/${eventId}?test=true`, 404), /Invalid earthquake link/);
   mode = 'normal';
   const probabilityFields = ['probabilityM1Plus24h', 'probabilityM4Plus24h', 'probabilityM5Plus24h'];
   const originalProbabilities = probabilityFields.map(field => forecast[field]);

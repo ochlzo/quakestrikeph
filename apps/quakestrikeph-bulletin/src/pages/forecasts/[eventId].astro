@@ -5,9 +5,13 @@ import type { components } from '../../lib/api/schema';
 import { validEventId } from '../../lib/bulletin-navigation';
 
 const eventId = (Astro.params.eventId ?? '').toLowerCase();
-if (Astro.url.search) {
-  return Astro.redirect(Astro.url.pathname);
+const testMode = Astro.url.searchParams.get('test') === 'true';
+const supportedSearch = testMode ? '?test=true' : '';
+if (Astro.url.search !== supportedSearch) {
+  return Astro.redirect(Astro.url.pathname + supportedSearch);
 }
+if (testMode) Astro.response.headers.set('Cache-Control', 'no-store');
+let expiresAt: string | null = null;
 let event: components['schemas']['EarthquakeDetail'] | null = null;
 let error: 'invalid' | 'missing' | 'unavailable' | null = null;
 if (!validEventId(eventId)) {
@@ -15,19 +19,24 @@ if (!validEventId(eventId)) {
   error = 'invalid';
 } else {
   try {
-    const response = await fetch(new URL(`/api/v1/earthquakes/${encodeURIComponent(eventId)}`,
+    const response = await fetch(new URL(`/api/v1/earthquakes/${encodeURIComponent(eventId)}${supportedSearch}`,
       getSecret('API_TARGET') || 'https://quakestrikeph.qzz.io'), {
       signal: AbortSignal.timeout(2500),
+      ...(testMode ? { cache: 'no-store' as const } : {}),
     });
     if (response.status === 404) {
       Astro.response.status = 404;
-      error = 'missing';
+      error = testMode ? 'invalid' : 'missing';
     } else if (!response.ok) {
       Astro.response.status = 503;
       error = 'unavailable';
     } else {
       const data = await response.json();
       if (!data.item || data.item.eventId !== eventId) throw new Error('Invalid earthquake response');
+      if (testMode) {
+        if (typeof data.expiresAt !== 'string' || !Number.isFinite(Date.parse(data.expiresAt))) throw new Error('Invalid expiry');
+        expiresAt = data.expiresAt;
+      }
       event = data.item;
     }
   } catch {
@@ -35,7 +44,7 @@ if (!validEventId(eventId)) {
     error = 'unavailable';
   }
 }
-const backHref = validEventId(eventId) ? `/?selected=${eventId}` : '/';
+const backHref = !testMode && validEventId(eventId) ? `/?selected=${eventId}` : '/';
 ---
 <!doctype html>
-<ForecastPage event={event} error={error} backHref={backHref} />
+<ForecastPage event={event} error={error} backHref={backHref} testMode={testMode} expiresAt={expiresAt} />

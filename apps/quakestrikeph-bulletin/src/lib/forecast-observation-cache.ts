@@ -7,6 +7,7 @@ type Chunk = { end: number; items: Earthquake[] };
 export class ForecastObservationCache {
   private chunks = new Map<number, Chunk>();
   private pending = new Map<number, Promise<void>>();
+  private generation = 0;
   private origin: number;
   private load: (from: string, to: string) => Promise<Earthquake[]>;
   constructor(
@@ -15,6 +16,12 @@ export class ForecastObservationCache {
   ) {
     this.origin = origin;
     this.load = load;
+  }
+
+  clear() {
+    this.generation++;
+    this.chunks.clear();
+    this.pending.clear();
   }
 
   private keys(from: number, to: number, now: number) {
@@ -51,14 +58,15 @@ export class ForecastObservationCache {
       while ((this.chunks.get(key)?.end ?? -Infinity) < end && isCurrent()) {
         let request = this.pending.get(key);
         if (!request) {
+          const generation = this.generation;
           request = this.load(
             new Date(start).toISOString(),
             new Date(end).toISOString(),
           )
             .then((items) => {
-              this.chunks.set(key, { end, items });
+              if (generation === this.generation) this.chunks.set(key, { end, items });
             })
-            .finally(() => this.pending.delete(key));
+            .finally(() => { if (generation === this.generation) this.pending.delete(key); });
           this.pending.set(key, request);
         }
         await request;
