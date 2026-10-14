@@ -88,14 +88,14 @@ test('construction is inert; server rows take precedence and pagination waits fo
   f.results.start();
   assert.equal(f.reads(), 0, 'Initial server rows must skip older storage');
   assert(snapshots.every(snapshot => snapshot.events[0].eventId === event(1).eventId && !snapshot.searching));
-  await f.results.loadMore();
+  await f.results.nextPage();
   assert.equal(f.searches.length, 0);
   await f.advance(0);
   assert.equal(f.searches.length, 1);
   f.searches[0].resolve(page([event(2)], 'browser-cursor'));
   await settle();
   assert.equal(f.results.getSnapshot().canLoadMore, true);
-  const loading = f.results.loadMore();
+  const loading = f.results.nextPage();
   assert.equal(f.searches[1].request.cursor, 'browser-cursor');
   f.searches[1].resolve(page([event(2), event(3)]));
   await loading;
@@ -205,7 +205,7 @@ test('obsolete searches cannot replace rows, cache, errors, or cursor after filt
   assert.equal(f.results.getSnapshot(), accepted);
   assert.equal(readEarthquakeCache(eventSearch(accepted.state), f.storage).items[0].eventId, event(3).eventId);
   assert.deepEqual(f.notices, []);
-  const loading = f.results.loadMore();
+  const loading = f.results.nextPage();
   assert.equal(f.searches[3].request.cursor, 'south-cursor');
   f.searches[3].resolve(page([]));
   await loading;
@@ -244,7 +244,7 @@ test('changing filters invalidates pending pagination before its response arrive
   await f.advance();
   f.searches[0].resolve(page([event(1)], 'first-cursor'));
   await settle();
-  const more = f.results.loadMore();
+  const more = f.results.nextPage();
   f.results.changeFilters({ query: 'new' });
   assert(f.searches[1].signal.aborted);
   assert.equal(f.results.getSnapshot().events.length, 0);
@@ -255,32 +255,74 @@ test('changing filters invalidates pending pagination before its response arrive
   f.searches[1].resolve(page([event(2)], 'obsolete-cursor'));
   await more;
   assert.equal(f.results.getSnapshot(), accepted);
-  const next = f.results.loadMore();
+  const next = f.results.nextPage();
   assert.equal(f.searches[3].request.cursor, 'new-cursor');
   f.searches[3].resolve(page([]));
   await next;
 });
 
-test('pagination permits one request, retains rows on failure, retries, and never enlarges cache', async t => {
+test('pagination permits one request, retains rows on failure, retries, and keeps the first page cache', async t => {
   const items = Array.from({ length: 30 }, (_, index) => event(index));
   const f = setup(t);
   f.results.start();
   await f.advance();
   f.searches[0].resolve(page(items, 'cursor'));
   await settle();
-  const first = f.results.loadMore();
-  await f.results.loadMore();
+  const first = f.results.nextPage();
+  await f.results.nextPage();
   assert.equal(f.searches.length, 2);
   f.searches[1].reject(new Error('Page unavailable'));
   await first;
   assert.equal(f.results.getSnapshot().pageStatus, 'error');
   assert.equal(f.results.getSnapshot().events.length, 30);
-  const retry = f.results.loadMore();
+  const retry = f.results.nextPage();
   f.searches[2].resolve(page([event(0), event(30)]));
   await retry;
-  assert.equal(f.results.getSnapshot().events.length, 31);
+  assert.equal(f.results.getSnapshot().events.length, 2);
   assert.equal(f.results.getSnapshot().canLoadMore, false);
   assert.equal(readEarthquakeCache(eventSearch(state()), f.storage).items.length, 30);
+});
+
+test('previous page restores its cursor; row size cancels pending paging and resets to page one', async t => {
+  const f = setup(t);
+  f.results.start();
+  await f.advance();
+  f.searches[0].resolve(page([event(1)], 'first-cursor'));
+  await settle();
+  const next = f.results.nextPage();
+  f.searches[1].resolve(page([event(2)], 'second-cursor'));
+  await next;
+  assert.equal(f.results.getSnapshot().pageNumber, 2);
+  assert.deepEqual(f.results.getSnapshot().events, [event(2)]);
+  f.results.previousPage();
+  assert.equal(f.results.getSnapshot().pageNumber, 1);
+  assert.deepEqual(f.results.getSnapshot().events, [event(1)]);
+  const pending = f.results.nextPage();
+  assert.equal(f.searches[2].request.cursor, 'first-cursor');
+  f.results.changePageSize(100);
+  assert(f.searches[2].signal.aborted);
+  await f.advance();
+  assert.equal(f.searches[3].request.limit, 100);
+  assert.equal(f.searches[3].request.cursor, undefined);
+  const items = Array.from({ length: 100 }, (_, index) => event(index));
+  f.searches[3].resolve(page(items, 'large-cursor'));
+  await settle();
+  f.searches[2].resolve(page([event(9)]));
+  await pending;
+  assert.equal(f.results.getSnapshot().pageNumber, 1);
+  assert.equal(f.results.getSnapshot().pageSize, 100);
+  assert.deepEqual(f.results.getSnapshot().events, items);
+  assert.equal(readEarthquakeCache(eventSearch(state(), 100), f.storage).items.length, 100);
+  const largeNext = f.results.nextPage();
+  assert.equal(f.searches[4].request.limit, 100);
+  assert.equal(f.searches[4].request.cursor, 'large-cursor');
+  f.searches[4].resolve(page([event(101)]));
+  await largeNext;
+  f.results.changeFilters({ magnitudes: ['mag-3'] });
+  await f.advance();
+  assert.equal(f.results.getSnapshot().pageNumber, 1);
+  assert.equal(f.searches[5].request.limit, 100);
+  assert.equal(f.searches[5].request.cursor, undefined);
 });
 
 test('obsolete detail responses are ignored and detail stays independent of list refresh', async t => {

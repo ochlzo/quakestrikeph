@@ -39,6 +39,10 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Pagination, PaginationContent, PaginationItem,
+  PaginationPrevious, PaginationNext,
+} from "@/components/ui/pagination";
 import { Popover } from "@/components/ui/popover";
 import {
   Select,
@@ -164,7 +168,11 @@ export default function Bulletin({
     changeFilters,
     select,
     refresh,
-    loadMore,
+    pageNumber,
+    pageSize,
+    nextPage,
+    previousPage,
+    changePageSize,
   } = useEventResults(initialState, initialResults);
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -212,6 +220,10 @@ export default function Bulletin({
   const selectedCard = useRef<HTMLElement>(null);
   const pendingMapSelection = useRef<string | null>(null);
   const location = query.trim();
+
+  useEffect(() => {
+    eventList.current?.scrollTo({ top: 0 });
+  }, [pageNumber, pageSize, query, dateFilter, magnitudeFilter]);
 
   useEffect(() => {
     setDrawerOpen(false);
@@ -481,11 +493,48 @@ export default function Bulletin({
   const earthquakeList = (
     <section className="events-panel" aria-labelledby="events-title">
       <div className="events-head">
-        <div>
-          <h1 id="events-title">Earthquakes</h1>
-          <p>Browse observed events across the Philippines.</p>
+        <h1 id="events-title">Earthquakes</h1>
+        <div className="events-pagination">
+          <div className="events-page-size">
+            <span id="rows-label">Rows</span>
+            <Select aria-labelledby="rows-label" value={String(pageSize)}
+              onChange={(value) => { if (value !== null) changePageSize(Number(value)); }}>
+              <SelectTrigger className="magnitude-filter-field events-rows-trigger">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="magnitude-filter-popover events-rows-popover" placement="bottom start">
+                {[10, 30, 50, 70, 100].map((size) => (
+                  <SelectItem key={size} id={String(size)}>{size}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Pagination aria-label="Earthquake pages" className="events-page-nav">
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious href="#event-list" className="events-page-arrow"
+                  isDisabled={!resultsCurrent || pageNumber === 1 || pageStatus === "loading"}
+                  onPress={previousPage} onClick={(event) => event.preventDefault()} />
+              </PaginationItem>
+              <PaginationItem>
+                <span className="events-page-number" role="status" aria-live="polite">Page {pageNumber}</span>
+              </PaginationItem>
+              <PaginationItem>
+                <PaginationNext href="#event-list" className="events-page-arrow"
+                  isDisabled={!canLoadMore || pageStatus === "loading"}
+                  onPress={() => { void nextPage(); }} onClick={(event) => event.preventDefault()} />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
         </div>
       </div>
+      {pageStatus === "loading" && <span className="sr-only" role="status">Loading earthquake page…</span>}
+      {pageStatus === "error" && (
+        <div className="notice" role="alert">
+          Could not load the next page.
+          <Button variant="link" onPress={() => { void nextPage(); }}>Try again</Button>
+        </div>
+      )}
       {searching && (
         <>
           <span className="sr-only" role="status">
@@ -594,37 +643,12 @@ export default function Bulletin({
           id="event-list"
           ref={eventList}
           className="event-list"
-          aria-busy={searching}
+          aria-busy={searching || pageStatus === "loading"}
           aria-label={
             location ? "Earthquake search results" : "Recent earthquakes"
           }
         >
           {renderRows()}
-          {resultsCurrent && (canLoadMore || pageStatus === "error") && (
-            <div className="load-more">
-              {pageStatus === "error" && (
-                <p role="alert">
-                  Could not load more earthquakes. Please try again.
-                </p>
-              )}
-              <a
-                className="load-more-link"
-                href="#event-list"
-                aria-controls="event-list"
-                aria-disabled={pageStatus === "loading"}
-                onClick={(event) => {
-                  event.preventDefault();
-                  if (pageStatus !== "loading") void loadMore();
-                }}
-              >
-                {pageStatus === "loading"
-                  ? "Loading more earthquakes…"
-                  : pageStatus === "error"
-                    ? "Try again"
-                    : "Load more earthquakes"}
-              </a>
-            </div>
-          )}
         </div>
       )}
     </section>

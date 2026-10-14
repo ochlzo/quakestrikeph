@@ -210,6 +210,13 @@ session. Changes in one workspace do not replace another workspace's draft.
 **Workspace draft**:
 Unfinished earthquake, forecast, replay inputs, and tester selection in one
 operator workspace. A draft remains editable and creates no alert.
+The private tool autosaves the draft to session-owned Redis storage for reload
+recovery. Each tab retains only its workspace identifier in sessionStorage.
+
+**Prepared preview**:
+An immutable validated synthetic scenario saved for public test-mode viewing
+before alert submission. A preview preserves exact observations and creates
+no delivery job. Tester selections remain in the private workspace.
 
 **Console operator**:
 A person admitted by the Operations Console's Cloudflare Access policy through

@@ -46,11 +46,13 @@ class PrivateServer(ThreadingHTTPServer):
         testers=None,
         scenarios=None,
         submissions=None,
+        workspaces=None,
     ):
         self.sessions = sessions
         self.testers = testers
         self.scenarios = scenarios
         self.submissions = submissions
+        self.workspaces = workspaces
         self.static_directory = static_directory.resolve()
         self.slots = BoundedSemaphore(16)
         if origin is not None:
@@ -174,6 +176,7 @@ class PrivateHandler(BaseHTTPRequestHandler):
         }
         account_action = self.path == "/api/test/testers"
         preparation_action = self.path == "/api/test/scenarios/prepare"
+        workspace_action = self.path in {"/api/test/workspaces/read", "/api/test/workspaces/save"}
         submission_action = self.path in {
             "/api/test/scenarios/submit",
             "/api/test/scenarios/history",
@@ -184,6 +187,7 @@ class PrivateHandler(BaseHTTPRequestHandler):
             and not account_action
             and not preparation_action
             and not submission_action
+            and not workspace_action
         ):
             self._json(404, {"error": "not-found"})
             return
@@ -195,7 +199,7 @@ class PrivateHandler(BaseHTTPRequestHandler):
             length = int(self.headers["Content-Length"])
             limit = (
                 262144
-                if self.path.endswith("/submit")
+                if self.path.endswith("/submit") or workspace_action
                 else 65536
                 if account_action
                 else 8192
@@ -207,7 +211,28 @@ class PrivateHandler(BaseHTTPRequestHandler):
             if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
                 raise ValueError
             body = json.loads(self.rfile.read(length))
-            if submission_action:
+            if workspace_action:
+                operation = self.path.rsplit("/", 1)[1]
+                names = (
+                    ("session_id", "workspace_id")
+                    if operation == "read"
+                    else (
+                        "session_id",
+                        "workspace_id",
+                        "revision",
+                        "inputs",
+                        "selected",
+                        "scenario",
+                    )
+                )
+                if not isinstance(body, dict) or set(body) != set(names):
+                    raise ValueError
+                if self.server.workspaces is None:
+                    self._json(503, {"error": "dependency-unavailable"})
+                    return
+                action = getattr(self.server.workspaces, operation)
+                args = tuple(body[key] for key in names)
+            elif submission_action:
                 operation = self.path.rsplit("/", 1)[1]
                 fields = (
                     {"session_id", "inputs", "scenario", "selected"}
@@ -275,7 +300,7 @@ class PrivateHandler(BaseHTTPRequestHandler):
             return
         self._workflow(
             action
-            if account_action or preparation_action or submission_action
+            if account_action or preparation_action or submission_action or workspace_action
             else actions[self.path],
             *args,
         )

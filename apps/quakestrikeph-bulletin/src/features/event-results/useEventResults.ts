@@ -30,5 +30,6 @@ export function useEventResults(initialState: BulletinState, initialResults: Sea
     window.history.replaceState(window.history.state, '', url);
   }, [snapshot.state]);
   return { ...snapshot, changeFilters: results.changeFilters, select: results.select,
-    refresh: results.refresh, loadMore: results.loadMore };
+    refresh: results.refresh, nextPage: results.nextPage,
+    previousPage: results.previousPage, changePageSize: results.changePageSize };
 }

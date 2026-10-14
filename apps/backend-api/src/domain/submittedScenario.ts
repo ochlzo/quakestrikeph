@@ -33,12 +33,12 @@ function uuid(value: unknown): string {
 // Explicit projection prevents private fields added by the producer from reaching public responses.
 export function projectSubmittedScenario(raw: unknown, sessionId: string, deadline: number, eventId: string): SyntheticScenario | null {
   const record = object(raw);
-  if (record.submitted !== true) return null;
+  if (record.submitted !== true && record.preview !== true) return null;
   if (record.version !== 1) throw new Error('Unsupported submitted record');
   const scenario = object(record.scenario);
   if (scenario.version !== 1 || uuid(scenario.session_id) !== sessionId || uuid(scenario.event_id) !== eventId ||
       time(scenario.expires_at_ms) !== deadline) throw new Error('Invalid ownership');
-  const prepared = time(scenario.prepared_at_ms), submitted = time(record.submitted_at_ms);
+  const prepared = time(scenario.prepared_at_ms), submitted = time(record.submitted === true ? record.submitted_at_ms : record.saved_at_ms);
   if (prepared > submitted || submitted >= deadline) throw new Error('Invalid submission time');
   const anchor = object(scenario.event), forecast = object(scenario.forecast);
   const start = time(forecast.window_start_ms), end = time(forecast.window_end_ms);

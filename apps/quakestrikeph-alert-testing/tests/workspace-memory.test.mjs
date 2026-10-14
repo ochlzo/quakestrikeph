@@ -21,6 +21,7 @@ test("lost submission responses freeze the reviewed request and reuse its identi
   let original;
   await memory.submit(async body => { original = body; throw new Error("lost response"); });
   assert.equal(memory.state.submissionPending, true);
+  assert.equal(memory.state.submissionError, "Could not confirm sending.");
   assert.equal(memory.state.prepared.event_id, "event");
   const reviewed = memory.state.draft;
   memory.edit({ ...reviewed, selected: ["different"] });
@@ -33,6 +34,7 @@ test("lost submission responses freeze the reviewed request and reuse its identi
   });
   assert.equal(memory.state.submission.event_id, "event");
   assert.equal(memory.state.submissionPending, false);
+  assert.equal(memory.state.submissionError, "");
 });
 
 test("a new deliberate submission requires a newly prepared event", async () => {
@@ -58,6 +60,7 @@ test("pending publication retains preparation and retries the same request", asy
   await memory.submit(async body => { first = body; return { event_id: "event", queue_status: "pending" }; });
   assert.equal(memory.state.submission, null);
   assert.equal(memory.state.submissionPending, true);
+  assert.equal(memory.state.submissionError, "");
   await memory.submit(async body => { assert.equal(body, first); return { event_id: "event", queue_status: "enqueued" }; });
   assert.equal(memory.state.submissionPending, false);
 });
@@ -176,6 +179,7 @@ test("field errors apply only to the request that still owns the draft", async (
   assert.deepEqual(memory.state.errors, {});
   await memory.prepare(async () => { throw { code: "invalid-scenario", fields: { radius: "Correct radius" } }; });
   assert.deepEqual(memory.state.errors, { radius: "Correct radius" });
+  assert.equal(memory.state.preparationError, "Check the highlighted fields.");
   assert.equal(memory.state.preparing, false);
 });
 

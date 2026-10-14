@@ -19,8 +19,12 @@ def configuration(*files: str, profiles=()) -> dict:
         **os.environ,
         "WORKER_IMAGE_TAG": "0" * 40,
         "CONTROLLED_DATABASE_URL": "postgresql+psycopg://quakestrike_worker:fixture@postgres-test:5432/quakestrike_test",
+        "LOCAL_ACCOUNT_API_TARGET": "http://backend-api:3000",
+        "LOCAL_API_TARGET": "http://backend-api:3000",
     }
-    return json.loads(subprocess.check_output(command, cwd=root, text=True, env=environment))
+    return json.loads(
+        subprocess.check_output(command, cwd=root, text=True, env=environment)
+    )
 
 
 base = configuration("compose.yml")
@@ -38,8 +42,10 @@ assert set(services["bulletin"]["environment"]) == {
     "ACCOUNT_API_TARGET",
     "API_TARGET",
     "DEV_USE_POLLING",
+    "CI",
 }
 assert services["bulletin"]["environment"]["DEV_USE_POLLING"] == "true"
+assert services["bulletin"]["environment"]["CI"] == "true"
 assert services["bulletin"]["environment"]["API_TARGET"] == "http://backend-api:3000"
 assert (
     services["bulletin"]["environment"]["ACCOUNT_API_TARGET"]
@@ -61,7 +67,9 @@ for service in ("backend-api", "bulletin", "postgres", "redis"):
 release = configuration("compose.yml", "compose.release.yml")
 assert "alert-worker" not in release["services"]
 assert "alert-reconciliation" not in release["services"]
-alerts = configuration("compose.yml", "compose.release.yml", profiles=("alerts", "prediction"))
+alerts = configuration(
+    "compose.yml", "compose.release.yml", profiles=("alerts", "prediction")
+)
 services = alerts["services"]
 assert services["dispatcher"]["environment"]["ALERT_RESOLUTION_ENABLED"] == "false"
 assert services["alert-worker"]["environment"]["ALERT_DELIVERY_ENABLED"] == "false"
@@ -78,11 +86,17 @@ assert services["prediction-worker"]["environment"]["PUBLIC_BULLETIN_BASE_URL"] 
     "https://quakestrikeph.qzz.io"
 )
 controlled = configuration(
-    "compose.integration.yml", "compose.alert-verification.yml", profiles=("controlled-alert",)
+    "compose.integration.yml",
+    "compose.alert-verification.yml",
+    profiles=("controlled-alert",),
 )
 fixture = controlled["services"]["controlled-alert"]
 assert set(fixture["networks"]) == {"phase2-test"}
 assert fixture["restart"] == "no"
-assert not {"beat", "dispatcher", "alert-worker", "alert-reconciliation"} & set(controlled["services"])
+assert not {"beat", "dispatcher", "alert-worker", "alert-reconciliation"} & set(
+    controlled["services"]
+)
 assert "BREVO_CALLBACK_TOKEN" not in fixture["environment"]
-print("Local isolation, explicit edge, disabled alerts, and finite fixture checks passed.")
+print(
+    "Local isolation, explicit edge, disabled alerts, and finite fixture checks passed."
+)

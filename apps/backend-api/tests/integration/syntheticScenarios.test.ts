@@ -28,6 +28,15 @@ test('disposable submitted scenario: closure gate, expiry, cleanup, replacement,
         const url = `${base}/${eventId}?test=true`;
         assert.equal((await fetch(url)).status, 404);
         await activate();
+        const previewKey = `quakestrike:alert-testing:${sessionId}:preview:${eventId}`;
+        await redis.del(key);
+        await redis.set(previewKey, JSON.stringify({ ...fixture, submitted: false, preview: true, saved_at_ms: fixture.submitted_at_ms }),
+          { expiration: { type: 'PXAT', value: deadline } });
+        assert.equal((await fetch(url)).status, 200, 'Persisted preview is readable before submission');
+        await redis.hSet(control, { lifecycle: 'closed' });
+        assert.equal((await fetch(url)).status, 404, 'Preview obeys session closure');
+        await redis.del(previewKey);
+        await activate();
         const first = await (await fetch(url)).json() as { item: unknown };
         assert.deepEqual((await (await fetch(url)).json() as { item: unknown }).item, first.item);
         const start = fixture.scenario.forecast.window_start_ms;

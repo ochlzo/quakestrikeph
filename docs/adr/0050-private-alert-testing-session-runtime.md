@@ -2,6 +2,41 @@
 
 **Status**: accepted implementation decision within issues 56 and 57, 13 October 2026.
 
+## Amendment: autosaved workspaces and public previews — 14 October 2026
+
+This amendment supersedes the browser-memory-only and submitted-only read
+restrictions below. Issues 56 and 58–63 now include workspace recovery and
+public preview before sending.
+
+Each browser tab has an independent workspace UUID retained in sessionStorage.
+Only that identifier enters browser storage. Redis stores bounded editable
+input strings, selected tester UUIDs, a workspace revision, and the exact signed
+preparation. Restore once after active-session admission, before defaults can
+autosave or preparation can run. Missing workspaces use defaults; empty fields
+and an empty selection in an existing workspace remain empty.
+
+Private workspace reads and revision-checked writes use the existing private
+origin admission. Writes serialize per workspace and reject obsolete revisions.
+Invalid editable input strings may be saved, but only validated signed
+preparations produce public previews. Selection changes do not regenerate replay.
+All keys use the session prefix and expire at its original fixed deadline.
+Atomic Redis gates reject closure, expiry, or replacement before reading/writing.
+Failed restoration blocks edits and autosave until retry; failed saves retain
+local edits and show toaster feedback. Navigation does not restart restoration.
+
+Each preparation creates one immutable preview record under a separate preview
+key. It contains approved synthetic data and stable forecast/revision identities,
+never tester selections or workspace inputs. Public readers select it with
+`/forecasts/{eventId}?test=true`, retain normal projection and no-store behavior,
+and prefer a submitted scenario when both exist. Editing creates a new preview
+identity; earlier links remain stable until session invalidation.
+
+Autosave creates no history row, alert job, queue entry, or provider request.
+Simulate and Send separately validates and freezes the reviewed preparation and
+selected accounts, then uses the existing idempotent submission workflow.
+Preview keys must not collide with submitted scenario keys. Submission and
+workspace restoration never regenerate the reviewed observations.
+
 The alert testing tool is a separate Astro/React application at
 `apps/quakestrikeph-alert-testing`, backed by the isolated Python module
 `quakestrike.alert_testing`. It is separate from both the public Backend and

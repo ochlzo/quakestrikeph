@@ -25,10 +25,10 @@ export function useSession() {
   function failure(reason: unknown) {
     const code = reason instanceof ApiError ? reason.code : "dependency-unavailable";
     setError(code === "session-conflict"
-      ? "The shared session changed or cleanup is incomplete. Refresh the session before acting again."
+      ? "The test session changed."
       : code === "private-origin-required"
-        ? "This origin cannot control the session. Open the configured private URL."
-        : "Session status unavailable. Redis or the private server could not complete the request. Refresh to check the result.");
+        ? "Open the private testing URL."
+        : "Could not connect to the testing tool.");
   }
 
   if (!requests.current) {
@@ -45,7 +45,7 @@ export function useSession() {
   useEffect(() => {
     mounted.current = true;
     void refresh();
-    const poll = window.setInterval(() => void refresh(), 5000);
+    const poll = window.setInterval(() => void coordinator.refresh(true), 5000);
     const tick = window.setInterval(() => {
       setRemaining(Math.max(0, baseline.current.remaining - (performance.now() - baseline.current.received)));
       setCallRemaining(Math.max(0, baseline.current.callRemaining - (performance.now() - baseline.current.received)));

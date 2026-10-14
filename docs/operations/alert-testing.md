@@ -1,5 +1,34 @@
 # Private alert-testing session, draft, and preparation controls
 
+## Autosave and public preview — 14 October 2026
+
+The Earthquake section includes the Bulletin's MapLibre map and place-search
+combobox. Location description retains its label without a search icon. Search
+selection, map clicks, pin dragging, manual coordinates, and randomization
+update the same earthquake draft. Named selections use the local attributed
+GeoNames index; remote pins fall back to coordinate descriptions.
+Use my location requests device location only after the operator presses it.
+The picker contains no account preference or nearby-distance controls.
+Map/search errors use toaster feedback; map startup uses a centered spinner.
+
+The accepted amendment in ADR 0050 supersedes the historical browser-memory-only
+limits below. Each tab retains a workspace UUID in sessionStorage. Private
+Redis workspaces recover inputs, tester selections, and exact prepared replay
+after reload. No values or tester IDs enter browser storage.
+
+Autosave is debounced and serialized; wait for saves to finish before reloading
+to retain the most recent edits. Failed restoration blocks editing and provides
+a toaster Retry action. Failed saves retain local edits and provide feedback.
+Preview forecast becomes a link after signed preparation persistence succeeds.
+It opens the normal Bulletin at `/forecasts/{eventId}?test=true` before sending.
+Autosave creates no delivery history, job, queue command, or provider call.
+Simulate and Send remains the explicit submission action. New scenario creates
+a fresh preparation while retaining the tester selection.
+
+Workspace and immutable preview keys expire at the original session deadline.
+End Test cleanup removes them with other session-owned keys. Private control
+and public Backend images must both include the amendment for preview to work.
+
 ## Ticket 63 release readiness — 14 October 2026
 
 Branch: `codex/alert-testing-release-readiness`.
@@ -1420,3 +1449,81 @@ Use the disposable setup above. Complete these checks on desktop and mobile.
 18. Open a second tab and confirm its draft and preparation remain independent.
 19. Reload the private page and confirm the unfinished workspace may reset.
 20. Confirm public preview and Simulate and Send remain unavailable.
+
+## UI and autosave review corrections — 14 October 2026
+
+These corrections apply to the approved autosave/public-preview amendment,
+not the historical ticket acceptance steps above. The operator explicitly
+approved restoring visible field explanations and persistent section errors.
+
+- Scenario numeric fields, event time, and location show shared FieldError
+  explanations beside their controls. Each control references its error through
+  `aria-describedby`. The single short validation toast does not append those
+  explanations.
+- Initial History, Results, and Testers load failures show a persistent shared
+  shadcn Empty composition with CircleX and Retry. The panel remains during a
+  retry and disappears after a successful read. A missing Results scenario has
+  a persistent History action instead. Failures after data has loaded retain
+  that data and use the short toast with Retry. Map/search toaster exceptions
+  and the other approved toast reductions remain unchanged.
+- Autosave retains the fingerprint and base revision of an unconfirmed write.
+  Before writing newer edits, it reads the stored workspace and confirms only
+  the exact attempted payload at the next revision. It adopts that committed
+  predecessor without replacing newer local edits. An unchanged stored base
+  permits another attempt; unrelated payloads or revisions remain conflicts.
+  No submission, queue, provider, or public-preview ownership changes apply.
+
+Checks ran from the repository root unless an app directory is specified:
+
+| Command | Result |
+| --- | --- |
+| `pnpm test` in `apps/quakestrikeph-alert-testing` | 45 passed, including lost save response plus failed confirmation read, newer-edit recovery, and conflicting-write protection. |
+| `pnpm check` in `apps/quakestrikeph-alert-testing` | 0 errors, 0 warnings, 6 existing React Aria deprecation hints. |
+| `pnpm build` in `apps/quakestrikeph-alert-testing` | Passed; existing bundle-size advisory remains. |
+| `docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test redis-test` | Disposable PostgreSQL and Redis became healthy. |
+| `docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --build --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration` | 386 passed, 2 skipped. Integration tests ran with isolated test URLs; only two SEIS artifact-dependent tests skipped. |
+| `docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v` | Passed; disposable containers and their network were removed. |
+| `git diff --check` and `git diff --cached --check` | Passed; Git reported existing LF-to-CRLF conversion notices. |
+
+Live browser inspection confirmed a visible magnitude explanation and a
+persistent missing-scenario Results panel with a History button. Initial
+network failures on History and Testers were not injected in the live tool.
+No live provider calls, production changes, commits, staging, pushes, ticket
+changes, merges, or deployment actions were performed. Changes remain available
+for another Standards/Spec review; deployment approval remains paused.
+
+## Expired preparation retry correction — 14 October 2026
+
+Workspace persistence keeps the exact confirmed Redis fingerprint separately
+from the normalized browser snapshot. Removing an expired preparation during
+restoration no longer makes an unchanged stored revision appear conflicting.
+An unsuccessful write can retry newer local edits without restoring expired
+preparation or overwriting another writer. Owner changes clear both baselines.
+
+The new regression failed before the correction: only the first write ran.
+After the correction, it verifies two revision-3 attempts, a revision-4 saved
+record, retained newer selection, and no expired preparation or preview link.
+Independent Standards and Spec re-reviews both reported zero findings.
+
+Verification from `apps/quakestrikeph-alert-testing`:
+
+- `pnpm test`: 46 passed, zero failed or skipped.
+- `pnpm check`: zero errors, zero warnings, six existing deprecation hints.
+- `pnpm build`: passed; four static pages and the existing chunk-size advisory.
+- Staged and unstaged Git whitespace checks: passed.
+
+This correction changes browser persistence, its regression test, and this
+record only. Backend and isolated integration suites were not repeated because
+server storage, Redis scripts, and workflow contracts did not change. Their
+amendment results remain recorded above. No commit, push, merge, server change,
+live provider call, or deployment action occurred. Manual acceptance remains
+pending, and further merges remain paused.
+## Publication configuration check — 14 October 2026
+
+The reviewed Bulletin, private UI, and Redis autosave amendment are included
+in PR 71. Local Compose keeps noninteractive package installation (`CI=true`)
+and exposes explicit `LOCAL_API_TARGET` and `LOCAL_ACCOUNT_API_TARGET` overrides.
+Both default to `http://backend-api:3000`, preserving local isolation in CI.
+Set those overrides privately when a public API target is deliberately needed.
+The Compose isolation checker validates the local defaults and CI setting.
+Its check and Ruff passed after this adjustment.

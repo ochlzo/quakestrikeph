@@ -363,11 +363,28 @@ a {
 .events-head {
   flex: none;
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   padding: 0 3px 13px;
 }
+.events-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+  font-size: 13px;
+}
+.events-page-size { display: flex; align-items: center; gap: 6px; }
+.events-rows-trigger { width: 72px; height: 40px; min-height: 40px; padding-inline: 10px; font-size: 13px; }
+.events-rows-popover { min-width: var(--trigger-width); }
+.events-page-nav { width: auto; margin: 0; }
+.events-page-arrow { width: 40px; height: 40px; padding: 0 !important; }
+.events-page-arrow > span { display: none; }
+.events-page-arrow[data-disabled] { opacity: 0.4; cursor: default; }
+.events-page-number { padding-inline: 4px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .events-head h1 {
   margin: 0;
   font-size: clamp(21px, 1.7vw, 27px);
@@ -1411,6 +1428,10 @@ a {
     background: transparent;
   }
   .earthquake-drawer .events-head {
+    display: flex;
+    padding-top: 0;
+  }
+  .earthquake-drawer .events-head h1 {
     display: none;
   }
   .earthquake-drawer .event-row-v2 {
