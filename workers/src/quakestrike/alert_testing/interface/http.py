@@ -26,7 +26,7 @@ def validate_origin(origin: str) -> str:
     tailnet = (
         url.scheme == "https"
         and bool(re.fullmatch(r"[a-z0-9.-]+\.ts\.net", url.hostname or ""))
-        and url.port in {None, 443}
+        and url.port in {None, 443, 8443}
     )
     if not (loopback or tailnet):
         raise ValueError("The origin must use loopback HTTP or private Tailscale HTTPS.")

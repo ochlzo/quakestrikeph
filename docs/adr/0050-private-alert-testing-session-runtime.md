@@ -228,3 +228,49 @@ The private UI preserves the accepted visual layout with real actions only.
 There are no simulated completion buttons, prototype preview controls, or
 persisted unfinished drafts. Final browser and controlled provider acceptance
 remain separate from disposable workflow verification.
+
+## Ticket 63: opt-in packaging and private Serve port
+
+The UI build is copied into a dedicated Python control image derived from the
+tested worker image. Node and build tools remain in the build stage. A separate
+consumer uses the worker image and requires both its own Compose profile and
+`ALERT_TEST_CONSUMER_ENABLED=true`. Neither private runtime receives production
+worker configuration. The control process receives no provider credentials.
+
+Python keeps its `127.0.0.1:4341` binding. A private relay uses the incumbent
+`traefik:v3.7.13` image and shares its container network namespace with Python.
+The relay listens on container port 4342 and forwards to namespace loopback
+4341, preserving the original Host and Origin. Only the relay publishes
+`127.0.0.1:4341:4342` on the host. This avoids changing Python's admission
+boundary or granting host networking. The relay has no public-edge network,
+Docker socket, dashboard, access log, or public route. Its own loopback ping
+checks relay readiness; the control health probe reads the session through it.
+The consumer marker records only its PID at startup. A probe checks that PID
+and bounded Redis connectivity, without requiring an entire recipient batch
+to finish within a health interval. It carries no scenario or delivery evidence
+and cannot establish receipt or processing progress.
+
+`compose.alert-testing.yml` is an explicit additional file. Normal release
+automation omits it. Private services require named profiles; consumer startup
+also fails unless enabled explicitly. All three runtimes select the same
+explicit `ALERT_TEST_REDIS_URL`. The packaged `alert-test-redis` is a separate
+instance on the private data network, without host ports, snapshots, or AOF.
+Redis loss discards tests; operators must not replay uncertain submissions into
+a new session. PostgreSQL remains unchanged and account access remains restricted.
+The normal Backend Compose file passes the optional test URL, so already
+configured synthetic reads and callbacks retain that setting on repeat releases.
+
+On the named VPS, Tailscale Serve uses private HTTPS 8443 to host loopback
+4341. PgAdmin keeps HTTPS 443 to loopback 5050. Origin validation allows 8443
+in addition to the existing HTTPS defaults; request Host/Origin equality
+remains exact, including the configured port. Tailnet policy must admit only
+authorized operators to TCP 8443. No identity is accepted from proxy headers.
+Port-scoped Serve removal preserves the existing 443 route.
+
+Initial activation, credentials, admission changes, and live sends still require
+separate authorization. Private runtime releases remain manual and use tested
+Git SHA images. End and deactivate tests before a routine main deployment or
+schema maintenance window. Update private images only after normal application
+checks pass; do not restart an old active session under a different release.
+Keep compatible previous images for rollback. Schema revision changes require
+repair forward under ADR 0049; no automatic database downgrade is introduced.

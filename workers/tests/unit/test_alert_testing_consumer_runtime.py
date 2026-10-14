@@ -37,6 +37,8 @@ def test_consumer_logs_bounded_sanitized_failure_and_recovery(monkeypatch, capsy
     reconciliation_factory = Mock(return_value=Mock())
     monkeypatch.setattr(runtime, "Reconciliation", reconciliation_factory)
     monkeypatch.setattr(runtime.time, "sleep", Mock())
+    heartbeat = Mock()
+    monkeypatch.setattr(runtime, "mark_consumer", heartbeat)
     runtime.main()
     output = capsys.readouterr()
     records = [json.loads(line) for line in output.out.splitlines()]
@@ -57,4 +59,5 @@ def test_consumer_logs_bounded_sanitized_failure_and_recovery(monkeypatch, capsy
     client.close.assert_called_once()
     engine.dispose.assert_called_once()
     consumer.once.assert_called_once_with("fixture-owner")
+    heartbeat.assert_called_once()
     assert isinstance(reconciliation_factory.call_args.kwargs["report"], runtime.PollingDiagnostics)

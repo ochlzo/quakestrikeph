@@ -1,0 +1,13 @@
+# Private relay only. The control process shares this container's network namespace.
+http:
+  routers:
+    alert-testing:
+      entryPoints: [private]
+      rule: PathPrefix(`/`)
+      service: alert-testing
+  services:
+    alert-testing:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: http://127.0.0.1:4341
