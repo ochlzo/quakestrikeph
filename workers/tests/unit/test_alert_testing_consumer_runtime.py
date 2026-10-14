@@ -34,6 +34,8 @@ def test_consumer_logs_bounded_sanitized_failure_and_recovery(monkeypatch, capsy
     consumer = Mock()
     consumer.once.return_value = True
     monkeypatch.setattr(runtime, "Consumer", Mock(return_value=consumer))
+    reconciliation_factory = Mock(return_value=Mock())
+    monkeypatch.setattr(runtime, "Reconciliation", reconciliation_factory)
     monkeypatch.setattr(runtime.time, "sleep", Mock())
     runtime.main()
     output = capsys.readouterr()
@@ -55,3 +57,4 @@ def test_consumer_logs_bounded_sanitized_failure_and_recovery(monkeypatch, capsy
     client.close.assert_called_once()
     engine.dispose.assert_called_once()
     consumer.once.assert_called_once_with("fixture-owner")
+    assert isinstance(reconciliation_factory.call_args.kwargs["report"], runtime.PollingDiagnostics)

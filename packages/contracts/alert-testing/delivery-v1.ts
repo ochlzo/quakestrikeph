@@ -6,7 +6,7 @@ export type ScenarioResult = {
   forecast_url: string;
   queue_status: "pending" | "enqueued";
   counts: Record<DeliveryStatus, number>;
-  recipients?: { user_id: string; channel: "email" | "sms"; name?: string; destination?: string; status: DeliveryStatus; reason: string }[];
+  recipients?: { user_id: string; channel: "email" | "sms"; name?: string; destination?: string; status: DeliveryStatus; reason: string; evidence_note?: string }[];
 };
 export type SubmissionRequest = {
   session_id: string;

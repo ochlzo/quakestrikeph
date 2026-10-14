@@ -13,6 +13,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from quakestrike.alert_testing.application.delivery import Delivery
+from quakestrike.alert_testing.application.reconciliation import Reconciliation
 from quakestrike.alert_testing.application.sessions import Sessions
 from quakestrike.alert_testing.domain.sessions import SessionConflict
 from quakestrike.alert_testing.infrastructure.accounts import (
@@ -30,6 +31,35 @@ from quakestrike.infrastructure.email.brevo import BrevoEmailProvider
 from quakestrike.infrastructure.geography.province import resolve_province_label
 from quakestrike.infrastructure.logging.json_logging import configure_logging, log_event
 from quakestrike.infrastructure.sms.iprog import IprogAlertProvider, IprogSmsSupport
+
+
+class PollingDiagnostics:
+    def __init__(self, logger):
+        self.logger, self.failure = logger, None
+
+    def __call__(self, event, attempt, outcome):
+        if outcome.status == "unknown" and outcome.error_code is None:
+            return
+        reason = outcome.error_code if outcome.status == "unknown" else None
+        if reason == self.failure or (reason and self.failure):
+            return
+        log_event(
+            self.logger,
+            logging.WARNING if reason else logging.INFO,
+            "Test SMS polling unavailable" if reason else "Test SMS polling recovered",
+            event_code="alert_testing_sms_poll_unavailable"
+            if reason
+            else "alert_testing_sms_poll_recovered",
+            context={
+                "operation": "sms_status",
+                "provider": "iprog",
+                "event_id": event,
+                "job_id": event,
+                "attempt_id": attempt,
+                "reason": reason or self.failure,
+            },
+        )
+        self.failure = reason
 
 
 def main():
@@ -79,6 +109,9 @@ def main():
     )
     consumer = Consumer(store, delivery, str(uuid4()))
     logger = configure_logging("alert-testing-consumer")
+    reconciliation = Reconciliation(
+        store, delivery.providers["sms"], report=PollingDiagnostics(logger)
+    )
     unavailable = None
     try:
         while True:
@@ -88,6 +121,7 @@ def main():
                     owner = session["session_id"]
                     store.recover_publications(owner)
                     consumed = consumer.once(owner)
+                    reconciliation.once(owner)
                 else:
                     consumed = False
                 if unavailable is not None and (unavailable == "redis_unavailable" or consumed):

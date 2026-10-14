@@ -7,16 +7,19 @@ export function useSession() {
   const [pending, setPending] = useState<"start" | "end" | "cleanup" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [remaining, setRemaining] = useState(0);
+  const [callRemaining, setCallRemaining] = useState(0);
   const mounted = useRef(true);
   const requests = useRef<SessionRequests | null>(null);
-  const baseline = useRef({ received: 0, remaining: 0 });
+  const baseline = useRef({ received: 0, remaining: 0, callRemaining: 0 });
 
   function accept(result: SessionState) {
     setSession(result);
     setError(null);
     const milliseconds = Math.max(0, (result.expires_at_ms ?? 0) - (result.server_time_ms ?? 0));
-    baseline.current = { received: performance.now(), remaining: milliseconds };
+    const callMilliseconds = Math.max(0, (result.calls_until_ms ?? 0) - (result.server_time_ms ?? 0));
+    baseline.current = { received: performance.now(), remaining: milliseconds, callRemaining: callMilliseconds };
     setRemaining(milliseconds);
+    setCallRemaining(callMilliseconds);
   }
 
   function failure(reason: unknown) {
@@ -45,6 +48,7 @@ export function useSession() {
     const poll = window.setInterval(() => void refresh(), 5000);
     const tick = window.setInterval(() => {
       setRemaining(Math.max(0, baseline.current.remaining - (performance.now() - baseline.current.received)));
+      setCallRemaining(Math.max(0, baseline.current.callRemaining - (performance.now() - baseline.current.received)));
     }, 1000);
     return () => {
       mounted.current = false;
@@ -62,10 +66,9 @@ export function useSession() {
   const status = deadlineReached ? "expired" : session?.status;
   const canStart = !error && !!session && ["inactive", "ended", "expired"].includes(session.status)
     && (!session.cleanup || session.cleanup === "complete");
-  const needsCleanup = !error && !!session && session.status !== "active"
-    && session.cleanup !== "complete" && session.cleanup !== undefined;
+  const needsCleanup = !error && session?.cleanup === "failed";
   const state = error ? "unavailable" : pending === "start" ? "starting"
     : pending ? "closing" : status ?? "checking";
 
-  return { session, state, pending, remaining, error, canStart, needsCleanup, refresh, act };
+  return { session, state, pending, remaining, callRemaining, error, canStart, needsCleanup, refresh, act };
 }

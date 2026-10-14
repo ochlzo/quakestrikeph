@@ -28,7 +28,51 @@ Polling observes maintenance progress. Explicit cleanup retries recover failed
 cleanup; requests must keep the owning UUID. Cleanup completion never reopens
 a session. A later Start creates a fresh UUID after cleanup completes.
 
+Closure responses also include `closure_phase` (`none`, `waiting`, `deleting`,
+`failed`, or `complete`), `calls_until_ms`, `closed_at_ms`, and
+`cleanup_completed_at_ms`. Zero timestamps mean the corresponding action has
+not occurred. Waiting uses the conservative authorized-call deadline, not a
+count of still-running requests. Cleanup completion and closure times contain
+only lifecycle metadata. Their retention never extends on reads or retries.
+
 Hosting and storage decisions: [ADR 0050](../../../docs/adr/0050-private-alert-testing-session-runtime.md).
+
+## Test delivery evidence, ticket 62
+
+The Brevo callback remains `POST /api/v1/callbacks/brevo` on the Backend.
+Its existing Bearer authentication, JSON limits, timestamp validation, and
+bounded retry responses apply before routing. Production markers and absent
+markers retain the ordinary PostgreSQL route. Test emails must carry
+`quakestrike-attempt:test:<session UUID>:<event UUID>:<attempt UUID>` in
+`X-Mailin-custom`; test reconciliation never falls through to PostgreSQL.
+
+Redis uses one `attempts:<event>` hash to map pre-created attempt UUIDs to
+recipient slots (`<user UUID>:<channel>`), one `recipients:<event>` hash for
+private rows, and a session-wide `references` hash mapping
+`<channel>:<provider reference>` to `<event UUID>:<attempt UUID>`.
+Every index expires at the original session deadline. All keys remain under
+the owning `quakestrike:alert-testing:<session UUID>:` prefix.
+
+Callback updates atomically validate active ownership, the original deadline,
+the email attempt token, and immutable reference correlation. Early callbacks
+use the attempt index established before transport. A conflicting reference
+returns 409. Missing active correlation and unavailable storage return 429
+with `Retry-After: 60`. Verified inactive, expired, replaced, or deleted
+sessions return 204 without writing records. An outage never proves absence.
+
+Older callback timestamps are ignored. Equal timestamps prefer delivered over
+failed over accepted. Delivered cannot regress, and accepted cannot reopen
+failed. Submission completion preserves previously authenticated evidence.
+Results expose only the existing masked fields plus an optional bounded
+`evidence_note` for reference conflicts.
+
+The isolated consumer also polls known SMS references. A `sms-polls` sorted
+set schedules at most one reference per consumer pass, with at least 60 seconds
+between claims for that attempt. Polls cannot submit messages. Unknown polls
+preserve the outcome; authenticated provider responses can advance unknown to
+accepted, accepted to failed, or either to delivered. Polls have no fabricated
+provider event timestamp. Their bounded authorization uses `calls_until_ms`
+so closure waits for transport but never permits late writes or child revival.
 
 ## Tester account reads, version 1
 

@@ -72,7 +72,7 @@ function OperatorSidebar({ section }: { section: Section }) {
 
 // The prototype session presentation uses server-confirmed state and actions.
 export default function Workspace({ section, children }: { section: Section; children: ReactNode }) {
-  const { session, state, pending, remaining, error, canStart, needsCleanup, refresh, act } = useSession();
+  const { session, state, pending, remaining, callRemaining, error, canStart, needsCleanup, refresh, act } = useSession();
   useWorkspace();
   useEffect(() => {
     if (session && state !== "unavailable") window.dispatchEvent(new CustomEvent("alert-testing-session", {
@@ -82,15 +82,17 @@ export default function Workspace({ section, children }: { section: Section; chi
   const [confirmEnd, setConfirmEnd] = useState<string | null>(null);
   const active = state === "active";
   const minutes = Math.ceil(remaining / 60000);
+  const waiting = session?.closure_phase === "waiting";
+  const cleanupProgress = !active && !["none", "complete", "failed", undefined].includes(session?.closure_phase);
   const copy: Record<string, [string, string]> = {
     inactive: ["Start an alert test", "Open a shared four-hour session to prepare an alert test. Starting creates no scenario or message."],
     checking: ["Checking the session", "Waiting for the shared session. No session state is confirmed yet."],
     starting: ["Starting the session", "Waiting for the shared session. No scenario or message has been created."],
     closing: ["Ending the test", "Waiting for the server to confirm closure and temporary data cleanup."],
-    ending: ["Ending the test", "The session is closed. Temporary data cleanup is in progress."],
+    ending: ["Ending the test", "The session is closed. Scenario links are invalid, and pending sends have stopped."],
     "cleanup-failure": ["Cleanup is incomplete", "The session stays closed. Temporary records could not all be deleted. Retry cleanup to finish."],
-    ended: ["Test ended", "The session is closed. Its temporary data has been removed."],
-    expired: ["Session expired", "The fixed four-hour deadline has passed. The session is closed to new work."],
+    ended: ["Test ended", "Temporary scenarios and delivery outcomes are no longer available. Earlier forecast links are invalid."],
+    expired: ["Session expired", "The fixed four-hour deadline has passed. Scenario links are invalid, and new sends are blocked."],
     unavailable: ["Session status unavailable", error ?? "The session store did not respond. We cannot confirm the session state."],
   };
   const [title, description] = copy[state] ?? copy.inactive;
@@ -130,20 +132,29 @@ export default function Workspace({ section, children }: { section: Section; chi
                 <div className="session-explanation">
                   <div><Clock3 /><div><strong>Four hours, one shared deadline</strong><span>Starting again preserves the session and its fixed deadline.</span></div></div>
                   <div><Users /><div><strong>Only selected Bulletin accounts</strong><span>Choose testers without changing their saved alert preferences.</span></div></div>
-                  <div><Send /><div><strong>You choose when to send</strong><span>Start Test opens the session. Scenario creation and alert delivery are not enabled yet.</span></div></div>
+                  <div><Send /><div><strong>You choose when to send</strong><span>Start Test opens the session. Simulate and Send queues an alert.</span></div></div>
                 </div>
                 <Button isPending={pending === "start"} onPress={() => void act("start")}>Start Test<ArrowRight /></Button>
               </>}
               {["starting", "checking", "closing"].includes(state) && <div className="session-progress">
                 <span className="loading-line" /><p>{state === "closing" ? "Waiting for closure and cleanup…" : "Opening the shared session…"}</p>
               </div>}
-              {state === "ending" && <ol className="cleanup-steps">
-                <li><Check /><span>Close session</span><span className="status status-teal">Complete</span></li>
-                <li><Clock3 /><span>Delete temporary records</span><span className="status">In progress</span></li>
-              </ol>}
+              {cleanupProgress && !["unavailable", "closing"].includes(state) && <>
+                <ol className="cleanup-steps" aria-label="Session cleanup">
+                  <li><Check /><span>Close session and invalidate links</span><span className="status status-teal">Complete</span></li>
+                  <li><Check /><span>Stop pending sends</span><span className="status status-teal">Complete</span></li>
+                  <li>{waiting ? <Clock3 /> : <Check />}<span>Wait for authorized provider calls</span><span className={`status ${waiting ? "status-amber" : "status-teal"}`}>{waiting ? "Waiting" : "Complete"}</span></li>
+                  <li>{waiting ? <Square /> : <Clock3 />}<span>Delete temporary records</span><span className="status">{waiting ? "Waiting" : "In progress"}</span></li>
+                </ol>
+                <p className="helper">{waiting ? callRemaining > 0
+                  ? `The authorized-call grace period ends within ${Math.ceil(callRemaining / 1000)} seconds. `
+                  : "The server is checking the authorized-call deadline. " : "Temporary data cleanup is in progress. "}
+                  Submitted messages cannot be recalled.</p>
+              </>}
               {needsCleanup && !pending && <Button onPress={() => void act("cleanup")}>Retry cleanup<ArrowRight /></Button>}
               {state === "expired" && session?.cleanup !== "complete" && <p className="helper">Cleanup is pending. A new session remains blocked until cleanup finishes.</p>}
               {state === "unavailable" && <Button onPress={() => void refresh()}>Retry connection<ArrowRight /></Button>}
+              {["ended", "expired"].includes(state) && session?.cleanup === "complete" && <p className="helper">Messages already submitted remain with testers and external providers. A fresh session will not restore earlier links.</p>}
               {["ended", "expired"].includes(state) && canStart && <Button onPress={() => void act("start")}>Start a new test<ArrowRight /></Button>}
             </div>
           )}
@@ -151,7 +162,7 @@ export default function Workspace({ section, children }: { section: Section; chi
       </SidebarInset>
       <Dialog isOpen={confirmEnd !== null} onOpenChange={(open) => { if (!open) setConfirmEnd(null); }} className="end-dialog">
         <DialogTitle>End this test?</DialogTitle>
-        <DialogDescription><p>The shared session closes for every operator. Its temporary data will be removed.</p></DialogDescription>
+        <DialogDescription><p>All scenario links become invalid immediately. Pending sends stop. Cleanup waits for provider calls already in progress.</p><p>Submitted messages cannot be recalled. Temporary scenarios and delivery outcomes will be removed.</p></DialogDescription>
         <DialogFooter>
           <Button variant="outline" onPress={() => setConfirmEnd(null)}>Keep test active</Button>
           <Button variant="destructive" onPress={() => { const owner = confirmEnd; setConfirmEnd(null); if (owner) void act("end", owner); }}>End Test</Button>

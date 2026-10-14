@@ -5,6 +5,8 @@ import { once } from 'node:events';
 import { Pool } from 'pg';
 import { createApp } from '../../src/interface/http/app.js';
 import { PostgresBrevoReconciler } from '../../src/infrastructure/postgres/brevo.js';
+import { createClient } from 'redis';
+import { RedisTestBrevoReconciler } from '../../src/infrastructure/redis/testBrevo.js';
 
 const backendUrl = process.env.TEST_BACKEND_DATABASE_URL;
 const adminUrl = process.env.TEST_DATABASE_URL;
@@ -31,6 +33,91 @@ test('restricted Backend callback commits its narrow capability and retains read
     await assert.rejects(pool.query('UPDATE alert_recipients SET status=status'), error =>
       !!error && typeof error === 'object' && 'code' in error && ['25006', '42501'].includes(String(error.code)));
   } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await pool.end(); }
+});
+
+test('test callbacks reconcile active Redis attempts with ordering, isolation, closure and outage gates', { skip: !process.env.TEST_REDIS_URL }, async () => {
+  if (new URL(process.env.TEST_REDIS_URL!).hostname !== 'redis-test') throw new Error('Requires isolated Compose redis-test');
+  const redis = createClient({ url: process.env.TEST_REDIS_URL!, disableOfflineQueue: true });
+  await redis.connect();
+  const control = 'quakestrike:alert-testing:session', session = randomUUID(), event = randomUUID(), attempt = randomUUID();
+  const prefix = `quakestrike:alert-testing:${session}:`, slot = `${randomUUID()}:email`;
+  const keys = [control, `${prefix}attempts:${event}`, `${prefix}recipients:${event}`, `${prefix}references`];
+  const deadline = Date.now() + 60000;
+  let productionCalls = 0;
+  const app = createApp({ check: async () => {}, search: async () => [], findById: async () => null }, undefined,
+    undefined, { token: 'TEST_ONLY_CALLBACK_TOKEN', reconciler: { reconcile: async () => { productionCalls++; return 'applied'; } },
+      testReconciler: new RedisTestBrevoReconciler(redis) });
+  const server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const address = server.address(); if (!address || typeof address === 'string') throw new Error('No test address');
+  const callback = (status: string, seconds = 1791676800, reference = 'test-fixture@brevo', authorization = 'Bearer TEST_ONLY_CALLBACK_TOKEN') =>
+    fetch(`http://127.0.0.1:${address.port}/api/v1/callbacks/brevo`, { method: 'POST', headers: { authorization, 'content-type': 'application/json' },
+      body: JSON.stringify({ event: status, ts_event: seconds, 'message-id': `<${reference}>`,
+        'X-Mailin-custom': `quakestrike-attempt:test:${session}:${event}:${attempt}` }) });
+  const read = async () => JSON.parse((await redis.hGet(keys[2]!, slot))!);
+  let ownsFixture = false;
+  try {
+    assert.equal(await redis.exists(control), 0, 'Requires disposable Redis without another active session');
+    ownsFixture = true;
+    // Disposable fixture follows the Python pre-call row and index contract.
+    await redis.hSet(control, { session_id: session, lifecycle: 'active', expires_at_ms: String(deadline) });
+    await redis.pExpireAt(control, deadline + 86400000);
+    await redis.hSet(keys[1]!, attempt, slot); await redis.pExpireAt(keys[1]!, deadline);
+    await redis.hSet(keys[2]!, slot, JSON.stringify({ token: attempt, attempt_id: attempt, channel: 'email',
+      user_id: slot.split(':')[0], status: 'unknown', reason: 'Provider call reserved; outcome not confirmed.' }));
+    await redis.pExpireAt(keys[2]!, deadline);
+    assert.equal((await callback('delivered', undefined, undefined, 'Bearer WRONG')).status, 401);
+    assert.equal((await read()).status, 'unknown');
+    assert.equal((await callback('request')).status, 204);
+    assert.equal((await read()).status, 'accepted');
+    assert.equal((await callback('request')).status, 204);
+    assert.equal((await callback('hard_bounce', 1791676801)).status, 204);
+    assert.equal((await callback('request', 1791676802)).status, 204);
+    assert.equal((await read()).status, 'failed');
+    assert.equal((await callback('delivered', 1791676800)).status, 204);
+    assert.equal((await read()).status, 'failed');
+    assert.equal((await callback('delivered', 1791676801)).status, 204);
+    const delivered = await read(); assert.equal(delivered.status, 'delivered'); assert.equal(delivered.error_code, null);
+    assert.equal((await callback('blocked', 1791676802)).status, 204);
+    assert.deepEqual(await read(), delivered);
+    assert.equal((await callback('delivered', 1791676802, 'conflicting')).status, 409);
+    assert.deepEqual(await read(), delivered);
+    assert.equal(await redis.pExpireTime(keys[3]!), deadline);
+    assert.equal(await redis.pExpireTime(keys[2]!), deadline);
+    assert.equal(productionCalls, 0);
+
+    await redis.hSet(keys[3]!, 'email:test-fixture@brevo', 'another-attempt');
+    assert.equal((await callback('delivered')).status, 409);
+    assert.deepEqual(await read(), delivered);
+    await redis.hSet(keys[3]!, 'email:test-fixture@brevo', `${event}:${attempt}`);
+    await redis.hDel(control, 'expires_at_ms');
+    assert.equal((await callback('delivered')).status, 429);
+    await redis.hSet(control, 'expires_at_ms', String(deadline));
+
+    await redis.hSet(control, 'lifecycle', 'closed');
+    const ttl = await redis.pTTL(control);
+    assert.equal((await callback('delivered')).status, 204);
+    assert.ok((await redis.pTTL(control)) <= ttl);
+    await redis.del(keys.slice(1));
+    assert.equal((await callback('delivered')).status, 204);
+    assert.equal((await redis.keys(`${prefix}*`)).length, 0);
+    await redis.hSet(control, { lifecycle: 'active', session_id: randomUUID() });
+    assert.equal((await callback('delivered')).status, 204);
+    await redis.hSet(control, { session_id: session, expires_at_ms: '1' });
+    assert.equal((await callback('delivered')).status, 204);
+    await redis.del(control);
+    assert.equal((await callback('delivered')).status, 204);
+    assert.equal((await redis.keys(`${prefix}*`)).length, 0);
+    await redis.hSet(control, { session_id: session, lifecycle: 'active', expires_at_ms: String(deadline) });
+    const unresolved = await callback('delivered');
+    assert.equal(unresolved.status, 429); assert.equal(unresolved.headers.get('retry-after'), '60');
+    await redis.del(keys); await redis.quit();
+    const outage = await callback('delivered');
+    assert.equal(outage.status, 429); assert.equal(outage.headers.get('retry-after'), '60');
+    assert.equal(productionCalls, 0);
+  } finally {
+    server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
+    if (redis.isOpen) { if (ownsFixture) await redis.del(keys); await redis.quit(); }
+  }
 });
 
 test('authenticated early callbacks reconcile atomically and retain duplicate older and late evidence', { skip: !backendUrl || !adminUrl }, async () => {

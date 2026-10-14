@@ -189,3 +189,42 @@ incumbent adapter's custom-header construction. The marker identifies test
 callbacks after deletion. Authenticated callback reconciliation, delivered proof,
 and full closure presentation remain ticket 62. Packaging and Serve configuration
 remain ticket 63. None of these decisions authorizes live sends or activation.
+
+## Ticket 62: test evidence and observable closure
+
+The Backend adds a purpose-specific Redis test reconciler beside its ordinary
+PostgreSQL reconciler. The existing Brevo route authenticates and validates
+before selecting either adapter. The established test marker identifies the
+owning session, event, and pre-created attempt even after cleanup. Tagged test
+evidence cannot fall through to production. Missing test Redis configuration,
+outages, corrupt state, and missing active correlation retain bounded retry
+responses. Verified closed, expired, replaced, or deleted sessions are
+acknowledged without recreating evidence.
+
+The consumer creates a session-scoped attempt index before transport. An atomic
+callback script locates the exact email row, binds an immutable reference,
+rejects collisions, and applies timestamp and outcome ordering. Submission
+completion merges with that row rather than replacing callback evidence.
+All attempt and reference indexes follow the original child-record deadline.
+No callback inbox, PostgreSQL test record, or retained delivery history exists.
+
+Known SMS references use the existing provider's authenticated status lookup
+inside the isolated consumer. One reference is claimed per loop, with a
+60-second interval per attempt and the existing bounded provider transport.
+Polls have no submission authority. Unknown evidence cannot trigger a resend.
+Accepted remains distinct from delivered; timestamp-free polls advance by
+strength without fabricating provider event times.
+
+Authorized polls share the existing `calls_until_ms` grace period. Closure
+blocks new reservations and invalidates reads before waiting. Session responses
+project waiting, deleting, failed, and complete phases from server state.
+The control hash adds only closure and cleanup-completion timestamps, with
+the existing fixed retention of 24 hours after the original deadline.
+Business records still expire at that deadline. Cleanup failures remain closed,
+and explicit retries are idempotent. Neither callback nor outcome nor poll
+reconciliation can revive children after closure, expiry, or replacement.
+
+The private UI preserves the accepted visual layout with real actions only.
+There are no simulated completion buttons, prototype preview controls, or
+persisted unfinished drafts. Final browser and controlled provider acceptance
+remain separate from disposable workflow verification.

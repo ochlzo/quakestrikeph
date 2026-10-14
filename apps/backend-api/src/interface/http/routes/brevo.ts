@@ -1,9 +1,9 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import express, { Router, type ErrorRequestHandler } from 'express';
 import { brevoEvidence, InvalidBrevoCallback } from '../../../application/alerts/brevo.js';
-import type { AlertReconciler } from '../../../ports/alertDelivery.js';
+import type { AlertReconciler, TestAlertReconciler } from '../../../ports/alertDelivery.js';
 
-export interface BrevoDependencies { token?: string; reconciler: AlertReconciler }
+export interface BrevoDependencies { token?: string; reconciler: AlertReconciler; testReconciler?: TestAlertReconciler }
 export function brevoRoutes(dependencies: BrevoDependencies | undefined, now: () => Date) {
   const router = Router();
   router.use((req, res, next) => {
@@ -17,7 +17,11 @@ export function brevoRoutes(dependencies: BrevoDependencies | undefined, now: ()
   router.use(express.json({ limit: '32kb', strict: true, inflate: false }));
   router.post('/', async (req, res) => {
     const evidence = brevoEvidence(req.body, now());
-    const outcome = await dependencies!.reconciler.reconcile(evidence);
+    // Authentication and validation precede routing; test evidence never reaches PostgreSQL.
+    if ('testSessionId' in evidence && !dependencies!.testReconciler) throw new Error('Test reconciliation unavailable');
+    const outcome = 'testSessionId' in evidence
+      ? await dependencies!.testReconciler!.reconcile(evidence)
+      : await dependencies!.reconciler.reconcile(evidence);
     if (outcome === 'applied' || outcome === 'ignored') { res.sendStatus(204); return; }
     console.error(JSON.stringify({ service: 'backend-api', event: 'brevo_callback_unresolved', requestId: res.getHeader('X-Request-ID'), outcome }));
     if (outcome === 'conflict') { res.sendStatus(409); return; }
