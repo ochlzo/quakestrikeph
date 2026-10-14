@@ -1527,3 +1527,37 @@ Both default to `http://backend-api:3000`, preserving local isolation in CI.
 Set those overrides privately when a public API target is deliberately needed.
 The Compose isolation checker validates the local defaults and CI setting.
 Its check and Ruff passed after this adjustment.
+## Private map asset correction — 14 October 2026
+
+The deployed private map worker returned HTTP 200 with zero bytes, while the
+place-search JSON returned HTTP 404. Control logs showed normal startup.
+The UI is static Astro output served by Python, not an Astro server process.
+
+The private app now uses the Bulletin's existing worker-build rule to retain
+MapLibre's side-effect initialization. The Python server explicitly allows
+`/assets/accounts/philippine-places.json`; exact Host checks, no-store responses,
+and the existing static-directory boundary still apply. No general public-file
+route is added. The private Docker image includes the build verification script.
+
+Production builds verify a nonempty map worker and the bundled places index.
+The package smoke additionally requests the places JSON through the relay.
+The HTTP regression verifies JSON delivery, wrong-Host rejection, traversal
+rejection, and continued rejection of unrelated static files. Both regressions
+failed before the fix. After rebuilding, the emitted worker contains 509,448
+bytes, and the asset check passes.
+
+Local verification:
+
+- `pnpm build` in the private app: passed, including production map asset checks.
+- `pnpm check`: zero errors/warnings; six existing React Aria hints.
+- `pnpm test`: 46 passed, no skips.
+- Full documented host worker suite: 506 passed, 401 expected integration/platform skips.
+- Worker/database Ruff and formatting, including package smoke script: passed.
+- Git whitespace checks: passed.
+
+No Redis, PostgreSQL, or dispatch behavior changed, so disposable integration
+checks were not repeated locally. Remote CI supplies isolated integration and
+actual packaged smoke checks. The server source and running services were not
+edited during this correction. Target verification remains pending until the
+PR lands and the private control image is updated through its manual rollout.
+Keep the consumer disabled and preserve pgAdmin HTTPS 443 during that rollout.

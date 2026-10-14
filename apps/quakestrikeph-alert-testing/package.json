@@ -11,7 +11,7 @@
     "test:session": "node --experimental-strip-types --test tests/session-requests.test.mjs",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "check": "astro check",
-    "build": "astro build"
+    "build": "astro build && node scripts/verify-map-assets.mjs"
   },
   "dependencies": {
     "@astrojs/react": "7.0.0",

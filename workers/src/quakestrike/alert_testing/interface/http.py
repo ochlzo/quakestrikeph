@@ -140,6 +140,7 @@ class PrivateHandler(BaseHTTPRequestHandler):
             "/": "index.html",
             "/testers": "testers/index.html",
             "/history": "history/index.html",
+            "/assets/accounts/philippine-places.json": "assets/accounts/philippine-places.json",
         }
         relative = pages.get(path.rstrip("/") or "/")
         if re.fullmatch(r"/results/[0-9a-f-]{36}/?", path):

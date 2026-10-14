@@ -9,6 +9,7 @@ RUN pnpm install --frozen-lockfile
 COPY apps/quakestrikeph-alert-testing/astro.config.mjs apps/quakestrikeph-alert-testing/tsconfig.json ./
 COPY apps/quakestrikeph-alert-testing/src ./src
 COPY apps/quakestrikeph-alert-testing/public ./public
+COPY apps/quakestrikeph-alert-testing/scripts ./scripts
 RUN pnpm check && pnpm build
 
 FROM quakestrike-workers:${BASE_IMAGE_TAG} AS runtime

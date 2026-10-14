@@ -133,6 +133,8 @@ def main(tag):
                 assert status == 200 and b"/_astro/" in html
             asset = re.search(rb'(?:src|href)="(/_astro/[^\"]+)"', request("/")[1])
             assert asset and request(asset[1].decode())[0] == 200
+            status, places = request("/assets/accounts/philippine-places.json")
+            assert status == 200 and len(json.loads(places)) > 0
             status, session = request("/api/test/session/start", {})
             assert status == 200
             owner = json.loads(session)["session_id"]
