@@ -11,6 +11,7 @@ from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
 
 from quakestrike.alert_testing.application.sessions import Sessions
+from quakestrike.alert_testing.domain.scenarios import ScenarioValidation
 from quakestrike.alert_testing.domain.sessions import SessionConflict
 from quakestrike.alert_testing.infrastructure.accounts import AccountAccessUnavailable
 
@@ -43,9 +44,11 @@ class PrivateServer(ThreadingHTTPServer):
         port: int = 4341,
         origin: str | None = None,
         testers=None,
+        scenarios=None,
     ):
         self.sessions = sessions
         self.testers = testers
+        self.scenarios = scenarios
         self.static_directory = static_directory.resolve()
         self.slots = BoundedSemaphore(16)
         if origin is not None:
@@ -113,6 +116,8 @@ class PrivateHandler(BaseHTTPRequestHandler):
             self._json(200, action(*args))
         except SessionConflict:
             self._json(409, {"error": "session-conflict"})
+        except ScenarioValidation as error:
+            self._json(400, {"error": "invalid-scenario", "fields": error.fields})
         except ValueError:
             self._json(400, {"error": "invalid-request"})
         except (SQLAlchemyError, AccountAccessUnavailable):
@@ -164,7 +169,8 @@ class PrivateHandler(BaseHTTPRequestHandler):
             API_PATH + "/cleanup": self.server.sessions.retry_cleanup,
         }
         account_action = self.path == "/api/test/testers"
-        if self.path not in actions and not account_action:
+        preparation_action = self.path == "/api/test/scenarios/prepare"
+        if self.path not in actions and not account_action and not preparation_action:
             self._json(404, {"error": "not-found"})
             return
         try:
@@ -173,12 +179,21 @@ class PrivateHandler(BaseHTTPRequestHandler):
             if len(self.headers.get_all("Content-Length") or []) != 1:
                 raise ValueError
             length = int(self.headers["Content-Length"])
-            if not 0 < length <= (65536 if account_action else 512):
+            if not 0 < length <= (65536 if account_action else 8192 if preparation_action else 512):
                 raise ValueError
             if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
                 raise ValueError
             body = json.loads(self.rfile.read(length))
-            if account_action:
+            if preparation_action:
+                if not isinstance(body, dict) or set(body) != {"session_id", "inputs"}:
+                    raise ValueError
+                workflow = self.server.scenarios
+                action = workflow.prepare if workflow is not None else None
+                args = (body["session_id"], body["inputs"])
+                if action is None:
+                    self._json(503, {"error": "dependency-unavailable"})
+                    return
+            elif account_action:
                 fields = {"session_id", "query", "selected", "page", "size", "event"}
                 if not isinstance(body, dict) or set(body) != fields:
                     raise ValueError
@@ -205,7 +220,9 @@ class PrivateHandler(BaseHTTPRequestHandler):
         except (ValueError, TypeError, RecursionError):
             self._json(400, {"error": "invalid-request"})
             return
-        self._workflow(action if account_action else actions[self.path], *args)
+        self._workflow(
+            action if account_action or preparation_action else actions[self.path], *args
+        )
 
     def do_OPTIONS(self):
         self._json(405, {"error": "method-not-allowed"})

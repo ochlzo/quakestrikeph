@@ -58,3 +58,48 @@ The user's 13 October amendment keeps unfinished inputs and selections in
 browser memory. There is no draft API or draft persistence contract. Editing
 creates no Redis child record, job, or provider submission. Scenario saving
 belongs to the later explicit Simulate and Send workflow in ticket 61.
+
+## Scenario preparation, version 1
+
+`POST /api/test/scenarios/prepare` accepts exactly `session_id` and `inputs`.
+`scenarios-v1.ts` defines the editable string fields and immutable response.
+The request requires the existing exact Host, Origin, JSON type, and custom
+header. Its body limit is 8 KiB. Responses remain private and no-store.
+Malformed payloads return `400 invalid-request`. Invalid scenario values return
+`400 invalid-scenario` with a bounded `fields` map for inline errors.
+Ownership conflicts return `409 session-conflict`; Redis failures return
+`503 dependency-unavailable` without claiming preparation succeeded.
+
+Application checks active ownership before validation and after generation.
+Domain receives the session's server time and fresh application-supplied
+randomness. Preparation writes no Redis child record and publishes no work.
+The browser retains the returned event, forecast, replay parameters, and exact
+observation array in tab-local memory. It freezes the response recursively.
+Changing scenario inputs invalidates preparation. Request identities and
+workspace revisions reject older responses, including edits back to the same
+values. Tester selection changes preserve preparation. Closure, expiry, and
+replacement clear inputs, selection, and preparation. Internal navigation
+retains them; reload may discard them.
+
+Probabilities use fractions in the response and percentages in editable inputs.
+Quantiles are complete finite ordered values or null, following production
+rules. The forecast lasts exactly 86,400,000 milliseconds from event time.
+Past anchors generate successors through the earlier of preparation time and
+forecast end. Future anchors generate future observations inside that same
+forecast window; a later public replay must apply its real-time clock.
+Ticket 61 must validate the forecast again before sending.
+
+Local counts are 1–100, background counts are 0–100, and spillover is smaller
+than the local count. Spread is 0–100 percent. Magnitude is 1–10 and depth is
+0–700 km. Radius must be positive and below the maximum great-circle distance
+minus 0.001 km, approximately 20,015.11 km. That geometry bound leaves room
+for observations outside the radius. It does not alter production forecasts.
+The prototype supplies the illustrative distribution; the values are not
+calibrated earthquake predictions. Every observation includes an identity,
+time, coordinates, magnitude, depth, location description, and diagram geometry.
+
+The diagram consumes those exact observations without regeneration or a seed.
+Randomize replay changes editable settings and requests fresh spatial values.
+Prepare scenario also generates a new replay from the edited settings.
+No public link, scenario persistence, submission, or provider call exists
+in preparation. Ticket 61 must persist the exact reviewed values unchanged.

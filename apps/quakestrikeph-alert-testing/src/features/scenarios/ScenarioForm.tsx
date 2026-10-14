@@ -8,7 +8,9 @@ import { Popover, PopoverTrigger } from "@quakestrikeph/ui/popover";
 import { Field as SharedField, FieldLabel, FieldDescription, FieldError, FieldGroup } from "@quakestrikeph/ui/field";
 import { InputGroup, InputGroupInput, InputGroupAddon } from "@quakestrikeph/ui/input-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@quakestrikeph/ui/select";
+import { Toaster, createToastManager } from "@quakestrikeph/ui/toast";
 import { useWorkspace, initialInputs, type Inputs } from "../workspace/use-workspace";
+import { ReplayDiagram } from "./ReplayDiagram";
 function EventTimeField({
   inputs,
   setInputs,
@@ -53,7 +55,7 @@ function EventTimeField({
           className="event-time-trigger"
           variant="outline"
           aria-invalid={Boolean(error)}
-          aria-describedby={`time-description${error ? " time-error" : ""}`}
+          aria-describedby={error ? "time-error" : "time-description"}
         >
           <span>{display}</span>
           <CalendarDays size={16} />
@@ -184,12 +186,26 @@ function ScenarioField({
 
 export default function ScenarioForm() {
   const workspace = useWorkspace();
+  const [toastManager] = useState(createToastManager);
+  const [toastContainer, setToastContainer] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (workspace.preparationError) toastManager.add({
+      id: "scenario-preparation-error", type: "error", title: workspace.preparationError,
+      timeout: 8000, priority: "high",
+    });
+  }, [workspace.preparationError, toastManager]);
   const { inputs, selected } = workspace.draft;
   const active = workspace.ready;
-  const errors: Record<string, string> = {};
+  const errors = workspace.errors;
   const preset = inputs.preset;
   const navigate = (page: string) => void workspace.navigate(page === "testers" ? "/testers" : "/");
   const setInputs = (value: Inputs) => workspace.edit({ inputs: value, selected });
+  function randomizeReplay() {
+    const random = (min: number, max: number) => min + Math.floor(Math.random() * (max - min + 1));
+    setInputs({ ...inputs, local: String(random(12, 30)), background: String(random(2, 7)),
+      spread: String(random(10, 45)), spillover: String(random(1, 4)) });
+    void workspace.prepare();
+  }
   const pht = (date: Date) => new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit", hour12: true }).format(date);
   function changePreset(value: string) {
     const patch =
@@ -243,7 +259,7 @@ export default function ScenarioForm() {
             noValidate
             onSubmit={(event) => {
               event.preventDefault();
-              /* Unfinished edits remain in browser memory. */
+              void workspace.prepare();
             }}
             className="scenario-form"
           >
@@ -261,7 +277,7 @@ export default function ScenarioForm() {
                     step: ".1",
                     unit: "M",
                   })}
-                  {field("depth", "Depth", { min: 0, unit: "km" })}
+                  {field("depth", "Depth", { min: 0, max: 700, unit: "km" })}
                   {field("latitude", "Latitude", {
                     min: -90,
                     max: 90,
@@ -335,7 +351,7 @@ export default function ScenarioForm() {
                     unit: "km",
                   })}
                 </FieldGroup>
-                <details className="optional-values" open={Boolean(errors.q50)}>
+                <details className="optional-values" open={Boolean(errors.q05 || errors.q50 || errors.q95)}>
                   <summary>
                     Maximum magnitude estimates <span>Optional</span>
                   </summary>
@@ -355,7 +371,8 @@ export default function ScenarioForm() {
                   <Button
                     className="randomize-replay"
                     variant="outline"
-                    isDisabled
+                    isDisabled={!active || workspace.preparing}
+                    onPress={randomizeReplay}
                   >
                     <Shuffle size={16} />
                     Randomize replay
@@ -374,6 +391,7 @@ export default function ScenarioForm() {
                   })}
                   {field("spread", "Positional variation", {
                     min: 0,
+                    max: 100,
                     unit: "%",
                   })}
                   {field("spillover", "Local observations beyond radius", {
@@ -434,7 +452,17 @@ export default function ScenarioForm() {
             </div>
             <div className="replay-summary">
               <h3>Replay coverage</h3>
-              <p>Replay preparation and its diagram are not enabled in this draft slice.</p>
+              {workspace.prepared ? <>
+                <ReplayDiagram scenario={workspace.prepared} />
+                <p>{workspace.prepared.replay.local - workspace.prepared.replay.spillover} inside radius · {workspace.prepared.replay.spillover} spillover · {workspace.prepared.replay.background} distant</p>
+                <p>These exact observations remain in this tab until you edit the inputs or the session closes.</p>
+              </> : <p>Prepare the scenario to review its generated observations.</p>}
+              <p role="status" aria-live="polite">
+                {workspace.preparing ? "Preparing replay…" : workspace.preparationError}
+              </p>
+              <Button variant="outline" type="submit" form="scenario-form" isDisabled={!active || workspace.preparing}>
+                {workspace.prepared ? "Prepare new replay" : "Prepare scenario"}
+              </Button>
               <div className="diagram-legend">
                 <span>
                   <i />
@@ -473,6 +501,8 @@ export default function ScenarioForm() {
             </Button>
           </aside>
         </div>
+        <div ref={setToastContainer} className="prototype-toast-container" />
+        {toastContainer && <Toaster toastManager={toastManager} portalContainer={toastContainer} />}
       </>
     );
 }
