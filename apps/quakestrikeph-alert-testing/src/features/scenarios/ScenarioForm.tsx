@@ -194,8 +194,14 @@ export default function ScenarioForm() {
       timeout: 8000, priority: "high",
     });
   }, [workspace.preparationError, toastManager]);
+  useEffect(() => {
+    if (workspace.submissionError) toastManager.add({ id: "scenario-submission-error",
+      type: "error", title: workspace.submissionError, timeout: 8000, priority: "high" });
+    if (workspace.submission) toastManager.add({ id: "scenario-submitted", type: "success",
+      title: "Scenario saved and queued. Provider delivery is not confirmed.", timeout: 8000 });
+  }, [workspace.submissionError, workspace.submission, toastManager]);
   const { inputs, selected } = workspace.draft;
-  const active = workspace.ready;
+  const active = workspace.ready && !workspace.submitting && !workspace.submissionPending;
   const errors = workspace.errors;
   const preset = inputs.preset;
   const navigate = (page: string) => void workspace.navigate(page === "testers" ? "/testers" : "/");
@@ -480,25 +486,27 @@ export default function ScenarioForm() {
             </div>
             <a
               className="preview-link"
-              aria-disabled="true"
+              aria-disabled={!workspace.submission}
+              href={workspace.submission?.forecast_url}
               target="_blank"
               rel="noopener"
               onClick={(event) => {
-                event.preventDefault();
+                if (!workspace.submission) event.preventDefault();
               }}
             >
-              Preview forecast page
+              Open saved forecast
               <ExternalLink size={15} />
             </a>
             <Button
               className="send-button"
-              type="submit"
-              form="scenario-form"
-              isDisabled
+              isDisabled={!workspace.ready || !workspace.prepared || !selected.length || workspace.submitting || Boolean(workspace.submission)}
+              onPress={() => void workspace.submit()}
             >
               <Send />
-              Simulate and Send
+              {workspace.submitting ? "Submitting…" : workspace.submissionPending ? "Retry submission" : "Simulate and Send"}
             </Button>
+            {workspace.submission && <a href={`/results/${workspace.submission.event_id}`}>Inspect delivery results</a>}
+            {workspace.submissionPending && <p role="status">Keep this reviewed scenario while retrying its submission.</p>}
           </aside>
         </div>
         <div ref={setToastContainer} className="prototype-toast-container" />

@@ -5,6 +5,7 @@
 @import "@quakestrikeph/ui/theme.css";
 @import "@quakestrikeph/ui/sidebar.css";
 @import "./workspace.css";
+@import "./delivery.css";
 @source '../../../../packages/ui';
 
 /* Session and shell rules from the accepted alert-testing prototype. */

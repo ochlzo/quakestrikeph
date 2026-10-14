@@ -12,11 +12,18 @@ from sqlalchemy import create_engine
 
 from quakestrike.alert_testing.application.scenarios import Scenarios
 from quakestrike.alert_testing.application.sessions import Sessions
+from quakestrike.alert_testing.application.submissions import Submissions
 from quakestrike.alert_testing.application.testers import Testers
 from quakestrike.alert_testing.domain.sessions import SessionConflict
 from quakestrike.alert_testing.infrastructure.accounts import PostgresAccountReader
+from quakestrike.alert_testing.infrastructure.deliveries import RedisDeliveryStore
+from quakestrike.alert_testing.infrastructure.preparation import PreparationSigner
 from quakestrike.alert_testing.infrastructure.redis import RedisSessionStore
 from quakestrike.alert_testing.interface.http import PrivateServer
+from quakestrike.domain.alerts import (
+    DEFAULT_PUBLIC_BULLETIN_BASE_URL,
+    validate_public_bulletin_base_url,
+)
 from quakestrike.infrastructure.logging.json_logging import configure_logging, log_event
 
 
@@ -30,6 +37,10 @@ def main() -> None:
         default=Path("apps/quakestrikeph-alert-testing/dist"),
     )
     args = parser.parse_args()
+    signer = PreparationSigner(os.environ.get("ALERT_TEST_PREPARATION_KEY"))
+    public_url = validate_public_bulletin_base_url(
+        os.environ.get("ALERT_TEST_PUBLIC_BULLETIN_URL", DEFAULT_PUBLIC_BULLETIN_BASE_URL)
+    )
     redis_url = os.environ.get("ALERT_TEST_REDIS_URL")
     if not redis_url:
         parser.error(
@@ -66,7 +77,8 @@ def main() -> None:
         args.port,
         args.origin,
         testers=testers,
-        scenarios=Scenarios(sessions),
+        scenarios=Scenarios(sessions, signer=signer),
+        submissions=Submissions(sessions, RedisDeliveryStore(client, public_url), signer),
     )
     logger = configure_logging("alert-testing")
     stopped = Event()

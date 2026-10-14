@@ -59,6 +59,9 @@ end
 if redis.call('HGET', key, 'lifecycle') == 'active' then return {'conflict'} end
 if operation == 'claim' then
     if redis.call('HGET', key, 'cleanup') == 'complete' then return {'complete'} end
+    if tonumber(redis.call('HGET', key, 'calls_until_ms') or '0') > now then
+        return {'busy'}
+    end
     if tonumber(redis.call('HGET', key, 'lease_until_ms') or '0') > now then
         return {'busy'}
     end

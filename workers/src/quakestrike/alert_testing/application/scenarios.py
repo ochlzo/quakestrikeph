@@ -9,9 +9,10 @@ from quakestrike.alert_testing.domain.testers import identity
 
 
 class Scenarios:
-    def __init__(self, sessions, random_factory=Random):
+    def __init__(self, sessions, random_factory=Random, signer=None):
         self.sessions = sessions
         self.random_factory = random_factory
+        self.signer = signer
 
     def _active(self, session_id):
         session = self.sessions.read()
@@ -29,7 +30,7 @@ class Scenarios:
         )
         # Closure, expiry, or replacement during generation makes the response unusable.
         self._active(session_id)
-        return {
+        scenario = {
             "version": 1,
             "session_id": session_id,
             "event_id": event_id,
@@ -61,3 +62,6 @@ class Scenarios:
             },
             "observations": [asdict(observation) for observation in observations],
         }
+        if self.signer is not None:
+            scenario["preparation_token"] = self.signer.token(scenario, inputs)
+        return scenario
