@@ -59,7 +59,37 @@ The metadata hash eventually expires even if cleanup fails. Child deadlines
 remain the final deletion safeguard. A dependency outage cannot establish
 inactivity; the private HTTP interface returns dependency-unavailable without
 claiming a completed start, closure, or cleanup. Runtime enablement, provider
-verification, and deployment gates in ADRs 0025 and 0047–0049 still apply.
+verification, and deployment gates in ADRs 0025 and 0047â€“0049 still apply.
 
 References: [issue 56](https://github.com/ochlzo/quakestrikeph/issues/56),
 [issue 57](https://github.com/ochlzo/quakestrikeph/issues/57).
+
+## Ticket 58: account reads and browser memory
+
+The private tool uses a separate `quakestrike_alert_testing` PostgreSQL login.
+Explicit provisioning grants SELECT only on account identity, display name,
+alert destinations, verification, channel settings, status, onboarding, and
+saved nearby rules. The reader rejects broader application permissions and
+uses read-only, parameterized queries with two-second timeouts and at most
+50 returned rows. The browser receives names and masked destinations, never
+complete destinations, Clerk identities, or saved coordinates. Existing Domain
+rules determine provisional eligibility; SMS support remains unknown without
+provider requests. Reads require the owning active session before and after
+the database query. No account or production worker changes are introduced.
+
+On 13 October 2026, the user replaced the published Redis draft and recovery
+requirements with browser-memory drafts and future preparation. There is no
+autosave, Redis draft storage, revision check, browser recovery storage, or
+unsaved-navigation guard.
+Separate Astro pages use Astro's ClientRouter and one tab-local memory
+workspace. Internal navigation preserves edits; reload or leaving the tool
+may discard them. Tabs remain independent. Session closure, expiry, and
+replacement reset the workspace. The shared session's Redis ownership,
+fixed deadline, and cleanup remain unchanged.
+
+Scenario submission stays outside ticket 58. Ticket 59 owns preparation in
+browser memory. Simulate and Send will be the explicit save/freeze and queue
+boundary when ticket 61 implements submission. It remains unavailable here,
+along with replay randomization, the prepared replay diagram, and public preview.
+Incumbent prototype controls
+move to `packages/ui`; Bulletin re-exports preserve their existing callers.

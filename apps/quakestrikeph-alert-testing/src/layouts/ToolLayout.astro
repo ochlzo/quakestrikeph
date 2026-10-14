@@ -1,6 +1,7 @@
 ---
 import "../styles/tool.css";
 import Workspace from "../features/sessions/Workspace";
+import { ClientRouter } from "astro:transitions";
 interface Props { title: string; page: "scenario" | "testers" | "history"; }
 const { title, page } = Astro.props;
 ---
@@ -10,6 +11,7 @@ const { title, page } = Astro.props;
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex, nofollow" />
+    <ClientRouter />
     <title>{title} · QuakeStrike PH alert testing</title>
   </head>
   <body><Workspace section={page} client:load><slot /></Workspace></body>

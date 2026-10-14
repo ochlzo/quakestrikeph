@@ -18,3 +18,10 @@ Follow the [database maintenance guide](../../docs/operations/database-maintenan
 Migrations use `database/alembic.ini` and `database/migrations/`.
 Worker images build from the repository root and retain the same directory relationship.
 Service startup only checks readiness; it never applies migrations or imports history.
+
+`provision-roles.sh create-alert-testing` explicitly provisions the private
+tool's column-restricted account reader. It requires `ALERT_TEST_DB_PASSWORD`
+in the PostgreSQL container environment. It does not enable the tool or alter
+accounts. Follow [the private tool guide](../../docs/operations/alert-testing.md)
+for disposable verification and configuration. Do not reuse Backend, worker,
+observer, or migration credentials for tester search.

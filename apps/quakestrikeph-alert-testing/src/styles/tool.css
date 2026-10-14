@@ -4,6 +4,7 @@
 @import "shadcn/tailwind.css";
 @import "@quakestrikeph/ui/theme.css";
 @import "@quakestrikeph/ui/sidebar.css";
+@import "./workspace.css";
 @source '../../../../packages/ui';
 
 /* Session and shell rules from the accepted alert-testing prototype. */
