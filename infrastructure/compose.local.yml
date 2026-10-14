@@ -35,11 +35,10 @@ services:
       target: development
     environment:
       PUBLIC_CLERK_PUBLISHABLE_KEY: ${PUBLIC_CLERK_PUBLISHABLE_KEY:-}
-      ACCOUNT_API_TARGET: http://backend-api:3000
-      API_TARGET: http://backend-api:3000
-      # ACCOUNT_API_TARGET: https://quakestrikeph.qzz.io
-      # API_TARGET: https://quakestrikeph.qzz.io
+      ACCOUNT_API_TARGET: ${LOCAL_ACCOUNT_API_TARGET:-http://backend-api:3000}
+      API_TARGET: ${LOCAL_API_TARGET:-http://backend-api:3000}
       DEV_USE_POLLING: "true"
+      CI: "true"
     volumes:
       - ../apps/quakestrikeph-bulletin:/app
       - ../packages/ui:/packages/ui:ro

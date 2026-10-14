@@ -1,0 +1,112 @@
+# Include explicitly with compose.yml. Normal release automation omits this file.
+x-alert-testing-environment: &alert-testing-environment
+  ALERT_TEST_REDIS_URL: ${ALERT_TEST_REDIS_URL:?Select the explicit test Redis in .env}
+  ALERT_TEST_DATABASE_URL: ${ALERT_TEST_DATABASE_URL:?Select the restricted account login in .env}
+  ALERT_TEST_PUBLIC_BULLETIN_URL: ${ALERT_TEST_PUBLIC_BULLETIN_URL:?Set the public Bulletin origin in .env}
+
+x-alert-testing-logging: &alert-testing-logging
+  driver: local
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  alert-test-redis:
+    profiles: [alert-testing, alert-testing-consumer]
+    image: redis:7.4.11-bookworm
+    command: [redis-server, --save, "", --appendonly, "no"]
+    networks: [private-data]
+    restart: unless-stopped
+    mem_limit: 256m
+    logging: *alert-testing-logging
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  alert-test-relay:
+    profiles: [alert-testing]
+    image: traefik:v3.7.13
+    command:
+      - --providers.file.filename=/etc/traefik/alert-testing.yml
+      - --entrypoints.private.address=:4342
+      - --entrypoints.health.address=127.0.0.1:8082
+      - --ping=true
+      - --ping.entrypoint=health
+      - --log.level=ERROR
+    ports: ["127.0.0.1:4341:4342"]
+    volumes:
+      - ./traefik/alert-testing.yml:/etc/traefik/alert-testing.yml:ro
+    networks: [private-data, alert-test-access]
+    restart: unless-stopped
+    mem_limit: 128m
+    logging: *alert-testing-logging
+    healthcheck:
+      test: [CMD, traefik, healthcheck, --ping, --ping.entrypoint=health, --entrypoints.health.address=127.0.0.1:8082]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  alert-test-control:
+    profiles: [alert-testing]
+    image: quakestrike-alert-testing:${ALERT_TEST_IMAGE_TAG:?Set the tested alert-testing Git SHA}
+    build:
+      context: ..
+      dockerfile: apps/quakestrikeph-alert-testing/Dockerfile
+      args:
+        BASE_IMAGE_TAG: ${ALERT_TEST_IMAGE_TAG}
+    environment:
+      <<: *alert-testing-environment
+      ALERT_TEST_ORIGIN: ${ALERT_TEST_ORIGIN:?Set the exact private HTTPS origin with port 8443}
+      ALERT_TEST_PREPARATION_KEY: ${ALERT_TEST_PREPARATION_KEY:?Set a stable private preparation key}
+    network_mode: service:alert-test-relay
+    depends_on:
+      alert-test-relay:
+        condition: service_healthy
+        restart: true
+      alert-test-redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 256m
+    logging: *alert-testing-logging
+    healthcheck:
+      test: [CMD, uv, run, --frozen, --no-dev, --no-sync, python, -m, quakestrike.alert_testing.health, control]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  alert-test-consumer:
+    profiles: [alert-testing-consumer]
+    image: quakestrike-workers:${ALERT_TEST_IMAGE_TAG:?Set the tested alert-testing Git SHA}
+    command: [python, -m, quakestrike.alert_testing.consumer_runtime]
+    environment:
+      <<: *alert-testing-environment
+      ALERT_TEST_CONSUMER_ENABLED: ${ALERT_TEST_CONSUMER_ENABLED:-false}
+      ALERT_TEST_IPROG_TOKEN: ${ALERT_TEST_IPROG_TOKEN:-}
+      ALERT_TEST_BREVO_API_KEY: ${ALERT_TEST_BREVO_API_KEY:-}
+      ALERT_TEST_BREVO_SENDER_EMAIL: ${ALERT_TEST_BREVO_SENDER_EMAIL:-}
+      ALERT_TEST_BREVO_SENDER_NAME: ${ALERT_TEST_BREVO_SENDER_NAME:-}
+    networks: [private-data, alert-test-egress]
+    depends_on:
+      alert-test-redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    stop_grace_period: 20s
+    mem_limit: 256m
+    logging: *alert-testing-logging
+    healthcheck:
+      test: [CMD, uv, run, --frozen, --no-dev, --no-sync, python, -m, quakestrike.alert_testing.health, consumer]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+networks:
+  alert-test-access:
+  alert-test-egress:

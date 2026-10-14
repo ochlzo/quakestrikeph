@@ -23,12 +23,12 @@ export class SessionRequests {
     this.pending = pending;
   }
 
-  async refresh() {
+  async refresh(background = false) {
     if (this.refreshing || this.mutating) return;
     this.refreshing = true;
     const revision = this.revision;
     try {
-      const result = await this.request();
+      const result = await this.request(undefined, undefined, undefined, !background);
       if (revision === this.revision) this.accept(result);
     } catch (reason) {
       if (revision === this.revision) this.fail(reason);

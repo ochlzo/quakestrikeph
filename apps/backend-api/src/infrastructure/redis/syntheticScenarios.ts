@@ -12,6 +12,7 @@ local deadline = tonumber(redis.call('HGET', KEYS[1], 'expires_at_ms'))
 if not deadline then return redis.error_reply('Invalid session deadline') end
 if redis.call('HGET', KEYS[1], 'lifecycle') ~= 'active' or deadline <= now then return nil end
 local key = ARGV[1] .. session .. ':scenario:' .. ARGV[2]
+if redis.call('EXISTS', key) == 0 then key = ARGV[1] .. session .. ':preview:' .. ARGV[2] end
 if redis.call('STRLEN', key) > 262144 then return redis.error_reply('Oversized scenario') end
 local raw = redis.call('GET', key)
 if not raw then return nil end

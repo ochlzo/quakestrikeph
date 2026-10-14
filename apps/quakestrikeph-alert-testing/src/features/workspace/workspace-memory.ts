@@ -21,7 +21,7 @@ function freeze<T>(value: T): T {
   return value;
 }
 
-// One instance per tab; no storage or server-side draft records.
+// One instance per tab; Redis persistence coordinates restoration separately.
 export class WorkspaceMemory {
   state = {
     draft: { inputs: initialInputs(), selected: [] } as Draft,
@@ -29,12 +29,26 @@ export class WorkspaceMemory {
     preparing: false, errors: {} as Record<string, string>, preparationError: "",
     submitting: false, submissionError: "", submission: null as ScenarioResult | null,
     submissionPending: false,
+    restoring: false, restoreError: "", saveError: "", saving: false, previewUrl: null as string | null,
   };
   listeners = new Set<() => void>();
   private request = 0;
   private deadline = 0;
   private submissionBody: SubmissionRequest | null = null;
   private notify() { this.listeners.forEach(listener => listener()); }
+
+  persistence(update: Partial<Pick<typeof this.state, "restoring" | "restoreError" | "saveError" | "saving" | "previewUrl">>) {
+    this.state = { ...this.state, ...update };
+    this.notify();
+  }
+
+  recover(record: { inputs: Inputs; selected: string[]; prepared: PreparedScenario | null; preview_url: string | null }) {
+    const prepared = record.prepared && record.prepared.forecast.window_end_ms > Date.now() ? record.prepared : null;
+    this.state = { ...this.state, draft: { inputs: { ...record.inputs }, selected: [...record.selected] },
+      prepared: prepared ? freeze(prepared) : null, previewUrl: prepared ? record.preview_url : null,
+      revision: this.state.revision + 1 };
+    this.notify();
+  }
 
   accept(session: SessionState, now = Date.now()) {
     const owner = session.status === "active" ? session.session_id ?? "" : "";
@@ -46,7 +60,7 @@ export class WorkspaceMemory {
       this.state = { ...this.state, draft: { inputs: initialInputs(), selected: [] },
         owner, ready: !!owner, revision: this.state.revision + 1, prepared: null,
         preparing: false, errors: {}, preparationError: "", submitting: false,
-        submissionPending: false, submissionError: "", submission: null };
+        submissionPending: false, submissionError: "", submission: null, previewUrl: null };
     } else this.state = { ...this.state, ready: true };
     this.expire(now);
     this.notify();
@@ -59,7 +73,7 @@ export class WorkspaceMemory {
       this.state = { ...this.state, owner: "", ready: false,
         draft: { inputs: initialInputs(), selected: [] }, revision: this.state.revision + 1,
         prepared: null, preparing: false, errors: {}, preparationError: "", submitting: false,
-        submissionPending: false, submissionError: "", submission: null };
+        submissionPending: false, submissionError: "", submission: null, previewUrl: null };
       this.notify();
     }
   }
@@ -71,7 +85,18 @@ export class WorkspaceMemory {
     if (changed) this.request++;
     this.state = { ...this.state, draft: { inputs: { ...draft.inputs }, selected: [...draft.selected] },
       ...(changed ? { revision: this.state.revision + 1, prepared: null, preparing: false,
-        errors: {}, preparationError: "", submission: null } : {}) };
+        errors: {}, preparationError: "", submission: null, previewUrl: null } : {}) };
+    this.notify();
+  }
+
+  newScenario() {
+    this.expire();
+    if (!this.state.ready || this.state.submitting || this.state.submissionPending) return;
+    this.request++;
+    this.submissionBody = null;
+    this.state = { ...this.state, draft: { inputs: initialInputs(), selected: [...this.state.draft.selected] },
+      revision: this.state.revision + 1, prepared: null, preparing: false, submission: null,
+      previewUrl: null, errors: {}, preparationError: "", submissionError: "" };
     this.notify();
   }
 
@@ -82,7 +107,7 @@ export class WorkspaceMemory {
     const { owner, revision } = this.state;
     const request = ++this.request;
     this.state = { ...this.state, prepared: null, preparing: true, errors: {}, preparationError: "",
-      submission: null, submissionError: "" };
+      submission: null, submissionError: "", previewUrl: null };
     this.notify();
     const valid = () => {
       this.expire();
@@ -101,8 +126,8 @@ export class WorkspaceMemory {
         return;
       }
       this.state = { ...this.state, preparing: false, errors: error.fields ?? {},
-        preparationError: error.code === "invalid-scenario" ? "Correct the marked fields, then prepare again."
-          : "Preparation failed. Check the session and try again." };
+        preparationError: error.code === "invalid-scenario" ? "Check the highlighted fields."
+          : "Could not update the forecast." };
     }
     this.notify();
   }
@@ -125,7 +150,7 @@ export class WorkspaceMemory {
       this.state = { ...this.state, submitting: false,
         submissionPending: result.queue_status === "pending",
         submission: result.queue_status === "enqueued" ? result : null,
-        submissionError: result.queue_status === "pending" ? "The scenario is saved, but queue publication is pending. Retry the same submission." : "" };
+        submissionError: "" };
     } catch (reason) {
       this.expire();
       if (this.state.owner !== owner || this.submissionBody !== body) return;
@@ -135,8 +160,8 @@ export class WorkspaceMemory {
       if (invalid) this.submissionBody = null;
       this.state = { ...this.state, submitting: false, submissionPending: !invalid,
         errors: error.fields ?? {}, submissionError: invalid
-          ? "Submission was rejected. Review the inputs and prepare again."
-          : "Submission could not be confirmed. Retry to check the same scenario." };
+          ? "Could not send this scenario."
+          : "Could not confirm sending." };
     }
     this.notify();
   }

@@ -1,5 +1,411 @@
 # Private alert-testing session, draft, and preparation controls
 
+## Autosave and public preview — 14 October 2026
+
+The Earthquake section includes the Bulletin's MapLibre map and place-search
+combobox. Location description retains its label without a search icon. Search
+selection, map clicks, pin dragging, manual coordinates, and randomization
+update the same earthquake draft. Named selections use the local attributed
+GeoNames index; remote pins fall back to coordinate descriptions.
+Use my location requests device location only after the operator presses it.
+The picker contains no account preference or nearby-distance controls.
+Map/search errors use toaster feedback; map startup uses a centered spinner.
+
+The accepted amendment in ADR 0050 supersedes the historical browser-memory-only
+limits below. Each tab retains a workspace UUID in sessionStorage. Private
+Redis workspaces recover inputs, tester selections, and exact prepared replay
+after reload. No values or tester IDs enter browser storage.
+
+Autosave is debounced and serialized; wait for saves to finish before reloading
+to retain the most recent edits. Failed restoration blocks editing and provides
+a toaster Retry action. Failed saves retain local edits and provide feedback.
+Preview forecast becomes a link after signed preparation persistence succeeds.
+It opens the normal Bulletin at `/forecasts/{eventId}?test=true` before sending.
+Autosave creates no delivery history, job, queue command, or provider call.
+Simulate and Send remains the explicit submission action. New scenario creates
+a fresh preparation while retaining the tester selection.
+
+Workspace and immutable preview keys expire at the original session deadline.
+End Test cleanup removes them with other session-owned keys. Private control
+and public Backend images must both include the amendment for preview to work.
+
+## Ticket 63 release readiness — 14 October 2026
+
+Branch: `codex/alert-testing-release-readiness`.
+Exact baseline: `7ade071ccb0288732710fa489a75bf35136c4264`.
+Source checkout: `C:/Projects/quakestrikeph/redo/quakestrikeph`.
+Implementation review passed with zero Standards and Spec findings.
+Dependency PRs 66–70 are draft and unmerged at the handoff baseline.
+This section controls the complete tool's packaging; earlier ticket sections
+record historical slice limits and results. Parent issue 56 remains unchanged.
+
+### Packaged topology and configuration
+
+`apps/quakestrikeph-alert-testing/Dockerfile` builds the static Astro UI and
+copies only its output into the tested Python worker image. Node stays in the
+build stage. `infrastructure/compose.alert-testing.yml` defines four private
+services. Normal deployment automation never includes this additional file.
+
+| Service | Purpose and admission |
+| --- | --- |
+| `alert-test-control` | Python controls and static UI; `alert-testing` profile; no provider secrets. |
+| `alert-test-relay` | Pinned incumbent Traefik image; namespace shared with Python; host `127.0.0.1:4341` maps to relay 4342. |
+| `alert-test-redis` | Separate temporary Redis instance; either private profile; no host port, snapshots, or AOF. |
+| `alert-test-consumer` | Worker image; `alert-testing-consumer` profile and explicit `ALERT_TEST_CONSUMER_ENABLED=true`. |
+
+Python remains bound to namespace loopback 4341. The relay forwards to that
+endpoint and preserves Host and Origin. Python retains exact admission checks,
+including the port. Neither private service joins public ingress networks.
+No public Traefik route, Cloudflare route, Docker socket, dashboard, access
+log, proxy identity trust, or provider request from a control handler is added.
+ADR 0050 records why a relay is needed instead of a loopback port mapping alone.
+
+The relay health check probes its loopback ping. Control health reads the
+session through the relay; an unreadable Redis dependency fails the probe.
+Consumer health requires a live PID and bounded Redis connectivity.
+It does not verify batch progress, account grants, or provider access.
+Health checks never create sessions or establish actual message receipt.
+Containers use bounded logs, memory limits, and restart policies.
+
+Configure these values in the target's private managed environment, never Git:
+
+| Setting | Required value or owner |
+| --- | --- |
+| `ALERT_TEST_IMAGE_TAG` | Full tested Git SHA for both private images; independent of ordinary worker enablement. |
+| `ALERT_TEST_REDIS_URL` | Same explicit test instance for control, consumer, and Backend; packaged value `redis://alert-test-redis:6379/0`. |
+| `ALERT_TEST_DATABASE_URL` | `postgresql+psycopg://quakestrike_alert_testing:<URL-encoded-password>@postgres:5432/<database>`; restricted account reads only. |
+| `ALERT_TEST_ORIGIN` | Exactly `https://quakestrike-vps.tailf8b2fd.ts.net:8443`. |
+| `ALERT_TEST_PUBLIC_BULLETIN_URL` | Approved public Bulletin origin; frozen on each submitted job. |
+| `ALERT_TEST_PREPARATION_KEY` | Stable server-only key of at least 32 bytes; retain across compatible control restarts. |
+| `ALERT_TEST_CONSUMER_ENABLED` | `false` until separately authorized activation. |
+| `ALERT_TEST_IPROG_TOKEN` | Approved ordinary IPROG sender credential; consumer only. |
+| `ALERT_TEST_BREVO_API_KEY`, `ALERT_TEST_BREVO_SENDER_EMAIL`, `ALERT_TEST_BREVO_SENDER_NAME` | Approved transactional sender/domain and credentials; consumer only. |
+| `BREVO_CALLBACK_TOKEN` | Existing Backend authentication for `/api/v1/callbacks/brevo`; no new bypass. |
+
+The Backend's normal Compose file now passes the optional test Redis URL.
+Without configuration, synthetic requests remain unavailable and ordinary
+reads remain independent. Repeat Backend releases preserve the configured URL.
+The private Redis shares only the private data network, never production queues.
+Synthetic events, jobs, recipients, attempts, and history stay outside PostgreSQL.
+Redis loss discards the test. Do not recreate uncertain submissions automatically.
+Messages already submitted and provider-held records cannot be erased by cleanup.
+
+### Target prerequisites and activation boundary
+
+The target is the existing QuakeStrike VPS, `quakestrike-vps.tailf8b2fd.ts.net`,
+with repository checkout `/srv/quakestrikeph`. No server edit, SSH operation,
+Serve change, production secret change, or live provider call occurred here.
+These instructions prepare separately authorized operator actions only.
+
+Before activation, the operator must verify:
+
+- Dependency PRs have landed and the reviewed main release passed application checks.
+- The VPS checkout is clean and both private images carry that exact tested SHA.
+- PostgreSQL migrations and existing application health are verified under ADR 0049.
+- The restricted `quakestrike_alert_testing` login has only the documented account column grants.
+- Backend, control, and consumer select the same separate test Redis.
+- Tailnet HTTPS certificates and Serve are available on the VPS.
+- Tailnet policy permits only named authorized test operators to the VPS on TCP 8443.
+- Broader existing grants and device-sharing rules do not admit unintended operators on 8443.
+- PgAdmin's existing 443 listener still forwards to `http://127.0.0.1:5050`.
+- Approved IPROG coverage, Brevo sender/domain, destinations, callback authentication, and budgets exist.
+- The user separately authorized initial activation and any controlled real sends.
+
+Bulletin account login and Console admission do not admit test operators.
+Tailnet administration must review effective access; a new narrow rule alone
+does not restrict an existing broad allow rule. Testers open public forecast
+links without Tailscale. Do not expose private controls through Funnel.
+
+Follow `database-maintenance.md` for passwords and private access.
+After separately authorized role provisioning, run the existing
+`create-alert-testing` command with `ALERT_TEST_DB_PASSWORD` supplied privately
+to the provisioning process. Never pass an administrator or migration URL to
+the private runtime. Do not recreate PostgreSQL merely to inject that password.
+Use the host maintenance lock and existing grant procedures for target changes.
+
+One concrete provisioning command, after separate authorization, is:
+
+```bash
+read -rsp 'Restricted testing login password: ' testDbPassword
+sudo -n flock -w 120 --close /run/quakestrike-postgres-backup.lock docker compose --env-file .env -f infrastructure/compose.yml exec -T -e "ALERT_TEST_DB_PASSWORD=$testDbPassword" postgres sh /opt/quakestrike/provision-roles.sh create-alert-testing
+unset testDbPassword
+```
+
+Run from `/srv/quakestrikeph` with the already-running PostgreSQL container.
+This command neither recreates PostgreSQL nor runs migrations.
+Store the matching URL-encoded password in the private account connection.
+
+### Build and activate after separate authorization
+
+These Bash commands run in `/srv/quakestrikeph` on the named VPS.
+Set `ALERT_TEST_IMAGE_TAG` in the managed `.env` to the clean tested checkout's
+full SHA first. Do not print resolved Compose configuration containing secrets.
+
+```bash
+cd /srv/quakestrikeph
+test -z "$(git status --porcelain --untracked-files=all)"
+releaseSha=$(git rev-parse HEAD)
+```
+
+Use existing tested `quakestrike-workers:$releaseSha` when available.
+Verify its `org.opencontainers.image.revision` label equals `$releaseSha`.
+If an image with that tag exists, never overwrite it. If absent, build it:
+
+```bash
+docker build --label "org.opencontainers.image.revision=$releaseSha" -t "quakestrike-workers:$releaseSha" -f workers/Dockerfile .
+```
+
+Apply the same absent-tag and revision checks to the private UI/control image:
+
+```bash
+docker build --build-arg "BASE_IMAGE_TAG=$releaseSha" --label "org.opencontainers.image.revision=$releaseSha" -t "quakestrike-alert-testing:$releaseSha" -f apps/quakestrikeph-alert-testing/Dockerfile .
+```
+
+Retain both compatible previous images and the protected previous environment.
+Do not label an uncommitted local build as a tested Git release.
+The local verification uses the disposable `ticket63-local` tag instead.
+
+Define a scoped Compose helper, then validate configuration without printing secrets:
+
+```bash
+private_compose() {
+  docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.alert-testing.yml --profile alert-testing --profile alert-testing-consumer "$@"
+}
+private_compose config --quiet
+```
+
+After existing PostgreSQL health is verified, start only the named private services.
+`--no-deps` prevents these commands from recreating production dependencies.
+
+```bash
+private_compose up -d --wait --no-deps alert-test-redis alert-test-relay
+private_compose up -d --wait --no-deps alert-test-control
+```
+
+Recreate the Backend through the established Backend rollout only after its
+managed test Redis setting is configured. Preserve production service states
+and existing sender/callback settings. No additional public control route exists.
+
+Verify host loopback with the exact configured Host:
+
+```bash
+curl --fail --silent --show-error -H 'Host: quakestrike-vps.tailf8b2fd.ts.net:8443' http://127.0.0.1:4341/api/test/session
+tailscale serve status --json
+```
+
+Record the existing 443 configuration privately before adding only 8443.
+After admission and activation authorization are verified, run:
+
+```bash
+sudo tailscale serve --bg --https=8443 http://127.0.0.1:4341
+tailscale serve status --json
+```
+
+Verify both listeners and test permitted and denied operator devices.
+Verify pgAdmin still opens through 443. Open the private tool at
+`https://quakestrike-vps.tailf8b2fd.ts.net:8443` from an admitted device.
+Verify exact Host and Origin rejection, static pages, and session state.
+Only after separate consumer authorization, set enablement to `true` and run:
+
+```bash
+private_compose up -d --wait --no-deps alert-test-consumer
+```
+
+The official [Serve CLI reference](https://tailscale.com/docs/reference/tailscale-cli/serve)
+and [Serve access rules](https://tailscale.com/docs/features/tailscale-serve)
+were checked on 14 October 2026. The CLI supports a specified HTTPS port,
+background serving, status JSON, and scoped removal with the original flags.
+Those documentation checks do not verify the VPS's installed version or access.
+
+### Deactivation, cleanup recovery, and rollback
+
+Before a routine main deployment, schema maintenance, or private image change,
+end the shared test and confirm `closure_phase=complete`. Keep private services
+deactivated throughout the normal application rollout. Private images do not
+update automatically with the ordinary deployment script.
+
+1. Select End Test through the private UI.
+2. Confirm public links become invalid before cleanup completes.
+3. Wait for authorized calls and session-owned deletion to complete.
+4. If cleanup fails, restore Redis access and select Retry cleanup for the same session.
+5. Confirm `closure_phase=complete` before stopping the control service.
+
+The call grace period is at most 15 seconds. Failed cleanup stays closed.
+Retry cannot extend retention or revive an expired scenario.
+Keep the control service available while resolving cleanup failure.
+If Redis remains unavailable, record cleanup as unverified rather than complete.
+Do not flush Redis, remove another session's keys, or delete production queues.
+Original child TTLs and the fixed tombstone deadline remain deletion safeguards.
+
+Remove only the testing listener and stop only the private runtimes:
+
+```bash
+sudo tailscale serve --bg --https=8443 off
+tailscale serve status --json
+private_compose stop alert-test-consumer alert-test-control alert-test-relay
+```
+
+Compare 443 with the recorded configuration and verify pgAdmin remains usable.
+Never use `tailscale serve reset`, global Compose `down`, or Funnel here.
+After cleanup is verified and no test is active, the operator may also stop
+`alert-test-redis`. Stopping that nonpersistent instance discards its tombstone.
+Configure consumer enablement back to `false` before removing the test environment.
+
+For rollback, keep private ingress disabled and the consumer stopped.
+If the database revision is unchanged and verified, restore the compatible
+previous private image tag and preparation key in the managed environment.
+Recreate relay and control together because they share a network namespace.
+Verify health, loopback admission, and a fresh session before authorized reactivation.
+If the schema revision changed or is unverified, retain the target checkout
+and repair forward under ADR 0049. Never downgrade or restore the live database.
+Stopping a container does not recall provider submissions or prove cleanup.
+
+### Repeatable disposable verification
+
+Use only `quakestrike-data-ingestion-test`. Worker and Backend fixtures migrate
+and truncate their database and share the control key; run them serially.
+The following sequence expands the required contributor procedure before teardown:
+
+```powershell
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test redis-test
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --build --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml exec -T postgres-test sh /opt/quakestrike/provision-roles.sh create-backend
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile backend run --build --rm backend-test-runner
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile alert-testing-workflow up --build -d --wait alert-testing-backend-fixture
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --build --rm -e TEST_ALERT_BACKEND_URL=http://alert-testing-backend-fixture:3000 test-runner pytest --config-file workers/pyproject.toml workers/tests/release/test_alert_testing_workflow.py -q
+```
+
+The new release cases enter through private HTTP, use the real session Stream,
+restricted PostgreSQL account reads, selected account fixtures, and fake providers.
+The actual Backend HTTP app authenticates early email callbacks and reads the
+Python-produced scenario. SMS polls use injected fake outcomes; existing provider
+tests cover authenticated requests.
+The fixture has no live provider adapter or account mutation routes.
+Closure and expiry reject public detail/replay before physical cleanup.
+Late callbacks acknowledge without revival; unrelated queues and accounts survive.
+
+When the approved model bundle exists, run its separate documented check:
+
+```powershell
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile prediction-smoke run --build --rm prediction-smoke-runner pytest --config-file workers/pyproject.toml workers/tests/integration/test_prediction_worker.py -k test_real_seis -s
+```
+
+Check packaging using local tags, without secrets or production runtime configuration:
+
+```powershell
+uv run --project workers python infrastructure/scripts/check-alert-testing-compose.py
+docker build -t quakestrike-workers:ticket63-local -f workers/Dockerfile .
+docker build --build-arg BASE_IMAGE_TAG=ticket63-local -t quakestrike-alert-testing:ticket63-local -f apps/quakestrikeph-alert-testing/Dockerfile .
+uv run --project workers python infrastructure/scripts/smoke-alert-testing-package.py ticket63-local
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile alert-testing-workflow down -v
+```
+
+The smoke command refuses occupied host port 4341. It uses only disposable
+services and separate Redis, with provider credentials empty and consumer
+egress isolated. It verifies real relay/control/consumer health, pages/assets,
+exact admission, and Start/End without any job submission. It removes its four
+temporary private containers afterward. Final teardown removes only the test project.
+The smoke command also removes its two empty private networks.
+Do not use the unrelated edited `compose.local.yml` for these checks.
+CI adds the workflow and packaging checks as prerequisites to ordinary deployment,
+without adding private services to deployment automation.
+
+### Requirement coverage and manual acceptance
+
+| Requirement | Executable evidence |
+| --- | --- |
+| Shared session, fixed expiry, cleanup failure/retry, stale ownership, unrelated keys | `workers/tests/integration/test_alert_testing_sessions.py`. |
+| Restricted account grants, independent channels, selected identities, masked values | `test_alert_testing_accounts.py`; unit `test_alert_testing_testers.py`. |
+| Valid fields, inside/spillover/background observations, stable geometry | `test_alert_testing_scenarios.py`; unit scenario/observation files. |
+| Independent drafts, navigation memory, immutable preparation, old-response fences | Private `tests/workspace-memory.test.mjs` and `tests/session-requests.test.mjs`. |
+| Reviewed save, selected-account isolation, repeated submission/commands, uncertainty, final expiry gates | `test_alert_testing_delivery.py`; incumbent content/eligibility tests. |
+| Early evidence, ordered/duplicate callbacks, known SMS polls, waiting/cleanup/late-result fences | `test_alert_testing_reconciliation.py`; Backend `brevo.test.ts`. |
+| Public projection, stable replay paging, privacy, outage, invalidation, ordinary-route independence | Backend `syntheticScenarios.test.ts`; Bulletin `synthetic-validity.test.mjs` and replay tests. |
+| Actual Python producer to Backend reader/callback, restricted accounts, queue consumption, closure and expiry | New `workers/tests/release/test_alert_testing_workflow.py`. |
+| Opt-in profiles, exact 8443 origin, host loopback forwarding, no public network or provider secrets | Origin unit cases, packaging checker, actual package smoke. |
+
+User acceptance remains pending. Complete these checks on desktop and mobile
+in a separately authorized fake-provider acceptance environment first:
+
+1. Verify keyboard focus, calendar dismissal, dialogs, tables, and mobile Results remain usable.
+2. Start Test and compare the shared fixed Philippine-time deadline across two tabs.
+3. Select testers across searches and pages; inspect independent channel eligibility.
+4. Prepare inputs with local, spillover, and background observations.
+5. Navigate between private pages and use Back/Forward; confirm each tab retains its own workspace.
+6. Reload the private page and confirm unfinished work may reset.
+7. Edit inputs and delay responses; confirm stale preparation cannot replace the reviewed scenario.
+8. Submit the reviewed scenario and inspect queued, skipped, accepted, delivered, failed, and unknown outcomes.
+9. Retry an uncertain submission unchanged; confirm logical provider calls do not duplicate.
+10. Open the public forecast without Tailscale and compare production layout, wording, and interactions.
+11. Play, seek, reload, and retry replay; compare saved observations and retained test mode.
+12. Open PHIVOLCS and Back to earthquakes; confirm normal destinations and no synthetic list entries.
+13. Create another scenario and confirm earlier links remain readable.
+14. End during a fake call; inspect waiting, deletion, cleanup failure, retry, and ended presentations.
+15. Confirm ended, expired, and replaced sessions clear private memory and invalidate open public pages.
+16. Confirm dependency failure shows unavailable rather than false absence or successful cleanup.
+
+The accepted ignored prototype remains unchanged. Ticket 63 changes no UI
+markup or styling. Earlier local desktop/mobile inspections remain historical
+evidence; they do not establish the user's acceptance of this release.
+Controlled real SMS and inbox receipt require separate authorization and
+configured selected destinations. Fake acceptance or delivery never proves receipt.
+
+### Ticket 63 checks and outstanding blockers
+
+The table below records the completed local checks.
+Target prerequisites, initial activation authorization, effective Tailscale
+admission, installed Serve behavior, sender setup, real receipt, and user
+desktop/mobile acceptance remain unverified. No ticket is advanced by this record.
+
+| Local check | Observed result |
+| --- | --- |
+| Worker host suite | 505 passed; 399 skipped. Skips include 388 integration/release cases without test URLs and 11 Windows platform cases. |
+| Required isolated worker integration suite | 384 passed; two expected model skips. All integration cases executed against disposable services. |
+| Backend integration after documented disposable role provisioning | Seven passed; no skips. |
+| Complete private-to-Backend workflow, final source-mounted run | Two passed; no skips; explicit closure and expiry. |
+| Worker Ruff and formatting, including both new packaging scripts | Passed; 235 files formatted. |
+| Backend build/typecheck and unit tests | Passed; 35 unit tests, no skips. Host used pnpm plus `node --test` because npm is unavailable. |
+| Private app check/test/build | Passed; 24 tests; zero errors/warnings, four existing Select hints; four static pages. |
+| Bulletin check/build | Passed; zero errors/warnings, seven existing hints; existing large-chunk build warning. Includes preserved concurrent Bulletin edits. |
+| Bulletin identity/SMS/location/event-results/replay tests | Passed: 35, 43, 34, 16, and 20 tests respectively; no skips. |
+| Bulletin forecast route/rendering script | Passed: statuses, canonical/retry URLs, deferred observations, pagination, and JSON escaping. |
+| Worker image and private UI/control image builds | Passed with local-only `ticket63-local` tags. |
+| Private Compose isolation checker | Passed: profiles, loopback mapping, provider secret separation, explicit test Redis, ordinary release independence. |
+| Actual packaged service smoke | Passed: all four services healthy; pages/assets and exact 8443 admission; real Start/End; no jobs or provider calls. |
+| Separate approved-model forecast and replica checks | Two passed; 24 deselected; no skips or retry attempts. |
+| Existing `check-local-compose.py` | Failed at the Bulletin environment assertion because the unrelated local Compose edit adds `CI=true` and selects public API targets. No ticket 63 change alters that file. |
+| Unstaged, staged, and new-file whitespace checks | Passed; the index remains empty. |
+| Disposable teardown | Passed. The Backend fixture, private containers, PostgreSQL/Redis containers, and three test networks were removed. |
+
+The initial release harness parsed an unauthenticated plain-text 401 response
+as JSON, then expected a closed consumer to return false rather than raise
+the established `SessionConflict`. Both fixture assertions were corrected.
+The initial relay probe also exposed missing `--ping=true`; packaging now
+enables ping explicitly and the actual-container rerun passed.
+The initial Windows health test invoked POSIX signal zero; Windows lacks that
+semantics. The test now substitutes the signal check, and the full host rerun
+passed. Linux packaged smoke verifies the real process probe.
+Consumer liveness uses PID and Redis connectivity rather than a batch-completion
+deadline, so valid long recipient batches do not trigger false health failures.
+
+These are local verification results. Remote CI execution and the user's
+desktop/mobile acceptance are not established by them. No existing local
+runtime was started through the unrelated Compose configuration.
+
+The 20 ticket-owned files are:
+
+| Area | Files |
+| --- | --- |
+| Repository/CI | `.env.example`; `.github/workflows/ci.yml`. |
+| Packaging | `apps/quakestrikeph-alert-testing/Dockerfile`; `infrastructure/compose.alert-testing.yml`; `compose.backend.yml`; `compose.integration.yml`; `traefik/alert-testing.yml`; `scripts/check-alert-testing-compose.py`; `scripts/smoke-alert-testing-package.py`. |
+| Runtime | `workers/src/quakestrike/alert_testing/interface/http.py`; `consumer_runtime.py`; new `health.py`. |
+| Verification | `apps/backend-api/tests/fixtures/alertTestingServer.ts`; `workers/tests/release/__init__.py`; `test_alert_testing_workflow.py`; `workers/tests/unit/test_alert_testing_http.py`; `test_alert_testing_consumer_runtime.py`; new `test_alert_testing_health.py`. |
+| Records | `docs/adr/0050-private-alert-testing-session-runtime.md`; this operations guide. |
+
+The eight pre-existing Bulletin edits and `infrastructure/compose.local.yml`
+remain outside this ticket's changes. Nothing is staged, committed, pushed,
+deployed, merged, or sent to a provider by this implementation.
+
 ## Ticket 62 P3 Standards correction: polling diagnostics, 14 October 2026
 
 The polling workflow now reports normalized operational errors instead of
@@ -1043,3 +1449,81 @@ Use the disposable setup above. Complete these checks on desktop and mobile.
 18. Open a second tab and confirm its draft and preparation remain independent.
 19. Reload the private page and confirm the unfinished workspace may reset.
 20. Confirm public preview and Simulate and Send remain unavailable.
+
+## UI and autosave review corrections — 14 October 2026
+
+These corrections apply to the approved autosave/public-preview amendment,
+not the historical ticket acceptance steps above. The operator explicitly
+approved restoring visible field explanations and persistent section errors.
+
+- Scenario numeric fields, event time, and location show shared FieldError
+  explanations beside their controls. Each control references its error through
+  `aria-describedby`. The single short validation toast does not append those
+  explanations.
+- Initial History, Results, and Testers load failures show a persistent shared
+  shadcn Empty composition with CircleX and Retry. The panel remains during a
+  retry and disappears after a successful read. A missing Results scenario has
+  a persistent History action instead. Failures after data has loaded retain
+  that data and use the short toast with Retry. Map/search toaster exceptions
+  and the other approved toast reductions remain unchanged.
+- Autosave retains the fingerprint and base revision of an unconfirmed write.
+  Before writing newer edits, it reads the stored workspace and confirms only
+  the exact attempted payload at the next revision. It adopts that committed
+  predecessor without replacing newer local edits. An unchanged stored base
+  permits another attempt; unrelated payloads or revisions remain conflicts.
+  No submission, queue, provider, or public-preview ownership changes apply.
+
+Checks ran from the repository root unless an app directory is specified:
+
+| Command | Result |
+| --- | --- |
+| `pnpm test` in `apps/quakestrikeph-alert-testing` | 45 passed, including lost save response plus failed confirmation read, newer-edit recovery, and conflicting-write protection. |
+| `pnpm check` in `apps/quakestrikeph-alert-testing` | 0 errors, 0 warnings, 6 existing React Aria deprecation hints. |
+| `pnpm build` in `apps/quakestrikeph-alert-testing` | Passed; existing bundle-size advisory remains. |
+| `docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test redis-test` | Disposable PostgreSQL and Redis became healthy. |
+| `docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --build --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration` | 386 passed, 2 skipped. Integration tests ran with isolated test URLs; only two SEIS artifact-dependent tests skipped. |
+| `docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v` | Passed; disposable containers and their network were removed. |
+| `git diff --check` and `git diff --cached --check` | Passed; Git reported existing LF-to-CRLF conversion notices. |
+
+Live browser inspection confirmed a visible magnitude explanation and a
+persistent missing-scenario Results panel with a History button. Initial
+network failures on History and Testers were not injected in the live tool.
+No live provider calls, production changes, commits, staging, pushes, ticket
+changes, merges, or deployment actions were performed. Changes remain available
+for another Standards/Spec review; deployment approval remains paused.
+
+## Expired preparation retry correction — 14 October 2026
+
+Workspace persistence keeps the exact confirmed Redis fingerprint separately
+from the normalized browser snapshot. Removing an expired preparation during
+restoration no longer makes an unchanged stored revision appear conflicting.
+An unsuccessful write can retry newer local edits without restoring expired
+preparation or overwriting another writer. Owner changes clear both baselines.
+
+The new regression failed before the correction: only the first write ran.
+After the correction, it verifies two revision-3 attempts, a revision-4 saved
+record, retained newer selection, and no expired preparation or preview link.
+Independent Standards and Spec re-reviews both reported zero findings.
+
+Verification from `apps/quakestrikeph-alert-testing`:
+
+- `pnpm test`: 46 passed, zero failed or skipped.
+- `pnpm check`: zero errors, zero warnings, six existing deprecation hints.
+- `pnpm build`: passed; four static pages and the existing chunk-size advisory.
+- Staged and unstaged Git whitespace checks: passed.
+
+This correction changes browser persistence, its regression test, and this
+record only. Backend and isolated integration suites were not repeated because
+server storage, Redis scripts, and workflow contracts did not change. Their
+amendment results remain recorded above. No commit, push, merge, server change,
+live provider call, or deployment action occurred. Manual acceptance remains
+pending, and further merges remain paused.
+## Publication configuration check — 14 October 2026
+
+The reviewed Bulletin, private UI, and Redis autosave amendment are included
+in PR 71. Local Compose keeps noninteractive package installation (`CI=true`)
+and exposes explicit `LOCAL_API_TARGET` and `LOCAL_ACCOUNT_API_TARGET` overrides.
+Both default to `http://backend-api:3000`, preserving local isolation in CI.
+Set those overrides privately when a public API target is deliberately needed.
+The Compose isolation checker validates the local defaults and CI setting.
+Its check and Ruff passed after this adjustment.

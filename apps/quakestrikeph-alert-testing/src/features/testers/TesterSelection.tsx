@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { CheckboxContext } from "react-aria-components";
-import { ArrowRight, Check, ChevronLeft, CircleX, Search } from "lucide-react";
+import { ArrowRight, Check, ChevronLeft, Search } from "lucide-react";
 import { Button } from "@quakestrikeph/ui/button";
 import { Checkbox } from "@quakestrikeph/ui/checkbox";
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationPrevious, PaginationNext } from "@quakestrikeph/ui/pagination";
@@ -8,8 +8,8 @@ import { Field as SharedField, FieldLabel } from "@quakestrikeph/ui/field";
 import { InputGroup, InputGroupInput, InputGroupAddon } from "@quakestrikeph/ui/input-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@quakestrikeph/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@quakestrikeph/ui/table";
-import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription, EmptyContent } from "@quakestrikeph/ui/empty";
-import { Toaster, createToastManager } from "@quakestrikeph/ui/toast";
+import { toast as toastManager } from "@quakestrikeph/ui/toast";
+import { SectionError, useErrorToast } from "../feedback";
 import { useWorkspace } from "../workspace/use-workspace";
 import { testerRequest } from "../../lib/api";
 import type { Tester, TesterResponse } from "../../../../../packages/contracts/alert-testing/testers-v1";
@@ -19,7 +19,6 @@ function ChannelEligibility({ item, channel }: { item: Tester; channel: "email" 
   return <div className="channel-eligibility">
     <span className={`status ${value.eligible ? "teal" : "neutral"}`}>{value.eligible ? <><Check size={12} />Provisionally eligible</> : "Will skip"}</span>
     <small>{value.destination}</small>
-    <small>{value.enabled ? "Enabled" : "Disabled"} · {value.verified ? "Verified" : "Unverified"}</small>
     <small>{value.reason}</small>
   </div>;
 }
@@ -35,8 +34,9 @@ export default function TesterSelection() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
-  const [toastManager] = useState(createToastManager);
-  const [toastContainer, setToastContainer] = useState<HTMLDivElement | null>(null);
+  const [loadedOwner, setLoadedOwner] = useState<string | null>(null);
+  const initialFailure = !!error && loadedOwner !== workspace.owner;
+  useErrorToast(initialFailure ? null : error, "tester-accounts-error", () => setReload(value => value + 1));
   useEffect(() => {
     let cancelled = false;
     if (!workspace.ready) { setLoading(true); return; }
@@ -47,8 +47,8 @@ export default function TesterSelection() {
         query, selected: filter === "selected" ? selected : null,
         page: testerPage, size: testerPageSize,
         event: { magnitude: inputs.magnitude, latitude: inputs.latitude, longitude: inputs.longitude },
-      }).then(response => { if (!cancelled) { setResult(response); setError(null); } })
-        .catch(() => { if (!cancelled) setError("Your selected testers remain intact. Retry to load the accounts."); })
+      }).then(response => { if (!cancelled) { setResult(response); setLoadedOwner(workspace.owner); setError(null); } })
+        .catch(() => { if (!cancelled) setError("Could not load testers."); })
         .finally(() => { if (!cancelled) setLoading(false); });
     }, 200);
     return () => { cancelled = true; clearTimeout(timer); };
@@ -64,7 +64,7 @@ export default function TesterSelection() {
     if (value.length > 500) {
       toastManager.add({
         id: "tester-selection-limit", type: "error",
-        title: "Select at most 500 testers in one workspace.", timeout: 8000, priority: "high",
+        title: "You can select up to 500 testers.", timeout: 8000, priority: "high",
       });
       return;
     }
@@ -145,19 +145,7 @@ export default function TesterSelection() {
             </Button>
           </div>
         </div>
-        {error ? (
-          <Empty role="alert">
-            <EmptyHeader>
-              <EmptyMedia><CircleX size={32} className="text-destructive" aria-hidden="true" /></EmptyMedia>
-              <EmptyTitle role="heading" aria-level={2}>Accounts could not load</EmptyTitle>
-              <EmptyDescription>{error}</EmptyDescription>
-            </EmptyHeader>
-            <EmptyContent>
-              <Button isPending={loading} isDisabled={loading} onPress={() => setReload(value => value + 1)}>Retry accounts</Button>
-            </EmptyContent>
-          </Empty>
-        ) : <>
-        <div role="status" aria-live="polite"><p>{!workspace.ready ? "Checking session…" : loading ? "Loading accounts…" : `${total} accounts · ${selected.length} selected.`}</p></div>
+        {initialFailure ? <SectionError message={error!} pending={loading} retry={() => setReload(value => value + 1)} /> : <>
         <div className="desktop-table testers-table" aria-busy={loading}>
           <Table
             aria-label="Tester selection"
@@ -177,7 +165,7 @@ export default function TesterSelection() {
             </TableHeader>
             <TableBody
               renderEmptyState={() => (
-                <p className="empty-table">No accounts match your search.</p>
+                error || loading || !workspace.ready ? null : <p className="empty-table">No accounts match your search.</p>
               )}
             >
               {visible.map((item) => (
@@ -291,9 +279,7 @@ export default function TesterSelection() {
           </Button>
         </div>
         </>}
-        <div className="prototype-toaster" ref={setToastContainer}>
-          {toastContainer && <Toaster toastManager={toastManager} portalContainer={toastContainer} />}
-        </div>
+
       </>
     );
 }

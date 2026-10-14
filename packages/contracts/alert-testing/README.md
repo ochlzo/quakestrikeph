@@ -246,3 +246,23 @@ The control server serves a static Results shell at `/results/<eventId>`.
 History and Results remain separate Astro pages using the accepted prototype's
 desktop table and stacked mobile outcomes. See ADR 0050 for the bounded
 authorization grace and late-write rules.
+# Workspace autosave and prepared previews — 14 October 2026
+
+Private POST `/api/test/workspaces/read` accepts `session_id` and `workspace_id`.
+Missing workspaces return `{revision: 0, missing: true}`. Existing workspaces
+return `revision`, bounded input strings, selected tester UUIDs, exact signed
+`prepared` data or null, and `preview_url` or null.
+
+Private POST `/api/test/workspaces/save` additionally accepts expected
+`revision`, `inputs`, `selected`, and `scenario` (signed preparation or null).
+Revision-checked writes return the next revision and persisted preview URL.
+Identical retries are idempotent. Invalid editable values are recoverable;
+public previews require validated signed preparation.
+
+Workspace keys are `quakestrike:alert-testing:<session>:workspace:<workspace>`.
+Preview keys are `quakestrike:alert-testing:<session>:preview:<event>` and hold
+immutable version-1 envelopes with `preview: true`, `saved_at_ms`, stable
+event/forecast/model UUIDs and `scenario`. They do not imply submission.
+Public readers project approved fields, prefer submitted records, and never
+expose workspace drafts or selections. All keys share the original session
+deadline. Preview autosave adds no history entry or delivery command.

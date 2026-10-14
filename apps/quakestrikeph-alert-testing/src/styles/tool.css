@@ -7,6 +7,45 @@
 @import "./workspace.css";
 @import "./delivery.css";
 @source '../../../../packages/ui';
+/* Preserve shared toast typography and colors inside the prototype shell. */
+.prototype-toaster [data-slot=toast-title]{font-size:.875rem;line-height:1.25rem;font-weight:500;color:var(--popover-foreground);text-wrap:pretty}
+.prototype-toaster [data-slot=toast-description]{font-size:.875rem;line-height:1.25rem;color:var(--muted-foreground)}
+@media(max-width:359px){.prototype-toaster [data-slot=toast-content]{flex-wrap:wrap}.prototype-toaster [data-slot=toast-content]>div{flex-basis:calc(100% - 80px)}.prototype-toaster [data-slot=toast-action]{margin-left:28px}}
+.earthquake-location-map{position:relative;height:280px;margin-top:24px;margin-bottom:24px;border-radius:10px;overflow:hidden;background:var(--muted)}
+.earthquake-location-canvas{width:100%;height:100%}
+.earthquake-map-loading{position:absolute;inset:0;display:grid;place-items:center;background:var(--muted);pointer-events:none}
+.earthquake-location-row{display:flex;align-items:flex-end;gap:12px;margin-bottom:24px}
+.earthquake-location-combobox{flex:1;min-width:0}
+.earthquake-location-label{display:block;font-size:13px;font-weight:550;margin-bottom:10px}
+.tool .earthquake-use-location{height:52px;white-space:nowrap}
+.earthquake-places-popover{font-family:'Geist Variable',sans-serif;min-width:220px;padding:5px;border:1px solid var(--border);background:var(--popover);border-radius:10px}
+.earthquake-places-popover [data-slot=combobox-item]{padding:10px;font-size:13px;min-height:44px}
+.earthquake-place-context{display:block;font-size:11px;color:var(--muted-foreground);margin-top:3px}
+.earthquake-places-popover [data-slot=combobox-empty]{font-size:12px;padding:16px;line-height:1.5}
+@media(max-width:760px){.earthquake-location-map{height:260px}.earthquake-location-row{flex-direction:column;align-items:stretch}.earthquake-location-combobox{width:100%}.tool .earthquake-use-location{align-self:flex-start;height:44px}.earthquake-location-label{font-size:12px}}
+.review-rail .replay-placeholder {display:grid;place-items:center;aspect-ratio:280/130;height:auto;background:var(--muted);border-radius:8px}
+
+/* Match the prototype's selection panes, including portaled popovers. */
+.magnitude-filter-popover {
+  width: max-content;
+  min-width: max(220px, var(--trigger-width));
+  max-width: calc(100vw - 24px);
+  font-family: var(--font-sans);
+  color: var(--foreground);
+  background: var(--card);
+}
+.magnitude-filter-popover [data-slot="select-list"] {
+  padding: 4px;
+}
+.magnitude-filter-popover [data-slot="select-item"] {
+  min-height: 36px;
+  padding-left: 8px;
+  gap: 9px;
+  font-size: 14px;
+}
+.magnitude-filter-popover [data-slot="select-item"][data-focused] {
+  background: var(--accent);
+}
 
 /* Session and shell rules from the accepted alert-testing prototype. */
 body {margin:0}
@@ -21,6 +60,7 @@ p {line-height:1.6}
 .tool {min-height:100vh;display:flex}
 .tool [data-slot=button] {min-height:40px;font-size:13px;border-radius:8px;padding:0 14px;cursor:pointer}
 .tool [data-slot=button][data-size=icon] {width:36px;min-height:36px;padding:0}
+.tool [data-slot=button].back-link {padding-left:0}
 .workspace {margin-left:224px;min-width:0;flex:1;display:flex;flex-direction:column}
 .session-indicator {display:flex;align-items:center;gap:10px;font-size:12px}
 .session-indicator>strong {font-weight:550;font-size:13px}
@@ -131,6 +171,11 @@ p {line-height:1.6}
 .shell-header>.end-button {padding:0 10px}
 }
 .shell-header {position:sticky;top:0;z-index:20}
+.header-loading-bar {position:absolute;left:0;right:0;bottom:-2px;height:2px;overflow:hidden;pointer-events:none;opacity:1;transition:opacity .2s ease}
+.header-loading-bar>span {display:block;width:100%;height:100%;background:var(--primary);transform-origin:left;transition:transform .25s ease-out}
+.header-loading-bar[data-loading]>span {transition:none}
+.header-loading-bar[data-fading] {opacity:0}
+@media(prefers-reduced-motion:reduce){.header-loading-bar,.header-loading-bar>span{transition:none}}
 body:has(.tool) {position:static}
 .operator-navigation {padding:12px 8px}
 .operator-navigation [data-slot=sidebar-group-label] {height:28px;padding:0 8px;margin-bottom:8px;gap:12px}

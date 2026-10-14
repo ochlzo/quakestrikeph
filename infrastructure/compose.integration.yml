@@ -103,6 +103,32 @@ services:
       redis-test:
         condition: service_healthy
 
+  alert-testing-backend-fixture:
+    profiles: [alert-testing-workflow]
+    build:
+      context: ..
+      dockerfile: apps/backend-api/Dockerfile.test
+    command: [sh, -ec, "npm run build && node dist/tests/fixtures/alertTestingServer.js"]
+    environment:
+      TEST_DATABASE_URL: postgresql://quakestrike_test:integration-only@postgres-test:5432/quakestrike_test
+      TEST_REDIS_URL: redis://redis-test:6379/0
+    networks: [phase2-test]
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/v1/earthquakes/00000000-0000-4000-8000-000000000001?test=true').then(r => process.exit(r.status === 404 ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    logging:
+      driver: local
+      options:
+        max-size: "20m"
+        max-file: "5"
+
 networks:
   phase2-test:
     internal: true

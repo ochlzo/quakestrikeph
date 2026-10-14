@@ -71,6 +71,9 @@ def main() -> None:
         else None
     )
     testers = Testers(PostgresAccountReader(engine), sessions) if engine is not None else None
+    from quakestrike.alert_testing.application.workspaces import Workspaces
+    from quakestrike.alert_testing.infrastructure.workspaces import RedisWorkspaceStore
+
     server = PrivateServer(
         sessions,
         args.static_directory,
@@ -79,6 +82,7 @@ def main() -> None:
         testers=testers,
         scenarios=Scenarios(sessions, signer=signer),
         submissions=Submissions(sessions, RedisDeliveryStore(client, public_url), signer),
+        workspaces=Workspaces(sessions, RedisWorkspaceStore(client, public_url), signer),
     )
     logger = configure_logging("alert-testing")
     stopped = Event()

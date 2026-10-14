@@ -12,7 +12,13 @@ export default defineConfig({
   vite: {
     // Astro 7.3.5 imports a missing, type-only runtime module. Keep its empty
     // shim out of dependency optimization as well as the production bundle.
-    optimizeDeps: { exclude: ['astro/virtual-modules/transitions-types.js'] },
+    optimizeDeps: {
+      exclude: ['astro/virtual-modules/transitions-types.js'],
+      include: [
+        'react-aria-components > react-aria > use-sync-external-store/shim',
+        'react-aria-components > react-aria > use-sync-external-store/shim/with-selector',
+      ],
+    },
     resolve: { alias: [{
       find: '../transitions/types.js',
       replacement: fileURLToPath(new URL('./src/lib/astro-transition-types.ts', import.meta.url)),
@@ -43,6 +49,7 @@ export default defineConfig({
         },
       },
       watch: {
+        ignored: ["**/.pnpm-store/**"],
         usePolling: process.env.DEV_USE_POLLING === "true",
         interval: 300,
       },

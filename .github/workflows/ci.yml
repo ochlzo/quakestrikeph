@@ -56,9 +56,15 @@ jobs:
       - name: Run Backend integration tests
         run: docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --build --rm backend-test-runner
 
+      - name: Start disposable alert-testing Backend fixture
+        run: docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile alert-testing-workflow up --build -d --wait alert-testing-backend-fixture
+
+      - name: Verify complete private alert-testing workflow
+        run: docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --rm -e TEST_ALERT_BACKEND_URL=http://alert-testing-backend-fixture:3000 test-runner pytest --config-file workers/pyproject.toml workers/tests/release/test_alert_testing_workflow.py
+
       - name: Remove isolated test services
         if: always()
-        run: docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v
+        run: docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile alert-testing-workflow down -v
 
   backend-unit:
     runs-on: ubuntu-24.04
@@ -75,6 +81,27 @@ jobs:
         working-directory: apps/backend-api
       - run: npm test
         working-directory: apps/backend-api
+
+  alert-testing-package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check private packaging isolation
+        run: python3 infrastructure/scripts/check-alert-testing-compose.py
+      - name: Build worker and private UI/control images
+        run: |
+          docker build -t quakestrike-workers:ci-test -f workers/Dockerfile .
+          docker build --build-arg BASE_IMAGE_TAG=ci-test -t quakestrike-alert-testing:ci-test -f apps/quakestrikeph-alert-testing/Dockerfile .
+      - name: Probe packaged private services without provider credentials
+        run: |
+          docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test redis-test
+          python3 infrastructure/scripts/smoke-alert-testing-package.py ci-test
+      - name: Remove disposable package services
+        if: always()
+        run: docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile alert-testing-workflow down -v
 
   bulletin:
     runs-on: ubuntu-24.04
@@ -113,7 +140,7 @@ jobs:
 
   deploy:
     if: github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true'
-    needs: [workers, backend-unit, bulletin]
+    needs: [workers, backend-unit, bulletin, alert-testing-package]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     concurrency:

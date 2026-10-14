@@ -23,7 +23,7 @@ export function readEarthquakeCache(query: EarthquakeSearch, storage?: Pick<Stor
   try {
     const cached = JSON.parse((storage ?? sessionStorage).getItem(storageKey) ?? "null");
     if (!cached || cached.query !== JSON.stringify(query) ||
-      !Array.isArray(cached.items) || cached.items.length > 30 ||
+      !Array.isArray(cached.items) || cached.items.length > query.limit ||
       !cached.items.every(isEarthquake) || typeof cached.fetchedAt !== "string" ||
       !Number.isFinite(Date.parse(cached.fetchedAt))) return null;
     return { items: cached.items, fetchedAt: cached.fetchedAt };
@@ -35,7 +35,7 @@ export function readEarthquakeCache(query: EarthquakeSearch, storage?: Pick<Stor
 export function writeEarthquakeCache(query: EarthquakeSearch, data: components["schemas"]["SearchResponse"], storage?: Pick<Storage, 'setItem'>): void {
   try {
     (storage ?? sessionStorage).setItem(storageKey, JSON.stringify({
-      query: JSON.stringify(query), items: data.items.slice(0, 30), fetchedAt: data.fetchedAt,
+      query: JSON.stringify(query), items: data.items.slice(0, query.limit), fetchedAt: data.fetchedAt,
     }));
   } catch {
     // Unavailable storage must not prevent live results from loading.

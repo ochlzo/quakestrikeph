@@ -6,9 +6,9 @@ export type SearchRequest = components['schemas']['SearchRequest'];
 export type SearchResponse = components['schemas']['SearchResponse'];
 export type SearchEvents = (request: SearchRequest, signal: AbortSignal) => Promise<SearchResponse>;
 
-export function eventSearch(state: BulletinState): SearchRequest {
+export function eventSearch(state: BulletinState, limit = 30): SearchRequest {
   return {
-    limit: 30,
+    limit,
     location: state.query.trim() || undefined,
     dateFrom: state.date.from,
     dateTo: state.date.to,

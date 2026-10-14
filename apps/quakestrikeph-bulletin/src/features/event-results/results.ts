@@ -28,6 +28,8 @@ export type EventResultsSnapshot = {
   searching: boolean;
   failed: boolean;
   canLoadMore: boolean;
+  pageNumber: number;
+  pageSize: number;
 };
 
 function sameBands(left: string[], right: string[]) {
@@ -51,6 +53,8 @@ export class EventResults {
   private detailStatus: DetailStatus = 'loading';
   private previousId: string | null = null;
   private nextCursor: string | null = null;
+  private pageSize = 30;
+  private previousPages: { items: Earthquake[]; nextCursor: string | null }[] = [];
   private initialPage: SearchResponse | null;
   private active = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -126,6 +130,32 @@ export class EventResults {
 
   refresh = () => this.loadEvents();
 
+  changePageSize = (size: number) => {
+    if (![10, 30, 50, 70, 100].includes(size) || size === this.pageSize) return;
+    this.pageSize = size;
+    this.initialPage = null;
+    this.clearSelection();
+    this.loadEvents();
+  };
+
+  previousPage = () => {
+    if (this.pageController || !this.snapshot.resultsCurrent) return;
+    const page = this.previousPages.pop();
+    if (!page) return;
+    this.events = page.items;
+    this.nextCursor = page.nextCursor;
+    this.pageStatus = 'idle';
+    this.clearSelection();
+    this.publish();
+  };
+
+  private clearSelection() {
+    this.state = { ...this.state, selectedId: null };
+    this.detailController?.abort();
+    this.selectedDetail = null;
+    this.previousId = null;
+  }
+
   private loadEvents(resuming = false) {
     if (!this.active) return;
     clearTimeout(this.timer);
@@ -134,10 +164,11 @@ export class EventResults {
     this.pageController = undefined;
     this.pageStatus = 'idle';
     this.nextCursor = null;
+    this.previousPages = [];
     const state = this.state;
     if (state.query.trim().length === 1) { this.publish(); return; }
     const delay = state.query.trim() || !sameBands(state.magnitudes, this.settled.magnitudes) ? 300 : 0;
-    const search = eventSearch(state);
+    const search = eventSearch(state, this.pageSize);
     const initial = sameFilters(state, this.initialSnapshot.state) ? this.initialPage : null;
     this.initialPage = null;
     const retained = resuming && this.status === 'ready' && sameFilters(state, this.settled);
@@ -172,19 +203,20 @@ export class EventResults {
     }, delay);
   }
 
-  loadMore = async () => {
+  nextPage = async () => {
     if (!this.active || !this.snapshot.canLoadMore || this.pageController) return;
     const controller = new AbortController();
     this.pageController = controller;
     this.pageStatus = 'loading';
-    const search = { ...eventSearch(this.state), cursor: this.nextCursor! };
+    const search = { ...eventSearch(this.state, this.pageSize), cursor: this.nextCursor! };
     this.publish();
     try {
       const data = await this.dependencies.search(search, controller.signal);
       if (controller.signal.aborted || !this.active) return;
-      const seen = new Set(this.events.map(event => event.eventId));
-      this.events = [...this.events, ...data.items.filter(event => !seen.has(event.eventId))];
+      this.previousPages.push({ items: this.events, nextCursor: this.nextCursor });
+      this.events = data.items;
       this.nextCursor = data.nextCursor;
+      this.clearSelection();
       this.pageStatus = 'idle';
       this.publish();
     } catch {
@@ -235,6 +267,7 @@ export class EventResults {
       searching: this.state.query.trim().length !== 1 && (this.status === 'loading' || !matches),
       failed: this.status === 'error' && matches,
       canLoadMore: resultsCurrent && Boolean(this.nextCursor),
+      pageNumber: this.previousPages.length + 1, pageSize: this.pageSize,
     };
   }
 

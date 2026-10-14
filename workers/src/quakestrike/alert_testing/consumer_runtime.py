@@ -16,6 +16,7 @@ from quakestrike.alert_testing.application.delivery import Delivery
 from quakestrike.alert_testing.application.reconciliation import Reconciliation
 from quakestrike.alert_testing.application.sessions import Sessions
 from quakestrike.alert_testing.domain.sessions import SessionConflict
+from quakestrike.alert_testing.health import mark_consumer
 from quakestrike.alert_testing.infrastructure.accounts import (
     AccountAccessUnavailable,
     PostgresAccountReader,
@@ -113,6 +114,7 @@ def main():
         store, delivery.providers["sms"], report=PollingDiagnostics(logger)
     )
     unavailable = None
+    mark_consumer()
     try:
         while True:
             try:
