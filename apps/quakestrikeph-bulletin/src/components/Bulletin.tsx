@@ -270,6 +270,7 @@ export default function Bulletin({
   const dateSelectTrigger = useRef<HTMLButtonElement>(null);
   const eventList = useRef<HTMLDivElement>(null);
   const drawerScroll = useRef<HTMLDivElement>(null);
+  const drawerSwipeStart = useRef<{ x: number; y: number } | null>(null);
   const selectedCard = useRef<HTMLElement>(null);
   const pendingMapSelection = useRef<string | null>(null);
   const location = query.trim();
@@ -299,8 +300,14 @@ export default function Bulletin({
   }, [selected?.eventId]);
 
   useLayoutEffect(() => {
-    drawerScroll.current?.scrollTo({ top: 0 });
-  }, [drawerMode, selected?.eventId]);
+    const scroll = drawerScroll.current;
+    if (!scroll) return;
+    const overview = drawerMode === "forecast" && compactHeight === expandedHeight
+      ? scroll.querySelector<HTMLElement>("#mobile-forecast-overview") : null;
+    scroll.scrollTo({
+      top: overview ? overview.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop : 0,
+    });
+  }, [drawerMode, selected?.eventId, compactHeight, expandedHeight]);
 
   useLayoutEffect(() => {
     const stage = mapStage.current;
@@ -799,11 +806,26 @@ export default function Bulletin({
               snapPoints={drawerMode === "list" ? [expandedHeight, 1]
                 : expandedHeight > compactHeight ? [compactSnap, expandedHeight] : [compactSnap]}
               snapPoint={drawerSnap}
-              onSnapPointChange={(snap) => {
+              onSnapPointChange={(snap, details) => {
                 setDrawerSnap(snap);
                 if (drawerMode !== "list" && selected) {
-                  setDrawerMode(snap === compactSnap ? "event" : "forecast");
+                  if (expandedHeight > compactHeight) {
+                    setDrawerMode(snap === compactSnap ? "event" : "forecast");
+                  } else if (snap !== null && details.reason === "swipe"
+                    && details.event.type !== "pointercancel" && details.event.type !== "touchcancel") {
+                    // At the height cap, a swipe changes content without changing height.
+                    const start = drawerSwipeStart.current;
+                    const release = "changedTouches" in details.event ? details.event.changedTouches[0]
+                      : "clientY" in details.event ? details.event : null;
+                    if (start && release) {
+                      const deltaY = release.clientY - start.y;
+                      if (Math.abs(deltaY) >= 24 && Math.abs(deltaY) > Math.abs(release.clientX - start.x)) {
+                        setDrawerMode(deltaY < 0 ? "forecast" : "event");
+                      }
+                    }
+                  }
                 }
+                drawerSwipeStart.current = null;
               }}
               showSwipeHandle
             >
@@ -819,6 +841,13 @@ export default function Bulletin({
                 ref={setDrawerPopup}
                 className="earthquake-drawer"
                 initialFocus={false}
+                onPointerDownCapture={(event) => {
+                  drawerSwipeStart.current = event.isPrimary ? { x: event.clientX, y: event.clientY } : null;
+                }}
+                onTouchStartCapture={(event) => {
+                  const touch = event.touches.length === 1 ? event.touches[0] : null;
+                  drawerSwipeStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
+                }}
                 aria-keyshortcuts={selected && drawerMode !== "list" ? "ArrowUp ArrowDown" : undefined}
                 onKeyDown={(event) => {
                   if (!selected || drawerMode === "list" || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;

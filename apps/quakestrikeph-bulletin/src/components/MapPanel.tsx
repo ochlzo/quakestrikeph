@@ -323,7 +323,8 @@ export default function MapPanel({
   }, []);
 
   useEffect(() => {
-    if (!mapReady || !container.current) return;
+    const instance = map.current;
+    if (!mapReady || !container.current || !instance) return;
     const element = container.current;
     const viewport = element.parentElement!;
     const shell = element.closest(".bulletin-shell");
@@ -375,31 +376,41 @@ export default function MapPanel({
     sidebarGap?.addEventListener("transitionend", finishTransition);
     sidebarGap?.addEventListener("transitioncancel", finishTransition);
     let recenterTimer = 0;
+    let pendingRecenter = false;
+    let heightSettled = true;
     const finishHeightChange = () => {
-      const instance = map.current;
-      if (!selectedEvent || !instance) return;
+      if (!pendingRecenter || !heightSettled || !selectedEvent || instance.isMoving()) return;
+      pendingRecenter = false;
       const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 220;
       if (fitMobileActivityRadius(instance, selectedEvent, mobileRadiusKm, duration)) return;
-      if (instance.isMoving()) return;
       // Recenter after resizing so MapLibre calculates the pan against a stable viewport.
-      map.current?.easeTo({
+      instance.easeTo({
         center: [selectedEvent.longitude, selectedEvent.latitude],
-        duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 220,
+        duration,
       });
     };
+    instance.on("moveend", finishHeightChange);
     let previousHeight = viewport.clientHeight;
     const observer = new ResizeObserver(() => {
       if (transitionCenter) return;
       const heightChanged = viewport.clientHeight !== previousHeight;
       previousHeight = viewport.clientHeight;
-      map.current?.resize();
-      if (overviewInDrawer && selectedEvent && heightChanged) {
+      const needsRecenter = overviewInDrawer && selectedEvent && heightChanged;
+      if (needsRecenter) {
         window.clearTimeout(recenterTimer);
+        pendingRecenter = true;
+        heightSettled = false;
+      }
+      // resize() can emit moveend; do not fit until this resize has settled.
+      instance.resize();
+      if (needsRecenter) {
+        const settleHeight = () => {
+          heightSettled = true;
+          finishHeightChange();
+        };
         if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-          if (map.current && !fitMobileActivityRadius(map.current, selectedEvent, mobileRadiusKm, 0)) {
-            map.current.jumpTo({ center: [selectedEvent.longitude, selectedEvent.latitude] });
-          }
-        } else recenterTimer = window.setTimeout(finishHeightChange, 80);
+          settleHeight();
+        } else recenterTimer = window.setTimeout(settleHeight, 80);
       }
       // Paint the resized canvas only after the camera reaches its frame position.
       map.current?.redraw();
@@ -408,6 +419,7 @@ export default function MapPanel({
     return () => {
       observer.disconnect();
       window.clearTimeout(recenterTimer);
+      instance.off("moveend", finishHeightChange);
       sidebarGap?.removeEventListener("transitionrun", startTransition);
       sidebarGap?.removeEventListener("transitionend", finishTransition);
       sidebarGap?.removeEventListener("transitioncancel", finishTransition);
