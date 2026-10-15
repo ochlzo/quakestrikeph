@@ -416,3 +416,10 @@ change, rebuild its image and renew only its dependency volume with
 `docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml up -d --no-deps --force-recreate -V bulletin`.
 The command renews anonymous volumes; the Bulletin dependency mount must be
 anonymous so it never changes the shared PostgreSQL or Redis volumes.
+
+The local override launches the installed Astro CLI directly with `--ignore-lock`.
+Docker manages the server process. A host-mounted `.astro/dev.json` can retain a
+PID from a removed container and falsely block its replacement. The local command
+neither reads nor writes that record and avoids pnpm's automatic installation
+before script execution. Rebuild the image and renew the Bulletin dependency
+volume after dependency changes, as documented above.

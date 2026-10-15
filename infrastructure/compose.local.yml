@@ -29,6 +29,8 @@ services:
 
   bulletin:
     image: quakestrike-bulletin:local
+    # Docker owns this server process; host-mounted Astro PID records outlive containers.
+    command: ["node", "./node_modules/astro/bin/astro.mjs", "dev", "--host", "0.0.0.0", "--ignore-lock"]
     build:
       context: ..
       dockerfile: apps/quakestrikeph-bulletin/Dockerfile
