@@ -238,6 +238,8 @@ export default function Bulletin({
     : drawerSnap !== null && drawerSnap <= 1 ? drawerSnap * viewportHeight
     : drawerSnap ?? compactHeight;
   const [drawerSummary, setDrawerSummary] = useState<HTMLDivElement | null>(null);
+  const [drawerPopup, setDrawerPopup] = useState<HTMLDivElement | null>(null);
+  const mapStage = useRef<HTMLDivElement>(null);
   const [customRange, setCustomRange] = useState<RangeValue<DateValue>>(() => {
     if (
       initialState.date.value === "custom" &&
@@ -299,6 +301,48 @@ export default function Bulletin({
   useLayoutEffect(() => {
     drawerScroll.current?.scrollTo({ top: 0 });
   }, [drawerMode, selected?.eventId]);
+
+  useLayoutEffect(() => {
+    const stage = mapStage.current;
+    if (!mobile || !stage || !drawerPopup) return;
+    let frame = 0;
+    let previousHeight = -1;
+    const followDrawer = () => {
+      frame = 0;
+      const bounds = stage.getBoundingClientRect();
+      const height = Math.min(bounds.height, Math.max(0, drawerPopup.getBoundingClientRect().top - bounds.top));
+      if (height !== previousHeight) {
+        stage.style.setProperty("--earthquake-map-height", `${height}px`);
+        previousHeight = height;
+      }
+      if (drawerPopup.hasAttribute("data-swiping") || drawerPopup.getAnimations().some((animation) => animation.playState === "running")) {
+        frame = requestAnimationFrame(followDrawer);
+      }
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(followDrawer);
+    };
+    // The popup stays mounted through dismissal, so the map also follows its exit.
+    stage.setAttribute("data-drawer-tracking", "");
+    followDrawer();
+    const mutations = new MutationObserver(schedule);
+    mutations.observe(drawerPopup, {
+      attributes: true,
+      attributeFilter: ["style", "data-swiping", "data-starting-style", "data-ending-style"],
+    });
+    const resize = new ResizeObserver(schedule);
+    resize.observe(stage);
+    resize.observe(drawerPopup);
+    drawerPopup.addEventListener("transitionrun", schedule);
+    return () => {
+      cancelAnimationFrame(frame);
+      mutations.disconnect();
+      resize.disconnect();
+      drawerPopup.removeEventListener("transitionrun", schedule);
+      stage.removeAttribute("data-drawer-tracking");
+      stage.style.removeProperty("--earthquake-map-height");
+    };
+  }, [mobile, drawerPopup]);
 
   useLayoutEffect(() => {
     const summary = drawerSummary;
@@ -728,7 +772,7 @@ export default function Bulletin({
   return (
     <BulletinLayout filters={filters} results={earthquakeList}>
       <div className="content-grid">
-        <div className="map-stage" style={{
+        <div className="map-stage" ref={mapStage} style={{
           "--earthquake-panel-height": mobile && drawerOpen ? `${drawerHeight}px` : "0px",
         } as CSSProperties}>
           <MapPanel
@@ -745,8 +789,8 @@ export default function Bulletin({
               open={drawerOpen}
               onOpenChange={(open) => {
                 if (open) {
-                  setDrawerMode(selected ? "event" : "list");
-                  setDrawerSnap(selected ? compactSnap : expandedHeight);
+                  setDrawerMode("list");
+                  setDrawerSnap(expandedHeight);
                 } else setCalendarOpen(false);
                 setDrawerOpen(open);
               }}
@@ -769,9 +813,10 @@ export default function Bulletin({
                 })}
               >
                 <ListCollapse aria-hidden="true" />
-                {selected ? "Show earthquake details" : "Show earthquakes"}
+                Show earthquakes
               </DrawerTrigger>
               <DrawerContent
+                ref={setDrawerPopup}
                 className="earthquake-drawer"
                 initialFocus={false}
                 aria-keyshortcuts={selected && drawerMode !== "list" ? "ArrowUp ArrowDown" : undefined}

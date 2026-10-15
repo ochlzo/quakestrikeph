@@ -70,6 +70,29 @@ function radiusCoordinates(event: Earthquake, radiusKm: number) {
   );
 }
 
+function fitMobileActivityRadius(instance: MapLibreMap, event: Earthquake, radiusKm: number | null, duration: number) {
+  const { clientWidth: width, clientHeight: height } = instance.getContainer();
+  if (!radiusKm || !width || !height) return false;
+  const coordinates = radiusCoordinates(event, radiusKm);
+  const longitudes = coordinates.map(([longitude]) => longitude);
+  const latitudes = coordinates.map(([, latitude]) => latitude);
+  instance.fitBounds([
+    [Math.min(...longitudes), Math.min(...latitudes)],
+    [Math.max(...longitudes), Math.max(...latitudes)],
+  ], {
+    padding: {
+      top: Math.min(56, height * 0.24),
+      bottom: Math.min(32, height * 0.14),
+      left: Math.min(28, width * 0.1),
+      right: Math.min(28, width * 0.1),
+    },
+    maxZoom: 7.2,
+    duration,
+    linear: true,
+  });
+  return true;
+}
+
 function set3DInteractions(instance: MapLibreMap, enabled: boolean) {
   instance.setMaxPitch(enabled ? 85 : 0);
   if (enabled) {
@@ -141,6 +164,7 @@ export default function MapPanel({
     forecastStatus === "ready" ? forecastRadiusKm(forecast) : null;
   const radiusKm =
     reportedRadiusKm !== null && reportedRadiusKm > 0 ? reportedRadiusKm : null;
+  const mobileRadiusKm = overviewInDrawer && !forecastAnchor ? radiusKm : null;
 
   useEffect(() => {
     if (!legendOpen) return;
@@ -350,25 +374,32 @@ export default function MapPanel({
     sidebarGap?.addEventListener("transitionrun", startTransition);
     sidebarGap?.addEventListener("transitionend", finishTransition);
     sidebarGap?.addEventListener("transitioncancel", finishTransition);
-    const heightRegion = viewport.parentElement!;
-    const finishHeightTransition = (event: TransitionEvent) => {
-      if (event.target !== heightRegion || event.propertyName !== "height" || !overviewInDrawer || !selectedEvent) return;
-      if (map.current?.isMoving()) return;
+    let recenterTimer = 0;
+    const finishHeightChange = () => {
+      const instance = map.current;
+      if (!selectedEvent || !instance) return;
+      const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 220;
+      if (fitMobileActivityRadius(instance, selectedEvent, mobileRadiusKm, duration)) return;
+      if (instance.isMoving()) return;
       // Recenter after resizing so MapLibre calculates the pan against a stable viewport.
       map.current?.easeTo({
         center: [selectedEvent.longitude, selectedEvent.latitude],
         duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 220,
       });
     };
-    heightRegion.addEventListener("transitionend", finishHeightTransition);
     let previousHeight = viewport.clientHeight;
     const observer = new ResizeObserver(() => {
       if (transitionCenter) return;
       const heightChanged = viewport.clientHeight !== previousHeight;
       previousHeight = viewport.clientHeight;
       map.current?.resize();
-      if (overviewInDrawer && selectedEvent && heightChanged && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-        map.current?.jumpTo({ center: [selectedEvent.longitude, selectedEvent.latitude] });
+      if (overviewInDrawer && selectedEvent && heightChanged) {
+        window.clearTimeout(recenterTimer);
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          if (map.current && !fitMobileActivityRadius(map.current, selectedEvent, mobileRadiusKm, 0)) {
+            map.current.jumpTo({ center: [selectedEvent.longitude, selectedEvent.latitude] });
+          }
+        } else recenterTimer = window.setTimeout(finishHeightChange, 80);
       }
       // Paint the resized canvas only after the camera reaches its frame position.
       map.current?.redraw();
@@ -376,14 +407,14 @@ export default function MapPanel({
     observer.observe(viewport);
     return () => {
       observer.disconnect();
-      heightRegion.removeEventListener("transitionend", finishHeightTransition);
+      window.clearTimeout(recenterTimer);
       sidebarGap?.removeEventListener("transitionrun", startTransition);
       sidebarGap?.removeEventListener("transitionend", finishTransition);
       sidebarGap?.removeEventListener("transitioncancel", finishTransition);
       element.classList.remove("map-sidebar-transition");
       element.style.removeProperty("--map-transition-width");
     };
-  }, [mapReady, overviewInDrawer, selectedEvent]);
+  }, [mapReady, overviewInDrawer, selectedEvent, mobileRadiusKm]);
 
   useEffect(() => {
     if (!mapReady || !map.current) return;
@@ -640,12 +671,12 @@ export default function MapPanel({
       !selectedEvent
     )
       return;
+    const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 700;
+    if (fitMobileActivityRadius(map.current, selectedEvent, mobileRadiusKm, duration)) return;
     map.current.flyTo({
       center: [selectedEvent.longitude, selectedEvent.latitude],
       zoom: forecastAnchor ? map.current.getZoom() : 7.2,
-      duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-        ? 0
-        : 700,
+      duration,
     });
   }, [
     showForecastOverview,
@@ -654,6 +685,7 @@ export default function MapPanel({
     mapReady,
     selectedEvent,
     focusRequest,
+    mobileRadiusKm,
   ]);
 
   useEffect(() => {
