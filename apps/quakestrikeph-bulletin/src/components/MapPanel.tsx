@@ -350,20 +350,33 @@ export default function MapPanel({
     sidebarGap?.addEventListener("transitionrun", startTransition);
     sidebarGap?.addEventListener("transitionend", finishTransition);
     sidebarGap?.addEventListener("transitioncancel", finishTransition);
+    const heightRegion = viewport.parentElement!;
+    const finishHeightTransition = (event: TransitionEvent) => {
+      if (event.target !== heightRegion || event.propertyName !== "height" || !overviewInDrawer || !selectedEvent) return;
+      if (map.current?.isMoving()) return;
+      // Recenter after resizing so MapLibre calculates the pan against a stable viewport.
+      map.current?.easeTo({
+        center: [selectedEvent.longitude, selectedEvent.latitude],
+        duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 220,
+      });
+    };
+    heightRegion.addEventListener("transitionend", finishHeightTransition);
     let previousHeight = viewport.clientHeight;
     const observer = new ResizeObserver(() => {
       if (transitionCenter) return;
       const heightChanged = viewport.clientHeight !== previousHeight;
       previousHeight = viewport.clientHeight;
-      // Redraw before browser paint; resizing clears the WebGL canvas.
-      map.current?.resize().redraw();
-      if (overviewInDrawer && selectedEvent && heightChanged) {
+      map.current?.resize();
+      if (overviewInDrawer && selectedEvent && heightChanged && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         map.current?.jumpTo({ center: [selectedEvent.longitude, selectedEvent.latitude] });
       }
+      // Paint the resized canvas only after the camera reaches its frame position.
+      map.current?.redraw();
     });
     observer.observe(viewport);
     return () => {
       observer.disconnect();
+      heightRegion.removeEventListener("transitionend", finishHeightTransition);
       sidebarGap?.removeEventListener("transitionrun", startTransition);
       sidebarGap?.removeEventListener("transitionend", finishTransition);
       sidebarGap?.removeEventListener("transitioncancel", finishTransition);
