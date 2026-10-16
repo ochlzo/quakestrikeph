@@ -22,6 +22,7 @@ import pytest
         (True, False, False, False, True),
         (True, "cleanup", False, False, False),
         (True, "quakestrikeph.com", False, False, False),
+        (False, "quakestrikeph.com", False, False, False),
     ],
 )
 def test_bulletin_rollout_restores_or_saves_tags(
@@ -48,6 +49,14 @@ def test_bulletin_rollout_restores_or_saves_tags(
     )
     scripts = tmp_path / "infrastructure/scripts"
     scripts.mkdir(parents=True)
+    cutover = tmp_path / ".local/domain-cutover"
+    if failure == "quakestrikeph.com":
+        cutover.mkdir(parents=True)
+        shutil.copyfile("infrastructure/traefik/backend.yml", cutover / "backend.yml")
+        (cutover / "compose.yml").write_text(
+            "services:\n  traefik:\n    volumes:\n"
+            f"      - {cutover.as_posix()}/backend.yml:/etc/traefik/backend.yml:ro\n"
+        )
     shutil.copyfile("infrastructure/scripts/save-release-tags.py", scripts / "save-release-tags.py")
     mocks = r"""
 old=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -205,6 +214,18 @@ curl() { log "curl $*"; return 22; }
     commands = (tmp_path / "commands.log").read_text()
     assert f"git switch --detach {old}" in commands
     assert "--force-recreate traefik" in commands
+    if failure == "quakestrikeph.com":
+        rollback_commands = commands.split(f"git switch --detach {old}\n", 1)[1]
+        traefik_commands = [
+            command
+            for command in rollback_commands.splitlines()
+            if "--force-recreate traefik" in command
+        ]
+        assert traefik_commands
+        assert all("-f .local/domain-cutover/compose.yml" in c for c in traefik_commands)
+        routes = (cutover / "backend.yml").read_text()
+        assert "Host(`quakestrikeph.com`)" in routes
+        assert "quakestrikeph.qzz.io" not in routes
     if previous_bulletin:
         assert commands.count("up -d --wait --no-deps bulletin") == 2
     else:

@@ -11,11 +11,21 @@ matching, API priority, and rejection of the retired hostname and unrelated
 hosts. Do not add a legacy redirect. The Tunnel route uses `http://traefik:80`
 and preserves the new public Host header.
 
-The live old-host-only deployment needs a staged cutover: temporarily accept
-both Host headers, remove the Cloudflare old-domain HTTP Host Header override,
-verify the new domain, then release the new-host-only routes. Remove the old
+The live old-host-only deployment needs a staged cutover during a maintenance
+window. Mount a verified copy of the new-host-only routes from ignored
+`.local/domain-cutover/` storage before removing the Cloudflare HTTP Host Header
+override. The new public path is briefly unavailable between those actions.
+Verify the new domain before releasing application images. Remove the old
 Tunnel route, DNS records, and authentication origins after the new path works.
-Temporary cutover routing does not authorize a permanent legacy alias.
+
+While `.local/domain-cutover/compose.yml` exists, the deployment script applies
+that override to edge operations, including rollback to a previous checkout.
+The verified new-host-only route file survives rollback and keeps the retired
+domain rejected. This amends the original route rollback rule during cutover;
+ADR 0049 still controls schema safety and application image rollback. Keep the
+override until the new release succeeds. Then recreate Traefik from the release
+configuration before removing the saved cutover files. Never restore the old
+Host override or a legacy public route as recovery.
 
 New forecast links and application defaults use `https://quakestrikeph.com`.
 Existing frozen alert content stays unchanged; old-domain links stop working
