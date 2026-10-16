@@ -32,8 +32,8 @@ jobs:
 
       - name: Check Python style
         run: |
-          uv run --project workers ruff check workers database infrastructure/scripts/save-release-tags.py
-          uv run --project workers ruff format --check workers database infrastructure/scripts/save-release-tags.py
+          uv run --project workers ruff check workers database infrastructure/scripts/save-release-tags.py infrastructure/scripts/cleanup-release-images.py
+          uv run --project workers ruff format --check workers database infrastructure/scripts/save-release-tags.py infrastructure/scripts/cleanup-release-images.py
 
       - name: Check deployment scripts
         run: |
