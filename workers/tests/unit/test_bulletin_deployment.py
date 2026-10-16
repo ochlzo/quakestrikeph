@@ -21,6 +21,8 @@ import pytest
         (True, "backend", True, False, False),
         (True, False, False, False, True),
         (True, "cleanup", False, False, False),
+        (True, "quakestrikeph.com", False, False, False),
+        (True, "quakestrikeph.qzz.io", False, False, False),
     ],
 )
 def test_bulletin_rollout_restores_or_saves_tags(
@@ -112,6 +114,11 @@ curl() { log "curl $*"; return 22; }
         mocks = mocks.replace("then return 0; fi", "then return 27; fi")
     if not failure or failure == "cleanup":
         mocks = mocks.replace("return 22", "return 0")
+    if failure in ("quakestrikeph.com", "quakestrikeph.qzz.io"):
+        mocks = mocks.replace(
+            'curl() { log "curl $*"; return 22; }',
+            f'curl() {{ log "curl $*"; [[ $* != *"https://{failure}/"* ]] || return 22; }}',
+        )
     if failure == "consumer":
         mocks = mocks.replace(
             'log "docker $*"',
@@ -180,6 +187,9 @@ curl() { log "curl $*"; return 22; }
         return
     if not failure or failure == "cleanup":
         assert result.returncode == 0, result.stderr
+        for hostname in ("quakestrikeph.com", "quakestrikeph.qzz.io"):
+            assert f"https://{hostname}/ -o /dev/null" in commands
+            assert f"https://{hostname}/api/v1/earthquakes/search" in commands
         saved = (tmp_path / ".env").read_text()
         assert f"WORKER_IMAGE_TAG={new}" in saved
         assert f"BULLETIN_IMAGE_TAG={new}" in saved

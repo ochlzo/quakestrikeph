@@ -13,10 +13,46 @@ container also checks page/API routing and unrelated-host rejection. Deployment 
 all three checks and uses the tested main SHA for all application images.
 The Operations Console deployment remains planned.
 
+## Public domain transition
+
+`quakestrikeph.com` is the primary domain. Keep `quakestrikeph.qzz.io`
+available for existing links until its retirement is separately approved.
+Both domains use the same Tunnel, Traefik, Bulletin, and Backend. Do not add
+public host ports, wildcard routes, or public private-tool routes.
+
+Set these values in the ignored VPS `.env`:
+
+```dotenv
+PUBLIC_BULLETIN_BASE_URL=https://quakestrikeph.com
+ALERT_TEST_PUBLIC_BULLETIN_URL=https://quakestrikeph.com
+BREVO_SENDER_EMAIL=forecast@quakestrikeph.com
+ALERT_TEST_BREVO_SENDER_EMAIL=forecast@quakestrikeph.com
+```
+
+Preserve the existing production Clerk keys, allowed origins, Brevo credentials,
+callback token, image tags, and delivery enablement. The Bulletin build embeds
+the publishable key. Ordinary and private test delivery remain separately gated.
+The branded Brevo subdomain `alerts.quakestrikeph.com` is provider infrastructure;
+it is not the sender address or a Bulletin API target. Webhook setup remains
+deferred; this release does not establish email delivery verification.
+
+Recreate already-running Prediction Worker replicas to apply the public URL.
+Between private test sessions, recreate the already-running private control and
+consumer with the same private URL. Preserve their image tags and Redis data.
+Frozen alert messages and prepared previews retain their original URLs.
+
+After deployment, verify both hostnames through Traefik. Check page routing,
+API routing, and unrelated-host rejection. For the `quakestrikeph.com` Tunnel
+route, remove the temporary HTTP Host Header override. Verify HTTPS pages and API responses on
+both domains again. Keep the original Tunnel route and DNS records for the old
+domain. Clerk sign-in is verified on the new domain; cross-domain sessions are
+not configured by retaining the old public route.
+
 ## Bulletin hosting
 
-Follow [ADR 0041](../adr/0041-vps-bulletin-deployment.md). The existing Cloudflare
-Tunnel hostname `quakestrikeph.qzz.io` continues pointing at `http://traefik:80`.
+Follow [ADR 0041](../adr/0041-vps-bulletin-deployment.md). The primary Cloudflare
+Tunnel hostname `quakestrikeph.com` and the temporary compatibility hostname
+`quakestrikeph.qzz.io` both point at `http://traefik:80`.
 Traefik sends `/api/v1/` to Backend port 3000 with priority 100 and other paths
 to Bulletin port 4321 with priority 10. No public host port is added.
 
@@ -31,7 +67,8 @@ Bulletin joins only `backend-edge`; it has no PostgreSQL or Redis access.
 Its Dockerfile supplies a root-page health check, production Node command,
 and a non-root user. Compose adds bounded logs, restart policy, and memory limit.
 Traefik is recreated after Bulletin is healthy so its mounted route file uses
-the current checkout. The script checks the public homepage and earthquake API.
+the current checkout. The script checks the public homepage and earthquake API
+on both domains.
 When the database revision remains unchanged, a failed rollout restores previous
 application images and routing. A failed first rollout also removes Bulletin
 and restores the API-only configuration.

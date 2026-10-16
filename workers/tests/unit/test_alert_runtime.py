@@ -23,7 +23,7 @@ def test_enabled_provider_construction_requires_each_selected_channel_only():
     with pytest.raises(ValueError, match="email"):
         configured_alert_providers(settings)
     settings.brevo_api_key = SecretStr("test-key")
-    settings.brevo_sender_email = "alerts@quakestrikeph.qzz.io"
+    settings.brevo_sender_email = "forecast@quakestrikeph.com"
     settings.brevo_sender_name = "QuakeStrike PH - Alert System"
     providers = configured_alert_providers(settings)
     assert isinstance(providers["sms"], IprogAlertProvider)

@@ -92,7 +92,7 @@ services:
       <<: *worker-environment
       PREDICTION_SOFT_TIME_LIMIT_SECONDS: ${PREDICTION_SOFT_TIME_LIMIT_SECONDS:-300}
       PREDICTION_HARD_TIME_LIMIT_SECONDS: ${PREDICTION_HARD_TIME_LIMIT_SECONDS:-360}
-      PUBLIC_BULLETIN_BASE_URL: ${PUBLIC_BULLETIN_BASE_URL:-https://quakestrikeph.qzz.io}
+      PUBLIC_BULLETIN_BASE_URL: ${PUBLIC_BULLETIN_BASE_URL:-https://quakestrikeph.com}
     volumes: *worker-volumes
     networks: [private-data]
     depends_on:

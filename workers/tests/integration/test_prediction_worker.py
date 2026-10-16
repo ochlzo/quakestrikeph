@@ -1331,7 +1331,7 @@ def test_prediction_freezes_forecast_content_for_both_channels(migrated_engine):
         forecast = connection.execute(select(forecasts)).one()
     assert "Chance of further M1.0+ activity:" in alert["message_snapshot"]
     assert (
-        "View current forecast: https://quakestrikeph.qzz.io/forecasts/" + str(event_id)
+        "View current forecast: https://quakestrikeph.com/forecasts/" + str(event_id)
         in alert["message_snapshot"]
     )
     for column in (

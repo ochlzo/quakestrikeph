@@ -83,7 +83,7 @@ for service in ("dispatcher", "prediction-worker", "beat"):
             services[service]["environment"]
         )
 assert services["prediction-worker"]["environment"]["PUBLIC_BULLETIN_BASE_URL"] == (
-    "https://quakestrikeph.qzz.io"
+    "https://quakestrikeph.com"
 )
 controlled = configuration(
     "compose.integration.yml",

@@ -1,10 +1,13 @@
 # Bulletin Backend API
 
 The Backend exposes earthquake and forecast reads at
-`https://quakestrikeph.qzz.io/api/v1`. The API reads the production PostgreSQL
+`https://quakestrikeph.com/api/v1`. The API reads the production PostgreSQL
 container by its Compose service name. It has no database or host port mapping,
 does not create tables at startup, and does not use the broad pgAdmin observer
 login. The Bulletin UI is not required to start the API.
+
+During the domain transition, `https://quakestrikeph.qzz.io/api/v1` remains
+available through the same services. Keep both explicit Traefik host rules.
 
 After initial setup, [routine deployment](continuous-deployment.md#routine-release-sequence) updates the Backend with workers and Bulletin. Secret provisioning remains manual. Reviewed migrations and grants run before the new Backend starts.
 
@@ -20,7 +23,7 @@ worker stack running. Use a tested Git commit SHA for `BACKEND_IMAGE_TAG`.
    managed `CLOUDFLARE_TUNNEL_TOKEN`. Do not use the worker, migration, or
    observer login for the Backend.
 2. In Cloudflare Tunnel configuration, map the public hostname
-   `quakestrikeph.qzz.io` to `http://traefik:80`. Cloudflare Tunnel must preserve
+   `quakestrikeph.com` to `http://traefik:80`. Cloudflare Tunnel must preserve
    the public host. The Traefik file route forwards only `/api/v1/` on this
    hostname. [Bulletin hosting](continuous-deployment.md#bulletin-hosting) adds a lower-priority page route on the same hostname. No Console or pgAdmin route is created here.
 3. Provision the restricted role and start the three Backend path containers:
@@ -45,7 +48,7 @@ Check container readiness, then query the public HTTPS path:
 
 ```bash
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml ps backend-api traefik cloudflared
-curl -i -X POST 'https://quakestrikeph.qzz.io/api/v1/earthquakes/search' -H 'Content-Type: application/json' --data '{"limit":2,"magnitudeRanges":[{"below":3},{"from":5}]}'
+curl -i -X POST 'https://quakestrikeph.com/api/v1/earthquakes/search' -H 'Content-Type: application/json' --data '{"limit":2,"magnitudeRanges":[{"below":3},{"from":5}]}'
 ```
 
 Expect HTTP 200 with `items`, `hasMore`, `nextCursor`, and `fetchedAt`. An empty
@@ -59,7 +62,7 @@ Use an `eventId` from the search response to check the detail path. Replace
 `<eventId>` before running this command:
 
 ```bash
-curl -i 'https://quakestrikeph.qzz.io/api/v1/earthquakes/<eventId>'
+curl -i 'https://quakestrikeph.com/api/v1/earthquakes/<eventId>'
 ```
 
 Expect HTTP 200 with `item`, including `forecast` and `forecastAvailability`.

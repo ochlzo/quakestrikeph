@@ -4,7 +4,10 @@ info:
   version: 1.0.0
   description: Public earthquake information and authenticated owner-only account settings.
 servers:
+  - url: https://quakestrikeph.com/api/v1
+    description: Primary public domain.
   - url: https://quakestrikeph.qzz.io/api/v1
+    description: Temporary compatibility domain for existing links.
 paths:
   /earthquakes/search:
     post:

@@ -111,6 +111,7 @@ def test_preparation_requires_exact_private_request_protections(redis_client, in
     with scenario_api(redis_client) as api:
         owner = api.request("start")[1]["session_id"]
         for headers in (
+            {"Host": "quakestrikeph.com"},
             {"Host": "quakestrikeph.qzz.io"},
             {"Origin": "https://public.invalid"},
             {"X-QuakeStrike-Test": ""},

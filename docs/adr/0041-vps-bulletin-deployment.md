@@ -2,6 +2,28 @@
 
 **Status**: accepted
 
+## Domain amendment: 16 October 2026
+
+The user selected `quakestrikeph.com` as the primary public domain. Both
+`quakestrikeph.com` and `quakestrikeph.qzz.io` route to the existing Bulletin
+and `/api/v1/` Backend services during the transition. Keep explicit host
+matching, API priority, and unrelated-host rejection. Both Tunnel routes use
+`http://traefik:80`; remove the temporary old-domain HTTP Host Header override
+only after the dual-host routes pass verification. Keep the old domain serving
+existing links without redirects. Shared sign-in across the two domains is
+outside this amendment.
+
+New forecast links and application defaults use `https://quakestrikeph.com`.
+Existing frozen alert content stays unchanged. Release checks verify pages
+and API routing on both domains. Clerk production uses the new domain and its
+publishable key; preserve existing account identities and server-only secrets.
+Brevo's selected sender is `forecast@quakestrikeph.com`, with the name
+`QuakeStrike PH - Alert System`. The user deferred webhook setup. This domain
+change does not enable production alerts or change private test admission.
+
+The original deployment decision follows; this amendment replaces its fixed
+public hostname.
+
 [ADR 0049](0049-automatic-full-application-deployment.md) extends routine deployment to the Backend, reviewed migrations, restricted grants, and already-enabled alert services. It replaces unconditional image rollback after a schema change.
 
 Amends the Bulletin checkout and hosting decision in [ADR 0040](0040-scoped-rollover-recovery-and-worker-checkout.md). Its historical recovery rules remain unchanged.

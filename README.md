@@ -83,7 +83,7 @@ pnpm dev
 ```
 
 During local development, Astro proxies `/api/v1` requests to
-`https://quakestrikeph.qzz.io`, so the Bulletin reads live public earthquake
+`https://quakestrikeph.com`, so the Bulletin reads live public earthquake
 data and requires an internet connection. Production keeps the browser request
 same-origin and lets Traefik route `/api/v1/` to the Backend container.
 
