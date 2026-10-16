@@ -35,7 +35,19 @@ the current checkout. The script checks the public homepage and earthquake API.
 When the database revision remains unchanged, a failed rollout restores previous
 application images and routing. A failed first rollout also removes Bulletin
 and restores the API-only configuration.
-Do not prune prior images until the release is verified.
+After the public checks pass and release tags are saved, deployment clears unused
+Docker build cache and removes older SHA-tagged Worker, Prediction Worker,
+Backend, and Bulletin images. It retains the current and previous distinct
+release for each application image, including when the same SHA deploys again.
+Images referenced by running or stopped containers remain protected. Private
+alert-testing images, third-party images, volumes, backups, and model files are
+outside this cleanup. Future builds recreate their cache.
+
+Cleanup reads previous tags from the protected environment backups. Missing or
+invalid history, or missing required rollback images, stops cleanup before any
+deletion. A cleanup failure emits a workflow warning and does not roll back the
+successful deployment. After inspection, retry from `/srv/quakestrikeph` with
+`python3 infrastructure/scripts/cleanup-release-images.py .env <deployed-sha>`.
 
 For the first release, keep `DEPLOY_ENABLED=false`, wait for green main checks,
 and run `bash infrastructure/scripts/deploy-workers.sh <tested-main-sha>` on
@@ -221,4 +233,4 @@ After the first green CI run and manual VPS initialization, set
 `DEPLOY_ENABLED=true`. The next push to `main` will run tests first and then
 deploy that exact SHA. A newer `main` commit makes an older pending deploy
 exit without replacing it. Keep the previous tagged images for rollback and
-watch VPS disk usage; this workflow does not prune images.
+watch VPS disk usage; successful deployments now perform the bounded cleanup above.

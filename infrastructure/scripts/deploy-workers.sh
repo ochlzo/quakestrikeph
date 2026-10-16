@@ -199,4 +199,9 @@ curl --connect-timeout 10 --max-time 20 --fail --silent --show-error --retry 5 -
 curl --connect-timeout 10 --max-time 20 --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 2 https://quakestrikeph.qzz.io/api/v1/earthquakes/search -H 'Content-Type: application/json' --data '{"limit":1}' -o /dev/null
 
 python3 infrastructure/scripts/save-release-tags.py .env "$sha"
+# Cleanup cannot undo a release that has passed its checks and saved its tags.
+trap - EXIT
 echo "Deployed application commit $sha"
+if ! python3 infrastructure/scripts/cleanup-release-images.py .env "$sha"; then
+    echo '::warning::Deployment succeeded, but Docker cleanup failed. Review cleanup logs before retrying.' >&2
+fi

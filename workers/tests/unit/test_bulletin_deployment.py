@@ -20,6 +20,7 @@ import pytest
         (True, "consumer", False, False, False),
         (True, "backend", True, False, False),
         (True, False, False, False, True),
+        (True, "cleanup", False, False, False),
     ],
 )
 def test_bulletin_rollout_restores_or_saves_tags(
@@ -81,7 +82,11 @@ docker() {
     fi
 }
 sudo() { log "sudo $*"; }
-python3() { command "$PYTHON_FOR_TEST" "$@"; }
+python3() {
+    log "python3 $*"
+    if [[ $1 == infrastructure/scripts/cleanup-release-images.py ]]; then return 0; fi
+    command "$PYTHON_FOR_TEST" "$@"
+}
 curl() { log "curl $*"; return 22; }
 """
     if legacy_release:
@@ -103,7 +108,9 @@ curl() { log "curl $*"; return 22; }
             'sudo() { log "sudo $*"; }',
             f'sudo() {{ log "sudo $*"; [[ $* != *"quakestrike-postgres-{service}.service"* ]]; }}',
         )
-    if not failure:
+    if failure == "cleanup":
+        mocks = mocks.replace("then return 0; fi", "then return 27; fi")
+    if not failure or failure == "cleanup":
         mocks = mocks.replace("return 22", "return 0")
     if failure == "consumer":
         mocks = mocks.replace(
@@ -130,6 +137,8 @@ curl() { log "curl $*"; return 22; }
         },
     )
     commands = (tmp_path / "commands.log").read_text()
+    if failure and failure != "cleanup":
+        assert "cleanup-release-images.py" not in commands
     if failure in ("backup", "restore"):
         assert result.returncode != 0
         assert " stop " not in commands
@@ -169,13 +178,18 @@ curl() { log "curl $*"; return 22; }
         assert f"git switch --detach {old}" not in commands
         assert (tmp_path / ".env").read_text() == env
         return
-    if not failure:
+    if not failure or failure == "cleanup":
         assert result.returncode == 0, result.stderr
         saved = (tmp_path / ".env").read_text()
         assert f"WORKER_IMAGE_TAG={new}" in saved
         assert f"BULLETIN_IMAGE_TAG={new}" in saved
         assert f"BACKEND_IMAGE_TAG={new}" in saved
         assert "ALERT_DELIVERY_ENABLED=false\nPRIVATE_VALUE=preserved" in saved
+        assert commands.index("save-release-tags.py") < commands.index("cleanup-release-images.py")
+        assert commands.index("curl ") < commands.index("cleanup-release-images.py")
+        assert "Deployment failed" not in result.stderr
+        if failure == "cleanup":
+            assert "::warning::Deployment succeeded" in result.stderr
         return
     assert result.returncode == 22, result.stderr
     assert (tmp_path / ".env").read_text() == env
