@@ -101,18 +101,18 @@ def test_alert_snapshots_use_amended_channel_copy(forecast_alert, available):
     assert snapshots.content_provenance["rendering_policy_version"] == "forecast-alert-v2"
 
 
-def test_explicit_legacy_domain_remains_supported(forecast_alert):
+def test_custom_public_origin_remains_configurable(forecast_alert):
     candidate, forecast = forecast_alert
     snapshots = create_automatic_alert_snapshots(
         candidate,
         forecast=forecast,
         event_id=uuid4(),
         location_provenance={"location_label": "near Davao Occidental"},
-        public_base_url="https://quakestrikeph.qzz.io",
+        public_base_url="https://bulletin.example.test",
     )
     assert snapshots is not None
-    assert "https://quakestrikeph.qzz.io/forecasts/" in snapshots.message
-    assert "https://quakestrikeph.qzz.io/forecasts/" in snapshots.email_body
+    assert "https://bulletin.example.test/forecasts/" in snapshots.message
+    assert "https://bulletin.example.test/forecasts/" in snapshots.email_body
 
 
 @pytest.mark.parametrize("offset,creates_alert", [(-1, True), (0, False), (1, False)])

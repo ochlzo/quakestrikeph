@@ -6,8 +6,8 @@ container by its Compose service name. It has no database or host port mapping,
 does not create tables at startup, and does not use the broad pgAdmin observer
 login. The Bulletin UI is not required to start the API.
 
-During the domain transition, `https://quakestrikeph.qzz.io/api/v1` remains
-available through the same services. Keep both explicit Traefik host rules.
+The retired hostname `quakestrikeph.qzz.io` has no API route or redirect.
+Keep the explicit new-domain Traefik host rule; reject all other hosts.
 
 After initial setup, [routine deployment](continuous-deployment.md#routine-release-sequence) updates the Backend with workers and Bulletin. Secret provisioning remains manual. Reviewed migrations and grants run before the new Backend starts.
 

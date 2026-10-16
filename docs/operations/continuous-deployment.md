@@ -15,10 +15,11 @@ The Operations Console deployment remains planned.
 
 ## Public domain transition
 
-`quakestrikeph.com` is the primary domain. Keep `quakestrikeph.qzz.io`
-available for existing links until its retirement is separately approved.
-Both domains use the same Tunnel, Traefik, Bulletin, and Backend. Do not add
-public host ports, wildcard routes, or public private-tool routes.
+`quakestrikeph.com` is the sole public domain. The user retired
+`quakestrikeph.qzz.io`; no compatibility route or redirect remains in the
+release configuration. Keep the existing Tunnel, Traefik, Bulletin, and
+Backend. Do not add public host ports, wildcard routes, or public private-tool
+routes.
 
 Set these values in the ignored VPS `.env`:
 
@@ -29,7 +30,8 @@ BREVO_SENDER_EMAIL=forecast@quakestrikeph.com
 ALERT_TEST_BREVO_SENDER_EMAIL=forecast@quakestrikeph.com
 ```
 
-Preserve the existing production Clerk keys, allowed origins, Brevo credentials,
+Set `CLERK_AUTHORIZED_PARTIES=https://quakestrikeph.com` on the VPS.
+Preserve the existing production Clerk keys, Brevo credentials,
 callback token, image tags, and delivery enablement. The Bulletin build embeds
 the publishable key. Ordinary and private test delivery remain separately gated.
 The branded Brevo subdomain `alerts.quakestrikeph.com` is provider infrastructure;
@@ -40,19 +42,28 @@ Recreate already-running Prediction Worker replicas to apply the public URL.
 Between private test sessions, recreate the already-running private control and
 consumer with the same private URL. Preserve their image tags and Redis data.
 Frozen alert messages and prepared previews retain their original URLs.
+Links containing the retired domain stop working after retirement.
 
-After deployment, verify both hostnames through Traefik. Check page routing,
-API routing, and unrelated-host rejection. For the `quakestrikeph.com` Tunnel
-route, remove the temporary HTTP Host Header override. Verify HTTPS pages and API responses on
-both domains again. Keep the original Tunnel route and DNS records for the old
-domain. Clerk sign-in is verified on the new domain; cross-domain sessions are
-not configured by retaining the old public route.
+If the live routes accept only the old hostname, perform a staged cutover:
+
+1. Temporarily configure Traefik to accept both exact hostnames.
+2. Verify page and API routing directly through Traefik for the new hostname.
+3. Clear the old-domain HTTP Host Header override on the new-domain Tunnel route.
+4. Verify the new domain's public HTTPS pages and API.
+5. Deploy the reviewed release that accepts only the new hostname.
+6. Verify the new hostname succeeds and the retired hostname receives HTTP 404 directly through Traefik.
+7. Remove the retired hostname's Tunnel route and DNS records.
+8. Remove old-domain Google OAuth origins and redirect URIs from the existing OAuth client.
+
+Retain the new domain's Clerk and Brevo DNS records. Recreate Backend after
+changing its authorized origins. Do not deploy new-host-only routes while
+Cloudflare still replaces the new Host header with the old hostname.
 
 ## Bulletin hosting
 
-Follow [ADR 0041](../adr/0041-vps-bulletin-deployment.md). The primary Cloudflare
-Tunnel hostname `quakestrikeph.com` and the temporary compatibility hostname
-`quakestrikeph.qzz.io` both point at `http://traefik:80`.
+Follow [ADR 0041](../adr/0041-vps-bulletin-deployment.md). The sole Cloudflare
+Tunnel hostname `quakestrikeph.com` points at `http://traefik:80` and preserves
+the public Host header.
 Traefik sends `/api/v1/` to Backend port 3000 with priority 100 and other paths
 to Bulletin port 4321 with priority 10. No public host port is added.
 
@@ -68,7 +79,7 @@ Its Dockerfile supplies a root-page health check, production Node command,
 and a non-root user. Compose adds bounded logs, restart policy, and memory limit.
 Traefik is recreated after Bulletin is healthy so its mounted route file uses
 the current checkout. The script checks the public homepage and earthquake API
-on both domains.
+on `quakestrikeph.com`; it does not depend on the retired domain.
 When the database revision remains unchanged, a failed rollout restores previous
 application images and routing. A failed first rollout also removes Bulletin
 and restores the API-only configuration.

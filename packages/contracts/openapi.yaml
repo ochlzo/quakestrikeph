@@ -6,8 +6,6 @@ info:
 servers:
   - url: https://quakestrikeph.com/api/v1
     description: Primary public domain.
-  - url: https://quakestrikeph.qzz.io/api/v1
-    description: Temporary compatibility domain for existing links.
 paths:
   /earthquakes/search:
     post:

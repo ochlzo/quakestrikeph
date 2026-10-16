@@ -195,10 +195,8 @@ start_processing
 web_compose up -d --wait --no-deps bulletin
 # Recreate Traefik so its file bind mount sees the new checkout's route file.
 web_compose up -d --wait --no-deps --force-recreate traefik
-for hostname in quakestrikeph.com quakestrikeph.qzz.io; do
-    curl --connect-timeout 10 --max-time 20 --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 2 "https://$hostname/" -o /dev/null
-    curl --connect-timeout 10 --max-time 20 --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 2 "https://$hostname/api/v1/earthquakes/search" -H 'Content-Type: application/json' --data '{"limit":1}' -o /dev/null
-done
+curl --connect-timeout 10 --max-time 20 --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 2 https://quakestrikeph.com/ -o /dev/null
+curl --connect-timeout 10 --max-time 20 --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 2 https://quakestrikeph.com/api/v1/earthquakes/search -H 'Content-Type: application/json' --data '{"limit":1}' -o /dev/null
 
 python3 infrastructure/scripts/save-release-tags.py .env "$sha"
 # Cleanup cannot undo a release that has passed its checks and saved its tags.

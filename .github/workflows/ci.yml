@@ -127,14 +127,14 @@ jobs:
         run: |
           docker run -d --name backend-route-test --network bulletin-test --network-alias backend-api quakestrike-bulletin:test node -e 'require("http").createServer((q,s)=>{s.setHeader("Content-Type","application/json");s.end(JSON.stringify({testBackend:true}))}).listen(3000,"0.0.0.0")'
           docker run -d --name traefik-test --network bulletin-test -p 127.0.0.1:8080:80 -v "$GITHUB_WORKSPACE/infrastructure/traefik/backend.yml:/etc/traefik/backend.yml:ro" traefik:v3.7.13 --providers.file.filename=/etc/traefik/backend.yml --entrypoints.web.address=:80
-          for hostname in quakestrikeph.com quakestrikeph.qzz.io; do
-            curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 1 -H "Host: $hostname" http://127.0.0.1:8080/ -o /tmp/routed-bulletin.html
-            grep -q 'QuakeStrike' /tmp/routed-bulletin.html
-            grep -q '/_astro/' /tmp/routed-bulletin.html
-            curl --fail --silent --show-error -H "Host: $hostname" -H 'Content-Type: application/json' --data '{"limit":1}' http://127.0.0.1:8080/api/v1/earthquakes/search | python3 -c 'import json,sys; assert json.load(sys.stdin)["testBackend"] is True'
+          curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 1 -H 'Host: quakestrikeph.com' http://127.0.0.1:8080/ -o /tmp/routed-bulletin.html
+          grep -q 'QuakeStrike' /tmp/routed-bulletin.html
+          grep -q '/_astro/' /tmp/routed-bulletin.html
+          curl --fail --silent --show-error -H 'Host: quakestrikeph.com' -H 'Content-Type: application/json' --data '{"limit":1}' http://127.0.0.1:8080/api/v1/earthquakes/search | python3 -c 'import json,sys; assert json.load(sys.stdin)["testBackend"] is True'
+          for hostname in quakestrikeph.qzz.io unrelated.example quakestrikeph.com.unrelated.example; do
+            test "$(curl --silent -o /dev/null -w '%{http_code}' -H "Host: $hostname" http://127.0.0.1:8080/)" = 404
+            test "$(curl --silent -o /dev/null -w '%{http_code}' -H "Host: $hostname" http://127.0.0.1:8080/api/v1/earthquakes/search)" = 404
           done
-          test "$(curl --silent -o /dev/null -w '%{http_code}' -H 'Host: unrelated.example' http://127.0.0.1:8080/)" = 404
-          test "$(curl --silent -o /dev/null -w '%{http_code}' -H 'Host: unrelated.example' http://127.0.0.1:8080/api/v1/earthquakes/search)" = 404
       - name: Remove test container
         if: always()
         run: |
