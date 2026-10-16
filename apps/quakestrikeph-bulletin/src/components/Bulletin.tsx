@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type Ref } from "react";
 import { toast } from "./ui/toast";
 import { parseDate, today } from "@internationalized/date";
 import { Dialog, type DateValue, type RangeValue } from "react-aria-components";
@@ -13,6 +13,7 @@ import {
   Search,
 } from "lucide-react";
 import MapPanel from "./MapPanel";
+import ForecastOverview from "./ForecastOverview";
 import BulletinLayout from "./BulletinLayout";
 import { useIsMobile } from "../hooks/use-mobile";
 import MagnitudeFilter from "./MagnitudeFilter";
@@ -55,6 +56,46 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { displayTime, locationLabel, magnitude } from "../lib/events";
+import type { Earthquake } from "../lib/events";
+
+function SelectedEarthquakeCard({ event, sourceUrl, forecastHref, ref, className = "" }: {
+  event: Earthquake;
+  sourceUrl?: string;
+  forecastHref: string;
+  ref?: Ref<HTMLElement>;
+  className?: string;
+}) {
+  return (
+    <article ref={ref} className={`selected-card ${className}`} aria-label="Selected earthquake">
+      <div className="card-top">
+        <div className={`selected-mag magnitude-value ${magnitudeBand(event.magnitude).className}`}>
+          {magnitude(event.magnitude)}
+        </div>
+        <time dateTime={event.eventTime}>{displayTime(event.eventTime)}</time>
+      </div>
+      <h2>{locationLabel(event.locationDescription)}</h2>
+      <div className="card-bottom" data-base-ui-swipe-ignore>
+        <div className="selected-facts">
+          <span>
+            <small>Depth</small>
+            <strong>{event.depthKm === null ? "Unknown" : `${event.depthKm} km`}</strong>
+          </span>
+          <span className="fact-source">
+            <small>Source</small>
+            {sourceUrl ? (
+              <a href={sourceUrl} target="_blank" rel="noopener noreferrer">
+                PHIVOLCS <ExternalLink size={17} aria-hidden="true" />
+              </a>
+            ) : <strong>PHIVOLCS</strong>}
+          </span>
+        </div>
+        <a className="forecast-link" href={forecastHref} data-astro-reload>
+          View forecast <ArrowRight size={22} aria-hidden="true" />
+        </a>
+      </div>
+    </article>
+  );
+}
 
 const dateOptions = [
   { label: "All dates", value: "all" },
@@ -188,6 +229,17 @@ export default function Bulletin({
   const mobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerSnap, setDrawerSnap] = useState<number | string | null>(0.65);
+  const [drawerMode, setDrawerMode] = useState<"event" | "forecast" | "list">("event");
+  const [compactHeight, setCompactHeight] = useState(240);
+  const [viewportHeight, setViewportHeight] = useState(824);
+  const compactSnap = `${compactHeight}px`;
+  const expandedHeight = Math.max(compactHeight, Math.round(viewportHeight * 0.65));
+  const drawerHeight = typeof drawerSnap === "string" ? parseFloat(drawerSnap)
+    : drawerSnap !== null && drawerSnap <= 1 ? drawerSnap * viewportHeight
+    : drawerSnap ?? compactHeight;
+  const [drawerSummary, setDrawerSummary] = useState<HTMLDivElement | null>(null);
+  const [drawerPopup, setDrawerPopup] = useState<HTMLDivElement | null>(null);
+  const mapStage = useRef<HTMLDivElement>(null);
   const [customRange, setCustomRange] = useState<RangeValue<DateValue>>(() => {
     if (
       initialState.date.value === "custom" &&
@@ -217,6 +269,8 @@ export default function Bulletin({
   const drawerClose = useRef<HTMLButtonElement>(null);
   const dateSelectTrigger = useRef<HTMLButtonElement>(null);
   const eventList = useRef<HTMLDivElement>(null);
+  const drawerScroll = useRef<HTMLDivElement>(null);
+  const drawerSwipeStart = useRef<{ x: number; y: number } | null>(null);
   const selectedCard = useRef<HTMLElement>(null);
   const pendingMapSelection = useRef<string | null>(null);
   const location = query.trim();
@@ -226,9 +280,99 @@ export default function Bulletin({
   }, [pageNumber, pageSize, query, dateFilter, magnitudeFilter]);
 
   useEffect(() => {
-    setDrawerOpen(false);
+    setDrawerOpen(mobile && Boolean(selected));
+    setDrawerMode("event");
+    setDrawerSnap(compactSnap);
     setCalendarOpen(false);
+    const updateViewport = () => setViewportHeight(window.innerHeight);
+    updateViewport();
+    window.addEventListener("resize", updateViewport);
+    return () => window.removeEventListener("resize", updateViewport);
   }, [mobile]);
+
+  useEffect(() => {
+    if (!mobile || !selected) return;
+    setDrawerOpen(true);
+    if (drawerMode !== "list") {
+      setDrawerMode("event");
+      setDrawerSnap(compactSnap);
+    }
+  }, [selected?.eventId]);
+
+  useLayoutEffect(() => {
+    const scroll = drawerScroll.current;
+    if (!scroll) return;
+    const overview = drawerMode === "forecast" && compactHeight === expandedHeight
+      ? scroll.querySelector<HTMLElement>("#mobile-forecast-overview") : null;
+    scroll.scrollTo({
+      top: overview ? overview.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop : 0,
+    });
+  }, [drawerMode, selected?.eventId, compactHeight, expandedHeight]);
+
+  useLayoutEffect(() => {
+    const stage = mapStage.current;
+    if (!mobile || !stage || !drawerPopup) return;
+    let frame = 0;
+    let previousHeight = -1;
+    const followDrawer = () => {
+      frame = 0;
+      const bounds = stage.getBoundingClientRect();
+      const height = Math.min(bounds.height, Math.max(0, drawerPopup.getBoundingClientRect().top - bounds.top));
+      if (height !== previousHeight) {
+        stage.style.setProperty("--earthquake-map-height", `${height}px`);
+        previousHeight = height;
+      }
+      if (drawerPopup.hasAttribute("data-swiping") || drawerPopup.getAnimations().some((animation) => animation.playState === "running")) {
+        frame = requestAnimationFrame(followDrawer);
+      }
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(followDrawer);
+    };
+    // The popup stays mounted through dismissal, so the map also follows its exit.
+    stage.setAttribute("data-drawer-tracking", "");
+    followDrawer();
+    const mutations = new MutationObserver(schedule);
+    mutations.observe(drawerPopup, {
+      attributes: true,
+      attributeFilter: ["style", "data-swiping", "data-starting-style", "data-ending-style"],
+    });
+    const resize = new ResizeObserver(schedule);
+    resize.observe(stage);
+    resize.observe(drawerPopup);
+    drawerPopup.addEventListener("transitionrun", schedule);
+    return () => {
+      cancelAnimationFrame(frame);
+      mutations.disconnect();
+      resize.disconnect();
+      drawerPopup.removeEventListener("transitionrun", schedule);
+      stage.removeAttribute("data-drawer-tracking");
+      stage.style.removeProperty("--earthquake-map-height");
+    };
+  }, [mobile, drawerPopup]);
+
+  useLayoutEffect(() => {
+    const summary = drawerSummary;
+    if (!mobile || !drawerOpen || !summary) return;
+    const measure = () => {
+      const bottomPadding = parseFloat(getComputedStyle(summary.parentElement!).paddingBottom);
+      // Include the 12px swipe handle, 44px controls, and safe-area padding.
+      setCompactHeight(Math.min(Math.ceil(summary.getBoundingClientRect().height + bottomPadding) + 56, Math.round(window.innerHeight * 0.65)));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(summary);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [mobile, drawerOpen, drawerSummary]);
+
+  useEffect(() => {
+    if (drawerMode === "event") setDrawerSnap(compactSnap);
+    else setDrawerSnap((snap) => drawerMode === "list" && snap === 1 ? 1 : expandedHeight);
+  }, [compactSnap, drawerMode, expandedHeight]);
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 640px)");
@@ -264,6 +408,10 @@ export default function Bulletin({
   const forecastHref = selected
     ? `/forecasts/${encodeURIComponent(selected.eventId)}`
     : "/";
+  const selectedForecast = selected && selectedDetail?.eventId === selected.eventId
+    ? selectedDetail.forecast : null;
+  const forecastStatus = selected && selectedDetail?.eventId === selected.eventId
+    ? "ready" : detailStatus === "error" ? "error" : "loading";
   const chooseDateOption = (value: string | number | null) => {
     if (value === null) return;
     if (value === "custom") {
@@ -295,6 +443,12 @@ export default function Bulletin({
     setCalendarOpen(false);
   };
   const selectEvent = (id: string, fromMap = false) => {
+    if (mobile) {
+      setDrawerOpen(true);
+      setDrawerMode("event");
+      setDrawerSnap(compactSnap);
+      setCalendarOpen(false);
+    }
     pendingMapSelection.current = fromMap ? id : null;
     setFocusRequest((current) => current + 1);
     if (id === selected?.eventId) return;
@@ -328,54 +482,22 @@ export default function Bulletin({
 
   const renderRows = () =>
     visible.map((event) =>
-      event.eventId === selected?.eventId ? (
-        <article
+      !mobile && event.eventId === selected?.eventId ? (
+        <SelectedEarthquakeCard
           key={event.eventId}
           ref={selectedCard}
-          className={`selected-card${previousId !== null ? " selection-enter" : ""}`}
-          aria-label="Selected earthquake"
-        >
-          <div className="card-top">
-            <div
-              className={`selected-mag magnitude-value ${magnitudeBand(event.magnitude).className}`}
-            >
-              {magnitude(event.magnitude)}
-            </div>
-            <time dateTime={event.eventTime}>
-              {displayTime(event.eventTime)}
-            </time>
-          </div>
-          <h2>{locationLabel(event.locationDescription)}</h2>
-          <div className="card-bottom">
-            <div className="selected-facts">
-              <span>
-                <small>Depth</small>
-                <strong>
-                  {event.depthKm === null ? "Unknown" : `${event.depthKm} km`}
-                </strong>
-              </span>
-              <span className="fact-source">
-                <small>Source</small>
-                {sourceUrl ? (
-                  <a href={sourceUrl} target="_blank" rel="noopener noreferrer">
-                    PHIVOLCS <ExternalLink size={17} aria-hidden="true" />
-                  </a>
-                ) : (
-                  <strong>PHIVOLCS</strong>
-                )}
-              </span>
-            </div>
-            <a className="forecast-link" href={forecastHref} data-astro-reload>
-              View forecast <ArrowRight size={22} aria-hidden="true" />
-            </a>
-          </div>
-        </article>
+          event={event}
+          sourceUrl={sourceUrl}
+          forecastHref={forecastHref}
+          className={previousId !== null ? "selection-enter" : ""}
+        />
       ) : (
         <Button
           key={event.eventId}
           variant="ghost"
           className={`event-row event-row-v2${event.eventId === previousId ? " selection-exit" : ""}`}
           onPress={() => selectEvent(event.eventId)}
+          aria-pressed={mobile ? event.eventId === selected?.eventId : undefined}
         >
           <span className="row-v2-measure">
             <strong
@@ -657,36 +779,54 @@ export default function Bulletin({
   return (
     <BulletinLayout filters={filters} results={earthquakeList}>
       <div className="content-grid">
-        <div className="map-stage">
+        <div className="map-stage" ref={mapStage} style={{
+          "--earthquake-panel-height": mobile && drawerOpen ? `${drawerHeight}px` : "0px",
+        } as CSSProperties}>
           <MapPanel
             events={visible}
             selectedId={selected?.eventId ?? null}
             focusRequest={focusRequest}
-            forecast={
-              selected && selectedDetail?.eventId === selected.eventId
-                ? selectedDetail.forecast
-                : null
-            }
-            forecastStatus={
-              selected && selectedDetail?.eventId === selected.eventId
-                ? "ready"
-                : detailStatus === "error"
-                  ? "error"
-                  : "loading"
-            }
+            forecast={selectedForecast}
+            forecastStatus={forecastStatus}
+            overviewInDrawer={mobile}
             onSelect={(id) => selectEvent(id, true)}
           />
           {mobile && (
             <Drawer
               open={drawerOpen}
               onOpenChange={(open) => {
-                if (open) setDrawerSnap(0.65);
-                else setCalendarOpen(false);
+                if (open) {
+                  setDrawerMode("list");
+                  setDrawerSnap(expandedHeight);
+                } else setCalendarOpen(false);
                 setDrawerOpen(open);
               }}
-              snapPoints={[0.65, 1]}
+              modal={false}
+              disablePointerDismissal
+              snapPoints={drawerMode === "list" ? [expandedHeight, 1]
+                : expandedHeight > compactHeight ? [compactSnap, expandedHeight] : [compactSnap]}
               snapPoint={drawerSnap}
-              onSnapPointChange={setDrawerSnap}
+              onSnapPointChange={(snap, details) => {
+                setDrawerSnap(snap);
+                if (drawerMode !== "list" && selected) {
+                  if (expandedHeight > compactHeight) {
+                    setDrawerMode(snap === compactSnap ? "event" : "forecast");
+                  } else if (snap !== null && details.reason === "swipe"
+                    && details.event.type !== "pointercancel" && details.event.type !== "touchcancel") {
+                    // At the height cap, a swipe changes content without changing height.
+                    const start = drawerSwipeStart.current;
+                    const release = "changedTouches" in details.event ? details.event.changedTouches[0]
+                      : "clientY" in details.event ? details.event : null;
+                    if (start && release) {
+                      const deltaY = release.clientY - start.y;
+                      if (Math.abs(deltaY) >= 24 && Math.abs(deltaY) > Math.abs(release.clientX - start.x)) {
+                        setDrawerMode(deltaY < 0 ? "forecast" : "event");
+                      }
+                    }
+                  }
+                }
+                drawerSwipeStart.current = null;
+              }}
               showSwipeHandle
             >
               <DrawerTrigger
@@ -698,17 +838,33 @@ export default function Bulletin({
                 Show earthquakes
               </DrawerTrigger>
               <DrawerContent
+                ref={setDrawerPopup}
                 className="earthquake-drawer"
-                initialFocus={drawerClose}
+                initialFocus={false}
+                onPointerDownCapture={(event) => {
+                  drawerSwipeStart.current = event.isPrimary ? { x: event.clientX, y: event.clientY } : null;
+                }}
+                onTouchStartCapture={(event) => {
+                  const touch = event.touches.length === 1 ? event.touches[0] : null;
+                  drawerSwipeStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
+                }}
+                aria-keyshortcuts={selected && drawerMode !== "list" ? "ArrowUp ArrowDown" : undefined}
+                onKeyDown={(event) => {
+                  if (!selected || drawerMode === "list" || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+                  if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+                  event.preventDefault();
+                  const expand = event.key === "ArrowUp";
+                  setDrawerMode(expand ? "forecast" : "event");
+                  setDrawerSnap(expand ? expandedHeight : compactSnap);
+                }}
               >
                 <DrawerTitle className="sr-only">
-                  Earthquake search and results
+                  Selected earthquake and earthquake search
                 </DrawerTitle>
                 <DrawerDescription className="sr-only">
-                  Filter earthquakes by location, date, and magnitude. Drag the
-                  handle to expand or close.
+                  Read the selected earthquake. Swipe up for its forecast overview, or use the Up and Down arrow keys. Use the list control to search earthquakes.
                 </DrawerDescription>
-                <div className="earthquake-drawer-actions">
+                <div className="earthquake-drawer-actions" data-base-ui-swipe-ignore>
                   <button
                     type="button"
                     className={buttonVariants({
@@ -716,11 +872,19 @@ export default function Bulletin({
                       size: "icon",
                     })}
                     aria-label={
-                      drawerSnap === 1
+                      drawerMode !== "list"
+                        ? "Show earthquake list"
+                        : drawerSnap === 1
                         ? "Collapse earthquake drawer"
                         : "Expand earthquake drawer"
                     }
-                    onClick={() => setDrawerSnap(drawerSnap === 1 ? 0.65 : 1)}
+                    onClick={() => {
+                      if (drawerMode !== "list") {
+                        setDrawerMode("list");
+                        setDrawerSnap(expandedHeight);
+                        setCalendarOpen(false);
+                      } else setDrawerSnap(drawerSnap === 1 ? expandedHeight : 1);
+                    }}
                   >
                     <ChevronsUpDown aria-hidden="true" />
                   </button>
@@ -735,9 +899,21 @@ export default function Bulletin({
                     <X aria-hidden="true" />
                   </DrawerClose>
                 </div>
-                <div className="earthquake-drawer-scroll">
-                  {filters}
-                  {earthquakeList}
+                <div className="earthquake-drawer-scroll" ref={drawerScroll}>
+                  {selected && drawerMode !== "list" && (
+                    <div className="earthquake-drawer-summary" ref={setDrawerSummary}>
+                      <SelectedEarthquakeCard event={selected} sourceUrl={sourceUrl} forecastHref={forecastHref} />
+                    </div>
+                  )}
+                  {selected && (
+                    <section id="mobile-forecast-overview" aria-label="Forecast overview" hidden={drawerMode !== "forecast"}>
+                      <ForecastOverview forecast={selectedForecast} status={forecastStatus} />
+                    </section>
+                  )}
+                  <div id="mobile-earthquake-list" hidden={drawerMode !== "list"}>
+                    {filters}
+                    {earthquakeList}
+                  </div>
                 </div>
               </DrawerContent>
             </Drawer>

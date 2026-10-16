@@ -1337,6 +1337,14 @@ a {
   }
 }
 @media (max-width: 760px) {
+  .map-stage > .map-region {
+    height: max(0px, calc(100% - var(--earthquake-panel-height, 0px)));
+    transition: height 450ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .map-stage[data-drawer-tracking] > .map-region {
+    height: var(--earthquake-map-height);
+    transition: none;
+  }
   .earthquake-drawer [data-slot="drawer-swipe-handle"]::after {
     background: color-mix(in srgb, var(--brand-charcoal) 40%, var(--card));
   }
@@ -1361,6 +1369,9 @@ a {
     position: absolute;
     inset: -4px 0;
   }
+  .earthquake-drawer-trigger[aria-expanded="true"] {
+    display: none;
+  }
   .earthquake-drawer-trigger svg {
     width: 14px;
     height: 14px;
@@ -1370,6 +1381,7 @@ a {
   }
   .earthquake-drawer {
     --drawer-content-max-height: 100dvh;
+    --earthquake-drawer-height: calc(100dvh - var(--drawer-snap-point-offset, 0px));
     --drawer-bleed-background: var(--card);
     color: var(--foreground);
     background: var(--card);
@@ -1377,7 +1389,7 @@ a {
   }
   .earthquake-drawer [data-slot="drawer-content"] {
     flex: none;
-    height: calc(100dvh - var(--drawer-snap-point-offset, 0px) - 12px);
+    height: calc(var(--earthquake-drawer-height) - 12px);
   }
   .earthquake-drawer-actions {
     display: flex;
@@ -1397,12 +1409,132 @@ a {
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-width: none;
-    padding: 0 12px max(16px, env(safe-area-inset-bottom));
+    padding: 0 20px max(20px, env(safe-area-inset-bottom));
   }
   .earthquake-drawer-scroll::-webkit-scrollbar {
     display: none;
   }
+  .earthquake-drawer-summary {
+    display: grid;
+    gap: 12px;
+    padding-top: 0;
+  }
+  .earthquake-drawer-summary .selected-card {
+    gap: 12px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+  .earthquake-drawer-summary .card-top {
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+  }
+  .earthquake-drawer-summary .selected-mag {
+    font-size: 28px;
+    font-variant-numeric: tabular-nums;
+  }
+  .earthquake-drawer-summary .card-top time {
+    line-height: 1.5;
+    text-align: left;
+  }
+  .earthquake-drawer-summary .selected-card h2 {
+    line-height: 1.5;
+  }
+  .earthquake-drawer-summary .card-bottom {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .earthquake-drawer-summary .selected-facts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .earthquake-drawer-summary .selected-facts > span {
+    gap: 4px;
+  }
+  .earthquake-drawer-summary .fact-source::before {
+    left: -8px;
+    top: 0;
+    height: 100%;
+  }
+  .earthquake-drawer-summary .selected-facts a {
+    position: relative;
+    width: fit-content;
+  }
+  .earthquake-drawer-summary .selected-facts a::before {
+    content: "";
+    position: absolute;
+    inset: -14px 0;
+  }
+  .earthquake-drawer-summary .forecast-link {
+    min-height: 44px;
+    padding: 0 12px;
+    align-items: center;
+    justify-content: space-between;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 14px;
+  }
+  .earthquake-drawer-summary .forecast-link:hover {
+    background: var(--accent);
+  }
+  .earthquake-drawer #mobile-forecast-overview {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+  .earthquake-drawer .forecast-map-annotation {
+    --ink: var(--foreground);
+    --coastal-teal-deep: var(--primary);
+    --supporting-blue: var(--muted-foreground);
+    width: 100%;
+    max-height: none;
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
+    overflow: visible;
+    font-size: 14px;
+    font-weight: 400;
+    gap: 12px;
+  }
+  .earthquake-drawer .forecast-map-annotation > span,
+  .earthquake-drawer .forecast-map-heading {
+    padding-right: 0;
+  }
+  .earthquake-drawer .forecast-map-heading {
+    font-size: 18px;
+    line-height: 1.4;
+  }
+  .earthquake-drawer .forecast-map-period {
+    margin-top: -8px;
+  }
+  .earthquake-drawer .forecast-map-occurrence {
+    margin-top: 4px;
+  }
+  .earthquake-drawer .forecast-map-distance {
+    margin-top: 4px;
+    padding-top: 16px;
+  }
+  .earthquake-drawer .forecast-map-annotation p {
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+  .earthquake-drawer .forecast-map-period,
+  .earthquake-drawer .forecast-map-occurrence p,
+  .earthquake-drawer .forecast-map-distance p {
+    font-size: 14px;
+  }
+  .earthquake-drawer .forecast-map-metric {
+    font-size: 15px;
+  }
+  .earthquake-drawer .event-row-v2[aria-pressed="true"] {
+    background: var(--accent);
+  }
   .earthquake-drawer .filter-bar {
+    padding-top: 8px;
     margin-bottom: 12px;
     gap: 8px;
   }
@@ -1514,6 +1646,9 @@ a {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .map-stage > .map-region {
+    transition: none;
+  }
   [data-slot="drawer-popup"],
   [data-slot="drawer-overlay"] {
     transition-duration: 0ms;

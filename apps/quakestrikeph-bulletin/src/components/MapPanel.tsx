@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { CircleQuestionMark, LocateFixed, Minus, Plus, X } from "lucide-react";
+import { CircleQuestionMark, LocateFixed, Minus, Plus } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import type { GeoJSONSource, Map as MapLibreMap, Marker, Popup } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Earthquake, Forecast } from "../lib/events";
-import { likelihoodLevel, occurrenceRelativeTo } from "../lib/events";
+import { occurrenceRelativeTo } from "../lib/events";
+import ForecastOverview, { forecastRadiusKm } from "./ForecastOverview";
 import { magnitudeBand, magnitudeBands } from "../lib/magnitude";
 import { addLandmarkLabels } from "../lib/map-landmarks";
 import { cleanMapStyle, transformLabelRequest } from "../lib/map-labels";
@@ -20,6 +21,7 @@ type Props = {
   forecastStatus: "loading" | "ready" | "error";
   onSelect: (id: string) => void;
   showForecastOverview?: boolean;
+  overviewInDrawer?: boolean;
   forecastAnchor?: Earthquake;
 };
 
@@ -68,20 +70,27 @@ function radiusCoordinates(event: Earthquake, radiusKm: number) {
   );
 }
 
-function chance(value: number) {
-  if (value > 0 && value < 0.005) return "<1%";
-  return `${Math.round(value * 100)}%`;
-}
-
-function forecastEnd(value: string) {
-  return `${new Intl.DateTimeFormat("en-PH", {
-    timeZone: "Asia/Manila",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  }).format(new Date(value))} PHT`;
+function fitMobileActivityRadius(instance: MapLibreMap, event: Earthquake, radiusKm: number | null, duration: number) {
+  const { clientWidth: width, clientHeight: height } = instance.getContainer();
+  if (!radiusKm || !width || !height) return false;
+  const coordinates = radiusCoordinates(event, radiusKm);
+  const longitudes = coordinates.map(([longitude]) => longitude);
+  const latitudes = coordinates.map(([, latitude]) => latitude);
+  instance.fitBounds([
+    [Math.min(...longitudes), Math.min(...latitudes)],
+    [Math.max(...longitudes), Math.max(...latitudes)],
+  ], {
+    padding: {
+      top: Math.min(56, height * 0.24),
+      bottom: Math.min(32, height * 0.14),
+      left: Math.min(28, width * 0.1),
+      right: Math.min(28, width * 0.1),
+    },
+    maxZoom: 7.2,
+    duration,
+    linear: true,
+  });
+  return true;
 }
 
 function set3DInteractions(instance: MapLibreMap, enabled: boolean) {
@@ -122,6 +131,7 @@ export default function MapPanel({
   forecastStatus,
   onSelect,
   showForecastOverview = true,
+  overviewInDrawer = false,
   forecastAnchor,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
@@ -148,18 +158,13 @@ export default function MapPanel({
   const selectedEvent = events.find((event) => event.eventId === selectedId);
   const areaEvent = forecastAnchor ?? selectedEvent;
   const forecastDismissed =
-    dismissedForecast?.id === selectedId &&
+    !overviewInDrawer && dismissedForecast?.id === selectedId &&
     dismissedForecast.focusRequest === focusRequest;
   const reportedRadiusKm =
-    forecastStatus === "ready" &&
-    forecast &&
-    forecast.activityRadiusMedianKm24h !== null &&
-    Number.isFinite(forecast.activityRadiusMedianKm24h) &&
-    forecast.activityRadiusMedianKm24h >= 0
-      ? forecast.activityRadiusMedianKm24h
-      : null;
+    forecastStatus === "ready" ? forecastRadiusKm(forecast) : null;
   const radiusKm =
     reportedRadiusKm !== null && reportedRadiusKm > 0 ? reportedRadiusKm : null;
+  const mobileRadiusKm = overviewInDrawer && !forecastAnchor ? radiusKm : null;
 
   useEffect(() => {
     if (!legendOpen) return;
@@ -318,7 +323,8 @@ export default function MapPanel({
   }, []);
 
   useEffect(() => {
-    if (!mapReady || !container.current) return;
+    const instance = map.current;
+    if (!mapReady || !container.current || !instance) return;
     const element = container.current;
     const viewport = element.parentElement!;
     const shell = element.closest(".bulletin-shell");
@@ -369,21 +375,58 @@ export default function MapPanel({
     sidebarGap?.addEventListener("transitionrun", startTransition);
     sidebarGap?.addEventListener("transitionend", finishTransition);
     sidebarGap?.addEventListener("transitioncancel", finishTransition);
+    let recenterTimer = 0;
+    let pendingRecenter = false;
+    let heightSettled = true;
+    const finishHeightChange = () => {
+      if (!pendingRecenter || !heightSettled || !selectedEvent || instance.isMoving()) return;
+      pendingRecenter = false;
+      const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 220;
+      if (fitMobileActivityRadius(instance, selectedEvent, mobileRadiusKm, duration)) return;
+      // Recenter after resizing so MapLibre calculates the pan against a stable viewport.
+      instance.easeTo({
+        center: [selectedEvent.longitude, selectedEvent.latitude],
+        duration,
+      });
+    };
+    instance.on("moveend", finishHeightChange);
+    let previousHeight = viewport.clientHeight;
     const observer = new ResizeObserver(() => {
       if (transitionCenter) return;
-      // Redraw before browser paint; resizing clears the WebGL canvas.
-      map.current?.resize().redraw();
+      const heightChanged = viewport.clientHeight !== previousHeight;
+      previousHeight = viewport.clientHeight;
+      const needsRecenter = overviewInDrawer && selectedEvent && heightChanged;
+      if (needsRecenter) {
+        window.clearTimeout(recenterTimer);
+        pendingRecenter = true;
+        heightSettled = false;
+      }
+      // resize() can emit moveend; do not fit until this resize has settled.
+      instance.resize();
+      if (needsRecenter) {
+        const settleHeight = () => {
+          heightSettled = true;
+          finishHeightChange();
+        };
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          settleHeight();
+        } else recenterTimer = window.setTimeout(settleHeight, 80);
+      }
+      // Paint the resized canvas only after the camera reaches its frame position.
+      map.current?.redraw();
     });
     observer.observe(viewport);
     return () => {
       observer.disconnect();
+      window.clearTimeout(recenterTimer);
+      instance.off("moveend", finishHeightChange);
       sidebarGap?.removeEventListener("transitionrun", startTransition);
       sidebarGap?.removeEventListener("transitionend", finishTransition);
       sidebarGap?.removeEventListener("transitioncancel", finishTransition);
       element.classList.remove("map-sidebar-transition");
       element.style.removeProperty("--map-transition-width");
     };
-  }, [mapReady]);
+  }, [mapReady, overviewInDrawer, selectedEvent, mobileRadiusKm]);
 
   useEffect(() => {
     if (!mapReady || !map.current) return;
@@ -540,7 +583,7 @@ export default function MapPanel({
     annotationMarker.current?.remove();
     annotationMarker.current = null;
     setAnnotationHost(null);
-    if (!selectedEvent || forecastDismissed || !showForecastOverview) {
+    if (!selectedEvent || forecastDismissed || !showForecastOverview || overviewInDrawer) {
       return;
     }
 
@@ -628,30 +671,33 @@ export default function MapPanel({
     focusRequest,
     forecastDismissed,
     showForecastOverview,
+    overviewInDrawer,
   ]);
 
   useEffect(() => {
     if (
-      showForecastOverview ||
+      (showForecastOverview && !overviewInDrawer) ||
       (forecastAnchor && !focusRequest) ||
       !mapReady ||
       !map.current ||
       !selectedEvent
     )
       return;
+    const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 700;
+    if (fitMobileActivityRadius(map.current, selectedEvent, mobileRadiusKm, duration)) return;
     map.current.flyTo({
       center: [selectedEvent.longitude, selectedEvent.latitude],
       zoom: forecastAnchor ? map.current.getZoom() : 7.2,
-      duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-        ? 0
-        : 700,
+      duration,
     });
   }, [
     showForecastOverview,
+    overviewInDrawer,
     forecastAnchor,
     mapReady,
     selectedEvent,
     focusRequest,
+    mobileRadiusKm,
   ]);
 
   useEffect(() => {
@@ -747,71 +793,20 @@ export default function MapPanel({
           selectedEvent &&
           !forecastDismissed &&
           createPortal(
-            <div
-              className="forecast-map-annotation"
-              role="status"
-              aria-live="polite"
-            >
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="forecast-map-close"
-                aria-label="Close forecast overview"
-                onPress={() => {
-                  setDismissedForecast({
-                    id: selectedEvent.eventId,
-                    focusRequest,
-                  });
-                  markers.current
-                    .get(selectedEvent.eventId)
-                    ?.getElement()
-                    .focus({ preventScroll: true });
-                }}
-              >
-                <X aria-hidden="true" />
-              </Button>
-              {forecastStatus === "loading" ? (
-                <span>Loading forecast…</span>
-              ) : forecastStatus === "error" ? (
-                <span>Forecast details are unavailable right now.</span>
-              ) : forecast ? (
-                <>
-                  <h3 className="forecast-map-heading">Forecast Overview</h3>
-                  <span className="forecast-map-period">
-                    24-hour forecast {forecast.expired ? "ended" : "through"}{" "}
-                    {forecastEnd(forecast.windowEnd)}
-                  </span>
-                  <div className="forecast-map-occurrence">
-                    <span className="forecast-map-metric">
-                      <strong>
-                        {likelihoodLevel(forecast.probabilityM1Plus24h)}
-                      </strong>{" "}
-                      <strong>({chance(forecast.probabilityM1Plus24h)})</strong>
-                    </span>
-                    <p>
-                      Chance of at least one further earthquake near the
-                      epicenter.
-                    </p>
-                  </div>
-                  <div className="forecast-map-distance">
-                    <strong className="forecast-map-metric">
-                      {reportedRadiusKm === null
-                        ? "Estimated activity radius unavailable"
-                        : `Estimated activity radius: ${Math.round(reportedRadiusKm)} km`}
-                    </strong>
-                    {radiusKm !== null && (
-                      <p>
-                        The circle shows the system’s estimated reach of further
-                        activity from this earthquake over the 24-hour forecast
-                        window.
-                      </p>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <span>No forecast is available for this earthquake.</span>
-              )}
-            </div>,
+            <ForecastOverview
+              forecast={forecast}
+              status={forecastStatus}
+              onClose={() => {
+                setDismissedForecast({
+                  id: selectedEvent.eventId,
+                  focusRequest,
+                });
+                markers.current
+                  .get(selectedEvent.eventId)
+                  ?.getElement()
+                  .focus({ preventScroll: true });
+              }}
+            />,
             annotationHost,
           )}
         <Button
