@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./logo": "./logo.tsx",
     "./button": "./button.tsx",
     "./combobox": "./combobox.tsx",
     "./dialog": "./dialog.tsx",

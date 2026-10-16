@@ -1,6 +1,6 @@
+import { Logo } from "@quakestrikeph/ui/logo";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  Activity,
   ArrowRight,
   Check,
   CheckCheck,
@@ -61,18 +61,7 @@ function OperatorSidebar({ section }: { section: Section }) {
   return (
     <Sidebar collapsible="offcanvas">
       <SidebarHeader>
-        <a
-          href="/"
-          className="flex items-center gap-3 rounded-md p-2 text-foreground no-underline"
-        >
-          <span className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Activity className="size-5" />
-          </span>
-          <span className="grid text-sm">
-            <strong className="font-semibold">QuakeStrike PH</strong>
-            <span className="text-xs text-muted-foreground">Alert testing</span>
-          </span>
-        </a>
+        <Logo subtitle="Alert testing" className="p-2" />
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup className="operator-navigation">

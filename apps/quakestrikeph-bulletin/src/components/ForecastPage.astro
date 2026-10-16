@@ -1,5 +1,6 @@
 ---
-import { Activity, ChevronLeft, Earth } from 'lucide-react';
+import { Logo } from "@quakestrikeph/ui/logo";
+import { ChevronLeft, Earth } from 'lucide-react';
 import ForecastReplay from '../features/forecast-replay/ForecastReplay.astro';
 import ForecastNavigation from './ForecastNavigation';
 import { LinkButton } from './ui/button';
@@ -71,8 +72,7 @@ const radiusCopy = forecast && forecast.activityRadiusMedianKm24h !== null ? `Th
 <a class="skip" href="#forecast-content">Skip to forecast</a>
 <header class="forecast-header">
 <div class="shell header-inner">
-<a class="brand" href={backHref} aria-label="Back to QuakeStrike PH Bulletin">
-<Activity size={20} aria-hidden="true" />QuakeStrike PH</a>
+<Logo href={backHref} aria-label="Back to QuakeStrike PH Bulletin" />
 <a class="forecast-back" href={backHref}>
 <ChevronLeft size={18} aria-hidden="true" />Back to earthquakes</a>
 </div>

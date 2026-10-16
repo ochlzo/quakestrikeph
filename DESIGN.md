@@ -63,6 +63,13 @@ components:
 
 # Design System: QuakeStrike PH Bulletin
 
+Header logos use `Logo` from `@quakestrikeph/ui/logo`, implemented in
+`packages/ui/logo.tsx` with shared styles in `packages/ui/logo.css`.
+The component combines Lucide's Earth icon, a teal tile, the QuakeStrike PH
+name, and a subtitle. `<Logo />` defaults to Bulletin;
+`<Logo subtitle="Alert testing" />` identifies the private testing tool.
+Use `href`, `aria-label`, and `className` for navigation and placement.
+
 When an earthquake has no forecast, the forecast page uses one reading column.
 The earthquake summary includes its occurrence time. The status explanation
 uses the detail API's public availability and reason codes, with a PHIVOLCS

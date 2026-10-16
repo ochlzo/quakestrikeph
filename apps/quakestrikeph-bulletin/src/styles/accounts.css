@@ -629,6 +629,7 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
   font-size: 14px;
   font-weight: 550;
 }
+.account-app[data-screen="preferences"] .bulletin-header .bulletin-mobile-title { display: none; }
 .account-app .settings-bulletin-back svg { display: none; }
 .account-app .settings-bulletin-back:hover { text-decoration: underline; text-underline-offset: 4px; }
 .settings-user-popover { width: max(var(--trigger-width), 14rem); gap: 0; padding: 4px; }
