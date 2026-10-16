@@ -261,11 +261,10 @@ def test_dependency_outage_does_not_claim_inactivity_or_success(redis_client, mo
 def test_private_http_rejects_public_host_cross_origin_and_invalid_actions(
     private_api, redis_client
 ):
-    assert private_api.request("start", headers={"Host": "quakestrikeph.qzz.io"})[0] == 403
-    assert private_api.request(headers={"Host": "quakestrikeph.qzz.io"})[0] == 403
-    assert (
-        private_api.request("start", headers={"Origin": "https://quakestrikeph.qzz.io"})[0] == 403
-    )
+    for hostname in ("quakestrikeph.com", "quakestrikeph.qzz.io"):
+        assert private_api.request("start", headers={"Host": hostname})[0] == 403
+        assert private_api.request(headers={"Host": hostname})[0] == 403
+        assert private_api.request("start", headers={"Origin": f"https://{hostname}"})[0] == 403
     assert private_api.request("start", headers={"X-QuakeStrike-Test": ""})[0] == 403
     assert private_api.request("start", headers={"Sec-Fetch-Site": "cross-site"})[0] == 403
     assert private_api.request("start", body={"scenario": "not-allowed"})[0] == 400

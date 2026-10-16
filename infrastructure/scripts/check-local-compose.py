@@ -64,6 +64,35 @@ assert (
 )
 for service in ("backend-api", "bulletin", "postgres", "redis"):
     assert not production["services"][service].get("ports")
+cutover = configuration(
+    "compose.yml",
+    "compose.backend.yml",
+    "compose.edge.yml",
+    "compose.bulletin.yml",
+    "compose.domain-cutover.yml",
+)
+cutover_services = cutover["services"]
+assert (
+    cutover_services["bulletin"]["environment"]["API_TARGET"]
+    == "http://backend-api:3000"
+)
+route_mounts = [
+    mount
+    for mount in cutover_services["traefik"]["volumes"]
+    if mount["target"] == "/etc/traefik/backend.yml"
+]
+assert len(route_mounts) == 1
+assert Path(route_mounts[0]["source"]) == root / ".local/domain-cutover/backend.yml"
+assert route_mounts[0]["read_only"]
+for service in ("traefik", "bulletin"):
+    assert not cutover_services[service].get("ports")
+first_bulletin_recovery = configuration(
+    "compose.yml",
+    "compose.backend.yml",
+    "compose.edge.yml",
+    "compose.domain-cutover.yml",
+)
+assert first_bulletin_recovery["services"]["bulletin"]["image"] == bulletin["image"]
 release = configuration("compose.yml", "compose.release.yml")
 assert "alert-worker" not in release["services"]
 assert "alert-reconciliation" not in release["services"]
@@ -83,7 +112,7 @@ for service in ("dispatcher", "prediction-worker", "beat"):
             services[service]["environment"]
         )
 assert services["prediction-worker"]["environment"]["PUBLIC_BULLETIN_BASE_URL"] == (
-    "https://quakestrikeph.qzz.io"
+    "https://quakestrikeph.com"
 )
 controlled = configuration(
     "compose.integration.yml",

@@ -21,6 +21,8 @@ import pytest
         (True, "backend", True, False, False),
         (True, False, False, False, True),
         (True, "cleanup", False, False, False),
+        (True, "quakestrikeph.com", False, False, False),
+        (False, "quakestrikeph.com", False, False, False),
     ],
 )
 def test_bulletin_rollout_restores_or_saves_tags(
@@ -47,6 +49,11 @@ def test_bulletin_rollout_restores_or_saves_tags(
     )
     scripts = tmp_path / "infrastructure/scripts"
     scripts.mkdir(parents=True)
+    cutover = tmp_path / ".local/domain-cutover"
+    if failure == "quakestrikeph.com":
+        cutover.mkdir(parents=True)
+        shutil.copyfile("infrastructure/traefik/backend.yml", cutover / "backend.yml")
+        shutil.copyfile("infrastructure/compose.domain-cutover.yml", cutover / "compose.yml")
     shutil.copyfile("infrastructure/scripts/save-release-tags.py", scripts / "save-release-tags.py")
     mocks = r"""
 old=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -112,6 +119,11 @@ curl() { log "curl $*"; return 22; }
         mocks = mocks.replace("then return 0; fi", "then return 27; fi")
     if not failure or failure == "cleanup":
         mocks = mocks.replace("return 22", "return 0")
+    if failure == "quakestrikeph.com":
+        mocks = mocks.replace(
+            'curl() { log "curl $*"; return 22; }',
+            f'curl() {{ log "curl $*"; [[ $* != *"https://{failure}/"* ]] || return 22; }}',
+        )
     if failure == "consumer":
         mocks = mocks.replace(
             'log "docker $*"',
@@ -180,6 +192,9 @@ curl() { log "curl $*"; return 22; }
         return
     if not failure or failure == "cleanup":
         assert result.returncode == 0, result.stderr
+        assert "https://quakestrikeph.com/ -o /dev/null" in commands
+        assert "https://quakestrikeph.com/api/v1/earthquakes/search" in commands
+        assert "quakestrikeph.qzz.io" not in commands
         saved = (tmp_path / ".env").read_text()
         assert f"WORKER_IMAGE_TAG={new}" in saved
         assert f"BULLETIN_IMAGE_TAG={new}" in saved
@@ -196,6 +211,24 @@ curl() { log "curl $*"; return 22; }
     commands = (tmp_path / "commands.log").read_text()
     assert f"git switch --detach {old}" in commands
     assert "--force-recreate traefik" in commands
+    if failure == "quakestrikeph.com":
+        rollback_commands = commands.split(f"git switch --detach {old}\n", 1)[1]
+        traefik_commands = [
+            command
+            for command in rollback_commands.splitlines()
+            if "--force-recreate traefik" in command
+        ]
+        assert traefik_commands
+        assert all("-f .local/domain-cutover/compose.yml" in c for c in traefik_commands)
+        if previous_bulletin:
+            bulletin_commands = [
+                c for c in rollback_commands.splitlines() if "up -d --wait --no-deps bulletin" in c
+            ]
+            assert bulletin_commands
+            assert all("-f .local/domain-cutover/compose.yml" in c for c in bulletin_commands)
+        routes = (cutover / "backend.yml").read_text()
+        assert "Host(`quakestrikeph.com`)" in routes
+        assert "quakestrikeph.qzz.io" not in routes
     if previous_bulletin:
         assert commands.count("up -d --wait --no-deps bulletin") == 2
     else:

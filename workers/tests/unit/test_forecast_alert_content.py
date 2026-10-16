@@ -93,12 +93,26 @@ def test_alert_snapshots_use_amended_channel_copy(forecast_alert, available):
         assert "Maximum magnitude (5th / 50th / 95th percentiles):" not in body
         assert "Chance of further M1.0+ activity: 70%\nLikelihood: High\n" in body
         assert (
-            "View current forecast: https://quakestrikeph.qzz.io/forecasts/"
+            "View current forecast: https://quakestrikeph.com/forecasts/"
             "12345678-1234-5678-1234-567812345678"
         ) in body
     assert "near your saved alert location" in snapshots.nearby_message
     assert "near your saved alert location" in snapshots.nearby_email_body
     assert snapshots.content_provenance["rendering_policy_version"] == "forecast-alert-v2"
+
+
+def test_custom_public_origin_remains_configurable(forecast_alert):
+    candidate, forecast = forecast_alert
+    snapshots = create_automatic_alert_snapshots(
+        candidate,
+        forecast=forecast,
+        event_id=uuid4(),
+        location_provenance={"location_label": "near Davao Occidental"},
+        public_base_url="https://bulletin.example.test",
+    )
+    assert snapshots is not None
+    assert "https://bulletin.example.test/forecasts/" in snapshots.message
+    assert "https://bulletin.example.test/forecasts/" in snapshots.email_body
 
 
 @pytest.mark.parametrize("offset,creates_alert", [(-1, True), (0, False), (1, False)])

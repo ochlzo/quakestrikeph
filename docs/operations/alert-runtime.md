@@ -19,7 +19,7 @@ Verify the registered model, bootstrap coverage, migration head, and private Pos
 |---|---|
 | `ALERT_RESOLUTION_ENABLED=false` | Dispatcher publication gate; Alert Worker also requires this gate. |
 | `ALERT_DELIVERY_ENABLED=false` | Alert Worker and reconciliation gate. |
-| `PUBLIC_BULLETIN_BASE_URL` | Prediction Worker freezes full `/forecasts/{eventId}` links; default `https://quakestrikeph.qzz.io`. |
+| `PUBLIC_BULLETIN_BASE_URL` | Prediction Worker freezes full `/forecasts/{eventId}` links; default `https://quakestrikeph.com`. |
 | `IPROG_API_TOKEN` | Alert Worker, reconciliation, and Backend phone verification only. |
 | `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Alert Worker only; authenticate the selected account and sender before activation. |
 | `BREVO_CALLBACK_TOKEN` | Backend only; separate bearer token of 32–1024 nonspace ASCII characters. Missing configuration denies callbacks. |

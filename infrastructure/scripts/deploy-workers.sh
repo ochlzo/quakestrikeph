@@ -27,13 +27,16 @@ backend_revision=$(docker image inspect --format '{{index .Config.Labels "org.op
 [[ $previous_tag =~ ^[0-9a-f]{40}$ ]] || { echo 'WORKER_IMAGE_TAG must be the previous tested SHA' >&2; exit 2; }
 [[ $(grep -c '^WORKER_IMAGE_TAG=' .env) == 1 ]] || { echo 'Expected one WORKER_IMAGE_TAG in .env' >&2; exit 2; }
 
+cutover_files=()
+[[ ! -f .local/domain-cutover/compose.yml ]] || cutover_files=(-f .local/domain-cutover/compose.yml)
+
 compose() {
     docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml "$@"
 }
 
 web_compose() {
     local edge_files=(); [[ ! -f infrastructure/compose.edge.yml ]] || edge_files=(-f infrastructure/compose.edge.yml)
-    docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml "${edge_files[@]}" -f infrastructure/compose.bulletin.yml "$@"
+    docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml "${edge_files[@]}" -f infrastructure/compose.bulletin.yml "${cutover_files[@]}" "$@"
 }
 
 for service in postgres redis dispatcher data-ingestor; do
@@ -124,7 +127,7 @@ rollback() {
                 web_compose up -d --wait --no-deps --force-recreate traefik >&2 || true
             else
                 rollback_edge=(); [[ ! -f infrastructure/compose.edge.yml ]] || rollback_edge=(-f infrastructure/compose.edge.yml)
-                docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml "${rollback_edge[@]}" up -d --wait --no-deps --force-recreate traefik >&2 || true
+                docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml "${rollback_edge[@]}" "${cutover_files[@]}" up -d --wait --no-deps --force-recreate traefik >&2 || true
             fi
         fi
         export WORKER_IMAGE_TAG=$previous_tag
@@ -195,8 +198,8 @@ start_processing
 web_compose up -d --wait --no-deps bulletin
 # Recreate Traefik so its file bind mount sees the new checkout's route file.
 web_compose up -d --wait --no-deps --force-recreate traefik
-curl --connect-timeout 10 --max-time 20 --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 2 https://quakestrikeph.qzz.io/ -o /dev/null
-curl --connect-timeout 10 --max-time 20 --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 2 https://quakestrikeph.qzz.io/api/v1/earthquakes/search -H 'Content-Type: application/json' --data '{"limit":1}' -o /dev/null
+curl --connect-timeout 10 --max-time 20 --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 2 https://quakestrikeph.com/ -o /dev/null
+curl --connect-timeout 10 --max-time 20 --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 2 https://quakestrikeph.com/api/v1/earthquakes/search -H 'Content-Type: application/json' --data '{"limit":1}' -o /dev/null
 
 python3 infrastructure/scripts/save-release-tags.py .env "$sha"
 # Cleanup cannot undo a release that has passed its checks and saved its tags.

@@ -2,6 +2,45 @@
 
 **Status**: accepted
 
+## Domain amendment: 16 October 2026
+
+The user selected `quakestrikeph.com` as the sole public domain and withdrew
+the earlier request to retain `quakestrikeph.qzz.io`. Only the new hostname
+routes to the Bulletin and `/api/v1/` Backend services. Keep explicit host
+matching, API priority, and rejection of the retired hostname and unrelated
+hosts. Do not add a legacy redirect. The Tunnel route uses `http://traefik:80`
+and preserves the new public Host header.
+
+The live old-host-only deployment needs a staged cutover during a maintenance
+window. Mount a verified copy of the new-host-only routes from ignored
+`.local/domain-cutover/` storage before removing the Cloudflare HTTP Host Header
+override. The new public path is briefly unavailable between those actions.
+Verify the new domain before releasing application images. Remove the old
+Tunnel route, DNS records, and authentication origins after the new path works.
+
+While `.local/domain-cutover/compose.yml` exists, the deployment script applies
+that override to edge operations, including rollback to a previous checkout.
+The verified new-host-only route file survives rollback and keeps the retired
+domain rejected. The override also sets Bulletin's server API target to
+`http://backend-api:3000`, so previous images do not fetch forecasts through
+the retired hostname. This amends the original route rollback rule during cutover;
+ADR 0049 still controls schema safety and application image rollback. Keep the
+override until the new release succeeds. Then recreate Traefik from the release
+configuration before removing the saved cutover files. Never restore the old
+Host override or a legacy public route as recovery.
+
+New forecast links and application defaults use `https://quakestrikeph.com`.
+Existing frozen alert content stays unchanged; old-domain links stop working
+after retirement. Release checks verify pages and API routing on the new
+domain only. Clerk production uses the new domain and its
+publishable key; preserve existing account identities and server-only secrets.
+Brevo's selected sender is `forecast@quakestrikeph.com`, with the name
+`QuakeStrike PH - Alert System`. The user deferred webhook setup. This domain
+change does not enable production alerts or change private test admission.
+
+The original deployment decision follows; this amendment replaces its fixed
+public hostname.
+
 [ADR 0049](0049-automatic-full-application-deployment.md) extends routine deployment to the Backend, reviewed migrations, restricted grants, and already-enabled alert services. It replaces unconditional image rollback after a schema change.
 
 Amends the Bulletin checkout and hosting decision in [ADR 0040](0040-scoped-rollover-recovery-and-worker-checkout.md). Its historical recovery rules remain unchanged.

@@ -13,10 +13,104 @@ container also checks page/API routing and unrelated-host rejection. Deployment 
 all three checks and uses the tested main SHA for all application images.
 The Operations Console deployment remains planned.
 
+## Public domain transition
+
+`quakestrikeph.com` is the sole public domain. The user retired
+`quakestrikeph.qzz.io`; no compatibility route or redirect remains in the
+release configuration. Keep the existing Tunnel, Traefik, Bulletin, and
+Backend. Do not add public host ports, wildcard routes, or public private-tool
+routes.
+
+Set these values in the ignored VPS `.env`:
+
+```dotenv
+PUBLIC_BULLETIN_BASE_URL=https://quakestrikeph.com
+ALERT_TEST_PUBLIC_BULLETIN_URL=https://quakestrikeph.com
+BREVO_SENDER_EMAIL=forecast@quakestrikeph.com
+ALERT_TEST_BREVO_SENDER_EMAIL=forecast@quakestrikeph.com
+```
+
+Set `CLERK_AUTHORIZED_PARTIES=https://quakestrikeph.com` on the VPS.
+Preserve the existing production Clerk keys, Brevo credentials,
+callback token, image tags, and delivery enablement. The Bulletin build embeds
+the publishable key. Ordinary and private test delivery remain separately gated.
+The branded Brevo subdomain `alerts.quakestrikeph.com` is provider infrastructure;
+it is not the sender address or a Bulletin API target. Webhook setup remains
+deferred; this release does not establish email delivery verification.
+
+Recreate already-running Prediction Worker replicas to apply the public URL.
+Between private test sessions, recreate the already-running private control and
+consumer with the same private URL. Preserve their image tags and Redis data.
+Frozen alert messages and prepared previews retain their original URLs.
+Links containing the retired domain stop working after retirement.
+
+If the live routes accept only the old hostname, use a maintenance window for
+the staged cutover. Keep `DEPLOY_ENABLED=false` until the cutover is verified.
+New-only routing briefly rejects rewritten requests until the Host override is
+cleared. Never restore the retired hostname to recover from a failed release.
+
+1. Fetch the reviewed PR revision on the VPS.
+2. Save its new-host-only route file outside the tracked checkout.
+
+Run from `/srv/quakestrikeph` with the reviewed 40-character SHA:
+
+```bash
+reviewed_sha=REPLACE_WITH_REVIEWED_40_CHARACTER_SHA
+[[ $reviewed_sha =~ ^[0-9a-f]{40}$ ]] || exit 2
+mkdir -p .local/domain-cutover
+git show "$reviewed_sha:infrastructure/traefik/backend.yml" > .local/domain-cutover/backend.yml
+git show "$reviewed_sha:infrastructure/compose.domain-cutover.yml" > .local/domain-cutover/compose.yml
+```
+
+The `.local/` directory is ignored by Git. Its files survive checkout rollback
+and keep the deployment's clean-checkout check valid. The Compose override
+replaces the route mount and sets Bulletin's server API target to
+`http://backend-api:3000`. Previous Bulletin images otherwise fetch forecasts
+from the retired hostname. The override adds no public port or legacy route.
+
+3. Recreate Bulletin and Traefik with the saved override:
+
+```bash
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml -f infrastructure/compose.bulletin.yml -f .local/domain-cutover/compose.yml up -d --wait --no-deps --force-recreate bulletin traefik
+```
+
+4. Verify the new hostname directly through Traefik for pages and API requests.
+5. Verify the retired hostname receives HTTP 404 directly through Traefik.
+6. Clear the old-domain HTTP Host Header override on the new-domain Tunnel route.
+7. Verify the new domain's public HTTPS homepage, emitted asset, API, and forecast page.
+8. Remove the retired hostname's Tunnel route and DNS records.
+9. Remove old-domain Google OAuth origins and redirect URIs from the existing OAuth client.
+10. Deploy the reviewed release using its updated deployment script after main CI passes.
+
+The deployment script loads `.local/domain-cutover/compose.yml` when present.
+An unchanged-schema rollback restores previous application images and checkout
+while retaining the saved new-host-only route mount and internal server API target. The same override covers
+a failed first Bulletin rollout's API-only recovery. Leave both cutover files
+in place after failure, including across host or container restarts. If the
+schema changes, ADR 0049 still requires repair forward with processing stopped.
+
+After a successful release, retire the override and recreate Bulletin and
+Traefik from the new checkout. Keep the saved files until public checks succeed:
+
+```bash
+mv .local/domain-cutover/compose.yml .local/domain-cutover/compose.saved.yml
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml -f infrastructure/compose.bulletin.yml up -d --wait --no-deps --force-recreate bulletin traefik
+```
+
+Verify new-domain pages and API requests again. Verify the retired hostname
+still receives HTTP 404 directly through Traefik. If recreation or verification
+fails, rename `compose.saved.yml` back to `compose.yml` and repeat step 3.
+Keep the saved files for recovery until the cutover is confirmed complete.
+
+Retain the new domain's Clerk and Brevo DNS records. Recreate Backend after
+changing its authorized origins. Do not deploy new-host-only routes while
+Cloudflare still replaces the new Host header with the old hostname.
+
 ## Bulletin hosting
 
-Follow [ADR 0041](../adr/0041-vps-bulletin-deployment.md). The existing Cloudflare
-Tunnel hostname `quakestrikeph.qzz.io` continues pointing at `http://traefik:80`.
+Follow [ADR 0041](../adr/0041-vps-bulletin-deployment.md). The sole Cloudflare
+Tunnel hostname `quakestrikeph.com` points at `http://traefik:80` and preserves
+the public Host header.
 Traefik sends `/api/v1/` to Backend port 3000 with priority 100 and other paths
 to Bulletin port 4321 with priority 10. No public host port is added.
 
@@ -31,10 +125,12 @@ Bulletin joins only `backend-edge`; it has no PostgreSQL or Redis access.
 Its Dockerfile supplies a root-page health check, production Node command,
 and a non-root user. Compose adds bounded logs, restart policy, and memory limit.
 Traefik is recreated after Bulletin is healthy so its mounted route file uses
-the current checkout. The script checks the public homepage and earthquake API.
+the current checkout. The script checks the public homepage and earthquake API
+on `quakestrikeph.com`; it does not depend on the retired domain.
 When the database revision remains unchanged, a failed rollout restores previous
-application images and routing. A failed first rollout also removes Bulletin
-and restores the API-only configuration.
+application images and routing. During domain cutover, the saved override keeps
+the verified new-host-only routing instead. A failed first rollout also removes
+Bulletin and restores the API-only configuration with that override.
 After the public checks pass and release tags are saved, deployment clears unused
 Docker build cache and removes older SHA-tagged Worker, Prediction Worker,
 Backend, and Bulletin images. It retains the current and previous distinct

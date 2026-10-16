@@ -20,7 +20,7 @@ if (!validEventId(eventId)) {
 } else {
   try {
     const response = await fetch(new URL(`/api/v1/earthquakes/${encodeURIComponent(eventId)}${supportedSearch}`,
-      getSecret('API_TARGET') || 'https://quakestrikeph.qzz.io'), {
+      getSecret('API_TARGET') || 'https://quakestrikeph.com'), {
       signal: AbortSignal.timeout(2500),
       ...(testMode ? { cache: 'no-store' as const } : {}),
     });

@@ -11,7 +11,7 @@ from uuid import UUID
 
 from quakestrike.domain.prediction import ForecastOutput
 
-DEFAULT_PUBLIC_BULLETIN_BASE_URL = "https://quakestrikeph.qzz.io"
+DEFAULT_PUBLIC_BULLETIN_BASE_URL = "https://quakestrikeph.com"
 
 
 @dataclass(frozen=True, slots=True)

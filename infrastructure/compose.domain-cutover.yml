@@ -1,0 +1,9 @@
+services:
+  traefik:
+    volumes:
+      - ../.local/domain-cutover/backend.yml:/etc/traefik/backend.yml:ro
+  bulletin:
+    # First-Bulletin rollback may restore a checkout without its Compose file.
+    image: quakestrike-bulletin:${BULLETIN_IMAGE_TAG:?Set the tested Bulletin Git commit SHA}
+    environment:
+      API_TARGET: http://backend-api:3000

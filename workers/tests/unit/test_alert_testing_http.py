@@ -23,6 +23,7 @@ def test_control_origin_is_loopback_or_tailnet(origin):
 @pytest.mark.parametrize(
     "origin",
     [
+        "https://quakestrikeph.com",
         "https://quakestrikeph.qzz.io",
         "http://0.0.0.0:4341",
         "http://tool.example.ts.net",

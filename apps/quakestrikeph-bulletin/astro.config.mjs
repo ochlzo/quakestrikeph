@@ -44,7 +44,7 @@ export default defineConfig({
           changeOrigin: false,
         },
         "/api/v1": {
-          target: process.env.API_TARGET || "https://quakestrikeph.qzz.io",
+          target: process.env.API_TARGET || "https://quakestrikeph.com",
           changeOrigin: true,
         },
       },
