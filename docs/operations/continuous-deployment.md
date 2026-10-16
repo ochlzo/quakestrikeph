@@ -59,45 +59,42 @@ reviewed_sha=REPLACE_WITH_REVIEWED_40_CHARACTER_SHA
 [[ $reviewed_sha =~ ^[0-9a-f]{40}$ ]] || exit 2
 mkdir -p .local/domain-cutover
 git show "$reviewed_sha:infrastructure/traefik/backend.yml" > .local/domain-cutover/backend.yml
-cat > .local/domain-cutover/compose.yml <<'YAML'
-services:
-  traefik:
-    volumes:
-      - /srv/quakestrikeph/.local/domain-cutover/backend.yml:/etc/traefik/backend.yml:ro
-YAML
+git show "$reviewed_sha:infrastructure/compose.domain-cutover.yml" > .local/domain-cutover/compose.yml
 ```
 
 The `.local/` directory is ignored by Git. Its files survive checkout rollback
 and keep the deployment's clean-checkout check valid. The Compose override
-replaces only the route mount. It adds no public port or legacy route.
+replaces the route mount and sets Bulletin's server API target to
+`http://backend-api:3000`. Previous Bulletin images otherwise fetch forecasts
+from the retired hostname. The override adds no public port or legacy route.
 
-3. Recreate Traefik with the saved route mount:
+3. Recreate Bulletin and Traefik with the saved override:
 
 ```bash
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml -f infrastructure/compose.bulletin.yml -f .local/domain-cutover/compose.yml up -d --wait --no-deps --force-recreate traefik
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml -f infrastructure/compose.bulletin.yml -f .local/domain-cutover/compose.yml up -d --wait --no-deps --force-recreate bulletin traefik
 ```
 
 4. Verify the new hostname directly through Traefik for pages and API requests.
 5. Verify the retired hostname receives HTTP 404 directly through Traefik.
 6. Clear the old-domain HTTP Host Header override on the new-domain Tunnel route.
-7. Verify the new domain's public HTTPS pages and API.
+7. Verify the new domain's public HTTPS homepage, emitted asset, API, and forecast page.
 8. Remove the retired hostname's Tunnel route and DNS records.
 9. Remove old-domain Google OAuth origins and redirect URIs from the existing OAuth client.
 10. Deploy the reviewed release using its updated deployment script after main CI passes.
 
 The deployment script loads `.local/domain-cutover/compose.yml` when present.
 An unchanged-schema rollback restores previous application images and checkout
-while retaining the saved new-host-only route mount. The same override covers
+while retaining the saved new-host-only route mount and internal server API target. The same override covers
 a failed first Bulletin rollout's API-only recovery. Leave both cutover files
 in place after failure, including across host or container restarts. If the
 schema changes, ADR 0049 still requires repair forward with processing stopped.
 
-After a successful release, retire the override and recreate Traefik from the
-new checkout. Keep the route file until recreation and public checks succeed:
+After a successful release, retire the override and recreate Bulletin and
+Traefik from the new checkout. Keep the saved files until public checks succeed:
 
 ```bash
 mv .local/domain-cutover/compose.yml .local/domain-cutover/compose.saved.yml
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml -f infrastructure/compose.bulletin.yml up -d --wait --no-deps --force-recreate traefik
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml -f infrastructure/compose.bulletin.yml up -d --wait --no-deps --force-recreate bulletin traefik
 ```
 
 Verify new-domain pages and API requests again. Verify the retired hostname

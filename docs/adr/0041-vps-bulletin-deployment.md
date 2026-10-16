@@ -21,7 +21,9 @@ Tunnel route, DNS records, and authentication origins after the new path works.
 While `.local/domain-cutover/compose.yml` exists, the deployment script applies
 that override to edge operations, including rollback to a previous checkout.
 The verified new-host-only route file survives rollback and keeps the retired
-domain rejected. This amends the original route rollback rule during cutover;
+domain rejected. The override also sets Bulletin's server API target to
+`http://backend-api:3000`, so previous images do not fetch forecasts through
+the retired hostname. This amends the original route rollback rule during cutover;
 ADR 0049 still controls schema safety and application image rollback. Keep the
 override until the new release succeeds. Then recreate Traefik from the release
 configuration before removing the saved cutover files. Never restore the old

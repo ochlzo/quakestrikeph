@@ -53,10 +53,7 @@ def test_bulletin_rollout_restores_or_saves_tags(
     if failure == "quakestrikeph.com":
         cutover.mkdir(parents=True)
         shutil.copyfile("infrastructure/traefik/backend.yml", cutover / "backend.yml")
-        (cutover / "compose.yml").write_text(
-            "services:\n  traefik:\n    volumes:\n"
-            f"      - {cutover.as_posix()}/backend.yml:/etc/traefik/backend.yml:ro\n"
-        )
+        shutil.copyfile("infrastructure/compose.domain-cutover.yml", cutover / "compose.yml")
     shutil.copyfile("infrastructure/scripts/save-release-tags.py", scripts / "save-release-tags.py")
     mocks = r"""
 old=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -223,6 +220,12 @@ curl() { log "curl $*"; return 22; }
         ]
         assert traefik_commands
         assert all("-f .local/domain-cutover/compose.yml" in c for c in traefik_commands)
+        if previous_bulletin:
+            bulletin_commands = [
+                c for c in rollback_commands.splitlines() if "up -d --wait --no-deps bulletin" in c
+            ]
+            assert bulletin_commands
+            assert all("-f .local/domain-cutover/compose.yml" in c for c in bulletin_commands)
         routes = (cutover / "backend.yml").read_text()
         assert "Host(`quakestrikeph.com`)" in routes
         assert "quakestrikeph.qzz.io" not in routes
