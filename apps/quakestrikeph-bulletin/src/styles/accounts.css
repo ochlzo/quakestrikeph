@@ -1,5 +1,6 @@
 /* React Aria positions portalled overlays against the document, including top placement. */
 body:has(.account-app){position:static}
+body[data-account-page] > #bulletin-view { display: none; }
 .account-app{min-height:100svh;display:flex;flex-direction:column;background:#eaf2f4;color:#1a2c30;--account-muted:#5f6b6e}
 .account-app .screen-focus{outline:none}.account-app .screen-focus:focus-visible{outline:none}
 .unsaved-dialog{width:min(480px,calc(100vw - 32px));padding:24px;border:0;border-radius:16px;background:white;color:var(--ink);box-shadow:0 12px 36px #1a2c3026}
@@ -722,4 +723,64 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
     align-self: stretch;
     align-items: flex-start;
   }
+}
+
+/* Keep one mounted settings tree when the viewport crosses the mobile boundary. */
+.account-settings-dialog {
+  width: min(1120px, calc(100vw - 48px));
+  max-width: none;
+  height: min(90dvh, calc(100dvh - 48px));
+  max-height: calc(100dvh - 48px);
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  background: white;
+}
+.account-settings-dialog > [data-slot="dialog"] { display: block; height: 100%; min-height: 0; }
+.account-settings-dialog > [data-slot="dialog"] > [data-slot="dialog-close"] { z-index: 30; }
+.account-settings-dialog .account-app { height: 100%; min-height: 0; background: var(--sidebar); }
+.account-settings-dialog .bulletin-settings-shell { height: 100%; min-height: 0; }
+.account-settings-dialog .bulletin-main { min-height: 0; }
+.account-settings-dialog .dashboard { display: block; height: 100%; min-height: 0; }
+.account-settings-dialog .account-app .layout {
+  width: 100%; max-width: none; height: 100%; min-height: 0; margin: 0;
+  grid-template-columns: 244px minmax(0, 1fr); gap: 0;
+  border: 0; border-radius: 0; overflow: hidden;
+}
+.account-settings-dialog .account-app .settings-rail { position: static; padding: 20px 16px; }
+.account-settings-dialog .account-app .account {
+  height: 100%; min-height: 0; margin: 0; padding: 40px;
+  overflow-y: auto; overscroll-behavior: contain; border-radius: 0;
+  justify-content: flex-start;
+}
+.account-settings-dialog .account-app .account-inner { width: 100%; max-width: none; }
+.account-settings-dialog .story { display: none; }
+.account-settings-dialog .account-app:not([data-screen="preferences"]):not([data-screen="location"]) { --settings-tab-index: 2; }
+@media (min-width: 761px) {
+  body[data-account-page]:has(.account-settings-dialog) > #bulletin-view { display: block; }
+  .account-settings-dialog .bulletin-header,
+  .account-settings-dialog [data-slot="sidebar"],
+  .account-settings-dialog [data-slot="sidebar-gap"] { display: none; }
+  .account-settings-dialog .location-map { height: clamp(260px, 35dvh, 400px); }
+  .account-settings-dialog .settings-rail { overflow-y: auto; }
+}
+@media (min-width: 761px) and (max-width: 1000px) {
+  .account-settings-dialog .account-app .layout { grid-template-columns: 210px minmax(0, 1fr); }
+  .account-settings-dialog .account-app .account { padding: 40px 24px 24px; }
+}
+@media (max-width: 760px) {
+  .account-settings-overlay { background: white; backdrop-filter: none; }
+  .account-settings-dialog {
+    inset: 0; width: 100%; max-width: none; height: 100dvh; max-height: none;
+    transform: none; translate: none; border-radius: 0; box-shadow: none;
+    overflow-y: auto;
+  }
+  .account-settings-dialog > [data-slot="dialog"] { height: auto; min-height: 100%; }
+  .account-settings-dialog > [data-slot="dialog"] > [data-slot="dialog-close"] { display: none; }
+  .account-settings-dialog .account-app,
+  .account-settings-dialog .bulletin-settings-shell,
+  .account-settings-dialog .dashboard,
+  .account-settings-dialog .account-app .layout { height: auto; min-height: 100%; overflow: visible; }
+  .account-settings-dialog .account-app .settings-rail { position: sticky; padding: 0; }
+  .account-settings-dialog .account-app .account { height: auto; overflow: visible; padding: 24px 24px 32px; }
 }

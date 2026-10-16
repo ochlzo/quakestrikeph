@@ -22,7 +22,7 @@ const account = { userId: 'fixture-user', displayName: 'Maria', email: 'maria@ex
             },
           },
         }), mode);
-        await page.goto(`${root}/alerts/location?signed=1`);
+        await page.goto(`${root}/location?signed=1`);
         await page.getByRole('button', { name: 'Edit', exact: true }).click();
         const locate = page.getByRole('button', { name: 'Use my location', exact: true });
         await locate.waitFor();

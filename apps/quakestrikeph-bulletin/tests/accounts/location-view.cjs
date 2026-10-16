@@ -26,7 +26,7 @@ const baseline = { userId: 'fixture-user', displayName: 'Maria', email: 'maria@e
       const edit = () => page.getByRole('button', { name: 'Edit', exact: true }).click();
       const navigate = label => page.locator(viewport.width <= 760 ? '.settings-mobile-tabs' : '.settings-desktop-nav')
         .getByRole(viewport.width <= 760 ? 'tab' : 'button', { name: label, exact: true }).click();
-      await page.goto(`${root}/alerts/location?signed=1`);
+      await page.goto(`${root}/location?signed=1`);
       await page.getByText('No alert location yet', { exact: true }).waitFor();
       assert.equal(await page.locator('.location-map').count(), 0);
       assert.equal(await page.locator('[data-slot="empty-icon"] .lucide-earth').count(), 1);
@@ -42,14 +42,14 @@ const baseline = { userId: 'fixture-user', displayName: 'Maria', email: 'maria@e
       assert.equal(await page.locator('.location-map').count(), 0);
 
       account = { ...baseline };
-      await page.goto(`${root}/alerts/location?signed=1`);
+      await page.goto(`${root}/location?signed=1`);
       await page.locator('.location-view-distance').waitFor();
       assert.equal(await page.locator('.location-view-distance').innerText(), 'Within 50 km');
       await edit();
       await page.locator('#distance').fill('0');
       await navigate('Account');
-      await page.getByRole('dialog').getByRole('button', { name: 'Yes', exact: true }).click();
-      await page.getByRole('dialog').waitFor({ state: 'hidden' });
+      await page.getByRole('dialog', { name: /^(Save changes\?|Changes could not be saved)$/ }).getByRole('button', { name: 'Yes', exact: true }).click();
+      await page.getByRole('dialog', { name: /^(Save changes\?|Changes could not be saved)$/ }).waitFor({ state: 'hidden' });
       await page.locator('#distance-error').waitFor();
       assert.equal(await page.locator('#distance').getAttribute('aria-invalid'), 'true');
       await page.locator('#distance').fill('100');
@@ -77,9 +77,9 @@ const baseline = { userId: 'fixture-user', displayName: 'Maria', email: 'maria@e
       fail = true;
       await dialog.getByRole('button', { name: 'Yes', exact: true }).click();
       await page.getByRole('dialog', { name: 'Changes could not be saved' }).waitFor();
-      assert.equal(new URL(page.url()).pathname, '/alerts/location');
+      assert.equal(new URL(page.url()).pathname, '/location');
       fail = false;
-      await page.getByRole('dialog').getByRole('button', { name: 'Retry', exact: true }).click();
+      await page.getByRole('dialog', { name: /^(Save changes\?|Changes could not be saved)$/ }).getByRole('button', { name: 'Retry', exact: true }).click();
       await page.locator('.account-app[data-screen="account"]').waitFor();
       assert.equal(writes.length, 1);
       assert.equal(writes[0].distanceKm, 100);
@@ -97,7 +97,7 @@ const baseline = { userId: 'fixture-user', displayName: 'Maria', email: 'maria@e
       await page.locator('#distance').fill('200');
       await page.goBack();
       await dialog.waitFor();
-      await page.waitForURL('**/alerts/location');
+      await page.waitForURL('**/location');
       await dialog.getByRole('button', { name: 'No, discard it', exact: true }).click();
       await page.locator('.account-app[data-screen="account"]').waitFor();
       await page.close();

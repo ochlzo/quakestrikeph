@@ -87,7 +87,7 @@ async function start(page, caller) {
   await page.locator('#name').fill('Profile draft');
   if (caller === 'name') return page.getByRole('button', { name: 'Save name', exact: true }).click();
   await page.getByRole('button', { name: 'Change', exact: true }).first().click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Yes', exact: true }).click();
+  await page.getByRole('dialog', { name: /^(Save changes\?|Changes could not be saved)$/ }).getByRole('button', { name: 'Yes', exact: true }).click();
 }
 
 (async () => {
@@ -112,7 +112,7 @@ async function start(page, caller) {
           await page.getByRole('heading', { name: 'Complete your profile', exact: true }).waitFor();
         } else if (caller === 'departure') {
           assert.equal(new URL(page.url()).pathname, '/account');
-          assert.equal(await page.getByRole('dialog').getByRole('button', { name: 'Saving…', exact: true }).isDisabled(), true);
+          assert.equal(await page.getByRole('dialog', { name: /^(Save changes\?|Changes could not be saved)$/ }).getByRole('button', { name: 'Saving…', exact: true }).isDisabled(), true);
         } else {
           assert.deepEqual(state.trace, ['GET', 'PUT:John BENEDICT']);
           assert.equal(await page.getByRole('heading', { name: 'How would you like to receive alerts?', exact: true }).count(), 0);
@@ -200,7 +200,7 @@ async function start(page, caller) {
         await page.waitForTimeout(150); // Let the former response body and continuation settle.
         assert.equal(new URL(page.url()).pathname, pathname, `${caller}: former response must not navigate`);
         assert.equal(await page.locator('[data-slot="toast"]').count(), 0, `${caller}: former response must not notify`);
-        assert.equal(await page.getByRole('dialog').count(), 0);
+        assert.equal(await page.getByRole('dialog', { name: /^(Save changes\?|Changes could not be saved)$/ }).count(), 0);
         await page.locator('.settings-desktop-nav').getByRole('button', { name: 'Account', exact: true }).click();
         assert.equal(await page.locator('#name').inputValue(), 'Second reader', `${caller}: former response must not reconcile`);
         await page.close();

@@ -92,6 +92,7 @@ export function PreferencesScreen({ flow }: { flow: PreferencesScreenFlow; }) {
           <FormField
             key={magnitudeVersion}
             id="magnitude"
+            autoFocus={magnitudeVersion > 0}
             label="Alert me for earthquakes of magnitude:"
             inputSuffix="or higher"
             aria-describedby="magnitude-help"
@@ -105,7 +106,11 @@ export function PreferencesScreen({ flow }: { flow: PreferencesScreenFlow; }) {
               setMagnitudeText(e.target.value);
             }}
             onKeyDown={(event) => {
-              if (event.key === 'Escape') { event.preventDefault(); discardMagnitude(); }
+              if (event.key === 'Escape' && magnitudeChanged) {
+                event.preventDefault();
+                event.stopPropagation();
+                discardMagnitude();
+              }
             }}
             inputAction={magnitudeChanged ? (
               <div className="profile-name-actions magnitude-actions">
@@ -139,7 +144,7 @@ export function PreferencesScreen({ flow }: { flow: PreferencesScreenFlow; }) {
           </div>
           <div className="location-summary">
             <MapPin />
-            <a className="alert-location-link" href="/alerts/location" onClick={(event) => {
+            <a className="alert-location-link" href="/location" onClick={(event) => {
               if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
               event.preventDefault();
               preferencesNavigation.openLocation();

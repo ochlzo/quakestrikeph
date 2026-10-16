@@ -1,4 +1,7 @@
 ---
+import { ClientRouter } from 'astro:transitions';
+import AccountModalNavigation from './AccountModalNavigation.astro';
+import BackgroundToaster from './BackgroundToaster';
 import { Logo } from "@quakestrikeph/ui/logo";
 import { ChevronLeft, Earth } from 'lucide-react';
 import ForecastReplay from '../features/forecast-replay/ForecastReplay.astro';
@@ -63,17 +66,19 @@ const radiusCopy = forecast && forecast.activityRadiusMedianKm24h !== null ? `Th
 ---
 <html lang="en">
 <head>
+{!testMode && <ClientRouter />}
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>{event ? 'Forecast · ' + magnitude(event.magnitude) + ' · QuakeStrike PH' : 'Forecast · QuakeStrike PH'}</title>
 <meta name="description" content="An experimental 24-hour earthquake activity forecast from QuakeStrike PH." />
 </head>
 <body class="forecast-page" data-synthetic-event={testMode && event ? event.eventId : undefined} data-synthetic-expiry={expiresAt ?? undefined}>
+<div id="bulletin-view" class="forecast-page">
 <a class="skip" href="#forecast-content">Skip to forecast</a>
 <header class="forecast-header">
 <div class="shell header-inner">
-<Logo href={backHref} aria-label="Back to QuakeStrike PH Bulletin" />
-<a class="forecast-back" href={backHref}>
+<Logo href={backHref} data-astro-reload aria-label="Back to QuakeStrike PH Bulletin" />
+<a class="forecast-back" href={backHref} data-astro-reload>
 <ChevronLeft size={18} aria-hidden="true" />Back to earthquakes</a>
 </div>
 </header>
@@ -94,7 +99,7 @@ const radiusCopy = forecast && forecast.activityRadiusMedianKm24h !== null ? `Th
 </EmptyDescription>
 </EmptyHeader>
 <EmptyContent>
-<LinkButton href={canRetry ? retryHref : backHref}>{canRetry ? 'Try again' : 'Back to earthquakes'}</LinkButton>
+<LinkButton href={canRetry ? retryHref : backHref} data-astro-reload>{canRetry ? 'Try again' : 'Back to earthquakes'}</LinkButton>
 </EmptyContent>
 </Empty>
 </section> : <>
@@ -137,7 +142,7 @@ const radiusCopy = forecast && forecast.activityRadiusMedianKm24h !== null ? `Th
 <p>An unavailable forecast does not mean further earthquake activity is unlikely.</p>
 <div class="availability-actions">
 <a href={event.source.url} target="_blank" rel="noreferrer">View PHIVOLCS bulletin</a>
-{availability?.status === 'processing' && <a href={retryHref}>Reload forecast page</a>}
+{availability?.status === 'processing' && <a href={retryHref} data-astro-reload>Reload forecast page</a>}
 </div>
 </section> : <>
 <div class="window">
@@ -353,5 +358,10 @@ return <>
 </footer>
 <script>import { initForecastDetails } from '../lib/forecast-details'; initForecastDetails();</script>
 <script>import { monitorSyntheticForecast } from '../lib/api/synthetic-validity'; monitorSyntheticForecast();</script>
+</div>
+{!testMode && <>
+  <AccountModalNavigation />
+  <BackgroundToaster client:only="react" transition:persist="account-notifications" />
+</>}
 </body>
 </html>

@@ -20,14 +20,14 @@ const baseAccount = { userId: 'fixture-user', displayName: 'Maria Santos', email
         if (path.endsWith('/preferences')) { account = { ...account, ...request.postDataJSON(), onboardingCompleted: true }; nextStep = 'complete'; }
         return route.fulfill({ json: account });
       });
-      for (const path of ['/alerts', '/alerts/location', '/account', '/account/password', '/account/phone', '/onboarding']) {
+      for (const path of ['/alerts', '/location', '/account', '/account/password', '/account/phone', '/onboarding']) {
         await page.goto(`${root}${path}?signed=0`);
         await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();
         assert.equal(new URL(page.url()).pathname, '/sign-in');
         assert.equal(await page.locator('.settings-rail').count(), 0);
       }
       for (const [path, heading] of [
-        ['/alerts', 'Alert preferences'], ['/alerts/location', 'Alert location'],
+        ['/alerts', 'Alert preferences'], ['/location', 'Alert location'],
         ['/account', 'Account settings'], ['/account/phone', 'Add your mobile number'],
         ['/account/password', 'Verify your identity again'],
       ]) {
@@ -40,52 +40,13 @@ const baseAccount = { userId: 'fixture-user', displayName: 'Maria Santos', email
       await page.goto(`${root}/alerts?signed=1`);
       await page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
       if (viewport.width <= 760) assert.equal(await page.getByRole('button', { name: 'Toggle sidebar' }).getAttribute('aria-expanded'), 'false');
-      else assert.equal(await page.getByRole('button', { name: 'Toggle sidebar' }).count(), 0);
+      else assert.equal(await page.locator('.account-app').getByRole('button', { name: 'Toggle sidebar' }).count(), 0);
       if (viewport.width > 760) {
-        const sidebar = page.locator('[data-slot="sidebar-container"]');
-        const state = page.locator('[data-slot="sidebar"][data-state]');
-        const before = await page.locator('.account').boundingBox();
-        assert.equal(await page.locator('[data-slot="sidebar-gap"]').evaluate(el => el.getBoundingClientRect().width), 48);
-        await sidebar.hover();
-        await page.waitForFunction(() => document.querySelector('[data-slot="sidebar"][data-state]').dataset.state === 'expanded');
-        assert.equal((await page.locator('.account').boundingBox()).x, before.x);
-        await page.mouse.move(1000, 400);
-        await page.waitForFunction(() => document.querySelector('[data-slot="sidebar"][data-state]').dataset.state === 'collapsed');
-        await page.getByRole('link', { name: 'Earthquakes', exact: true }).focus();
-        assert.equal(await state.getAttribute('data-state'), 'expanded');
-        await page.getByRole('link', { name: 'Back to Bulletin', exact: true }).focus();
-        await page.waitForFunction(() => document.querySelector('[data-slot="sidebar"][data-state]').dataset.state === 'collapsed');
-      }
-      assert.equal(await page.locator('.site-nav').count(), 0);
-      assert.equal(await page.getByRole('link', { name: 'Back to Bulletin', exact: true }).getAttribute('href'), '/');
-      if (viewport.width <= 760) await page.getByRole('button', { name: 'Toggle sidebar' }).click();
-      else await page.locator('[data-slot="sidebar-container"]').hover();
-      await page.getByRole('link', { name: 'Earthquakes', exact: true }).waitFor();
-      await page.getByRole('link', { name: 'About', exact: true }).waitFor();
-      await page.getByRole('button', { name: 'User menu', exact: true }).click();
-      await page.getByRole('menuitem', { name: 'Account', exact: true }).waitFor();
-      await page.getByRole('menuitem', { name: 'Sign-out', exact: true }).waitFor();
-      await page.getByRole('menuitem', { name: 'Account', exact: true }).press('Escape');
-      if (viewport.width <= 760) await page.getByRole('button', { name: 'Close navigation', exact: true }).click();
-      else {
-        await page.getByRole('link', { name: 'Back to Bulletin', exact: true }).focus();
-        await page.mouse.move(1000, 400);
-      }
-      if (viewport.width <= 760) {
-        await page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
-        await page.setViewportSize({ width: viewport.width, height: 600 });
-        await page.evaluate(() => window.scrollTo(0, 160));
-        await page.waitForFunction(() => document.querySelector('.account-app').hasAttribute('data-header-hidden'));
-        assert.equal(await page.locator('.settings-rail').evaluate(el => el.getBoundingClientRect().top), 0);
-        await page.evaluate(() => window.scrollTo(0, 120));
-        await page.waitForFunction(() => !document.querySelector('.account-app').hasAttribute('data-header-hidden'));
-        assert.equal(await page.locator('.settings-rail').evaluate(el => el.getBoundingClientRect().top), 56);
-        await page.evaluate(() => window.scrollTo(0, 160));
-        await page.waitForFunction(() => document.querySelector('.account-app').hasAttribute('data-header-hidden'));
-        await page.locator('.bulletin-header .bulletin-mobile-title').focus();
-        await page.waitForFunction(() => !document.querySelector('.account-app').hasAttribute('data-header-hidden'));
-        await page.evaluate(() => window.scrollTo(0, 0));
-        await page.setViewportSize(viewport);
+        assert.equal(await page.locator('.account-settings-dialog').isVisible(), true);
+        assert.equal(await page.getByRole('button', { name: 'Alert location', exact: true }).isVisible(), true);
+      } else {
+        assert.equal(await page.locator('.account-settings-dialog').evaluate(el => el.getBoundingClientRect().x), 0);
+        assert.equal(await page.getByRole('tab', { name: 'Alert location', exact: true }).isVisible(), true);
       }
       await page.locator('#magnitude').fill('6.2');
       const magnitudeSaved = page.waitForResponse(response => response.request().method() === 'PUT');
@@ -94,7 +55,7 @@ const baseAccount = { userId: 'fixture-user', displayName: 'Maria Santos', email
       const before = gets;
       await page.getByRole(viewport.width <= 760 ? 'tab' : 'button', { name: 'Alert location', exact: true }).click();
       await page.getByRole('heading', { name: 'Alert location', exact: true }).waitFor();
-      assert.equal(new URL(page.url()).pathname, '/alerts/location');
+      assert.equal(new URL(page.url()).pathname, '/location');
       await page.goBack();
       await page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
       assert.equal(await page.locator('#magnitude').inputValue(), '6.2');

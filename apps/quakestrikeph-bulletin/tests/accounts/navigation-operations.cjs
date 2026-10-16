@@ -214,7 +214,7 @@ async function links(f) {
     return event.defaultPrevented;
   });
   assert.equal(beforeUnload, true);
-  for (const href of ['/alerts/location', '/about', 'https://outside.invalid/destination']) {
+  for (const href of ['/location', '/about', 'https://outside.invalid/destination']) {
     if (href.startsWith('https:')) await page.route('https://outside.invalid/**', route => route.fulfill({ contentType: 'text/html', body: '<h1>Fixture destination</h1>' }));
     await page.evaluate(href => {
       const anchor = document.createElement('a'); anchor.href = href; anchor.id = 'departure-link';
@@ -222,7 +222,7 @@ async function links(f) {
     }, href);
     await dialog(page).waitFor();
     assert.equal(new URL(page.url()).pathname, '/account');
-    if (href === '/alerts/location') {
+    if (href === '/location') {
       await page.keyboard.press('Escape');
       assert.equal(await page.locator('#name').inputValue(), 'Unsaved reader');
       await page.locator('#departure-link').click();

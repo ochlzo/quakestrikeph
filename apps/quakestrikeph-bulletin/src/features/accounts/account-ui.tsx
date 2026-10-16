@@ -12,6 +12,7 @@ import BulletinLayout from "../../components/BulletinLayout";
 import AccountHeader from "./AccountHeader";
 import type { AccountDestination, Screen } from "./routes";
 import { screenAtPath } from "./routes";
+import { Dialog, DialogTitle } from "../../components/ui/dialog";
 export const passwordRequirements =
   "Use at least 8 characters, including one lowercase letter, one uppercase letter, and one number.";
 export const passwordPattern = "(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{8,}";
@@ -166,6 +167,9 @@ export function Shell({
   children,
   openDestination,
   signOut,
+  close,
+  modal = false,
+  departureOpen = false,
 }: {
   screen: Screen;
   name: string;
@@ -175,25 +179,41 @@ export function Shell({
   children: ReactNode;
   openDestination: (destination: AccountDestination) => void;
   signOut?: () => void;
+  close?: () => void;
+  modal?: boolean;
+  departureOpen?: boolean;
 }) {
-  const wide = ["preferences", "location", "account"].includes(screen);
+  const wide = modal || ["preferences", "location", "account"].includes(screen);
   const isMobile = useIsMobile();
   const [headerHidden, setHeaderHidden] = useState(false);
   const [sidebarMenuOpen, setSidebarMenuOpen] = useState(false);
   useEffect(() => {
+    const background = document.getElementById('bulletin-view');
+    if (!modal || !background) return;
+    background.inert = true;
+    background.setAttribute('aria-hidden', 'true');
+    return () => {
+      background.inert = false;
+      background.removeAttribute('aria-hidden');
+    };
+  }, [modal]);
+  useEffect(() => {
     setHeaderHidden(false);
     if (!wide || !isMobile) return;
-    let previousY = window.scrollY;
+    const scroller = modal ? document.querySelector<HTMLElement>('.account-settings-dialog') : null;
+    let previousY = scroller?.scrollTop ?? window.scrollY;
     function onScroll() {
-      const y = Math.max(0, Math.min(window.scrollY, document.documentElement.scrollHeight - window.innerHeight));
+      const y = scroller ? scroller.scrollTop
+        : Math.max(0, Math.min(window.scrollY, document.documentElement.scrollHeight - window.innerHeight));
       if (y <= 56) setHeaderHidden(false);
       else if (Math.abs(y - previousY) < 8) return;
       else setHeaderHidden(y > previousY);
       previousY = y;
     }
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, [wide, isMobile]);
+    const target = scroller ?? window;
+    target.addEventListener("scroll", onScroll, { passive: true });
+    return () => target.removeEventListener("scroll", onScroll);
+  }, [wide, isMobile, modal]);
   const entry = [
     "signin",
     "signup",
@@ -210,10 +230,10 @@ export function Shell({
               const next = screenAtPath(path);
               if (next === "preferences" || next === "location" || next === "account") openDestination(next);
             }}>
-              <Tabs className="settings-mobile-tabs" selectedKey={screen} keyboardActivation="manual" isDisabled={isLoading}>
+              <Tabs className="settings-mobile-tabs" selectedKey={["preferences", "location"].includes(screen) ? screen : "account"} keyboardActivation="manual" isDisabled={isLoading}>
                 <TabsList aria-label="Settings">
                   <TabsTrigger id="preferences" href="/alerts"><Settings aria-hidden="true" /><span>Alert preferences</span></TabsTrigger>
-                  <TabsTrigger id="location" href="/alerts/location"><MapPin aria-hidden="true" /><span>Alert location</span></TabsTrigger>
+                  <TabsTrigger id="location" href="/location"><MapPin aria-hidden="true" /><span>Alert location</span></TabsTrigger>
                   <TabsTrigger id="account" href="/account"><UserRound aria-hidden="true" /><span>Account</span></TabsTrigger>
                 </TabsList>
               </Tabs>
@@ -237,7 +257,7 @@ export function Shell({
               </Button>
               <Button
                 isDisabled={isLoading}
-                aria-current={screen === "account" ? "page" : undefined}
+                aria-current={!["preferences", "location"].includes(screen) ? "page" : undefined}
                 onPress={() => openDestination("account")}
               >
                 <UserRound />
@@ -285,7 +305,7 @@ export function Shell({
         </section>
       </ContentTag>
   );
-  return (
+  const shell = (
     <div className={rootClass} data-screen={screen} data-header-hidden={headerHidden || undefined}
       onFocusCapture={(event) => {
         if (event.target.closest(".header, .bulletin-header")) setHeaderHidden(false);
@@ -304,4 +324,12 @@ export function Shell({
       )}
     </div>
   );
+  if (!modal) return shell;
+  return <Dialog className="account-settings-dialog" overlayClassName="account-settings-overlay"
+    UNSTABLE_portalContainer={document.getElementById('account-workspace') ?? undefined}
+    isOpen isDismissable={false} isKeyboardDismissDisabled={departureOpen}
+    onOpenChange={open => { if (!open) close?.(); }}>
+    <DialogTitle className="sr-only">Bulletin settings</DialogTitle>
+    {shell}
+  </Dialog>;
 }

@@ -60,7 +60,11 @@ export function AccountScreen({ flow }: { flow: AccountScreenFlow; }) {
           disabled={busy && editing}
           onChange={(e) => { setName(e.target.value); clearErrors(); }}
           onKeyDown={(event) => {
-            if (editing && !busy && event.key === "Escape") { event.preventDefault(); discardName(); }
+            if (editing && !busy && event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              discardName();
+            }
           }}
           maxLength={100}
           required

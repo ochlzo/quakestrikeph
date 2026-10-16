@@ -17,6 +17,7 @@ import { browserLocation, LocationEdit } from "./location-edit";
 import { initialScreen, isPublicAccountScreen, pathForScreen, screenAtPath, writeAccountRoute, type AccountDestination, type Screen } from "./routes";
 import { accountPreferences as preferences, preferenceSaves, clearPreferenceSaves, type PreferenceSaves } from './preference-saves';
 import { SmsEnrollment, SmsOptInFailure } from './sms-enrollment';
+import { closeAccountSettings } from './modal-navigation';
 const blank: Preferences = {
   emailEnabled: false,
   smsEnabled: false,
@@ -198,19 +199,22 @@ export function useAccountFlow(initial: string) {
   function keepsSettingsDraft(next: Screen) {
     return ["preferences", "location"].includes(screen) && ["preferences", "location"].includes(next);
   }
-  function restoreHistoryDestination() {
-    if (undoingHistory.current) { undoingHistory.current = false; return; }
+  function restoreHistoryDestination(event: PopStateEvent) {
+    if (undoingHistory.current) { event.stopImmediatePropagation(); undoingHistory.current = false; return; }
     const nextIndex = history.state?.accountIndex ?? 0;
     const target = screenAtPath(location.pathname);
-    if (!target) return;
-    const keepsDraft = keepsSettingsDraft(target);
+    const keepsDraft = target && keepsSettingsDraft(target);
     if (dirty && (!keepsDraft || locationChanged) && !allowLeave.current) {
+      event.stopImmediatePropagation();
       const delta = nextIndex - historyIndex.current;
       undoingHistory.current = true;
       history.go(-delta);
       requestDeparture(() => history.go(delta));
       return;
     }
+    if (!target) return;
+    // Local account history belongs to this mounted flow, not Astro's page swap.
+    event.stopImmediatePropagation();
     allowLeave.current = false;
     historyIndex.current = nextIndex;
     setError("");
@@ -230,8 +234,8 @@ export function useAccountFlow(initial: string) {
     updateScreen(target === "phone" && pending ? "verify-phone" : target);
   }
   useEffect(() => {
-    window.addEventListener("popstate", restoreHistoryDestination);
-    return () => window.removeEventListener("popstate", restoreHistoryDestination);
+    window.addEventListener("popstate", restoreHistoryDestination, true);
+    return () => window.removeEventListener("popstate", restoreHistoryDestination, true);
   }, [isSignedIn, screen, dirty, account, pending, locationChanged]);
   function guardBeforeUnload(event: BeforeUnloadEvent) {
     if (allowLeave.current) return;
@@ -820,7 +824,7 @@ export function useAccountFlow(initial: string) {
   const reverification = { goBack: () => openScreen("account"), method: reverifyMethod, currentPassword, setCurrentPassword, verifyIdentity, resendCode: resendIdentityCode };
   const identityView = identity.view;
   const taskFlow = { task: requiredStep, savePassword: saveTaskPassword, signOut: signOutTask };
-  const navigation = { openDestination, signOut: signOutFromShell };
+  const navigation = { openDestination, signOut: signOutFromShell, close: () => requestDeparture(closeAccountSettings) };
   const accountActions = { openEmailChange, openAccountRemoval, signOut: signOutFromAccount };
   const unavailableAction = { removing: screen === "close", returnToAccount };
   const preferencesNavigation = { openPhone: openAlertPhoneSettings, openLocation: () => setScreen("location") };
