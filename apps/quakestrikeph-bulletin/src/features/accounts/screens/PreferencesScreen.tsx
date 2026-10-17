@@ -36,6 +36,13 @@ export function PreferencesScreen({ flow }: { flow: PreferencesScreenFlow; }) {
           event.preventDefault();
           if (magnitudeChanged) savePreferences({ magnitude: Number(magnitudeText) }, 0);
         }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape' && magnitudeChanged) {
+            event.preventDefault();
+            event.stopPropagation();
+            discardMagnitude();
+          }
+        }}
       >
         <div className="switch-row">
           <span>
@@ -104,13 +111,6 @@ export function PreferencesScreen({ flow }: { flow: PreferencesScreenFlow; }) {
             onChange={(e) => {
               if (!/^\d*(?:\.\d?)?$/.test(e.target.value)) return;
               setMagnitudeText(e.target.value);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape' && magnitudeChanged) {
-                event.preventDefault();
-                event.stopPropagation();
-                discardMagnitude();
-              }
             }}
             inputAction={magnitudeChanged ? (
               <div className="profile-name-actions magnitude-actions">
