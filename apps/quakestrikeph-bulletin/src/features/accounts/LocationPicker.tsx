@@ -1,14 +1,10 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Map, Marker } from "maplibre-gl";
-import { CircleX, Earth, MapPinSearch, MapPin, Pencil, Search } from "lucide-react";
+import { CircleX, Earth, MapPinSearch, MapPin, Pencil } from "lucide-react";
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription, EmptyContent } from "../../components/ui/empty";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "../../components/ui/input-group";
+import { Search, SearchInput } from "../../components/ui/search";
 import { Field, FieldLabel, FieldError } from "../../components/ui/field";
 import { toast } from "../../components/ui/toast";
 import {
@@ -280,16 +276,11 @@ export default function LocationPicker({ edit, onUse }: {
           >
             <Field className="location-search-field-wrapper" data-invalid={searchError ? true : undefined}>
             <div ref={searchAnchor}>
-              <InputGroup className="location-search-field">
-                <InputGroupInput placeholder="Search regions, cities or municipalities"
+              <Search className="location-search-field">
+                <SearchInput placeholder="Search regions, cities or municipalities"
                   aria-invalid={!!searchError} aria-describedby={searchError ? "location-search-error" : undefined} />
-                <InputGroupAddon>
-                  <Search aria-hidden="true" />
-                </InputGroupAddon>
-                <InputGroupAddon align="inline-end">
-                  <ComboboxTrigger aria-label="Show matching locations" />
-                </InputGroupAddon>
-              </InputGroup>
+                <ComboboxTrigger aria-label="Show matching locations" />
+              </Search>
             </div>
             {searchError && <FieldError id="location-search-error">{searchError}</FieldError>}
             </Field>
@@ -336,7 +327,7 @@ export default function LocationPicker({ edit, onUse }: {
         </Empty>}
       </div>}
       {showMap && <div className="location-controls" data-editing={editing ? "true" : undefined}>
-        <Field data-invalid={pinError ? true : undefined}>
+        {(!editing || query.trim().length > 0) && <Field data-invalid={pinError ? true : undefined}>
         <p
           className="location-summary"
           aria-live="polite"
@@ -349,7 +340,7 @@ export default function LocationPicker({ edit, onUse }: {
             {!editing && point && <small className="location-view-distance">Within {distance} km</small>}
           </span>
         </p>
-        </Field>
+        </Field>}
         {editing ? <>
         <Field className="field account-form-field location-distance" data-invalid={distanceError ? true : undefined}>
           <FieldLabel htmlFor="distance">Nearby distance (km)</FieldLabel>

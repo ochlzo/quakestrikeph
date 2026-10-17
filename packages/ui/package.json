@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.11.0",
+  "scripts": {
+    "check": "tsc --noEmit"
+  },
   "exports": {
     "./logo": "./logo.tsx",
     "./button": "./button.tsx",
@@ -11,6 +15,7 @@
     "./sidebar": "./sidebar.tsx",
     "./sheet": "./sheet.tsx",
     "./input": "./input.tsx",
+    "./search": "./search.tsx",
     "./separator": "./separator.tsx",
     "./skeleton": "./skeleton.tsx",
     "./spinner": "./spinner.tsx",
@@ -41,5 +46,10 @@
   "peerDependencies": {
     "react": "19.3.0",
     "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "typescript": "6.0.2"
   }
 }

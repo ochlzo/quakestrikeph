@@ -231,4 +231,19 @@ The nested probability chart fits its SVG viewport around the outer visible box 
 
 ### Desktop account Dialog — 17 October 2026
 
+Bulletin's province search and the alert location search share `Search` and
+`SearchInput` from `packages/ui/search.tsx`. The component documents the shared
+52px height, 14px side padding, 8px icon gap, 20px search icon, typography, border,
+corners, and focus ring. Use an accessible input name without adding a visible
+label. Set `isLoading` to replace the leading search icon with the shared
+Spinner in the same 20px slot. Compose suggestion triggers after the input;
+request state, filtering, suggestions, and errors remain owned by each feature.
+
+The province search keeps typed text separate from its applied filter. Fewer
+than two trimmed characters leave the applied search, results, map selection,
+and pagination unchanged, without a notice or search spinner. Two or more
+characters apply the search. Explicit filter-reset actions still clear the
+applied query. A direct URL with a one-character query shows the ordinary
+earthquake list until a valid search is entered.
+
 At 761 CSS pixels and above, `/alerts`, `/location`, `/account`, and account phone/password steps share one shadcn Dialog. Preserve the settings rail and content layout. The Dialog is at most 1120px wide and 90dvh high, with at least 24px to viewport edges. Scroll the content panel; keep the settings rail and corner X visible. Outside clicks do not dismiss. The public Bulletin stays visible and inactive behind the Dialog, including on direct visits and refreshes. Mobile fills the viewport with the existing tabs and header. One mounted settings tree survives viewport changes. The previous desktop account sidebar and Back to Bulletin header are hidden inside the Dialog. ADR 0051 defines navigation and draft protection.

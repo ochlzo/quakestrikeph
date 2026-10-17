@@ -143,53 +143,6 @@ a {
   gap: 8px;
   margin-bottom: 8px;
 }
-.search-field {
-  min-width: 0;
-  height: 52px;
-  display: flex;
-  align-items: center;
-  background: #fff;
-  border: 1px solid #dce3e4;
-  border-radius: var(--radius-lg);
-  color: var(--foreground);
-  transition:
-    border-color 0.15s ease,
-    background-color 0.15s ease;
-}
-.search-field:focus-within {
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 50%, transparent);
-}
-.search-field {
-  gap: 8px;
-  padding: 0 14px;
-}
-.search-field > svg {
-  flex: none;
-  color: var(--primary);
-}
-.search-field input {
-  width: 100%;
-  min-width: 0;
-  height: 100%;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--foreground);
-  font-size: 15px;
-}
-.search-field input::placeholder {
-  color: var(--muted-foreground);
-  opacity: 1;
-}
-.search-spinner {
-  flex: none;
-  width: 17px;
-  height: 17px;
-  border: 2px solid var(--primary);
-  border-right-color: transparent;
-  border-radius: 50%;
-  animation: load-more-spin 700ms linear infinite;
-}
 .filter-select-trigger {
   min-width: 0;
   height: 52px;
@@ -1486,13 +1439,6 @@ a {
     margin-bottom: 12px;
     gap: 8px;
   }
-  .earthquake-drawer .search-field {
-    padding: 0 14px;
-    gap: 8px;
-  }
-  .earthquake-drawer .search-field input::placeholder {
-    font-size: 15px;
-  }
   .earthquake-drawer .filter-select-trigger,
   .earthquake-drawer .magnitude-filter-field {
     padding-inline: 14px;
@@ -1543,9 +1489,6 @@ a {
   .brand {
     gap: 7px;
   }
-  .search-field {
-    padding: 0 14px;
-  }
   .events-head h1 {
     font-size: 17px;
   }
@@ -1567,7 +1510,6 @@ a {
   .event-list-skeleton [data-slot="skeleton"] {
     animation: none;
   }
-  .search-spinner,
   .load-more-link[aria-disabled="true"]::after {
     animation: none;
   }

@@ -82,6 +82,15 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
+For shared UI source editing, also run these commands from the repository root:
+
+```powershell
+pnpm --dir packages/ui install --frozen-lockfile
+pnpm --dir packages/ui check
+```
+
+The UI package owns its TypeScript configuration and CSS import declarations.
+
 During local development, Astro proxies `/api/v1` requests to
 `https://quakestrikeph.com`, so the Bulletin reads live public earthquake
 data and requires an internet connection. Production keeps the browser request

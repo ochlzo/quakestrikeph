@@ -69,7 +69,11 @@ test('server preparation shares criteria, bounds rows, and permits browser fallb
   });
   assert.equal(initial.items.length, 30);
   assert.equal(initial.nextCursor, 'server-cursor');
-  assert.equal(await prepareEventResults(state({ query: ' a ' }), assert.fail), null);
+  const shortQuery = await prepareEventResults(state({ query: ' a ' }), async request => {
+    assert.equal(request.location, undefined);
+    return page([event(1)]);
+  });
+  assert.equal(shortQuery.items.length, 1);
   assert.equal(await prepareEventResults(state(), async () => { throw new Error('Unavailable'); }), null);
 });
 
@@ -211,7 +215,7 @@ test('obsolete searches cannot replace rows, cache, errors, or cursor after filt
   await loading;
 });
 
-test('debounce, equivalent filters, and one-character location behavior stay inside the controller', async t => {
+test('debounce, equivalent filters, and short queries stay inside the controller', async t => {
   const f = setup(t, { initial: page([event(1)]) });
   f.results.start();
   await f.advance(0);
@@ -230,12 +234,34 @@ test('debounce, equivalent filters, and one-character location behavior stay ins
   await f.advance(1);
   assert.equal(f.searches.length, 2);
   f.results.changeFilters({ query: ' a ' });
-  assert(f.searches[1].signal.aborted);
+  assert.equal(f.searches[1].signal.aborted, false, 'Short input must not disturb another filter request');
   await f.advance();
   assert.equal(f.searches.length, 2);
-  assert.equal(f.results.getSnapshot().searching, false);
-  assert.equal(f.results.getSnapshot().canLoadMore, false);
-  assert.equal(f.results.getSnapshot().events.length, 0);
+  f.searches[1].resolve(page([event(1)]));
+  await settle();
+  assert.equal(f.results.getSnapshot().events.length, 1);
+});
+
+test('short queries preserve the last applied search, results, selection and pagination', async t => {
+  const f = setup(t, { filters: state({ query: 'Albay' }), initial: page([event(1)], 'next-page') });
+  f.results.start();
+  await f.advance();
+  f.searches[0].resolve(page([event(1)], 'next-page'));
+  await settle();
+  f.results.select(event(1).eventId);
+  f.details[0].resolve(detail(event(1)));
+  await settle();
+  const before = f.results.getSnapshot();
+  for (const query of ['a', '', '   ']) {
+    f.results.changeFilters({ query });
+    await f.advance();
+    assert.equal(f.results.getSnapshot(), before);
+    assert.equal(f.searches.length, 1);
+  }
+  f.results.changeFilters({ query: 'ab' });
+  await f.advance();
+  assert.equal(f.searches.length, 2);
+  assert.equal(f.searches[1].request.location, 'ab');
 });
 
 test('changing filters invalidates pending pagination before its response arrives', async t => {

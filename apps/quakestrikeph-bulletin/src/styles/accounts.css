@@ -395,9 +395,6 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
 .account-app .location-empty .secondary{width:auto;min-height:44px;margin:0;padding:10px 20px}
 .location-map .maplibregl-marker{cursor:grab}.location-map .maplibregl-marker svg{width:27px;height:41px}
 .location-map .maplibregl-ctrl button{width:36px;height:36px}.location-map canvas{max-width:100%}
-.account-app .location-search-field{height:52px;border-radius:var(--radius-lg);border-color:#dce3e4;background:white}
-.account-app .location-search-field [data-slot=input-group-control]{height:100%;padding:0 8px;border:0;border-radius:0;background:transparent;font-size:15px;outline:none;box-shadow:none}
-.account-app .location-search-field [data-slot=input-group-addon]{color:var(--teal)}
 .account-app .location-controls{margin-top:24px}
 .account-app .location-search{margin-top:24px;container-type:inline-size}
 .location-search-empty{padding:24px;line-height:1.6}
@@ -421,7 +418,6 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
   .account-app .location-controls .location-summary svg{width:22px;height:22px}
   .account-app .location-search{margin-top:20px}
   .account-app .location-search-row{align-items:stretch;gap:4px}
-  .account-app .location-search-field [data-slot=input-group-control]{font-size:16px}
   .account-app .location-locate{align-self:flex-end;height:44px;min-height:44px;padding:0;border:0;background:transparent;border-radius:4px}
   .account-app .location-locate:hover{background:transparent;text-decoration:underline;text-underline-offset:4px}
   .account-app .location-controls .location-distance{width:100%;margin-top:16px}
@@ -671,7 +667,6 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
 .location-map-error{position:absolute;inset:0;z-index:3;background:#e7f2f3;padding:20px}
 .account-app .location-search-field-wrapper{gap:0}
 .account-app .location-search-field-wrapper [data-slot="field-error"]{margin-top:8px}
-.account-app .location-search-field:has([aria-invalid="true"]){border-color:var(--destructive)}
 .unsaved-dialog{gap:16px}
 .account-app .profile-name-actions{display:flex;align-items:center;gap:0}
 .account-app .profile-name-actions [data-slot="button"]{position:relative;width:32px;height:24px;padding:0;background:transparent;border:0;box-shadow:none}
@@ -689,7 +684,6 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
 .unsaved-dialog [data-slot="dialog-footer"]{display:flex;flex-direction:row;flex-wrap:nowrap;justify-content:flex-end;gap:8px;margin:0;padding:0;border:0;background:transparent;border-radius:0}
 .unsaved-dialog [data-slot="dialog-footer"] [data-slot="button"]{flex:none;width:auto;white-space:nowrap}
 .account-app .location-controls .location-summary[data-missing="true"] svg{color:var(--destructive)}
-.account-app .location-search-field:has([aria-invalid="true"]) [data-slot="input-group-addon"]:first-of-type{color:var(--destructive)}
 
 .account-app .location-search-row:has(#location-search-error) .location-locate{align-self:flex-start}
 .location-map-error [data-slot="button"]{min-height:44px;padding-inline:16px}
