@@ -13,11 +13,13 @@ const root = process.env.ACCOUNTS_FIXTURE_URL || 'http://127.0.0.1:4333';
     let account = { userId: 'fixture-user', displayName: 'Maria', email: 'maria@example.invalid',
       phone: null, onboardingCompleted: true, status: 'active', emailEnabled: false, smsEnabled: false,
       magnitude: 4.5, nearbyOnly: false, latitude: 13.2, longitude: 123.5, distanceKm: 50 };
+    let accountReads = 0;
     await page.route('**/api/v1/account**', route => {
       if (route.request().method() === 'PUT') {
         account = { ...account, ...route.request().postDataJSON() };
         return route.fulfill({ json: account });
       }
+      accountReads++;
       return route.fulfill({ json: { account, pending: null, nextStep: 'complete' } });
     });
     const preferences = () => page.getByRole('heading', { name: 'Alert preferences', exact: true }).waitFor();
@@ -41,8 +43,20 @@ const root = process.env.ACCOUNTS_FIXTURE_URL || 'http://127.0.0.1:4333';
     await page.waitForURL(`${root}/`);
     assert.equal(await page.evaluate(() => window.fixturePublicView === document.querySelector('#bulletin-view')), true);
 
+    await page.waitForFunction(() => [...document.querySelectorAll('link[rel="modulepreload"]')]
+      .some(link => link.href.includes('AccountApp')));
+
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.evaluate(() => {
+      document.addEventListener('astro:after-swap', () => {
+        if (location.pathname !== '/alerts') return;
+        window.fixtureOpeningBackground = getComputedStyle(document.querySelector('#bulletin-view')).display;
+      });
+    });
     await page.getByRole('link', { name: 'Alert settings', exact: true }).click();
     await preferences();
+    assert.notEqual(await page.evaluate(() => window.fixtureOpeningBackground), 'none',
+      'The Bulletin must stay visible while settings hydrates, without a blank frame.');
     await page.getByRole('button', { name: 'Alert location', exact: true }).click();
     assert.equal(new URL(page.url()).pathname, '/location');
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -68,10 +82,32 @@ const root = process.env.ACCOUNTS_FIXTURE_URL || 'http://127.0.0.1:4333';
     await page.getByRole('button', { name: 'Edit name', exact: true }).click();
     await page.locator('#name').fill('Maria Updated');
     await close();
+    let returnRequests = 0;
+    await page.route(`${root}/`, route => { returnRequests++; return route.abort(); });
     await confirmation.getByRole('button', { name: 'Yes', exact: true }).click();
     await page.waitForURL(`${root}/`);
+    await page.locator('.account-settings-dialog').waitFor({ state: 'detached' });
+    assert.equal(returnRequests, 0, 'Closing must use the preserved public document without fetching it.');
+    await page.unroute(`${root}/`);
     assert.equal(account.displayName, 'Maria Updated');
     assert.equal(await page.evaluate(() => window.fixturePublicView === document.querySelector('#bulletin-view')), true);
+    await page.goForward();
+    await preferences();
+    await close();
+    await page.waitForURL(`${root}/`);
+    await page.locator('.account-settings-dialog').waitFor({ state: 'detached' });
+    assert.equal(await page.evaluate(() => window.fixturePublicView === document.querySelector('#bulletin-view')), true);
+    const readsBeforeReopening = accountReads;
+    let settingsRequests = 0;
+    await page.route(`${root}/alerts`, route => { settingsRequests++; return route.abort(); });
+    await page.getByRole('link', { name: 'Alert settings', exact: true }).click();
+    await preferences();
+    await page.locator('#magnitude').waitFor();
+    assert.equal(settingsRequests, 0, 'Reopening must use the cached settings shell without fetching it.');
+    assert.ok(accountReads > readsBeforeReopening, 'Reopening must still load account data through authentication.');
+    await close();
+    await page.waitForURL(`${root}/`);
+    await page.unroute(`${root}/alerts`);
     const removedRoute = await page.request.get(`${root}/alerts/location`, { maxRedirects: 0 });
     assert.equal(removedRoute.status(), 404);
     assert.deepEqual(errors, []);

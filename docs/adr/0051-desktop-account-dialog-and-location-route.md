@@ -33,3 +33,19 @@ ADR 0046 still controls background preference saves and notifications after
 closing. ADR 0044 still controls authentication, reverification, draft privacy,
 refresh behavior, and session isolation. No Backend, database, new dependency,
 or router is introduced.
+
+Preload the destination page and its same-origin styles and island modules after
+page load, during browser idle time. Skip background downloads on slow
+connections or when data-saving mode is enabled. Opening settings retains the
+public document shell in memory. Returning to that origin uses Astro's loader
+hook instead of a server request, preserving normal history and animations.
+Direct settings visits preload the default Bulletin document; if that download
+is unavailable or incomplete, closing uses normal navigation.
+
+Cache unhydrated settings documents in tab memory and clone them for subsequent
+navigation. Cache each settings destination separately, including its query
+string. Never cache the mounted account UI, credentials, drafts, or account API
+responses. Reopening mounts a new account flow and performs the usual identity
+and account checks. A browser reload clears the document cache. Development
+navigation prepares client-only styles before caching its first document;
+production can also reuse the preloaded settings document.

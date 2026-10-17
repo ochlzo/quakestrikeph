@@ -23,7 +23,7 @@ const { title, initial } = Astro.props;
     <meta name="robots" content="noindex" />
     <title>{title} · QuakeStrike PH Bulletin</title>
   </head>
-  <body data-account-page>
+  <body data-account-page data-account-settings={['alerts', 'location', 'account', 'phone', 'password'].includes(initial) || undefined}>
     <div id="bulletin-view">
       <Bulletin client:visible />
     </div>

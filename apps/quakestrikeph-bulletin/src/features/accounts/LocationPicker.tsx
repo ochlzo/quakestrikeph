@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Map, Marker } from "maplibre-gl";
-import { Label } from "react-aria-components";
 import { CircleX, Earth, MapPinSearch, MapPin, Pencil, Search } from "lucide-react";
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription, EmptyContent } from "../../components/ui/empty";
 import { Button } from "../../components/ui/button";
@@ -263,6 +262,67 @@ export default function LocationPicker({ edit, onUse }: {
         </EmptyHeader>
         <EmptyContent><Button className="secondary" ref={editButton} onPress={() => edit.begin()}>Set location</Button></EmptyContent>
       </Empty>}
+      {editing && <div className="location-search">
+        <div className="location-search-row">
+          <Combobox
+            className="location-search-combobox"
+            aria-label="Search for a location"
+            inputValue={query}
+            onInputChange={setQuery}
+            allowsCustomValue
+            allowsEmptyCollection
+            defaultFilter={() => true}
+            onSelectionChange={(key) => {
+              const match = matches.find((x) => x.index === key);
+              if (match) choose([match.p[2], match.p[3]]);
+            }}
+            menuTrigger="input"
+          >
+            <Field className="location-search-field-wrapper" data-invalid={searchError ? true : undefined}>
+            <div ref={searchAnchor}>
+              <InputGroup className="location-search-field">
+                <InputGroupInput placeholder="Search regions, cities or municipalities"
+                  aria-invalid={!!searchError} aria-describedby={searchError ? "location-search-error" : undefined} />
+                <InputGroupAddon>
+                  <Search aria-hidden="true" />
+                </InputGroupAddon>
+                <InputGroupAddon align="inline-end">
+                  <ComboboxTrigger aria-label="Show matching locations" />
+                </InputGroupAddon>
+              </InputGroup>
+            </div>
+            {searchError && <FieldError id="location-search-error">{searchError}</FieldError>}
+            </Field>
+            <ComboboxContent anchor={searchAnchor}>
+              <ComboboxList<{ p: Place; index: number }>
+                items={matches}
+                renderEmptyState={() => (
+                  <ComboboxEmpty className="location-search-empty">
+                    No matching places. Try another name or use the map.
+                  </ComboboxEmpty>
+                )}
+              >
+                {({ p, index }) => (
+                  <ComboboxItem id={index} textValue={`${p[0]}, ${p[1]}`}>
+                    <span>
+                      {p[0]}
+                      <small className="place-context">{p[1]}</small>
+                    </span>
+                  </ComboboxItem>
+                )}
+              </ComboboxList>
+            </ComboboxContent>
+          </Combobox>
+          <Button
+            className="secondary location-locate"
+            onPress={locate}
+            isDisabled={locating}
+          >
+            <MapPinSearch />
+            {locating ? "Finding your location…" : "Use my location"}
+          </Button>
+        </div>
+      </div>}
       {showMap && <div className="location-map" data-map-ready={mapReady}>
         <div className="location-map-canvas" ref={container}
           aria-label={editing ? "Choose an alert location on the map" : "Your alert location on the map"} />
@@ -291,67 +351,6 @@ export default function LocationPicker({ edit, onUse }: {
         </p>
         </Field>
         {editing ? <>
-        <div className="location-search-row">
-          <Combobox
-            className="location-search-combobox"
-            inputValue={query}
-            onInputChange={setQuery}
-            allowsCustomValue
-            allowsEmptyCollection
-            defaultFilter={() => true}
-            onSelectionChange={(key) => {
-              const match = matches.find((x) => x.index === key);
-              if (match) choose([match.p[2], match.p[3]]);
-            }}
-            menuTrigger="input"
-          >
-            <Field className="location-search-field-wrapper" data-invalid={searchError ? true : undefined}>
-            <Label className="location-search-label">
-              Search for a location
-            </Label>
-            <div ref={searchAnchor}>
-              <InputGroup className="location-search-field">
-                <InputGroupInput placeholder="Search regions, cities or municipalities"
-                  aria-invalid={!!searchError} aria-describedby={searchError ? "location-search-error" : undefined} />
-                <InputGroupAddon>
-                  <Search aria-hidden="true" />
-                </InputGroupAddon>
-                <InputGroupAddon align="inline-end">
-                  <ComboboxTrigger aria-label="Show matching locations" />
-                </InputGroupAddon>
-              </InputGroup>
-            </div>
-            {searchError && <FieldError id="location-search-error">{searchError}</FieldError>}
-            </Field>
-            <ComboboxContent anchor={searchAnchor}>
-              <ComboboxList<{ p: Place; index: number }>
-                items={matches}
-                renderEmptyState={() => (
-                  <ComboboxEmpty>
-                    No matching places. Try another name or use the map.
-                  </ComboboxEmpty>
-                )}
-              >
-                {({ p, index }) => (
-                  <ComboboxItem id={index} textValue={`${p[0]}, ${p[1]}`}>
-                    <span>
-                      {p[0]}
-                      <small className="place-context">{p[1]}</small>
-                    </span>
-                  </ComboboxItem>
-                )}
-              </ComboboxList>
-            </ComboboxContent>
-          </Combobox>
-          <Button
-            className="secondary location-locate"
-            onPress={locate}
-            isDisabled={locating}
-          >
-            <MapPinSearch />
-            {locating ? "Finding your location…" : "Use my location"}
-          </Button>
-        </div>
         <Field className="field account-form-field location-distance" data-invalid={distanceError ? true : undefined}>
           <FieldLabel htmlFor="distance">Nearby distance (km)</FieldLabel>
           <Input
