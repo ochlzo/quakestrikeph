@@ -384,9 +384,10 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
 .account-app .switch-row input{width:1px;height:1px;padding:0}
 .account-app .switch-row .verify-destination { width: auto; min-height: 44px; margin: 0; padding: 8px 16px; flex-shrink: 0; }
 .account-app .delivery-note{font-size:13px;line-height:1.55;color:#36585d;background:#edf6f6;border-radius:10px;padding:14px 16px;margin:0 0 22px}
-.location-map{position:relative;height:310px;margin-top:18px;border-radius:10px;overflow:hidden;background:#e7f2f3}
+.location-map{position:relative;height:310px;margin-top:16px;border-radius:10px;overflow:hidden;background:#e7f2f3}
 .account-app .location-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}
 .account-app .location-heading h2{min-width:0;margin:0}
+.account-app[data-screen="location"] .location-heading + .form-intro{margin:8px 0 0;line-height:1.5}
 .account-app .location-heading .location-heading-edit{display:inline-flex;align-items:center;justify-content:center;gap:8px;flex-shrink:0;width:auto;max-width:none;min-height:44px;margin:0;padding:10px 14px}
 .account-app .location-heading-edit svg{width:16px;height:16px}
 .account-app .location-empty{gap:24px;padding:48px 16px}
@@ -407,7 +408,10 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
 .account-app .location-controls .location-summary:not([data-selected]){font-size:16px}
 .account-app .location-controls .location-summary svg{width:24px;height:24px;margin-top:2px;color:var(--teal)}
 .account-app .location-controls .location-distance{width:220px;max-width:100%;margin:24px 0 0}
-.account-app .location-controls .location-distance-help{margin:8px 0 0}
+.account-app .location-controls .location-distance:first-child{margin-top:0}
+.account-app .location-controls[data-editing] .location-summary{align-items:flex-end;font-size:16px;line-height:1.5}
+.account-app .location-controls[data-editing] .location-summary svg{margin-top:0}
+.account-app .location-controls .location-distance-help{margin:8px 0 0;line-height:1.6}
 .account-app .location-actions{display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-top:28px}
 .account-app .location-actions .primary,.account-app .location-actions .secondary{width:auto;max-width:none;height:52px;margin:0;padding:0 20px}
 .account-app .location-controls .quiet-note{text-align:left;margin:16px 0 0}
@@ -417,13 +421,13 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
   .account-app .location-controls .location-summary{font-size:18px;gap:10px}
   .account-app .location-controls .location-summary svg{width:22px;height:22px}
   .account-app .location-search{margin-top:20px}
-  .account-app .location-search-row{align-items:stretch;gap:4px}
-  .account-app .location-locate{align-self:flex-end;height:44px;min-height:44px;padding:0;border:0;background:transparent;border-radius:4px}
-  .account-app .location-locate:hover{background:transparent;text-decoration:underline;text-underline-offset:4px}
+  .account-app .location-search-row{align-items:stretch;gap:8px}
+  .account-app .location-locate{width:100%;height:44px;min-height:44px;padding:0 16px}
   .account-app .location-controls .location-distance{width:100%;margin-top:16px}
   .account-app.settings-workspace .field:has(#distance){max-width:none}
-  .account-app .location-actions{margin-top:24px}
-  .account-app .location-actions .primary{flex:1}
+  .account-app .location-search-field [data-slot="search-input"]{font-size:16px}
+  .account-app .location-actions{display:grid;grid-template-columns:1fr 2fr;gap:12px;margin-top:24px;padding-bottom:env(safe-area-inset-bottom)}
+  .account-app .location-actions .primary,.account-app .location-actions .secondary{width:100%;padding-inline:12px}
 }
 .place-context{display:block;font-size:12px;color:#5f6b6e}
 .account-app .location-summary{overflow-wrap:anywhere}.account-app .location-summary svg{flex-shrink:0}
@@ -433,7 +437,7 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
 .account-app footer { box-sizing: content-box; min-block-size: 1lh; }
 .account-app .header .back{min-height:44px}
 .account-app .form-intro,.account-app .support{overflow-wrap:anywhere}
-@media(max-width:760px){.account-app .settings-rail nav button{font-size:12px;justify-content:center;padding:10px 6px;gap:5px}.account-app .location-map{height:280px}.account-app [data-slot=input]{font-size:16px}.account-app .header .back{max-width:145px}.account-app footer{font-size:11px}}
+@media(max-width:760px){.account-app .settings-rail nav button{font-size:12px;justify-content:center;padding:10px 6px;gap:5px}.account-app .location-map{height:clamp(220px,28svh,260px)}.account-app .location-map .maplibregl-ctrl button{width:44px;height:44px}.account-app [data-slot=input]{font-size:16px}.account-app .header .back{max-width:145px}.account-app footer{font-size:11px}}
 
 /* Coastal split for Map & Sheet screens; mobile keeps the original map shell. */
 @media (max-width: 760px) {

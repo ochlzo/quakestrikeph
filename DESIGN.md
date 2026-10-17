@@ -247,3 +247,10 @@ applied query. A direct URL with a one-character query shows the ordinary
 earthquake list until a valid search is entered.
 
 At 761 CSS pixels and above, `/alerts`, `/location`, `/account`, and account phone/password steps share one shadcn Dialog. Preserve the settings rail and content layout. The Dialog is at most 1120px wide and 90dvh high, with at least 24px to viewport edges. Scroll the content panel; keep the settings rail and corner X visible. Outside clicks do not dismiss. The public Bulletin stays visible and inactive behind the Dialog, including on direct visits and refreshes. Mobile fills the viewport with the existing tabs and header. One mounted settings tree survives viewport changes. The previous desktop account sidebar and Back to Bulletin header are hidden inside the Dialog. ADR 0051 defines navigation and draft protection.
+
+The alert location editor uses an 8px heading-to-introduction gap, a 16px
+search-to-map gap, and 24px before the controls (20px on mobile). A hidden
+location summary leaves no extra gap above the distance field. On mobile,
+search and device location stack at full width. The map uses a 220-260px
+height, zoom buttons have 44px touch targets, and the action row gives the
+primary action twice the space of Cancel. Search text uses 16px on mobile.
