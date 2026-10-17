@@ -73,14 +73,15 @@ async function fixture(browser, viewport, errors, account = baseline, attempt = 
 async function entry(page, replacement = false) {
   await page.goto(`${root}/account/phone?signed=1`);
   if (replacement) {
-    await page.getByRole('textbox', { name: 'Current password', exact: true }).fill('fixture-password');
+    await page.getByRole('button', { name: 'Send verification code', exact: true }).click();
+    await page.locator('#code').fill('111111');
     await page.getByRole('button', { name: 'Verify identity', exact: true }).click();
   }
   await page.getByRole('heading', { name: replacement ? 'Change your mobile number' : 'Add your mobile number', exact: true }).waitFor();
 }
 async function send(page) {
   await page.locator('#phone').fill('09171234567');
-  await page.getByRole('button', { name: 'Send verification code', exact: true }).click();
+  await page.getByRole('button', { name: 'Send code', exact: true }).click();
 }
 async function verify(page) {
   await page.locator('#code').fill('111111');
@@ -297,8 +298,9 @@ async function idle(page) {
       await entry(proof.page);
       proof.enqueue('POST /phone/attempts', { failure: 'Verify identity again.', status: 403, code: 'REVERIFICATION_REQUIRED' });
       await send(proof.page);
+      await proof.page.getByRole('button', { name: 'Send verification code', exact: true }).click();
       await proof.page.getByRole('heading', { name: 'Verify your identity again', exact: true }).waitFor();
-      await proof.page.locator('#current-password').fill('fixture-password');
+      await proof.page.locator('#code').fill('111111');
       await proof.page.getByRole('button', { name: 'Verify identity', exact: true }).click();
       await send(proof.page);
       await proof.page.getByRole('heading', { name: 'Verify your mobile number', exact: true }).waitFor();
@@ -317,7 +319,7 @@ async function idle(page) {
           await page.getByText('Account settings unavailable', { exact: true }).waitFor();
           assert.equal(new URL(page.url()).pathname, '/sign-in');
         } else await page.getByRole('heading', { name: code === 'REVERIFICATION_REQUIRED'
-          ? 'Verify your identity again' : 'Alert preferences', exact: true }).waitFor();
+          ? 'Verify your identity' : 'Alert preferences', exact: true }).waitFor();
         assert.equal(state.account.phone, '+639171234567');
         assert.equal(state.account.smsEnabled, false);
         assert.equal(await page.locator('[data-slot="toast"]').count(), 2);

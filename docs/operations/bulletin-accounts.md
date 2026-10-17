@@ -32,6 +32,41 @@ Keep email-code
 capability enabled for device trust and Google-only reverification. Account
 email change/removal is not exposed through hosted profile components.
 
+Password addition/change and mobile-number replacement share an email OTP
+reverification gate. After Clerk completes email-code reverification, the
+Bulletin reuses that proof for less than five minutes in the same user/session.
+Exactly five minutes is expired. Password verification and generic fresh `fva`
+do not establish email proof. Accounts with and without passwords follow the
+same rule. There is no password fallback on the account reverification screen.
+The sign-in form retains "Forgot password?" and signed-out email recovery.
+
+When proof is missing or expired, the shared gate first shows the masked account
+email and a "Send verification code" button. Opening the gate or selecting Back
+does not request a code. Only an explicit send opens the code-entry step after
+Clerk confirms preparation. Sending disables the button and shows a spinner;
+failure leaves the confirmation available for retry. Resend remains explicit.
+
+The cache exists only in memory in the mounted account flow. Reload, unmount,
+sign-out, user change, or session change discards it; no proof or credentials
+are stored in browser storage. Invalid codes, incomplete verification and late
+responses from another session cannot establish freshness. Resending an email
+code or a Backend reverification requirement clears the cache and forces a
+new challenge. Using the cache does not extend the original expiry.
+
+The Bulletin checks again before a password save and before replacement phone
+send/resend/verification requests. Expiry opens email reverification before
+continuing; a phone SMS OTP remains independently required for the new number.
+Password updates omit `currentPassword` and sign out other sessions. Future
+email change and account removal must use this shared gate when implemented;
+those features remain unavailable in this release.
+
+This is the Bulletin's browser flow policy, not a new server authorization
+credential. Clerk retains authoritative password/session checks and its own
+reverification window. The Backend retains its verified-email, ownership and
+five-minute first-factor `fva` checks. Direct APIs do not enforce the browser's
+email-only policy. Keep email codes and reverification enabled; no MFA
+enrollment is required. Test the target Clerk instance before release.
+
 ## Automated checks
 
 Run `npm test` and `npm run typecheck` in the Backend; run `pnpm check`,

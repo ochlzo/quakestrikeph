@@ -2,6 +2,7 @@ import { AuthenticateWithRedirectCallback, ClerkProvider, TaskChooseOrganization
   useAuth, useClerk, useReverification, useSession, useUser } from '@clerk/react';
 import { useSignIn, useSignUp } from '@clerk/react/legacy';
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import { EmailProof } from './email-proof';
 import { createIdentity, identitySessionMarker, updateRequiredPassword, type IdentityEvent } from './protocol';
 
 export function IdentityProvider({ publishableKey, account = false, children }: {
@@ -43,10 +44,12 @@ export function useIdentity(emit: (event: IdentityEvent) => void) {
   const updateTaskPassword = useReverification((password: string, isCurrent: () => boolean) =>
     updateRequiredPassword(user, password, isCurrent));
   const marker = identitySessionMarker(auth.userId, auth.sessionId);
+  const proof = useRef({ marker, value: new EmailProof() });
+  if (proof.current.marker !== marker) proof.current = { marker, value: new EmailProof() };
   const identity = createIdentity({ signIn, signUp, user, session, clerk, getToken: auth.getToken,
     // Read the live client, even after the account island unmounts during Astro navigation.
     sessionMarker: () => identitySessionMarker(clerk.user?.id, clerk.session?.id), updateTaskPassword,
-  }, { marker, screenActive: () => active.current, emit });
+  }, { marker, screenActive: () => active.current, emit, emailProof: proof.current.value });
   return { ...identity,
     session: { loaded: auth.isLoaded, signedIn: !!auth.isSignedIn, marker,
       requiredStep: session?.currentTask ? session.currentTask.key === 'reset-password' ? 'new-password' as const : 'verification' as const : null },

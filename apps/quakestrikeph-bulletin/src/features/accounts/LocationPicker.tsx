@@ -6,7 +6,10 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { Map, Marker } from "maplibre-gl";
-import { CircleX, Earth, MapPinSearch, MapPin, Pencil } from "lucide-react";
+import { CircleX, Earth, MapPinSearch, MapPin, Pencil, Ellipsis, Save, Trash } from "lucide-react";
+import { Menu, MenuItem, MenuTrigger } from "react-aria-components";
+import { Popover } from "../../components/ui/popover";
+import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "../../components/ui/dialog";
 import {
   Empty,
   EmptyHeader,
@@ -83,9 +86,13 @@ function fitRadius(map: Map, point: [number, number], km: number) {
 export default function LocationPicker({
   edit,
   onUse,
+  hasSavedLocation,
+  onRemove,
 }: {
   edit: LocationEdit;
   onUse: (location: AlertLocation) => void;
+  hasSavedLocation: boolean;
+  onRemove: () => Promise<void>;
 }) {
   const { list, error: searchError } = usePlaces();
   const state = useSyncExternalStore(
@@ -97,6 +104,9 @@ export default function LocationPicker({
   const pinError = errors.pin,
     distanceError = errors.distance;
   const [query, setQuery] = useState("");
+  const [removeOpen, setRemoveOpen] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState("");
   const editingRef = useRef(editing);
   editingRef.current = editing;
   const editButton = useRef<HTMLButtonElement>(null);
@@ -283,12 +293,47 @@ export default function LocationPicker({
     const location = edit.commit("immediate");
     if (location) onUse(location);
   }
+  async function remove() {
+    if (removing) return;
+    setRemoving(true);
+    setRemoveError("");
+    try {
+      await onRemove();
+      setRemoveOpen(false);
+    } catch (error) {
+      setRemoveError(error instanceof Error ? error.message : "Your alert location could not be removed. Try again.");
+    } finally {
+      setRemoving(false);
+    }
+  }
   return (
     <>
       <div className="location-heading">
         <h2 id="form-title">
           {editing ? "Choose your alert location" : "Alert location"}
         </h2>
+        {editing && (
+          <MenuTrigger>
+            <Button variant="ghost" size="icon" className="location-options" aria-label="Location options">
+              <Ellipsis aria-hidden="true" />
+            </Button>
+            <Popover placement="bottom end" className="location-options-popover">
+              <Menu aria-label="Location actions" className="settings-user-menu">
+                <MenuItem textValue="Save location" onAction={use}>
+                  <Save aria-hidden="true" /> Save location
+                </MenuItem>
+                {hasSavedLocation && (
+                  <MenuItem textValue="Remove location" className="location-remove-item" onAction={() => {
+                    setRemoveError("");
+                    setRemoveOpen(true);
+                  }}>
+                    <Trash aria-hidden="true" /> Remove location
+                  </MenuItem>
+                )}
+              </Menu>
+            </Popover>
+          </MenuTrigger>
+        )}
         {!editing && point && (
           <Button
             className="secondary location-heading-edit"
@@ -435,12 +480,30 @@ export default function LocationPicker({
           )}
         </div>
       )}
+      <Dialog className="unsaved-dialog" isOpen={removeOpen}
+        UNSTABLE_portalContainer={document.getElementById('account-workspace') ?? undefined}
+        onOpenChange={open => { if (!removing) setRemoveOpen(open); }}
+        isDismissable={!removing} isKeyboardDismissDisabled={removing} showCloseButton={!removing}>
+        <DialogHeader>
+          <DialogTitle>Remove your alert location?</DialogTitle>
+          <DialogDescription>
+            Nearby-only filtering will turn off. Your email and SMS choices will stay unchanged.
+          </DialogDescription>
+        </DialogHeader>
+        {removeError && <p role="alert" className="location-remove-error">{removeError}</p>}
+        <DialogFooter className="unsaved-actions">
+          <Button variant="outline" autoFocus onPress={() => setRemoveOpen(false)} isDisabled={removing}>Cancel</Button>
+          <Button variant="destructive" onPress={() => void remove()} isDisabled={removing}>
+            {removing ? "Removing…" : "Remove location"}
+          </Button>
+        </DialogFooter>
+      </Dialog>
       {showMap && (
         <div
           className="location-controls"
           data-editing={editing ? "true" : undefined}
         >
-          {(!editing || query.trim().length > 0) && (
+          {(!editing || point !== null || query.trim().length > 0) && (
             <Field data-invalid={pinError ? true : undefined}>
               <p
                 className="location-summary"

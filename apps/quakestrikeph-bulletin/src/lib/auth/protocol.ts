@@ -1,5 +1,6 @@
 import type { useAuth, useClerk, useSession, useUser } from '@clerk/react';
 import type { useSignIn, useSignUp } from '@clerk/react/legacy';
+import { EmailProof } from './email-proof.ts';
 
 // This dependency seam stays private to identity; tests replace raw Clerk calls.
 export type ClerkIdentity = {
@@ -45,7 +46,9 @@ export function createIdentity(provider: ClerkIdentity, options: {
   marker: string;
   screenActive: () => boolean;
   emit: (event: IdentityEvent) => void;
+  emailProof?: EmailProof;
 }) {
+  const emailProof = options.emailProof ?? new EmailProof();
   const sessionCurrent = () => provider.sessionMarker() === options.marker;
   const screenCurrent = () => options.screenActive() && sessionCurrent();
   async function operation(work: () => Promise<IdentityOutcome>, message: string, passwordField = false): Promise<IdentityOutcome> {
@@ -88,6 +91,8 @@ export function createIdentity(provider: ClerkIdentity, options: {
     }
   }
   return {
+    hasRecentEmailProof: () => screenCurrent() && emailProof.recent(options.marker),
+    clearEmailProof: () => emailProof.clear(),
     signInWithPassword: (email: string, password: string) => operation(async () => provider.signIn
       ? completeAuthentication(await provider.signIn.create({ identifier: email, password })) : ignored,
       'Check your email and password, then try again.'),
@@ -139,11 +144,13 @@ export function createIdentity(provider: ClerkIdentity, options: {
       catch { /* Enumeration-safe resend result. */ }
       return screenCurrent() ? completed('recovery-code', Date.now()) : ignored;
     }, 'This request could not be completed. Please try again.'),
-    prepareReverification: () => operation(async () => {
+    prepareReverification: (method: ProofMethod = 'email-code', force = false) => operation(async () => {
       if (!provider.session) throw new Error('Sign in again');
+      if (force) emailProof.clear();
+      if (method === 'email-code' && emailProof.recent(options.marker)) return completed('identity-verified');
       const verification = await provider.session.startVerification({ level: 'first_factor' });
       if (!screenCurrent()) return ignored;
-      if (provider.user?.passwordEnabled && verification.supportedFirstFactors?.some(value => value.strategy === 'password'))
+      if (method === 'current-password' && provider.user?.passwordEnabled && verification.supportedFirstFactors?.some(value => value.strategy === 'password'))
         return completed('current-password');
       const factor = verification.supportedFirstFactors?.find(value => value.strategy === 'email_code');
       if (!factor || factor.strategy !== 'email_code') throw new Error('Email verification is unavailable');
@@ -158,13 +165,14 @@ export function createIdentity(provider: ClerkIdentity, options: {
       if (verification.status !== 'complete') throw new Error('Verification is incomplete');
       // Preserve null-refresh behavior: proof completes; the HTTP helper later rejects a missing token.
       await provider.getToken({ skipCache: true });
+      if (screenCurrent() && method === 'email-code') emailProof.record(options.marker);
       return screenCurrent() ? completed('identity-verified') : ignored;
     }, 'Identity verification did not work. Check your password or code and try again.'),
-    savePassword: (password: string, currentPassword: string) => operation(async () => {
-      await provider.user?.updatePassword({ newPassword: password,
-        ...(provider.user.passwordEnabled ? { currentPassword } : {}), signOutOfOtherSessions: true });
+    savePassword: (password: string) => operation(async () => {
+      if (!provider.user) throw new Error('Sign in again');
+      await provider.user.updatePassword({ newPassword: password, signOutOfOtherSessions: true });
       return screenCurrent() ? completed('password-saved') : ignored;
-    }, 'The password could not be saved. Check your current password.'),
+    }, 'The password could not be saved. Try again or verify your email again.'),
     saveRequiredPassword: (password: string) => operation(async () => {
       await provider.updateTaskPassword(password, screenCurrent);
       if (!screenCurrent()) return ignored;
@@ -173,6 +181,7 @@ export function createIdentity(provider: ClerkIdentity, options: {
       return screenCurrent() ? completed('task-password-saved') : ignored;
     }, 'The password could not be saved. Please try again.'),
     signOut: (redirectUrl: '/' | '/sign-in') => operation(async () => {
+      emailProof.clear();
       await provider.clerk.signOut({ redirectUrl });
       return completed('signed-out');
     }, 'Sign-out could not be completed. Please try again.'),

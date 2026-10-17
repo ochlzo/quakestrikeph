@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createIdentity, updateRequiredPassword } from '../../src/lib/auth/protocol.ts';
 import { PreferenceSaves } from '../../src/features/accounts/preference-saves.ts';
+import { EmailProof } from '../../src/lib/auth/email-proof.ts';
 
 const complete = { status: 'complete', createdSessionId: 'created-session' };
 const emailFactor = { strategy: 'email_code', emailAddressId: 'verified-email' };
@@ -11,6 +12,17 @@ const deferred = () => {
   return { promise, resolve, reject };
 };
 const tick = () => new Promise(resolve => setImmediate(resolve));
+test('email proof expires at five minutes and cannot cross sessions or a clock rollback', () => {
+  const proof = new EmailProof();
+  assert.equal(proof.recent('a', 1000), false);
+  proof.record('a', 1000);
+  assert.equal(proof.recent('a', 300999), true);
+  assert.equal(proof.recent('a', 301000), false);
+  assert.equal(proof.recent('b', 1000), false);
+  assert.equal(proof.recent('a', 999), false);
+  proof.clear();
+  assert.equal(proof.recent('a', 1000), false);
+});
 function fixture() {
   const state = { marker: 'original-session', active: true };
   const calls = [], events = [];
@@ -111,10 +123,38 @@ test('Google login keeps its explicit account chooser and callback configuration
 
 test('reverification prefers an available password, otherwise prepares email proof', async () => {
   const f = fixture();
-  assert.equal((await f.identity.prepareReverification()).step, 'current-password');
+  assert.equal((await f.identity.prepareReverification('current-password')).step, 'current-password');
   f.provider.user.passwordEnabled = false;
   assert.equal((await f.identity.prepareReverification()).step, 'email-code');
   assert.deepEqual(f.methods(), ['proof-start', 'proof-start', 'proof-prepare']);
+});
+
+test('account actions reuse completed email proof until a new challenge is forced', async () => {
+  const f = fixture();
+  assert.equal((await f.identity.prepareReverification('email-code')).step, 'email-code');
+  await f.identity.verifyIdentity('email-code', '123456');
+  assert.equal((await f.identity.prepareReverification('email-code')).step, 'identity-verified');
+  assert.equal(f.identity.hasRecentEmailProof(), true);
+  assert.equal((await f.identity.prepareReverification('email-code', true)).step, 'email-code');
+  assert.equal(f.identity.hasRecentEmailProof(), false);
+  assert.deepEqual(f.methods(), ['proof-start', 'proof-prepare', 'proof-verify', 'token', 'proof-start', 'proof-prepare']);
+  assert.deepEqual(f.calls[1].options, { strategy: 'email_code', emailAddressId: 'verified-email' });
+});
+
+test('email-only reverification fails instead of falling back to an available password', async () => {
+  const f = fixture();
+  f.provider.session.startVerification = f.call('proof-start', { supportedFirstFactors: [{ strategy: 'password' }] });
+  assert.equal((await f.identity.prepareReverification('email-code')).kind, 'failed');
+  assert.deepEqual(f.methods(), ['proof-start']);
+});
+
+test('password updates omit the existing password and revoke other sessions', async () => {
+  const f = fixture();
+  assert.equal((await f.identity.savePassword('NewPassword1')).step, 'password-saved');
+  assert.deepEqual(f.calls[0].options, { newPassword: 'NewPassword1', signOutOfOtherSessions: true });
+  f.provider.user = null;
+  assert.equal((await f.identity.savePassword('NewPassword1')).kind, 'failed');
+  assert.deepEqual(f.methods(), ['password']);
 });
 
 test('completed proof refreshes its token before returning to the account flow', async () => {
@@ -122,6 +162,34 @@ test('completed proof refreshes its token before returning to the account flow',
   assert.equal((await f.identity.verifyIdentity('email-code', '123456')).step, 'identity-verified');
   assert.deepEqual(f.methods(), ['proof-verify', 'token']);
   assert.deepEqual(f.calls[1].options, { skipCache: true });
+});
+
+test('password verification does not establish recent email proof', async () => {
+  const f = fixture();
+  await f.identity.verifyIdentity('current-password', 'password');
+  assert.equal(f.identity.hasRecentEmailProof(), false);
+});
+
+test('failed and incomplete email proofs never establish freshness', async () => {
+  for (const status of ['failed', 'needs_first_factor']) {
+    const f = fixture();
+    f.provider.session.attemptFirstFactorVerification = async () => {
+      if (status === 'failed') throw new Error('Invalid code');
+      return { status };
+    };
+    assert.equal((await f.identity.verifyIdentity('email-code', 'wrong')).kind, 'failed');
+    assert.equal(f.identity.hasRecentEmailProof(), false);
+  }
+});
+
+test('an email proof completed after session change cannot establish freshness', async () => {
+  const f = fixture(), response = deferred();
+  f.provider.session.attemptFirstFactorVerification = () => response.promise;
+  const verifying = f.identity.verifyIdentity('email-code', '123456');
+  f.state.marker = 'another-session';
+  response.resolve({ status: 'complete' });
+  assert.equal((await verifying).kind, 'ignored');
+  assert.equal(f.identity.hasRecentEmailProof(), false);
 });
 
 test('incomplete proof never refreshes the token', async () => {

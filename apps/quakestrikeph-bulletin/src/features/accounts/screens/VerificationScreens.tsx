@@ -1,6 +1,7 @@
 import { IdentityTask } from "../../../lib/auth";
 import { Button } from "../../../components/ui/button";
-import { BackButton, FormField, passwordRequirements } from "../account-ui";
+import { Spinner } from "@quakestrikeph/ui/spinner";
+import { BackButton, passwordRequirements } from "../account-ui";
 import type { AccountFlowState } from "../useAccountFlow";
 
 type SessionTaskScreenFlow = Pick<AccountFlowState, "taskFlow" | "title" | "newPasswordFields" | "submit">;
@@ -43,35 +44,35 @@ type ReverificationScreenFlow = Pick<AccountFlowState, "reverification" | "title
 
 export function ReverificationScreen({ flow }: { flow: ReverificationScreenFlow; }) {
   const { reverification, title, codeField, submit, renderResend } = flow;
-  const { method: reverifyMethod, currentPassword, setCurrentPassword, verifyIdentity, resendCode } = reverification;
+  const { verifyIdentity, resendCode } = reverification;
   return (
     <>
       <BackButton onPress={reverification.goBack} />
       {title(
-        "Verify your identity again",
-        reverifyMethod === "current-password"
-          ? "Enter your current password before changing sensitive account details."
-          : "Enter the verification code sent to your account email.",
+        reverification.sent ? "Verify your identity again" : "Verify your identity",
+        reverification.sent
+          ? `We sent a code to ${reverification.destination}.`
+          : `To continue, we will send a verification code to ${reverification.destination}.`,
       )}
       <form
-        onSubmit={event => { event.preventDefault(); void verifyIdentity(); }}
+        aria-busy={reverification.busy}
+        onSubmit={event => {
+          event.preventDefault();
+          void (reverification.sent ? verifyIdentity() : reverification.sendCode());
+        }}
       >
-        {reverifyMethod === "current-password" ? (
-          <FormField
-            id="current-password"
-            label="Current password"
-            type="password"
-            autoComplete="current-password"
-            value={currentPassword}
-            onChange={(e) => setCurrentPassword(e.target.value)}
-            required
-          />
-        ) : (
-          codeField
-        )}
-        {submit("Verify identity")}
+        {reverification.sent ? <>
+          {codeField}
+          {submit("Verify identity")}
+        </> : <Button
+          type="submit"
+          className="primary"
+          isDisabled={reverification.busy}
+        >
+          {reverification.busy ? <><Spinner aria-hidden="true" /> Sending...</> : "Send verification code"}
+        </Button>}
       </form>
-      {reverifyMethod === "email-code" && renderResend(resendCode)}
+      {reverification.sent && renderResend(resendCode)}
     </>
   );
 }

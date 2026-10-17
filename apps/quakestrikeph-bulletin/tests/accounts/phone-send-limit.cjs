@@ -10,14 +10,14 @@ const root = process.env.ACCOUNTS_FIXTURE_URL || 'http://127.0.0.1:4332';
       : { status: 429, json: { error: { code: 'SEND_LIMIT', message: 'Wait 60 seconds between code requests.' } } }));
     await page.goto(`${root}/?signed=1`);
     await page.getByLabel('Mobile number', { exact: true }).fill('09171234567');
-    await page.getByRole('button', { name: 'Send verification code' }).click();
+    await page.getByRole('button', { name: 'Send code' }).click();
     await page.locator('[data-slot="toast-title"]').filter({ hasText: 'Wait 60 seconds' }).waitFor();
     assert.equal(await page.locator('.screen-focus').getByText('Wait 60 seconds between code requests.', { exact: true }).count(), 0);
     assert.deepEqual(await page.locator('[data-slot="toast-viewport"]').evaluate(el => {
       const s = getComputedStyle(el); return [s.position, s.top, s.right];
     }), ['fixed', '16px', '16px']);
     await page.getByLabel('Mobile number', { exact: true }).fill('');
-    await page.getByRole('button', { name: 'Send verification code' }).click();
+    await page.getByRole('button', { name: 'Send code' }).click();
     await page.locator('#phone-error').getByText('Mobile number is required.', { exact: true }).waitFor();
     console.log('Send-limit toast, mobile top-right placement, and inline field validation passed.');
   } finally { await browser.close(); }

@@ -170,6 +170,7 @@ body[data-account-page] > #bulletin-view { display: none; }
 .account-app[data-screen="phone"] .form-intro { margin-bottom: 28px; }
 .account-app[data-screen="phone"] .field.account-form-field { margin-bottom: 0; }
 .account-app[data-screen="phone"] #phone-error { margin-block: 8px; }
+.account-app[data-screen="phone"] .phone-number-field > .support { margin: 8px 0 0; }
 .account-app[data-screen="phone"] form > .primary { margin-top: 24px; }
 .account-app[data-screen="phone"] .screen-focus > .support { margin: 12px 0 24px; }
 .account-app[data-screen="phone"] .phone-alternatives > .secondary { margin-top: 0; }
@@ -177,6 +178,9 @@ body[data-account-page] > #bulletin-view { display: none; }
 .account-app.settings-workspace:is([data-screen="phone"], [data-screen="verify-phone"], [data-screen="reverify"], [data-screen="password"]) .screen-focus {
   width: 100%;
   max-width: 560px;
+}
+@media (min-width: 761px) {
+  .account-app.settings-workspace[data-screen="reverify"] .screen-focus { max-width: 440px; }
 }
 .account-app.settings-workspace:is([data-screen="phone"], [data-screen="verify-phone"], [data-screen="reverify"], [data-screen="password"]) .screen-focus > .text-button {
   width: fit-content; min-height: 44px; margin: 0 0 16px; padding-inline: 0;
@@ -408,11 +412,17 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
 .account-app .switch-row .verify-destination { width: auto; min-height: 44px; margin: 0; padding: 8px 16px; flex-shrink: 0; }
 .account-app .delivery-note{font-size:13px;line-height:1.55;color:#36585d;background:#edf6f6;border-radius:10px;padding:14px 16px;margin:0 0 22px}
 .location-map{position:relative;height:310px;margin-top:16px;border-radius:10px;overflow:hidden;background:#e7f2f3}
-.account-app .location-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.account-app .location-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
 .account-app .location-heading h2{min-width:0;margin:0}
 .account-app[data-screen="location"] .location-heading + .form-intro{margin:8px 0 0;line-height:1.5}
 .account-app .location-heading .location-heading-edit{display:inline-flex;align-items:center;justify-content:center;gap:8px;flex-shrink:0;width:auto;max-width:none;min-height:44px;margin:0;padding:10px 14px}
 .account-app .location-heading-edit svg{width:16px;height:16px}
+.account-app .location-heading .location-options{align-self:flex-start;flex-shrink:0;width:44px;height:44px;min-height:44px;margin:0;padding:10px}
+.location-options-popover{width:200px;padding:4px}
+.location-options-popover svg{width:16px;height:16px}
+.settings-user-menu .location-remove-item,
+.settings-user-menu .location-remove-item[data-focused],
+.location-remove-error{color:var(--destructive)}
 .account-app .location-empty{gap:24px;padding:48px 16px}
 .account-app .location-empty [data-slot="empty-icon"]{color:var(--teal)}
 .account-app .location-empty [data-slot="empty-title"]{font-size:18px;font-weight:600}

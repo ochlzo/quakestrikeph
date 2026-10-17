@@ -21,7 +21,7 @@ export function PhoneScreen({ flow }: { flow: PhoneScreenFlow; }) {
             : "Add your mobile number"
           : "Verify your mobile number",
         !verifying ? (
-          "We check ordinary-alert network support before requesting a code."
+          "We will send a verification code to your new number."
         ) : (
           <>
             Enter the code sent to{" "}
@@ -32,12 +32,6 @@ export function PhoneScreen({ flow }: { flow: PhoneScreenFlow; }) {
           </>
         ),
       )}
-      {verified && (
-        <p className="support">
-          Your current number remains linked while you verify its replacement.
-          SMS is paused when you start the replacement.
-        </p>
-      )}
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -45,17 +39,22 @@ export function PhoneScreen({ flow }: { flow: PhoneScreenFlow; }) {
         }}
       >
         {!verifying ? (
-          <FormField
-            id="phone"
-            label={hasPhone ? "New mobile number" : "Mobile number"}
-            type="tel"
-            autoComplete="tel"
-            placeholder="0917 123 4567"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            required
-            error={fieldError}
-          />
+          <div className="phone-number-field">
+            <FormField
+              id="phone"
+              label={hasPhone ? "New mobile number" : "Mobile number"}
+              type="tel"
+              autoComplete="tel"
+              placeholder="0917 123 4567"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              required
+              error={fieldError}
+            />
+            <p className="support">
+              Smart and TNT numbers are not supported.
+            </p>
+          </div>
         ) : (
           codeField
         )}
@@ -76,10 +75,15 @@ export function PhoneScreen({ flow }: { flow: PhoneScreenFlow; }) {
           </Button>
         ) : (
           submit(
-            !verifying ? "Send verification code" : "Verify code",
+            !verifying ? "Send code" : "Verify code",
           )
         )}
       </form>
+      {verified && !verifying && (
+        <p className="support">
+          SMS alerts pause when you request a code.
+        </p>
+      )}
       {verifying && (
         <>
           <div className="phone-recovery">
@@ -90,11 +94,6 @@ export function PhoneScreen({ flow }: { flow: PhoneScreenFlow; }) {
             </p>
           </div>
         </>
-      )}
-      {!verifying && (
-        <p className="support">
-          Smart and TNT numbers are currently unsupported.
-        </p>
       )}
       {(verifying || location.pathname.replace(/\/$/, "") === "/onboarding") && <div className="phone-alternatives">
         {verifying && (

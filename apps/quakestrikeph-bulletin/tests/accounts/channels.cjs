@@ -27,7 +27,7 @@ const root = process.env.ACCOUNTS_FIXTURE_URL || 'http://127.0.0.1:4332';
         await page.getByRole('button', { name: 'Continue without SMS', exact: true }).click();
       } else if (sms) {
         await page.getByRole('textbox', { name: 'Mobile number', exact: true }).fill('09171234567');
-        await page.getByRole('button', { name: 'Send verification code', exact: true }).click();
+        await page.getByRole('button', { name: 'Send code', exact: true }).click();
         assert.equal(writes.length, 1, 'Sending a code must not enable SMS');
         await page.getByRole('textbox', { name: 'Verification code' }).fill('111111');
         await page.getByRole('button', { name: 'Verify code', exact: true }).click();

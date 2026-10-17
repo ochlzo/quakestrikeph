@@ -32,7 +32,7 @@ const root = process.env.ACCOUNTS_FIXTURE_URL || 'http://127.0.0.1:4332';
       await verify.waitFor();
       assert.equal(await page.getByLabel('Verification code', { exact: true }).inputValue(), '');
       assert.deepEqual(writes, ['/phone/attempts']);
-      assert.equal(await page.getByText('Smart and TNT numbers are currently unsupported.').count(), 0);
+      assert.equal(await page.getByText('Smart and TNT numbers are not supported.').count(), 0);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       assert.equal(await page.locator('.account').evaluate(el => getComputedStyle(el).borderRadius), width === 382 ? '0px' : '16px');
       await page.screenshot({ path: `.impeccable/review/accounts/verify-active-${width}.png`, fullPage: true });

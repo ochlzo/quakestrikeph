@@ -361,7 +361,9 @@ return <>
 </div>
 {!testMode && <>
   <AccountModalNavigation />
-  <BackgroundToaster client:only="react" transition:persist="account-notifications" />
+  <div data-react-aria-top-layer="true" transition:persist="account-notifications">
+    <BackgroundToaster client:only="react" />
+  </div>
 </>}
 </body>
 </html>

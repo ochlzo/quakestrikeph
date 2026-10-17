@@ -21,6 +21,7 @@ export function PreferencesScreen({ flow }: { flow: PreferencesScreenFlow; }) {
   const [magnitudeVersion, setMagnitudeVersion] = useState(0);
   useEffect(() => setMagnitudeText(draft.magnitude.toFixed(1)), [draft.magnitude]);
   const magnitudeChanged = magnitudeText !== draft.magnitude.toFixed(1);
+  const hasLocation = draft.latitude !== null && draft.longitude !== null;
   function discardMagnitude() {
     setMagnitudeText(draft.magnitude.toFixed(1));
     setMagnitudeVersion(version => version + 1);
@@ -136,13 +137,22 @@ export function PreferencesScreen({ flow }: { flow: PreferencesScreenFlow; }) {
               <strong>Only earthquakes near my location</strong>
               <small>Receive alerts only for earthquakes within your chosen distance of your saved location.</small>
             </span>
-            <Switch
-              aria-label="Only earthquakes near my location"
-              isSelected={draft.nearbyOnly}
-              onChange={(v) => savePreferences({ nearbyOnly: v })}
-            />
+            {hasLocation ? (
+              <Switch
+                aria-label="Only earthquakes near my location"
+                isSelected={draft.nearbyOnly}
+                onChange={(v) => savePreferences({ nearbyOnly: v })}
+              />
+            ) : (
+              <Button
+                className="secondary verify-destination"
+                onPress={() => preferencesNavigation.openLocation()}
+              >
+                Set location
+              </Button>
+            )}
           </div>
-          <div className="location-summary">
+          {hasLocation && <div className="location-summary">
             <MapPin />
             <a className="alert-location-link" href="/location" onClick={(event) => {
               if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -152,7 +162,7 @@ export function PreferencesScreen({ flow }: { flow: PreferencesScreenFlow; }) {
               {locationLabel(draft.latitude, draft.longitude, list)}
               {draft.distanceKm ? ` · Within ${draft.distanceKm} km` : ""}
             </a>
-          </div>
+          </div>}
           {(fieldErrors.location ||
             fieldErrors.latitude ||
             fieldErrors.distanceKm) && (
