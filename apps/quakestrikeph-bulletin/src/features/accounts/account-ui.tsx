@@ -1,11 +1,31 @@
-import { ArrowLeft, ChevronsUpDown, Eye, EyeOff, LogOut, MapPin, Settings, UserRound } from "lucide-react";
+import {
+  ChevronsUpDown,
+  Eye,
+  EyeOff,
+  LogOut,
+  MapPin,
+  Settings,
+  Undo2Icon,
+  UserRound,
+} from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { Menu, MenuItem, MenuTrigger, RouterProvider, Separator } from "react-aria-components";
+import {
+  Menu,
+  MenuItem,
+  MenuTrigger,
+  RouterProvider,
+  Separator,
+} from "react-aria-components";
 import { Button } from "../../components/ui/button";
 import { Field, FieldError, FieldLabel } from "../../components/ui/field";
 import { Input } from "../../components/ui/input";
 import { Popover } from "../../components/ui/popover";
-import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "../../components/ui/sidebar";
+import {
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  useSidebar,
+} from "../../components/ui/sidebar";
 import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { useIsMobile } from "../../hooks/use-mobile";
 import BulletinLayout from "../../components/BulletinLayout";
@@ -17,20 +37,48 @@ export const passwordRequirements =
   "Use at least 8 characters, including one lowercase letter, one uppercase letter, and one number.";
 export const passwordPattern = "(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{8,}";
 export function capitalizeNameWords(value: string) {
-  return value.replace(/(^|\s)\p{L}/gu, start => start.toUpperCase());
+  return value.replace(/(^|\s)\p{L}/gu, (start) => start.toUpperCase());
 }
-function SettingsUserMenu({ name, email, avatarUrl, isLoading, openDestination, signOut, onOpenChange }: {
-  name: string; email?: string; avatarUrl?: string; isLoading: boolean; openDestination: (destination: AccountDestination) => void; signOut?: () => void; onOpenChange: (open: boolean) => void;
+function SettingsUserMenu({
+  name,
+  email,
+  avatarUrl,
+  isLoading,
+  openDestination,
+  signOut,
+  onOpenChange,
+}: {
+  name: string;
+  email?: string;
+  avatarUrl?: string;
+  isLoading: boolean;
+  openDestination: (destination: AccountDestination) => void;
+  signOut?: () => void;
+  onOpenChange: (open: boolean) => void;
 }) {
   const { isMobile, setOpenMobile } = useSidebar();
   const identity = (
     <>
-      <span className="relative grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted" aria-hidden="true">
+      <span
+        className="relative grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted"
+        aria-hidden="true"
+      >
         {name.slice(0, 1).toUpperCase()}
-        {avatarUrl && <img src={avatarUrl} alt="" className="absolute inset-0 size-full object-cover" onError={(event) => { event.currentTarget.hidden = true; }} />}
+        {avatarUrl && (
+          <img
+            src={avatarUrl}
+            alt=""
+            className="absolute inset-0 size-full object-cover"
+            onError={(event) => {
+              event.currentTarget.hidden = true;
+            }}
+          />
+        )}
       </span>
       <span className="settings-user-details grid min-w-0 flex-1 text-left text-sm leading-tight">
-        <span className="truncate font-medium">{name || "Loading account…"}</span>
+        <span className="truncate font-medium">
+          {name || "Loading account…"}
+        </span>
         <span className="truncate text-xs">{email}</span>
       </span>
     </>
@@ -39,19 +87,42 @@ function SettingsUserMenu({ name, email, avatarUrl, isLoading, openDestination, 
     <SidebarMenu>
       <SidebarMenuItem>
         <MenuTrigger onOpenChange={onOpenChange}>
-          <SidebarMenuButton size="lg" className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground" isDisabled={isLoading} aria-label="User menu">
-            {identity}<ChevronsUpDown className="settings-user-chevron ml-auto" aria-hidden="true" />
+          <SidebarMenuButton
+            size="lg"
+            className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
+            isDisabled={isLoading}
+            aria-label="User menu"
+          >
+            {identity}
+            <ChevronsUpDown
+              className="settings-user-chevron ml-auto"
+              aria-hidden="true"
+            />
           </SidebarMenuButton>
-          <Popover placement={isMobile ? "bottom end" : "right bottom"} containerPadding={8} className="settings-user-popover">
-            <div className="flex items-center gap-2 px-1 py-1.5">{identity}</div>
+          <Popover
+            placement={isMobile ? "bottom end" : "right bottom"}
+            containerPadding={8}
+            className="settings-user-popover"
+          >
+            <div className="flex items-center gap-2 px-1 py-1.5">
+              {identity}
+            </div>
             <Menu aria-label="User options" className="settings-user-menu">
               <Separator className="settings-user-separator" />
-              <MenuItem textValue="Account" onAction={() => { setOpenMobile(false); openDestination("account"); }}>
-                <UserRound aria-hidden="true" />Account
+              <MenuItem
+                textValue="Account"
+                onAction={() => {
+                  setOpenMobile(false);
+                  openDestination("account");
+                }}
+              >
+                <UserRound aria-hidden="true" />
+                Account
               </MenuItem>
               <Separator className="settings-user-separator" />
               <MenuItem textValue="Sign-out" onAction={signOut}>
-                <LogOut aria-hidden="true" />Sign-out
+                <LogOut aria-hidden="true" />
+                Sign-out
               </MenuItem>
             </Menu>
           </Popover>
@@ -63,7 +134,8 @@ function SettingsUserMenu({ name, email, avatarUrl, isLoading, openDestination, 
 export function BackButton({ onPress }: { onPress: () => void }) {
   return (
     <Button variant="link" className="text-button" onPress={onPress}>
-      <ArrowLeft />Back
+      <Undo2Icon />
+      Back
     </Button>
   );
 }
@@ -100,7 +172,15 @@ export function FormField({
       ) : (
         <FieldLabel htmlFor={id}>{label}</FieldLabel>
       )}
-      <div className={type === "password" ? "password-wrap" : inputSuffix ? "input-with-suffix" : undefined}>
+      <div
+        className={
+          type === "password"
+            ? "password-wrap"
+            : inputSuffix
+              ? "input-with-suffix"
+              : undefined
+        }
+      >
         <Input
           {...props}
           onInvalid={(event) => {
@@ -141,7 +221,15 @@ export function FormField({
             fieldError ? `${id}-error` : props["aria-describedby"]
           }
         />
-        {inputSuffix && <span style={{ left: `calc(14px + ${String(props.value ?? "").length}ch + 6px)` }}>{inputSuffix}</span>}
+        {inputSuffix && (
+          <span
+            style={{
+              left: `calc(14px + ${String(props.value ?? "").length}ch + 6px)`,
+            }}
+          >
+            {inputSuffix}
+          </span>
+        )}
         {inputAction}
         {type === "password" && (
           <Button
@@ -188,23 +276,32 @@ export function Shell({
   const [headerHidden, setHeaderHidden] = useState(false);
   const [sidebarMenuOpen, setSidebarMenuOpen] = useState(false);
   useEffect(() => {
-    const background = document.getElementById('bulletin-view');
+    const background = document.getElementById("bulletin-view");
     if (!modal || !background) return;
     background.inert = true;
-    background.setAttribute('aria-hidden', 'true');
+    background.setAttribute("aria-hidden", "true");
     return () => {
       background.inert = false;
-      background.removeAttribute('aria-hidden');
+      background.removeAttribute("aria-hidden");
     };
   }, [modal]);
   useEffect(() => {
     setHeaderHidden(false);
     if (!wide || !isMobile) return;
-    const scroller = modal ? document.querySelector<HTMLElement>('.account-settings-dialog') : null;
+    const scroller = modal
+      ? document.querySelector<HTMLElement>(".account-settings-dialog")
+      : null;
     let previousY = scroller?.scrollTop ?? window.scrollY;
     function onScroll() {
-      const y = scroller ? scroller.scrollTop
-        : Math.max(0, Math.min(window.scrollY, document.documentElement.scrollHeight - window.innerHeight));
+      const y = scroller
+        ? scroller.scrollTop
+        : Math.max(
+            0,
+            Math.min(
+              window.scrollY,
+              document.documentElement.scrollHeight - window.innerHeight,
+            ),
+          );
       if (y <= 56) setHeaderHidden(false);
       else if (Math.abs(y - previousY) < 8) return;
       else setHeaderHidden(y > previousY);
@@ -225,99 +322,146 @@ export function Shell({
   ].includes(screen);
   const rootClass = `account-app map flow-screen ${wide ? "settings-workspace wide" : entry ? "account-entry" : "focused-shell"}`;
   const settingsRail = (
-          <aside className="settings-rail">
-            <RouterProvider navigate={(path) => {
-              const next = screenAtPath(path);
-              if (next === "preferences" || next === "location" || next === "account") openDestination(next);
-            }}>
-              <Tabs className="settings-mobile-tabs" selectedKey={["preferences", "location"].includes(screen) ? screen : "account"} keyboardActivation="manual" isDisabled={isLoading}>
-                <TabsList aria-label="Settings">
-                  <TabsTrigger id="preferences" href="/alerts"><Settings aria-hidden="true" /><span>Alert preferences</span></TabsTrigger>
-                  <TabsTrigger id="location" href="/location"><MapPin aria-hidden="true" /><span>Alert location</span></TabsTrigger>
-                  <TabsTrigger id="account" href="/account"><UserRound aria-hidden="true" /><span>Account</span></TabsTrigger>
-                </TabsList>
-              </Tabs>
-            </RouterProvider>
-            <nav className="settings-desktop-nav" aria-label="Settings">
-              <Button
-                isDisabled={isLoading}
-                aria-current={screen === "preferences" ? "page" : undefined}
-                onPress={() => openDestination("preferences")}
-              >
-                <Settings />
-                Alert preferences
-              </Button>
-              <Button
-                isDisabled={isLoading}
-                aria-current={screen === "location" ? "page" : undefined}
-                onPress={() => openDestination("location")}
-              >
-                <MapPin />
-                Alert location
-              </Button>
-              <Button
-                isDisabled={isLoading}
-                aria-current={!["preferences", "location"].includes(screen) ? "page" : undefined}
-                onPress={() => openDestination("account")}
-              >
-                <UserRound />
-                Account
-              </Button>
-            </nav>
-          </aside>
+    <aside className="settings-rail">
+      <RouterProvider
+        navigate={(path) => {
+          const next = screenAtPath(path);
+          if (
+            next === "preferences" ||
+            next === "location" ||
+            next === "account"
+          )
+            openDestination(next);
+        }}
+      >
+        <Tabs
+          className="settings-mobile-tabs"
+          selectedKey={
+            ["preferences", "location"].includes(screen) ? screen : "account"
+          }
+          keyboardActivation="manual"
+          isDisabled={isLoading}
+        >
+          <TabsList aria-label="Settings">
+            <TabsTrigger id="preferences" href="/alerts">
+              <Settings aria-hidden="true" />
+              <span>Alert preferences</span>
+            </TabsTrigger>
+            <TabsTrigger id="location" href="/location">
+              <MapPin aria-hidden="true" />
+              <span>Alert location</span>
+            </TabsTrigger>
+            <TabsTrigger id="account" href="/account">
+              <UserRound aria-hidden="true" />
+              <span>Account</span>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </RouterProvider>
+      <nav className="settings-desktop-nav" aria-label="Settings">
+        <Button
+          isDisabled={isLoading}
+          aria-current={screen === "preferences" ? "page" : undefined}
+          onPress={() => openDestination("preferences")}
+        >
+          <Settings />
+          Alert preferences
+        </Button>
+        <Button
+          isDisabled={isLoading}
+          aria-current={screen === "location" ? "page" : undefined}
+          onPress={() => openDestination("location")}
+        >
+          <MapPin />
+          Alert location
+        </Button>
+        <Button
+          isDisabled={isLoading}
+          aria-current={
+            !["preferences", "location"].includes(screen) ? "page" : undefined
+          }
+          onPress={() => openDestination("account")}
+        >
+          <UserRound />
+          Account
+        </Button>
+      </nav>
+    </aside>
   );
   const ContentTag = wide ? "div" : "main";
   const content = (
-      <ContentTag className="layout">
-        {wide && settingsRail}
-        <section className="story" aria-labelledby="story-title">
-          <div className="story-copy">
-            <h1 id="story-title">Earthquake alert settings</h1>
-            <p>
-              An account is required to save and manage your earthquake alert
-              settings.
-            </p>
-          </div>
-          <figure className="map-art">
-            <img
-              src="/assets/accounts/philippines-offset-map-transparent.png"
-              alt=""
-              fetchPriority="high"
-            />
-          </figure>
-          <p className="story-note">
-            The public Bulletin is available without an account.
+    <ContentTag className="layout">
+      {wide && settingsRail}
+      <section className="story" aria-labelledby="story-title">
+        <div className="story-copy">
+          <h1 id="story-title">Earthquake alert settings</h1>
+          <p>
+            An account is required to save and manage your earthquake alert
+            settings.
           </p>
-        </section>
-        <section
-          className="account"
-          aria-labelledby={isLoading ? undefined : "form-title"}
-          aria-label={isLoading ? "Account" : undefined}
+        </div>
+        <figure className="map-art">
+          <img
+            src="/assets/accounts/philippines-offset-map-transparent.png"
+            alt=""
+            fetchPriority="high"
+          />
+        </figure>
+        <p className="story-note">
+          The public Bulletin is available without an account.
+        </p>
+      </section>
+      <section
+        className="account"
+        aria-labelledby={isLoading ? undefined : "form-title"}
+        aria-label={isLoading ? "Account" : undefined}
+      >
+        <div
+          className="account-inner"
+          key={screen === "signin" || screen === "signup" ? "auth" : "account"}
         >
-          <div
-            className="account-inner"
-            key={
-              screen === "signin" || screen === "signup" ? "auth" : "account"
-            }
-          >
-            {children}
-          </div>
-        </section>
-      </ContentTag>
+          {children}
+        </div>
+      </section>
+    </ContentTag>
   );
   const shell = (
-    <div className={rootClass} data-screen={screen} data-header-hidden={headerHidden || undefined}
+    <div
+      className={rootClass}
+      data-screen={screen}
+      data-header-hidden={headerHidden || undefined}
       onFocusCapture={(event) => {
-        if (event.target.closest(".header, .bulletin-header")) setHeaderHidden(false);
-      }}>
+        if (event.target.closest(".header, .bulletin-header"))
+          setHeaderHidden(false);
+      }}
+    >
       {wide ? (
-        <BulletinLayout settings filters={null} results={null} sidebarMenuOpen={sidebarMenuOpen}
-          sidebarFooter={<SettingsUserMenu name={name} email={email} avatarUrl={avatarUrl} isLoading={isLoading} openDestination={openDestination} signOut={signOut} onOpenChange={setSidebarMenuOpen} />}>
+        <BulletinLayout
+          settings
+          filters={null}
+          results={null}
+          sidebarMenuOpen={sidebarMenuOpen}
+          sidebarFooter={
+            <SettingsUserMenu
+              name={name}
+              email={email}
+              avatarUrl={avatarUrl}
+              isLoading={isLoading}
+              openDestination={openDestination}
+              signOut={signOut}
+              onOpenChange={setSidebarMenuOpen}
+            />
+          }
+        >
           {content}
         </BulletinLayout>
       ) : (
         <>
-          <AccountHeader publicLink={screen === "signin" || screen === "signup" || screen === "forgot"} />
+          <AccountHeader
+            publicLink={
+              screen === "signin" || screen === "signup" || screen === "forgot"
+            }
+          />
           {content}
           <footer />
         </>
@@ -325,11 +469,22 @@ export function Shell({
     </div>
   );
   if (!modal) return shell;
-  return <Dialog className="account-settings-dialog" overlayClassName="account-settings-overlay"
-    UNSTABLE_portalContainer={document.getElementById('account-workspace') ?? undefined}
-    isOpen isDismissable={false} isKeyboardDismissDisabled={departureOpen}
-    onOpenChange={open => { if (!open) close?.(); }}>
-    <DialogTitle className="sr-only">Bulletin settings</DialogTitle>
-    {shell}
-  </Dialog>;
+  return (
+    <Dialog
+      className="account-settings-dialog"
+      overlayClassName="account-settings-overlay"
+      UNSTABLE_portalContainer={
+        document.getElementById("account-workspace") ?? undefined
+      }
+      isOpen
+      isDismissable={false}
+      isKeyboardDismissDisabled={departureOpen}
+      onOpenChange={(open) => {
+        if (!open) close?.();
+      }}
+    >
+      <DialogTitle className="sr-only">Bulletin settings</DialogTitle>
+      {shell}
+    </Dialog>
+  );
 }

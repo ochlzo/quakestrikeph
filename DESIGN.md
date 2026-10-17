@@ -254,3 +254,14 @@ location summary leaves no extra gap above the distance field. On mobile,
 search and device location stack at full width. The map uses a 220-260px
 height, zoom buttons have 44px touch targets, and the action row gives the
 primary action twice the space of Cancel. Search text uses 16px on mobile.
+
+Inside settings, phone entry, phone verification, identity verification, and
+password forms share a left-aligned column with a 560px maximum width. Back
+and the rest of the column center horizontally within the desktop content
+panel and start at its standard top inset. Content inside the column stays
+left-aligned. Short viewports retain scrolling; mobile stays top-aligned. Back
+has a 44px minimum target and 16px separation from the heading. Headings have
+12px before their introduction; introductions have 28px before the form.
+Fields use 20px gaps. Primary actions match the field width with a 52px
+minimum height. Mobile uses the available panel width. Account phone entry
+uses Back to return instead of displaying Continue without SMS.

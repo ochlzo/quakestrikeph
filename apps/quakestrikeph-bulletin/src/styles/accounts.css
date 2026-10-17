@@ -173,6 +173,29 @@ body[data-account-page] > #bulletin-view { display: none; }
 .account-app[data-screen="phone"] form > .primary { margin-top: 24px; }
 .account-app[data-screen="phone"] .screen-focus > .support { margin: 12px 0 24px; }
 .account-app[data-screen="phone"] .phone-alternatives > .secondary { margin-top: 0; }
+/* Keep short account tasks readable inside the shared settings panel. */
+.account-app.settings-workspace:is([data-screen="phone"], [data-screen="verify-phone"], [data-screen="reverify"], [data-screen="password"]) .screen-focus {
+  width: 100%;
+  max-width: 560px;
+}
+.account-app.settings-workspace:is([data-screen="phone"], [data-screen="verify-phone"], [data-screen="reverify"], [data-screen="password"]) .screen-focus > .text-button {
+  width: fit-content; min-height: 44px; margin: 0 0 16px; padding-inline: 0;
+}
+.account-app.settings-workspace:is([data-screen="phone"], [data-screen="verify-phone"], [data-screen="reverify"], [data-screen="password"]) .screen-focus h2 {
+  margin: 0 0 12px;
+}
+.account-app.settings-workspace:is([data-screen="phone"], [data-screen="verify-phone"], [data-screen="reverify"], [data-screen="password"]) .form-intro {
+  margin: 0 0 28px; line-height: 1.6;
+}
+.account-app.settings-workspace:is([data-screen="phone"], [data-screen="verify-phone"], [data-screen="reverify"], [data-screen="password"]) .screen-focus > form {
+  display: flex; flex-direction: column; gap: 20px;
+}
+.account-app.settings-workspace:is([data-screen="phone"], [data-screen="verify-phone"], [data-screen="reverify"], [data-screen="password"]) .field.account-form-field {
+  width: 100%; max-width: none; margin: 0;
+}
+.account-app.settings-workspace:is([data-screen="phone"], [data-screen="verify-phone"], [data-screen="reverify"], [data-screen="password"]) form > .primary {
+  width: 100%; max-width: none; min-height: 52px; margin: 4px 0 0;
+}
 /* Lock the alert-options page; short viewports scroll inside the form panel. */
 html:has(.account-app[data-screen="channels"]),
 body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
@@ -754,6 +777,9 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
 .account-settings-dialog .story { display: none; }
 .account-settings-dialog .account-app:not([data-screen="preferences"]):not([data-screen="location"]) { --settings-tab-index: 2; }
 @media (min-width: 761px) {
+  .account-settings-dialog .account-app:is([data-screen="phone"], [data-screen="verify-phone"], [data-screen="reverify"], [data-screen="password"]) .screen-focus {
+    margin: 0 auto;
+  }
   /* Keep the public view visible between Astro's swap and the Dialog mounting. */
   body[data-account-settings]:not(:has(.account-app)) > #bulletin-view,
   body[data-account-page]:has(.account-settings-dialog) > #bulletin-view { display: block; }
