@@ -43,7 +43,7 @@ async function fixture(browser, viewport, empty = false) {
     }
     return route.fulfill({ json: { account, nextStep: 'complete' } });
   });
-  await page.goto(`${root}/alerts/location?signed=1`);
+  await page.goto(`${root}/location?signed=1`);
   await page.getByRole('button', { name: empty ? 'Set location' : 'Edit', exact: true }).click();
   const navigate = label => page.locator(viewport.width <= 760 ? '.settings-mobile-tabs' : '.settings-desktop-nav')
     .getByRole(viewport.width <= 760 ? 'tab' : 'button', { name: label, exact: true }).click();
@@ -64,7 +64,7 @@ async function fixture(browser, viewport, empty = false) {
         const { page } = f;
         await page.locator('#distance').fill('0');
         await f.navigate('Account');
-        await page.getByRole('dialog').getByRole('button', { name: 'Yes', exact: true }).click();
+        await page.getByRole('dialog', { name: /^(Save changes\?|Changes could not be saved)$/ }).getByRole('button', { name: 'Yes', exact: true }).click();
         await page.locator('[data-slot="dialog"]').waitFor({ state: 'hidden' });
         await page.waitForFunction(() => document.activeElement?.getAttribute('role') === 'combobox');
         assert.equal(await page.getByRole('combobox').evaluate(input => input === document.activeElement), true);
@@ -111,7 +111,7 @@ async function fixture(browser, viewport, empty = false) {
         await page.locator('#distance').fill('100');
         await page.getByRole('button', { name: 'Use my location', exact: true }).click();
         await f.navigate('Account');
-        await page.getByRole('dialog').waitFor();
+        await page.getByRole('dialog', { name: /^(Save changes\?|Changes could not be saved)$/ }).waitFor();
         const previous = await page.locator('.location-summary').innerText();
         await f.reply(0);
         await page.waitForFunction(previous => document.querySelector('.location-summary').innerText !== previous, previous);
@@ -122,7 +122,7 @@ async function fixture(browser, viewport, empty = false) {
         await f.navigate('Account');
         state.hold = deferred();
         state.fail = true;
-        await page.getByRole('dialog').getByRole('button', { name: 'Yes', exact: true }).click();
+        await page.getByRole('dialog', { name: /^(Save changes\?|Changes could not be saved)$/ }).getByRole('button', { name: 'Yes', exact: true }).click();
         await waitForWrite(state.requested);
         await f.reply(1, false, [10.3, 123.9]);
         assert.equal(await page.locator('.location-summary').innerText(), selected);

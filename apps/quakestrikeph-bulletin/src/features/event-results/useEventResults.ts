@@ -24,6 +24,7 @@ export function useEventResults(initialState: BulletinState, initialResults: Sea
     };
   }, [results]);
   useEffect(() => {
+    if (window.location.pathname !== '/') return;
     const url = new URL(window.location.href);
     for (const key of ['q', 'date', 'from', 'to', 'magnitudes', 'selected']) url.searchParams.delete(key);
     bulletinParams(snapshot.state).forEach((value, key) => url.searchParams.set(key, value));

@@ -13,7 +13,7 @@ const account = { userId: 'fixture-user', displayName: 'Maria', email: 'maria@ex
       for (const scroll of [0, 250]) {
         const page = await browser.newPage({ viewport, reducedMotion: 'reduce' });
         await page.route('**/api/v1/account**', route => route.fulfill({ json: { account, nextStep: 'complete' } }));
-        await page.goto(`${root}/alerts/location?signed=1`);
+        await page.goto(`${root}/location?signed=1`);
         await page.getByRole('button', { name: 'Set location', exact: true }).click();
         await page.addStyleTag({ content: 'html { scroll-behavior: auto !important; }' });
         const input = page.getByRole('combobox', { name: 'Search for a location' });

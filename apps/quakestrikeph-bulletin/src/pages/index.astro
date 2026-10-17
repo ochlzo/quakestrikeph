@@ -2,6 +2,7 @@
 import Bulletin from '../components/Bulletin';
 import { ClientRouter } from 'astro:transitions';
 import BackgroundToaster from '../components/BackgroundToaster';
+import AccountModalNavigation from '../components/AccountModalNavigation.astro';
 import '../styles/globals.css';
 import { readBulletinState } from '../lib/bulletin-navigation';
 import { prepareEventResults } from '../features/event-results/server';
@@ -33,7 +34,10 @@ const initialResults = await prepareEventResults(initialState, searchInitialEven
     </script>
   </head>
   <body>
-    <Bulletin initialResults={initialResults} initialState={initialState} client:load />
+    <div id="bulletin-view">
+      <Bulletin initialResults={initialResults} initialState={initialState} client:load />
+    </div>
+    <AccountModalNavigation />
     <BackgroundToaster client:only="react" transition:persist="account-notifications" />
   </body>
 </html>

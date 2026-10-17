@@ -17,7 +17,7 @@ const account = { userId: 'fixture-user', displayName: 'Maria', email: 'maria@ex
         saved = { ...saved, ...route.request().postDataJSON() };
         return route.fulfill({ json: saved });
       });
-      await page.goto(`${root}/alerts/location?signed=1`);
+      await page.goto(`${root}/location?signed=1`);
       await page.getByRole('button', { name: 'Edit', exact: true }).click();
       const input = page.getByRole('textbox', { name: 'Nearby distance (km)' });
       await input.waitFor();
@@ -33,13 +33,13 @@ const account = { userId: 'fixture-user', displayName: 'Maria', email: 'maria@ex
       for (const value of ['', '0', '1001']) {
         await input.fill(value);
         await page.getByRole('button', { name: 'Use this location', exact: true }).click();
-        assert.ok(new URL(page.url()).pathname.endsWith('/alerts/location'));
+        assert.ok(new URL(page.url()).pathname.endsWith('/location'));
         assert.ok(await page.getByText('Enter a whole-kilometre distance from 1 to 1,000 km.', { exact: true }).isVisible());
       }
       await input.fill('1000');
       await page.getByRole('button', { name: 'Use this location', exact: true }).click();
       await page.getByRole('button', { name: 'Edit', exact: true }).waitFor();
-      assert.ok(new URL(page.url()).pathname.endsWith('/alerts/location'));
+      assert.ok(new URL(page.url()).pathname.endsWith('/location'));
       await page.getByText('Within 1000 km', { exact: true }).waitFor();
       assert.equal(saved.distanceKm, 1000);
       await page.close();

@@ -10,7 +10,6 @@ import {
   X,
   Earth,
   ExternalLink,
-  Search,
 } from "lucide-react";
 import MapPanel from "./MapPanel";
 import ForecastOverview from "./ForecastOverview";
@@ -22,6 +21,7 @@ import type { components } from "../lib/api/schema";
 import type { BulletinState } from "../lib/bulletin-navigation";
 import { useEventResults } from "../features/event-results/useEventResults";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Search, SearchInput } from "./ui/search";
 import {
   Drawer,
   DrawerClose,
@@ -206,7 +206,7 @@ export default function Bulletin({
     canLoadMore,
     pageStatus,
     previousId,
-    changeFilters,
+    changeFilters: applyFilters,
     select,
     refresh,
     pageNumber,
@@ -215,6 +215,11 @@ export default function Bulletin({
     previousPage,
     changePageSize,
   } = useEventResults(initialState, initialResults);
+  const [searchText, setSearchText] = useState(initialState.query);
+  function changeFilters(patch: Parameters<typeof applyFilters>[0]) {
+    if (patch.query !== undefined) setSearchText(patch.query);
+    applyFilters(patch);
+  }
   useEffect(() => {
     const url = new URL(window.location.href);
     if (url.searchParams.get("preferences") !== "saved") return;
@@ -524,22 +529,22 @@ export default function Bulletin({
 
   const filters = (
     <div className="filter-bar" aria-label="Earthquake filters">
-      <label className="search-field">
-        <Search size={20} aria-hidden="true" />
-        <span className="sr-only">Search by Province</span>
-        <input
+      <Search className="search-field" isLoading={searchText.trim().length >= 2 && searching}>
+        <SearchInput
+          aria-label="Search by Province"
           id="location-search"
           ref={searchInput}
-          value={query}
-          onChange={(event) => changeFilters({ query: event.target.value })}
-          aria-busy={location.length >= 2 && searching}
+          value={searchText}
+          onChange={(event) => {
+            const value = event.target.value;
+            setSearchText(value);
+            if (value.trim().length >= 2) applyFilters({ query: value });
+          }}
+          aria-busy={searchText.trim().length >= 2 && searching}
           maxLength={100}
           placeholder="Search by Province (e.g. Albay)"
         />
-        {location.length >= 2 && searching && (
-          <span className="search-spinner" aria-hidden="true" />
-        )}
-      </label>
+      </Search>
       <Select
         aria-label="Date observed"
         className="w-full"
@@ -689,11 +694,6 @@ export default function Bulletin({
             ))}
           </div>
         </>
-      )}
-      {location.length === 1 && (
-        <div className="notice" role="status">
-          Enter at least 2 characters to search provinces.
-        </div>
       )}
       {failed && (
         <div className="notice" role="alert">

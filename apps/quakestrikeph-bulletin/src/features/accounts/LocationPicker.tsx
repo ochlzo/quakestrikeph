@@ -1,15 +1,23 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { Map, Marker } from "maplibre-gl";
-import { Label } from "react-aria-components";
-import { CircleX, Earth, MapPinSearch, MapPin, Pencil, Search } from "lucide-react";
-import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription, EmptyContent } from "../../components/ui/empty";
+import { CircleX, Earth, MapPinSearch, MapPin, Pencil } from "lucide-react";
+import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  EmptyDescription,
+  EmptyContent,
+} from "../../components/ui/empty";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "../../components/ui/input-group";
+import { Search, SearchInput } from "../../components/ui/search";
 import { Field, FieldLabel, FieldError } from "../../components/ui/field";
 import { toast } from "../../components/ui/toast";
 import {
@@ -72,14 +80,22 @@ function fitRadius(map: Map, point: [number, number], km: number) {
   );
 }
 
-export default function LocationPicker({ edit, onUse }: {
+export default function LocationPicker({
+  edit,
+  onUse,
+}: {
   edit: LocationEdit;
   onUse: (location: AlertLocation) => void;
 }) {
   const { list, error: searchError } = usePlaces();
-  const state = useSyncExternalStore(edit.subscribe, edit.getSnapshot, edit.getSnapshot);
+  const state = useSyncExternalStore(
+    edit.subscribe,
+    edit.getSnapshot,
+    edit.getSnapshot,
+  );
   const { editing, point, distance, locating, errors } = state;
-  const pinError = errors.pin, distanceError = errors.distance;
+  const pinError = errors.pin,
+    distanceError = errors.distance;
   const [query, setQuery] = useState("");
   const editingRef = useRef(editing);
   editingRef.current = editing;
@@ -99,13 +115,20 @@ export default function LocationPicker({ edit, onUse }: {
   distanceRef.current = distance;
   useEffect(() => {
     if (!errors.focus) return;
-    if (errors.pin) toast.add({
-      id: "account-location-pin-error", type: "error", title: errors.pin, timeout: 8000,
-    });
-    if (errors.focus === "pin") searchAnchor.current?.querySelector("input")?.focus();
+    if (errors.pin)
+      toast.add({
+        id: "account-location-pin-error",
+        type: "error",
+        title: errors.pin,
+        timeout: 8000,
+      });
+    if (errors.focus === "pin")
+      searchAnchor.current?.querySelector("input")?.focus();
     else document.getElementById("distance")?.focus();
   }, [errors]);
-  useEffect(() => { if (!editing) setQuery(""); }, [editing]);
+  useEffect(() => {
+    if (!editing) setQuery("");
+  }, [editing]);
   const matches = useMemo(() => {
     const terms = normalized(query.trim()).split(/\s+/);
     const text = normalized(query.trim());
@@ -150,7 +173,10 @@ export default function LocationPicker({ edit, onUse }: {
           new lib.NavigationControl({ showCompass: false }),
           "top-right",
         );
-        const pin = new lib.Marker({ color: "#0e6873", draggable: editingRef.current });
+        const pin = new lib.Marker({
+          color: "#0e6873",
+          draggable: editingRef.current,
+        });
         marker.current = pin;
         pin.on("dragend", () => {
           if (!editingRef.current) return;
@@ -160,9 +186,9 @@ export default function LocationPicker({ edit, onUse }: {
         instance.on("click", (event) => {
           if (editingRef.current) choose([event.lngLat.lat, event.lngLat.lng]);
         });
-        instance.on("error", () =>
-          { if (active) setMapError("tiles"); },
-        );
+        instance.on("error", () => {
+          if (active) setMapError("tiles");
+        });
         instance.on("idle", () =>
           setMapReady(
             Boolean(instance.isStyleLoaded() && instance.areTilesLoaded()),
@@ -199,7 +225,9 @@ export default function LocationPicker({ edit, onUse }: {
           if (current) pin.setLngLat([current[1], current[0]]).addTo(instance);
         }
       })
-      .catch(() => { if (active) setMapError("runtime"); });
+      .catch(() => {
+        if (active) setMapError("runtime");
+      });
     return () => {
       active = false;
       marker.current?.remove();
@@ -209,7 +237,8 @@ export default function LocationPicker({ edit, onUse }: {
   }, [showMap, mapAttempt]);
   useEffect(() => {
     if (!map.current || !marker.current) return;
-    if (point) marker.current.setLngLat([point[1], point[0]]).addTo(map.current);
+    if (point)
+      marker.current.setLngLat([point[1], point[0]]).addTo(map.current);
     else marker.current.remove();
     const source = map.current.getSource("alert-radius") as
       import("maplibre-gl").GeoJSONSource | undefined;
@@ -225,162 +254,262 @@ export default function LocationPicker({ edit, onUse }: {
   }, [point, distance]);
   useEffect(() => {
     marker.current?.setDraggable(editing);
-    if (editing) searchAnchor.current?.querySelector("input")?.focus({ preventScroll: true });
-    else if (previousEditing.current) editButton.current?.focus({ preventScroll: true });
+    if (editing)
+      searchAnchor.current
+        ?.querySelector("input")
+        ?.focus({ preventScroll: true });
+    else if (previousEditing.current)
+      editButton.current?.focus({ preventScroll: true });
     previousEditing.current = editing;
   }, [editing]);
-  function cancel() { edit.cancel(); }
+  function cancel() {
+    edit.cancel();
+  }
   function choose(next: [number, number]) {
     edit.choose(next);
     setMapReady(false);
   }
   function locate() {
-    edit.locate(message => toast.add({
-      id: "account-location-error", type: "error", title: message, timeout: 8000,
-    }));
+    edit.locate((message) =>
+      toast.add({
+        id: "account-location-error",
+        type: "error",
+        title: message,
+        timeout: 8000,
+      }),
+    );
   }
   function use() {
-    const location = edit.commit('immediate');
+    const location = edit.commit("immediate");
     if (location) onUse(location);
   }
   return (
     <>
       <div className="location-heading">
-        <h2 id="form-title">{editing ? "Choose your alert location" : "Alert location"}</h2>
-        {!editing && point && <Button className="secondary location-heading-edit" ref={editButton} onPress={() => edit.begin()}>
-          <Pencil aria-hidden="true" />Edit
-        </Button>}
-      </div>
-      {editing && <p className="form-intro">
-        Search for a place, then adjust the pin. Your device is only located
-        when you ask.
-      </p>}
-      {!showMap && <Empty className="location-empty">
-        <EmptyHeader>
-          <EmptyMedia variant="icon"><Earth aria-hidden="true" /></EmptyMedia>
-          <EmptyTitle>No alert location yet</EmptyTitle>
-          <EmptyDescription>Choose a location to set your nearby alert area.</EmptyDescription>
-        </EmptyHeader>
-        <EmptyContent><Button className="secondary" ref={editButton} onPress={() => edit.begin()}>Set location</Button></EmptyContent>
-      </Empty>}
-      {showMap && <div className="location-map" data-map-ready={mapReady}>
-        <div className="location-map-canvas" ref={container}
-          aria-label={editing ? "Choose an alert location on the map" : "Your alert location on the map"} />
-        {mapError && <Empty className="location-map-error" role="alert">
-          <EmptyHeader>
-            <EmptyMedia variant="icon"><CircleX aria-hidden="true" /></EmptyMedia>
-            <EmptyTitle>{mapError === "runtime" ? "The map could not load" : "Map tiles could not load"}</EmptyTitle>
-            <EmptyDescription>Search for a location or use your device location.</EmptyDescription>
-          </EmptyHeader>
-          {mapError === "tiles" && <EmptyContent><Button variant="outline" onPress={() => setMapAttempt(attempt => attempt + 1)}>Retry</Button></EmptyContent>}
-        </Empty>}
-      </div>}
-      {showMap && <div className="location-controls" data-editing={editing ? "true" : undefined}>
-        <Field data-invalid={pinError ? true : undefined}>
-        <p
-          className="location-summary"
-          aria-live="polite"
-          data-selected={point ? "true" : undefined}
-          data-missing={pinError ? "true" : undefined}
-        >
-          <MapPin aria-hidden="true" />
-          <span>
-            <strong>{!editing && !point ? "No alert location yet" : locationLabel(point?.[0] ?? null, point?.[1] ?? null, list)}</strong>
-            {!editing && point && <small className="location-view-distance">Within {distance} km</small>}
-          </span>
-        </p>
-        </Field>
-        {editing ? <>
-        <div className="location-search-row">
-          <Combobox
-            className="location-search-combobox"
-            inputValue={query}
-            onInputChange={setQuery}
-            allowsCustomValue
-            allowsEmptyCollection
-            defaultFilter={() => true}
-            onSelectionChange={(key) => {
-              const match = matches.find((x) => x.index === key);
-              if (match) choose([match.p[2], match.p[3]]);
-            }}
-            menuTrigger="input"
-          >
-            <Field className="location-search-field-wrapper" data-invalid={searchError ? true : undefined}>
-            <Label className="location-search-label">
-              Search for a location
-            </Label>
-            <div ref={searchAnchor}>
-              <InputGroup className="location-search-field">
-                <InputGroupInput placeholder="Search regions, cities or municipalities"
-                  aria-invalid={!!searchError} aria-describedby={searchError ? "location-search-error" : undefined} />
-                <InputGroupAddon>
-                  <Search aria-hidden="true" />
-                </InputGroupAddon>
-                <InputGroupAddon align="inline-end">
-                  <ComboboxTrigger aria-label="Show matching locations" />
-                </InputGroupAddon>
-              </InputGroup>
-            </div>
-            {searchError && <FieldError id="location-search-error">{searchError}</FieldError>}
-            </Field>
-            <ComboboxContent anchor={searchAnchor}>
-              <ComboboxList<{ p: Place; index: number }>
-                items={matches}
-                renderEmptyState={() => (
-                  <ComboboxEmpty>
-                    No matching places. Try another name or use the map.
-                  </ComboboxEmpty>
-                )}
-              >
-                {({ p, index }) => (
-                  <ComboboxItem id={index} textValue={`${p[0]}, ${p[1]}`}>
-                    <span>
-                      {p[0]}
-                      <small className="place-context">{p[1]}</small>
-                    </span>
-                  </ComboboxItem>
-                )}
-              </ComboboxList>
-            </ComboboxContent>
-          </Combobox>
+        <h2 id="form-title">
+          {editing ? "Choose your alert location" : "Alert location"}
+        </h2>
+        {!editing && point && (
           <Button
-            className="secondary location-locate"
-            onPress={locate}
-            isDisabled={locating}
+            className="secondary location-heading-edit"
+            ref={editButton}
+            onPress={() => edit.begin()}
           >
-            <MapPinSearch />
-            {locating ? "Finding your location…" : "Use my location"}
+            <Pencil aria-hidden="true" />
+            Edit
           </Button>
+        )}
+      </div>
+      {editing && (
+        <p className="form-intro">Search for a place, or adjust the pin.</p>
+      )}
+      {!showMap && (
+        <Empty className="location-empty">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <Earth aria-hidden="true" />
+            </EmptyMedia>
+            <EmptyTitle>No alert location yet</EmptyTitle>
+            <EmptyDescription>
+              Choose a location to set your nearby alert area.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button
+              className="secondary"
+              ref={editButton}
+              onPress={() => edit.begin()}
+            >
+              Set location
+            </Button>
+          </EmptyContent>
+        </Empty>
+      )}
+      {editing && (
+        <div className="location-search">
+          <div className="location-search-row">
+            <Combobox
+              className="location-search-combobox"
+              aria-label="Search for a location"
+              inputValue={query}
+              onInputChange={setQuery}
+              allowsCustomValue
+              allowsEmptyCollection
+              defaultFilter={() => true}
+              onSelectionChange={(key) => {
+                const match = matches.find((x) => x.index === key);
+                if (match) choose([match.p[2], match.p[3]]);
+              }}
+              menuTrigger="input"
+            >
+              <Field
+                className="location-search-field-wrapper"
+                data-invalid={searchError ? true : undefined}
+              >
+                <div ref={searchAnchor}>
+                  <Search className="location-search-field">
+                    <SearchInput
+                      placeholder="Search regions, cities or municipalities"
+                      aria-invalid={!!searchError}
+                      aria-describedby={
+                        searchError ? "location-search-error" : undefined
+                      }
+                    />
+                    <ComboboxTrigger aria-label="Show matching locations" />
+                  </Search>
+                </div>
+                {searchError && (
+                  <FieldError id="location-search-error">
+                    {searchError}
+                  </FieldError>
+                )}
+              </Field>
+              <ComboboxContent anchor={searchAnchor}>
+                <ComboboxList<{ p: Place; index: number }>
+                  items={matches}
+                  renderEmptyState={() => (
+                    <ComboboxEmpty className="location-search-empty">
+                      No matching places. Try another name or use the map.
+                    </ComboboxEmpty>
+                  )}
+                >
+                  {({ p, index }) => (
+                    <ComboboxItem id={index} textValue={`${p[0]}, ${p[1]}`}>
+                      <span>
+                        {p[0]}
+                        <small className="place-context">{p[1]}</small>
+                      </span>
+                    </ComboboxItem>
+                  )}
+                </ComboboxList>
+              </ComboboxContent>
+            </Combobox>
+            <Button
+              className="secondary location-locate"
+              onPress={locate}
+              isDisabled={locating}
+            >
+              <MapPinSearch />
+              {locating ? "Finding your location…" : "Use my location"}
+            </Button>
+          </div>
         </div>
-        <Field className="field account-form-field location-distance" data-invalid={distanceError ? true : undefined}>
-          <FieldLabel htmlFor="distance">Nearby distance (km)</FieldLabel>
-          <Input
-            id="distance"
-            aria-describedby={distanceError ? "distance-error distance-help" : "distance-help"}
-            aria-invalid={!!distanceError}
-            type="text"
-            inputMode="numeric"
-            pattern="[0-9]+"
-            title="Enter a whole-kilometre distance from 1 to 1,000 km."
-            value={distance}
-            onChange={(e) => edit.setDistance(e.target.value)}
+      )}
+      {showMap && (
+        <div className="location-map" data-map-ready={mapReady}>
+          <div
+            className="location-map-canvas"
+            ref={container}
+            aria-label={
+              editing
+                ? "Choose an alert location on the map"
+                : "Your alert location on the map"
+            }
           />
-          {distanceError && <FieldError id="distance-error">{distanceError}</FieldError>}
-        </Field>
-        <p id="distance-help" className="support location-distance-help">
-          Receive alerts for earthquakes within this distance of your pin when
-          “Only earthquakes near my location” is on.
-        </p>
-        <div className="location-actions">
-          <Button className="secondary" onPress={cancel}>
-            Cancel
-          </Button>
-          <Button className="primary" onPress={use}>
-            Use this location
-          </Button>
+          {mapError && (
+            <Empty className="location-map-error" role="alert">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <CircleX aria-hidden="true" />
+                </EmptyMedia>
+                <EmptyTitle>
+                  {mapError === "runtime"
+                    ? "The map could not load"
+                    : "Map tiles could not load"}
+                </EmptyTitle>
+                <EmptyDescription>
+                  Search for a location or use your device location.
+                </EmptyDescription>
+              </EmptyHeader>
+              {mapError === "tiles" && (
+                <EmptyContent>
+                  <Button
+                    variant="outline"
+                    onPress={() => setMapAttempt((attempt) => attempt + 1)}
+                  >
+                    Retry
+                  </Button>
+                </EmptyContent>
+              )}
+            </Empty>
+          )}
         </div>
-        </> : null}
-      </div>}
+      )}
+      {showMap && (
+        <div
+          className="location-controls"
+          data-editing={editing ? "true" : undefined}
+        >
+          {(!editing || query.trim().length > 0) && (
+            <Field data-invalid={pinError ? true : undefined}>
+              <p
+                className="location-summary"
+                aria-live="polite"
+                data-selected={point ? "true" : undefined}
+                data-missing={pinError ? "true" : undefined}
+              >
+                <MapPin aria-hidden="true" />
+                <span>
+                  <strong>
+                    {!editing && !point
+                      ? "No alert location yet"
+                      : locationLabel(
+                          point?.[0] ?? null,
+                          point?.[1] ?? null,
+                          list,
+                        )}
+                  </strong>
+                  {!editing && point && (
+                    <small className="location-view-distance">
+                      Within {distance} km
+                    </small>
+                  )}
+                </span>
+              </p>
+            </Field>
+          )}
+          {editing ? (
+            <>
+              <Field
+                className="field account-form-field location-distance"
+                data-invalid={distanceError ? true : undefined}
+              >
+                <FieldLabel htmlFor="distance">Nearby distance (km)</FieldLabel>
+                <Input
+                  id="distance"
+                  aria-describedby={
+                    distanceError
+                      ? "distance-error distance-help"
+                      : "distance-help"
+                  }
+                  aria-invalid={!!distanceError}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]+"
+                  title="Enter a whole-kilometre distance from 1 to 1,000 km."
+                  value={distance}
+                  onChange={(e) => edit.setDistance(e.target.value)}
+                />
+                {distanceError && (
+                  <FieldError id="distance-error">{distanceError}</FieldError>
+                )}
+              </Field>
+              <p id="distance-help" className="support location-distance-help">
+                Receive alerts for earthquakes within this distance of your pin
+                when “Only earthquakes near my location” is on.
+              </p>
+              <div className="location-actions">
+                <Button className="secondary" onPress={cancel}>
+                  Cancel
+                </Button>
+                <Button className="primary" onPress={use}>
+                  Use this location
+                </Button>
+              </div>
+            </>
+          ) : null}
+        </div>
+      )}
     </>
   );
 }

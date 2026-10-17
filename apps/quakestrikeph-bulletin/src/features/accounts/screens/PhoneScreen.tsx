@@ -96,7 +96,7 @@ export function PhoneScreen({ flow }: { flow: PhoneScreenFlow; }) {
           Smart and TNT numbers are currently unsupported.
         </p>
       )}
-      <div className="phone-alternatives">
+      {(verifying || location.pathname.replace(/\/$/, "") === "/onboarding") && <div className="phone-alternatives">
         {verifying && (
           <Button
             variant="link"
@@ -116,7 +116,7 @@ export function PhoneScreen({ flow }: { flow: PhoneScreenFlow; }) {
         >
           Continue without SMS
         </Button>
-      </div>
+      </div>}
     </>
   );
 }

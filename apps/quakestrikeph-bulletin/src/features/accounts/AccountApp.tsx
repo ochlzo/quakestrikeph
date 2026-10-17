@@ -104,6 +104,10 @@ function AccountFlow({ initial }: { initial: string; }) {
       isLoading={isAccountLoading}
       openDestination={navigation.openDestination}
       signOut={navigation.signOut}
+      close={navigation.close}
+      modal={!taskFlow.task && location.pathname.replace(/\/$/, '') !== '/onboarding' &&
+        !isPublicAccountScreen(screen) && !["profile", "channels"].includes(screen)}
+      departureOpen={flow.departure.open}
     >
       <div
         key={["preferences", "location", "account"].includes(screen) ? screen : "account-flow"}
@@ -120,6 +124,7 @@ function AccountFlow({ initial }: { initial: string; }) {
 }
 function UnsavedChangesDialog({ departure }: { departure: ReturnType<typeof useAccountFlow>["departure"] }) {
   return <Dialog className="unsaved-dialog" isOpen={departure.open}
+    UNSTABLE_portalContainer={document.getElementById('account-workspace') ?? undefined}
     onOpenChange={open => { if (!open) departure.stay(); }}
     isDismissable={!departure.saving} isKeyboardDismissDisabled={departure.saving} showCloseButton={!departure.saving}>
     <DialogHeader>

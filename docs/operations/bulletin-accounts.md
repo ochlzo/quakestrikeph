@@ -63,7 +63,7 @@ pnpm exec vite --config tests/accounts/vite.config.mjs
 In another terminal, run every Vite account check. Stop the sequence if a check fails.
 
 ```powershell
-foreach ($accountCheckPath in (rg --files tests/accounts -g '*.cjs' -g '!background-saves.cjs')) {
+foreach ($accountCheckPath in (rg --files tests/accounts -g '*.cjs' -g '!background-saves.cjs' -g '!settings-dialog.cjs')) {
     node $accountCheckPath
     if ($LASTEXITCODE -ne 0) { throw "Account check failed: $accountCheckPath" }
 }
@@ -146,14 +146,19 @@ environment toggle or public fixture route. Screenshots and results go to the ig
 `.impeccable/review/accounts` folder. Fixtures validate UI transitions; they
 do not prove live Clerk or IPROG success.
 
-For saves across Astro navigation, start the isolated Astro configuration in
-another terminal, then run its browser regression:
+For checks requiring the separate Astro fixture server on port 4333 (background
+saves across Astro navigation and desktop settings dialog behavior), start the
+isolated Astro configuration in another terminal, then run both browser regressions:
 
 ```powershell
 $env:PUBLIC_CLERK_PUBLISHABLE_KEY='FIXTURE_ONLY'
 pnpm exec astro dev --config tests/accounts/astro.config.mjs --host 127.0.0.1 --port 4333
 node tests/accounts/background-saves.cjs
+node tests/accounts/settings-dialog.cjs
 ```
+
+Both `background-saves.cjs` and `settings-dialog.cjs` require this Astro fixture
+server on port 4333; they do not run against the Vite server.
 
 This configuration aliases test adapters only. Onboarding Continue commits
 channel choices; selected SMS commits only after verification. Switch saves

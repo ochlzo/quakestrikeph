@@ -1,0 +1,53 @@
+[data-slot="search"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  height: 52px;
+  padding: 0 14px;
+  background: #fff;
+  border: 1px solid #dce3e4;
+  border-radius: var(--radius-lg);
+  color: var(--foreground);
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+[data-slot="search"]:focus-within {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 50%, transparent);
+}
+
+[data-slot="search"] > svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  color: var(--primary);
+}
+
+[data-slot="search"] > [data-slot="search-input"] {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  box-shadow: none;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 15px;
+}
+
+[data-slot="search-input"]::placeholder {
+  color: var(--muted-foreground);
+  opacity: 1;
+}
+
+[data-slot="search"]:has([aria-invalid="true"]) {
+  border-color: var(--destructive);
+}
+
+[data-slot="search"]:has([aria-invalid="true"]) > svg {
+  color: var(--destructive);
+}

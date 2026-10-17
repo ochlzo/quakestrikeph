@@ -1,5 +1,6 @@
+import { Logo } from "@quakestrikeph/ui/logo";
 import { useState, type CSSProperties, type ReactNode } from "react";
-import { Activity, ChevronLeft, Earth, TextAlignStart, X } from "lucide-react";
+import { ChevronLeft, Earth, TextAlignStart, X } from "lucide-react";
 import AlertsButton from "./AlertsButton";
 import { Button } from "./ui/button";
 import {
@@ -19,10 +20,7 @@ function BulletinSidebar({ filters, results, settings = false, footer, onHover, 
       onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) onFocus?.(false); }}>
       <SidebarHeader className="bulletin-sidebar-head">
         <div className="bulletin-sidebar-brand">
-          <a className="brand" href="/" aria-label="QuakeStrike PH Bulletin home">
-            <span className="brand-mark"><Activity aria-hidden="true" /></span>
-            <span className="bulletin-brand-label"><strong>QuakeStrike PH</strong><small>Bulletin</small></span>
-          </a>
+          <Logo />
           {isMobile && (
             <Button variant="ghost" size="icon" aria-label="Close navigation" onPress={() => setOpenMobile(false)}>
               <X aria-hidden="true" />

@@ -67,7 +67,8 @@ export class EventResults {
   private snapshot: EventResultsSnapshot;
 
   constructor(state: BulletinState, initialResults: SearchResponse | null, dependencies: Dependencies) {
-    this.state = { ...state, date: { ...state.date }, magnitudes: [...state.magnitudes] };
+    this.state = { ...state, query: state.query.trim().length < 2 ? '' : state.query,
+      date: { ...state.date }, magnitudes: [...state.magnitudes] };
     this.settled = this.state;
     this.events = initialResults?.items ?? [];
     this.initialPage = initialResults;
@@ -100,6 +101,7 @@ export class EventResults {
   };
 
   changeFilters = (patch: Partial<Filters>) => {
+    if (patch.query !== undefined && patch.query.trim().length < 2 && Object.keys(patch).length === 1) return;
     const next = { ...this.state, ...patch };
     const changed = !sameFilters(this.state, next);
     if (!changed && next.query === this.state.query) return;
@@ -166,7 +168,6 @@ export class EventResults {
     this.nextCursor = null;
     this.previousPages = [];
     const state = this.state;
-    if (state.query.trim().length === 1) { this.publish(); return; }
     const delay = state.query.trim() || !sameBands(state.magnitudes, this.settled.magnitudes) ? 300 : 0;
     const search = eventSearch(state, this.pageSize);
     const initial = sameFilters(state, this.initialSnapshot.state) ? this.initialPage : null;
@@ -264,7 +265,7 @@ export class EventResults {
       state: this.state, events, selected: events.find(event => event.eventId === this.state.selectedId),
       selectedDetail: detail, status: this.status, pageStatus: this.pageStatus, detailStatus: this.detailStatus,
       previousId: this.previousId, resultsCurrent,
-      searching: this.state.query.trim().length !== 1 && (this.status === 'loading' || !matches),
+      searching: this.status === 'loading' || !matches,
       failed: this.status === 'error' && matches,
       canLoadMore: resultsCurrent && Boolean(this.nextCursor),
       pageNumber: this.previousPages.length + 1, pageSize: this.pageSize,

@@ -2,6 +2,8 @@
 import AccountApp from '../features/accounts/AccountApp';
 import { ClientRouter } from 'astro:transitions';
 import BackgroundToaster from '../components/BackgroundToaster';
+import Bulletin from '../components/Bulletin';
+import AccountModalNavigation from '../components/AccountModalNavigation.astro';
 import '../styles/globals.css';
 import '../styles/account-reference.css';
 import '../styles/account-flow.css';
@@ -21,8 +23,14 @@ const { title, initial } = Astro.props;
     <meta name="robots" content="noindex" />
     <title>{title} · QuakeStrike PH Bulletin</title>
   </head>
-  <body>
-    <AccountApp publishableKey={import.meta.env.PUBLIC_CLERK_PUBLISHABLE_KEY ?? ''} initial={initial} externalToaster client:only="react" />
+  <body data-account-page data-account-settings={['alerts', 'location', 'account', 'phone', 'password'].includes(initial) || undefined}>
+    <div id="bulletin-view">
+      <Bulletin client:visible />
+    </div>
+    <AccountModalNavigation />
+    <div id="account-workspace" transition:persist="account-workspace">
+      <AccountApp publishableKey={import.meta.env.PUBLIC_CLERK_PUBLISHABLE_KEY ?? ''} initial={initial} externalToaster client:only="react" />
+    </div>
     <BackgroundToaster client:only="react" transition:persist="account-notifications" />
   </body>
 </html>

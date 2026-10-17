@@ -27,20 +27,20 @@ const deferred = () => { let resolve; const promise = new Promise(done => { reso
         }
         return route.fulfill({ json: { account, nextStep: 'complete', pending: null } });
       });
-      await page.goto(`${root}/alerts/location?signed=1`);
+      await page.goto(`${root}/location?signed=1`);
       await page.getByRole('button', { name: 'Edit', exact: true }).click();
       await page.locator('#distance').fill('100');
       await page.locator(viewport.width <= 760 ? '.settings-mobile-tabs' : '.settings-desktop-nav')
         .getByRole(viewport.width <= 760 ? 'tab' : 'button', { name: 'Account', exact: true }).click();
-      await page.getByRole('dialog').getByRole('button', { name: 'Yes', exact: true }).click();
+      await page.getByRole('dialog', { name: /^(Save changes\?|Changes could not be saved)$/ }).getByRole('button', { name: 'Yes', exact: true }).click();
       await requested.promise;
-      assert.equal(new URL(page.url()).pathname, '/alerts/location');
-      assert.equal(await page.getByRole('dialog').getByRole('button', { name: 'Saving…', exact: true }).isDisabled(), true);
+      assert.equal(new URL(page.url()).pathname, '/location');
+      assert.equal(await page.getByRole('dialog', { name: /^(Save changes\?|Changes could not be saved)$/ }).getByRole('button', { name: 'Saving…', exact: true }).isDisabled(), true);
       assert.equal(await page.getByText('Alert preferences saved.', { exact: true }).count(), 0);
       response.resolve();
       const failure = page.getByRole('dialog', { name: 'Changes could not be saved' });
       await failure.waitFor();
-      assert.equal(new URL(page.url()).pathname, '/alerts/location');
+      assert.equal(new URL(page.url()).pathname, '/location');
       assert.equal(await page.locator('#distance').inputValue(), '100');
       assert.equal(await page.locator('[data-slot="toast"]').count(), 0, 'Dialog failures must not also create a toast');
       await failure.getByRole('button', { name: 'Retry', exact: true }).click();

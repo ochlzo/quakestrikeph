@@ -71,10 +71,10 @@ const baseline = { userId: 'fixture-user', displayName: 'Maria Santos', email: '
       await page.getByRole('button', { name: 'Edit name' }).click();
       await name.fill('Another draft'); mode = 'failure';
       await page.getByRole('button', { name: 'Change', exact: true }).first().click();
-      await page.getByRole('dialog').getByRole('button', { name: 'Yes', exact: true }).click();
+      await page.getByRole('dialog', { name: /^(Save changes\?|Changes could not be saved)$/ }).getByRole('button', { name: 'Yes', exact: true }).click();
       await page.getByRole('dialog', { name: 'Changes could not be saved' }).waitFor();
       assert.equal(await page.locator('[data-slot="toast"]').count(), 0, 'Dialog failures must not also create a toast');
-      await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+      await page.getByRole('dialog', { name: /^(Save changes\?|Changes could not be saved)$/ }).getByRole('button', { name: 'Cancel', exact: true }).click();
       await name.press('Escape');
       assert.equal(await name.inputValue(), 'Maria Reyes');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);

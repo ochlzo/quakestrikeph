@@ -178,10 +178,11 @@ p {line-height:1.6}
 @media(prefers-reduced-motion:reduce){.header-loading-bar,.header-loading-bar>span{transition:none}}
 body:has(.tool) {position:static}
 .operator-navigation {padding:12px 8px}
-.operator-navigation [data-slot=sidebar-group-label] {height:28px;padding:0 8px;margin-bottom:8px;gap:12px}
+.operator-navigation [data-slot=sidebar-group-label] {height:28px;padding:0 8px;margin-bottom:8px;gap:12px;color:var(--muted-foreground)}
 .operator-navigation [data-slot=sidebar-group-label]>svg {width:16px;height:16px;margin:0;flex:none}
 .operator-navigation [data-slot=sidebar-menu] {gap:4px}
-.operator-navigation [data-slot=sidebar-menu-button] {height:40px;padding:0 8px;gap:12px}
+.operator-navigation [data-slot=sidebar-menu-button] {height:44px;padding:0 8px;gap:12px;color:var(--foreground)}
+.operator-navigation [data-slot=sidebar-menu-button]:is(:hover, [data-hovered], [aria-current=page]) {background:var(--sidebar-accent);color:var(--primary)}
 .operator-navigation [data-slot=sidebar-menu-button]>svg {width:16px;height:16px;flex:none}
 .operator-navigation [data-slot=sidebar-menu-badge] {top:10px;right:8px}
 @media(max-width:760px) {

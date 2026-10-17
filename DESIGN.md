@@ -63,6 +63,13 @@ components:
 
 # Design System: QuakeStrike PH Bulletin
 
+Header logos use `Logo` from `@quakestrikeph/ui/logo`, implemented in
+`packages/ui/logo.tsx` with shared styles in `packages/ui/logo.css`.
+The component combines Lucide's Earth icon, a teal tile, the QuakeStrike PH
+name, and a subtitle. `<Logo />` defaults to Bulletin;
+`<Logo subtitle="Alert testing" />` identifies the private testing tool.
+Use `href`, `aria-label`, and `className` for navigation and placement.
+
 When an earthquake has no forecast, the forecast page uses one reading column.
 The earthquake summary includes its occurrence time. The status explanation
 uses the detail API's public availability and reason codes, with a PHIVOLCS
@@ -221,3 +228,40 @@ Forecast explanations appear as four consecutive sections: chance, expected coun
 The sticky forecast navigation uses shared shadcn Tabs with native section links. A single active highlight slides with the settings tabs’ 320ms easing. Clicking a tab selects its destination immediately and keeps that tab active during automatic scrolling. Another click replaces the destination; manual scroll input resumes tracking the visible section. All content stays visible. Desktop shows Main facts, Forecast details, and Disclaimer. Mobile adds Activity map and uses four equal tabs with 44px touch targets. Arrow keys move focus, Enter follows the section link, and reduced motion disables the sliding transition.
 
 The nested probability chart fits its SVG viewport around the outer visible box with 8px padding. Small and zero probabilities retain readable labels without leaving the diagram at the bottom-right of an oversized frame. The percentage formatting, nested box geometry, colors, and magnitude legend remain unchanged.
+
+### Desktop account Dialog — 17 October 2026
+
+Bulletin's province search and the alert location search share `Search` and
+`SearchInput` from `packages/ui/search.tsx`. The component documents the shared
+52px height, 14px side padding, 8px icon gap, 20px search icon, typography, border,
+corners, and focus ring. Use an accessible input name without adding a visible
+label. Set `isLoading` to replace the leading search icon with the shared
+Spinner in the same 20px slot. Compose suggestion triggers after the input;
+request state, filtering, suggestions, and errors remain owned by each feature.
+
+The province search keeps typed text separate from its applied filter. Fewer
+than two trimmed characters leave the applied search, results, map selection,
+and pagination unchanged, without a notice or search spinner. Two or more
+characters apply the search. Explicit filter-reset actions still clear the
+applied query. A direct URL with a one-character query shows the ordinary
+earthquake list until a valid search is entered.
+
+At 761 CSS pixels and above, `/alerts`, `/location`, `/account`, and account phone/password steps share one shadcn Dialog. Preserve the settings rail and content layout. The Dialog is at most 1120px wide and 90dvh high, with at least 24px to viewport edges. Scroll the content panel; keep the settings rail and corner X visible. Outside clicks do not dismiss. The public Bulletin stays visible and inactive behind the Dialog, including on direct visits and refreshes. Mobile fills the viewport with the existing tabs and header. One mounted settings tree survives viewport changes. The previous desktop account sidebar and Back to Bulletin header are hidden inside the Dialog. ADR 0051 defines navigation and draft protection.
+
+The alert location editor uses an 8px heading-to-introduction gap, a 16px
+search-to-map gap, and 24px before the controls (20px on mobile). A hidden
+location summary leaves no extra gap above the distance field. On mobile,
+search and device location stack at full width. The map uses a 220-260px
+height, zoom buttons have 44px touch targets, and the action row gives the
+primary action twice the space of Cancel. Search text uses 16px on mobile.
+
+Inside settings, phone entry, phone verification, identity verification, and
+password forms share a left-aligned column with a 560px maximum width. Back
+and the rest of the column center horizontally within the desktop content
+panel and start at its standard top inset. Content inside the column stays
+left-aligned. Short viewports retain scrolling; mobile stays top-aligned. Back
+has a 44px minimum target and 16px separation from the heading. Headings have
+12px before their introduction; introductions have 28px before the form.
+Fields use 20px gaps. Primary actions match the field width with a 52px
+minimum height. Mobile uses the available panel width. Account phone entry
+uses Back to return instead of displaying Continue without SMS.
