@@ -1,13 +1,19 @@
-# Explicit forecast alert runtime
+# Operate forecast alerts
 
-The runtime defaults to disabled. These commands document operator actions; they do not authorize shared database changes, real sends, or production activation.
+Ordinary alerts are disabled by default. Complete environment checks and obtain approval before activation or real sends.
+Use [private alert testing](alert-testing.md) for selected testers and temporary synthetic scenarios.
 
-See [forecast alert verification](forecast-alert-verification.md) for simulated evidence, unresolved live observations, and full activation gates.
+| Task | Section |
+| --- | --- |
+| Prepare settings and inspect health | [Configuration and readiness](#configuration-and-readiness) |
+| Activate ordinary alerts for the first time | [Initial deployment](#initial-deployment-and-legacy-retirement) |
+| Run a bounded provider check | [Finite verification](#finite-disposable-verification) |
+| Stop publication or recover a release | [Rollback](#rollback-and-evidence-limits) |
+| Understand retries and reconciliation | [Runtime reference](#runtime-reference) |
 
-The Alert Worker consumes version-1 identifier-only commands from `alert`. It constructs IPROG SMS and Brevo email providers before consumption.
-The worker records an attempt before each external call. Accepted and uncertain submissions never trigger an automatic resend.
-Known IPROG references reconcile through polling. Authenticated Brevo callbacks use `POST /api/v1/callbacks/brevo` and the existing narrow database function.
-An independent process settles jobs after callbacks, expiry, and abandoned calls. The Backend does not settle jobs.
+**Delivery terms:** Accepted means the provider accepted the request. Delivered means delivery evidence was recorded.
+An uncertain or accepted submission never authorizes automatic resend.
+See [verification evidence](forecast-alert-verification.md) for measured results and remaining limits.
 
 ## Configuration and readiness
 
@@ -36,17 +42,7 @@ docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/c
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile alerts exec -T alert-reconciliation quakestrike health-alert-reconciliation
 ```
 
-Polling and maintenance use separate process-owned UUID cursors. Unresolved early records cannot monopolize later pages.
-Each pass reserves 30 seconds for polling and a separate five seconds for maintenance.
-IPROG detection/submission/polling and Brevo submission have a 12-second elapsed deadline, including HTTP headers and streamed response bodies.
-Decoded bodies cannot exceed 16 KiB. Deadline interruption closes the stream; uncertain submissions never receive an automatic retry.
-Run real provider transport in the Linux main/prefork context. Another active alarm timer or unsupported default transport context fails closed before transport.
-Requests connect/read timeouts measure inactivity, so they supplement rather than replace this elapsed deadline.
-See the [Requests timeout contract](https://requests.readthedocs.io/en/latest/user/advanced/#timeouts).
-One phase's failure does not cancel the other phase. Database calls use a five-second statement timeout and a one-second lock timeout.
-An individual persistence or settlement failure advances the poll cursor and makes that pass unhealthy. A later sweep retries the read without resubmission.
-Restarting reconciliation begins a fresh sweep. Polls do not invent or change provider timestamps.
-An unavailable dependency makes health fail; subsequent passes and new connections can recover without recreating delivery evidence.
+<a id="ordered-deployment-and-legacy-retirement"></a>
 
 ## Initial deployment and legacy retirement
 
@@ -95,7 +91,10 @@ docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/c
 ```
 
 Normal activation uses every eligible account. Do not add a production test-account filter or copy finite authorization settings into normal consumers.
-After initial activation, [automatic deployment](continuous-deployment.md#routine-release-sequence) updates both already-running alert services with the Backend and workers. Backend and reconciliation resume before alert consumption and publication. Both services must initially run together with both gates enabled. The workflow never enables a disabled gate or starts previously inactive alerts.
+After initial activation, [automatic deployment](continuous-deployment.md#routine-release-sequence) updates already-running alert services with the Backend and workers.
+Backend and reconciliation resume before alert consumption and publication.
+Both alert services must initially run together with both gates enabled.
+Deployment never enables a disabled gate or starts previously inactive alerts.
 
 ## Finite disposable verification
 
@@ -114,7 +113,7 @@ The profile contains no Beat, Dispatcher, queue consumer, public edge, or extern
 Any temporary provider egress or callback tunnel requires separate approval and a temporary override.
 
 ```text
-docker compose --env-file <private-verification-env> -f infrastructure/compose.integration.yml -f infrastructure/compose.alert-verification.yml --profile controlled-alert run --rm controlled-alert quakestrike controlled-alert --alert-job-id <job-uuid> --dispatch-id <dispatch-uuid> --correlation-id <correlation-uuid> --fixture-user-id <synthetic-user-uuid> --channel sms
+docker compose -p quakestrike-data-ingestion-test --env-file <private-verification-env> -f infrastructure/compose.integration.yml -f infrastructure/compose.alert-verification.yml --profile controlled-alert run --rm controlled-alert quakestrike controlled-alert --alert-job-id <job-uuid> --dispatch-id <dispatch-uuid> --correlation-id <correlation-uuid> --fixture-user-id <synthetic-user-uuid> --channel sms
 ```
 
 Add `--channel email` only when that channel's provider and callback prerequisites pass.
@@ -131,3 +130,22 @@ Do not downgrade the additive schema, reopen retired jobs, clear unknown attempt
 Reconciliation can resume against retained records after the corrected release passes readiness.
 Record simulated outage checks separately from actual service restarts and provider delivery proof.
 A cold disposable PostgreSQL restart recreates tmpfs storage; that check cannot prove retained-data or warm-consumer recovery.
+
+## Runtime reference
+
+The Alert Worker consumes version-1 identifier-only commands from `alert`.
+It constructs IPROG and Brevo providers before consumption and records an attempt before each external call.
+Known SMS references reconcile through polling. Brevo sends authenticated callbacks to `POST /api/v1/callbacks/brevo`.
+An independent reconciliation process settles jobs after callbacks, expiry, and abandoned calls. The Backend does not settle jobs.
+
+Polling and maintenance use separate process-owned UUID cursors. Unresolved early records cannot monopolize later pages.
+Each pass reserves 30 seconds for polling and a separate five seconds for maintenance.
+IPROG detection/submission/polling and Brevo submission have a 12-second elapsed deadline, including HTTP headers and streamed response bodies.
+Decoded bodies cannot exceed 16 KiB. Deadline interruption closes the stream; uncertain submissions never receive an automatic retry.
+Run real provider transport in the Linux main/prefork context. Another active alarm timer or unsupported default transport context fails closed before transport.
+Requests connect/read timeouts measure inactivity, so they supplement rather than replace this elapsed deadline.
+See the [Requests timeout contract](https://requests.readthedocs.io/en/latest/user/advanced/#timeouts).
+One phase's failure does not cancel the other phase. Database calls use a five-second statement timeout and a one-second lock timeout.
+An individual persistence or settlement failure advances the poll cursor and makes that pass unhealthy. A later sweep retries the read without resubmission.
+Restarting reconciliation begins a fresh sweep. Polls do not invent or change provider timestamps.
+An unavailable dependency makes health fail; subsequent passes and new connections can recover without recreating delivery evidence.

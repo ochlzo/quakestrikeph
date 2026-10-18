@@ -1,0 +1,2467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Team operations | QuakeStrike PH</title>
+<meta name="description" content="Start, stop, check, and rebuild QuakeStrike PH with Docker. Local and production procedures for the team.">
+<!-- Visual team operations handbook. Current coverage: Docker. Updated on 19 October 2026. -->
+<style>
+  :root {
+    color-scheme: light;
+    --ink: #1a2c30;
+    --ink-soft: #5f6b6e;
+    --ink-faint: #647174;
+    --teal: #0e6873;
+    --teal-deep: #0a535c;
+    --teal-tint: #e9f7f7;
+    --teal-line: #cfe6e7;
+    --paper: #fbfcfc;
+    --canvas: #f3f7f7;
+    --surface: #ffffff;
+    --line: #d4e0e3;
+    --line-soft: #e5e5e5;
+    --coral: #c4472b;
+    --coral-bg: #fdf6f3;
+    --coral-line: #eed3c9;
+    --edge: #eef4f8;
+    --edge-line: #d3e1ea;
+    --edge-ink: #2f5168;
+    --measure: 68ch;
+    --mono: ui-monospace, "Cascadia Code", "Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 1.5rem;
+  }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection { background: #cfe6e7; color: #0b2c47; }
+
+  :focus-visible {
+    outline: 2px solid var(--teal);
+    outline-offset: 3px;
+    border-radius: 3px;
+  }
+
+  a {
+    color: var(--teal);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.18em;
+  }
+  a:hover { color: var(--teal-deep); }
+
+  h1, h2, h3, h4 {
+    color: var(--ink);
+    font-weight: 650;
+    letter-spacing: -0.025em;
+    text-wrap: balance;
+  }
+
+  h2 {
+    font-size: 1.8rem;
+    line-height: 1.2;
+    margin: 0 0 0.9rem;
+  }
+  h3 {
+    font-size: 1.18rem;
+    line-height: 1.35;
+    margin: 2.2rem 0 0.5rem;
+    letter-spacing: -0.012em;
+  }
+  h4 {
+    font-size: 0.98rem;
+    line-height: 1.4;
+    margin: 1.4rem 0 0.4rem;
+    letter-spacing: 0;
+  }
+
+  p { margin: 0 0 1rem; max-width: var(--measure); }
+  ul, ol { margin: 0 0 1rem; padding-left: 1.25rem; max-width: var(--measure); }
+  li { margin: 0.3rem 0; }
+  li > ul, li > ol { margin-top: 0.3rem; }
+
+  code, kbd, samp, pre { font-family: var(--mono); }
+  :not(pre) > code {
+    font-size: 0.85em;
+    background: #eef3f4;
+    border: 1px solid #e0e8e9;
+    border-radius: 4px;
+    padding: 0.06em 0.32em;
+    color: #174a50;
+    overflow-wrap: anywhere;
+  }
+
+  .skip {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    z-index: 20;
+    background: var(--teal);
+    color: #fff;
+    padding: 0.65rem 1rem;
+    text-decoration: none;
+  }
+  .skip:focus { left: 1rem; top: 1rem; }
+
+  .sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .ico {
+    width: 1.15em;
+    height: 1.15em;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    flex: none;
+  }
+
+  /* Masthead */
+  .masthead {
+    background: var(--surface);
+    border-top: 4px solid var(--teal);
+    border-bottom: 1px solid var(--line);
+  }
+  .masthead .inner {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 68px 32px 36px;
+  }
+  .masthead h1 {
+    font-size: 3.1rem;
+    line-height: 1.05;
+    letter-spacing: -0.035em;
+    margin: 0 0 1.1rem;
+    max-width: 18ch;
+  }
+  .lede {
+    font-size: 1.22rem;
+    line-height: 1.55;
+    color: var(--ink-soft);
+    max-width: 58ch;
+    margin: 0 0 2rem;
+  }
+  .provenance {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.75rem;
+    margin: 0;
+    padding-top: 1rem;
+    border-top: 1px solid var(--line-soft);
+    font-size: 0.82rem;
+    color: var(--ink-soft);
+  }
+  .provenance div { display: flex; gap: 0.45rem; align-items: baseline; }
+  .provenance dt { font-weight: 650; color: var(--ink); }
+  .provenance dd { margin: 0; }
+
+  /* Layout */
+  .layout {
+    display: grid;
+    grid-template-columns: 15rem minmax(0, 1fr);
+    gap: 4rem;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 52px 32px 104px;
+  }
+
+  .toc {
+    position: sticky;
+    top: 24px;
+    align-self: start;
+    max-height: calc(100vh - 48px);
+    overflow: auto;
+    font-size: 0.89rem;
+  }
+  .toc p {
+    margin: 0 0 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .toc ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-left: 1px solid var(--line);
+  }
+  .toc a {
+    display: block;
+    padding: 0.33rem 0.85rem;
+    margin-left: -1px;
+    border-left: 2px solid transparent;
+    color: var(--ink-soft);
+    text-decoration: none;
+    line-height: 1.35;
+  }
+  .toc a:hover { color: var(--ink); background: var(--canvas); }
+  .toc a[aria-current="location"] {
+    color: var(--teal);
+    border-left-color: var(--teal);
+    font-weight: 650;
+  }
+
+  .toc-mobile { display: none; }
+  .toc-mobile summary {
+    cursor: pointer;
+    font-weight: 650;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    list-style: none;
+  }
+  .toc-mobile summary::-webkit-details-marker { display: none; }
+  .toc-mobile summary::after {
+    content: "";
+    float: right;
+    width: 0.5rem; height: 0.5rem;
+    margin-top: 0.4rem;
+    border-right: 2px solid var(--ink-soft);
+    border-bottom: 2px solid var(--ink-soft);
+    transform: rotate(45deg);
+    transition: transform 0.18s ease;
+  }
+  .toc-mobile[open] summary::after { transform: rotate(225deg); margin-top: 0.55rem; }
+  .toc-mobile ol {
+    list-style: none;
+    margin: 0.5rem 0 0;
+    padding: 0.4rem 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+  .toc-mobile a {
+    display: block;
+    padding: 0.45rem 1rem;
+    text-decoration: none;
+    color: var(--ink-soft);
+  }
+  .toc-mobile a:hover { background: var(--canvas); color: var(--ink); }
+
+  main { min-width: 0; }
+  main section { padding-top: 4.5rem; }
+  main section + section { border-top: 1px solid var(--line-soft); }
+  main section:first-child { padding-top: 0; }
+
+  .section-intro {
+    font-size: 1.08rem;
+    line-height: 1.6;
+    color: #3f4d51;
+    max-width: 64ch;
+    margin-bottom: 1.6rem;
+  }
+
+
+  /* Code */
+  .codeblock {
+    margin: 1.1rem 0 1.4rem;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #f5f8f8;
+    overflow: hidden;
+  }
+  .codeblock-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.45rem 0.55rem 0.45rem 0.95rem;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    font-size: 0.76rem;
+    color: var(--ink-soft);
+  }
+  .codeblock-bar > span { min-width: 0; }
+  .codeblock pre {
+    margin: 0;
+    padding: 0.95rem 1.1rem 1.05rem;
+    overflow-x: auto;
+    font-size: 0.83rem;
+    line-height: 1.6;
+    color: #17383c;
+    tab-size: 2;
+  }
+  .codeblock pre code { background: none; border: 0; padding: 0; white-space: pre; }
+  .codeblock.is-command pre { overflow-x: visible; }
+  .codeblock.is-command pre code { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+  .copy {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 5.4rem;
+    justify-content: center;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--paper);
+    color: var(--ink-soft);
+    font: inherit;
+    font-size: 0.74rem;
+    padding: 0.28rem 0.5rem;
+    cursor: pointer;
+  }
+  .copy:hover { border-color: var(--teal); color: var(--teal); }
+  .copy.is-copied { border-color: var(--teal); color: var(--teal); }
+
+  /* Tables */
+  .table-wrap {
+    margin: 1.1rem 0 1.5rem;
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 0.92rem;
+    line-height: 1.5;
+  }
+  caption {
+    text-align: left;
+    padding: 0.7rem 0.9rem;
+    font-size: 0.8rem;
+    color: var(--ink-soft);
+    border-bottom: 1px solid var(--line);
+  }
+  th, td {
+    text-align: left;
+    vertical-align: top;
+    padding: 0.6rem 0.85rem;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  thead th {
+    background: var(--canvas);
+    font-weight: 650;
+    white-space: nowrap;
+    color: var(--ink);
+  }
+  tbody tr:last-child td, tbody tr:last-child th { border-bottom: 0; }
+  tbody th { font-weight: 600; white-space: nowrap; }
+  td code { white-space: nowrap; }
+  .file-table { table-layout: fixed; min-width: 40rem; }
+  .file-table th:nth-child(1), .file-table td:nth-child(1) { width: 25%; }
+  .file-table th:nth-child(2), .file-table td:nth-child(2) { width: 45%; }
+  .file-table th:nth-child(3), .file-table td:nth-child(3) { width: 30%; }
+  .file-table tbody th { white-space: normal; overflow-wrap: anywhere; }
+  .file-table tbody th code { white-space: normal; overflow-wrap: anywhere; }
+  .wide-table { min-width: 40rem; }
+  .docker-table { table-layout: fixed; min-width: 40rem; }
+  .docker-table th:nth-child(1), .docker-table td:nth-child(1) { width: 30%; }
+  .docker-table th:nth-child(2), .docker-table td:nth-child(2) { width: 28%; }
+  .docker-table th:nth-child(3), .docker-table td:nth-child(3) { width: 42%; }
+  .docker-table td code { white-space: normal; overflow-wrap: anywhere; }
+  .net-list { display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem; }
+
+  /* Chips */
+  .net {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    line-height: 1.5;
+    padding: 0.06rem 0.38rem;
+    border-radius: 4px;
+    background: var(--canvas);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  .net.edge { background: var(--edge); border-color: var(--edge-line); color: var(--edge-ink); }
+  .net.data { background: var(--teal-tint); border-color: var(--teal-line); color: #0b5560; }
+  .net.egress { background: var(--coral-bg); border-color: var(--coral-line); color: #8a3a24; }
+  .net.host { background: #f6f3ea; border-color: #e6ddc8; color: #6c5620; }
+
+  .plain {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.84rem;
+    color: var(--ink-soft);
+  }
+
+  /* Callouts */
+  .callout {
+    display: grid;
+    grid-template-columns: 1.25rem 1fr;
+    gap: 0.75rem;
+    margin: 1.4rem 0;
+    padding: 1rem 1.1rem;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    max-width: 74ch;
+  }
+  .callout > .ico { color: var(--teal); margin-top: 0.18rem; }
+  .callout p { max-width: none; margin: 0 0 0.6rem; }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout strong { font-weight: 650; }
+  .callout.warn { border-color: var(--coral-line); background: var(--coral-bg); }
+  .callout.warn > .ico { color: var(--coral); }
+
+  /* Flow diagrams */
+  .flow {
+    display: flex;
+    align-items: stretch;
+    gap: 0.5rem;
+    margin: 1.6rem 0 0.6rem;
+    flex-wrap: wrap;
+  }
+  .flow-step {
+    flex: 1 1 9rem;
+    min-width: 0;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 0.8rem 0.85rem;
+  }
+  .flow-step .k {
+    display: block;
+    margin-bottom: 0.28rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .flow-step strong { display: block; font-size: 0.92rem; line-height: 1.35; font-weight: 650; }
+  .flow-step small { display: block; margin-top: 0.25rem; font-size: 0.76rem; line-height: 1.45; color: var(--ink-soft); overflow-wrap: anywhere; }
+  .flow-step.is-accent { border-color: var(--teal-line); background: #f6fbfb; }
+  .flow-arrow { align-self: center; flex: 0 0 18px; color: var(--ink-faint); }
+  .flow-arrow .ico { width: 18px; height: 18px; }
+
+  /* File stack */
+  .stack { margin: 1.5rem 0 0.5rem; max-width: 40rem; }
+  .stack-row {
+    display: grid;
+    grid-template-columns: 12.5rem minmax(0, 1fr);
+    gap: 0.9rem;
+    align-items: baseline;
+    padding: 0.55rem 0.8rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    font-size: 0.88rem;
+  }
+  .stack-row + .stack-row { margin-top: 0.35rem; }
+  .stack-row code { font-size: 0.8rem; background: none; border: 0; padding: 0; white-space: nowrap; }
+  .stack-row span { color: var(--ink-soft); }
+  .stack-row.is-result { border-color: var(--teal-line); background: #f6fbfb; }
+  .stack-arrow {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0.5rem 0 0.5rem 0.8rem;
+    color: var(--ink-faint);
+    font-size: 0.78rem;
+  }
+  .stack-arrow .ico { width: 16px; height: 16px; transform: rotate(90deg); }
+
+  /* Figures */
+  figure { margin: 1.7rem 0 1.9rem; }
+  figcaption {
+    margin-top: 0.65rem;
+    font-size: 0.82rem;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    max-width: 70ch;
+  }
+  .fig-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0 0 0.6rem;
+  }
+
+  /* Request route */
+  .route {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    max-width: 44rem;
+    padding: 1rem;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+  .route-node {
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: var(--paper);
+    font-size: 0.82rem;
+    line-height: 1.4;
+  }
+  .route-node b { display: block; font-weight: 650; font-size: 0.88rem; }
+  .route-node span { color: var(--ink-soft); font-size: 0.76rem; }
+  .route-node.is-edge { background: var(--edge); border-color: var(--edge-line); }
+  .route-node.is-data { background: var(--teal-tint); border-color: var(--teal-line); }
+  .route-arrow { align-self: center; color: var(--ink-faint); line-height: 1; }
+  .route-arrow .ico { width: 15px; height: 15px; transform: rotate(90deg); }
+  .route-branch {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.6rem;
+    align-items: start;
+  }
+  .route-col { display: flex; flex-direction: column; gap: 0.3rem; }
+  .route-col > .route-label {
+    font-size: 0.72rem;
+    color: var(--ink-faint);
+    padding-left: 0.1rem;
+  }
+  .route-note {
+    max-width: 44rem;
+    margin: 0.55rem 0 0;
+    font-size: 0.8rem;
+    color: var(--ink-soft);
+  }
+
+  /* Picker */
+  .picker {
+    margin: 1.6rem 0;
+    padding: 1.2rem;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+  .presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0 0 1.2rem;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+  }
+  .presets legend {
+    position: absolute;
+    width: 1px; height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .presets label { position: relative; display: inline-flex; }
+  .presets input {
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .presets span {
+    display: inline-block;
+    padding: 0.42rem 0.78rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--paper);
+    color: var(--ink-soft);
+    font-size: 0.84rem;
+    line-height: 1.4;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .presets input:hover + span { border-color: var(--teal); color: var(--teal); }
+  .presets input:checked + span {
+    background: var(--teal);
+    border-color: var(--teal);
+    color: #fff;
+    font-weight: 650;
+  }
+  .presets input:checked:hover + span { color: #fff; }
+  .presets input:focus-visible + span { outline: 2px solid var(--teal); outline-offset: 2px; }
+
+  .env-head h3 { margin-top: 0; }
+  .env-head p { color: var(--ink-soft); margin-bottom: 1rem; }
+  .env-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1.6rem;
+    margin: 0.4rem 0 0.9rem;
+  }
+  .env-grid h4 { margin-top: 0; }
+  .chain { margin: 0; padding-left: 1.15rem; font-size: 0.85rem; }
+  .chain li { margin: 0.3rem 0; }
+  .chain code { font-size: 0.8rem; }
+  .chain span { color: var(--ink-soft); }
+  .svc { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+  .svc li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.2rem 0.6rem;
+    margin: 0;
+    padding: 0.3rem 0;
+    border-bottom: 1px solid var(--line-soft);
+    font-size: 0.82rem;
+    line-height: 1.35;
+  }
+  .svc li:last-child { border-bottom: 0; }
+  .svc code { background: none; border: 0; padding: 0; font-size: 0.8rem; }
+  .svc .meta { display: inline-flex; flex-wrap: wrap; gap: 0.35rem; align-items: baseline; font-size: 0.7rem; }
+  .svc .from { color: var(--ink-faint); }
+  .svc .sep { color: var(--line); }
+  .svc .state { color: var(--teal); }
+  .env-note {
+    margin: 0.6rem 0 0;
+    padding-top: 0.8rem;
+    border-top: 1px solid var(--line-soft);
+    font-size: 0.86rem;
+    color: var(--ink-soft);
+    max-width: none;
+  }
+  .env-profiles {
+    margin: 0 0 0.2rem;
+    font-size: 0.84rem;
+    color: var(--ink-soft);
+  }
+  .env-profiles b { color: var(--ink); font-weight: 650; }
+
+  /* Command cards */
+  .cmd {
+    margin: 2.4rem 0 0;
+    padding-top: 1.7rem;
+    border-top: 1px solid var(--line);
+  }
+  .cmd:first-of-type { border-top: 0; padding-top: 0; }
+  .cmd h3 { margin-top: 0; }
+  .cmd .what { color: var(--ink-soft); max-width: 66ch; }
+  .cmd > .small { margin-top: 0.9rem; }
+  .args {
+    display: grid;
+    gap: 0.1rem;
+    margin: 1rem 0 0;
+    max-width: 74ch;
+  }
+  .args > div {
+    display: grid;
+    grid-template-columns: minmax(9rem, 15rem) minmax(0, 1fr);
+    gap: 1rem;
+    padding: 0.55rem 0;
+    border-top: 1px solid var(--line-soft);
+  }
+  .args dt { font-family: var(--mono); font-size: 0.78rem; line-height: 1.5; color: var(--teal-deep); overflow-wrap: anywhere; }
+  .args dd { margin: 0; font-size: 0.92rem; line-height: 1.5; }
+  .args dd code { white-space: nowrap; }
+
+  details.args-details {
+    margin: 0.9rem 0 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+  details.args-details summary {
+    cursor: pointer;
+    padding: 0.55rem 0.85rem;
+    font-size: 0.84rem;
+    font-weight: 650;
+    color: var(--teal-deep);
+  }
+  details.args-details[open] summary { border-bottom: 1px solid var(--line-soft); }
+  details.args-details .args { margin: 0; padding: 0.3rem 0.85rem 0.6rem; }
+
+  /* Inventory */
+  .inventory td:first-child { white-space: nowrap; }
+  .inventory code { font-size: 0.78rem; white-space: nowrap; }
+  .path-link { font-family: var(--mono); font-size: 0.78rem; }
+
+  /* Footer */
+  .foot {
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .foot .inner {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 2rem 32px 3rem;
+    font-size: 0.8rem;
+    color: var(--ink-soft);
+  }
+  .foot p { max-width: 80ch; }
+
+  .nowrap { white-space: nowrap; }
+  .muted { color: var(--ink-soft); }
+  .small { font-size: 0.86rem; }
+
+  @media (max-width: 1000px) {
+    .layout { grid-template-columns: minmax(0, 1fr); gap: 2rem; padding: 32px 24px 80px; }
+    .toc { display: none; }
+    .toc-mobile { display: block; }
+    .masthead .inner { padding: 48px 24px 28px; }
+    .masthead h1 { font-size: 2.4rem; }
+    .lede { font-size: 1.1rem; }
+    .env-grid { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+    .stack-row { grid-template-columns: 10.5rem minmax(0, 1fr); }
+  }
+
+  @media (max-width: 1100px) {
+    .flow { flex-direction: column; }
+    .flow-arrow { align-self: flex-start; margin-left: 1rem; transform: rotate(90deg); }
+  }
+
+  @media (min-width: 1101px) {
+    .flow-step { flex: 1 1 0; }
+  }
+
+  @media (max-width: 720px) {
+    body { font-size: 16px; }
+    .masthead h1 { font-size: 2rem; }
+    .masthead .inner { padding: 40px 20px 24px; }
+    .layout { padding: 24px 20px 64px; }
+    main section { padding-top: 3.2rem; }
+    h2 { font-size: 1.5rem; }
+    h3 { font-size: 1.1rem; }
+    .args > div { grid-template-columns: minmax(0, 1fr); gap: 0.15rem; }
+    .stack-row { grid-template-columns: minmax(0, 1fr); gap: 0.1rem; }
+    .route-branch { grid-template-columns: minmax(0, 1fr); }
+    .file-table, .names-table { display: block; min-width: 0; table-layout: auto; }
+    .file-table thead, .names-table thead { display: none; }
+    .file-table tbody, .file-table tr, .file-table th, .file-table td,
+    .names-table tbody, .names-table tr, .names-table th, .names-table td {
+      display: block;
+      width: auto;
+    }
+    .file-table caption, .names-table caption { display: block; width: 100%; }
+    .file-table th:nth-child(n), .file-table td:nth-child(n),
+    .names-table th:nth-child(n), .names-table td:nth-child(n) { width: auto; }
+    .file-table tr, .names-table tr {
+      padding: 0.65rem 0.85rem;
+      border-bottom: 1px solid var(--line-soft);
+    }
+    .file-table tr:last-child, .names-table tr:last-child { border-bottom: 0; }
+    .file-table th, .names-table th { border: 0; padding: 0 0 0.15rem; white-space: normal; }
+    .file-table td, .names-table td { border: 0; padding: 0; }
+    .file-table td + td, .names-table td + td { margin-top: 0.2rem; }
+    .file-table td::before, .names-table td::before {
+      content: attr(data-label) ": ";
+      font-weight: 650;
+      color: var(--ink);
+    }
+    .file-table td code, .names-table td code { white-space: normal; overflow-wrap: anywhere; }
+    .codeblock pre { font-size: 0.78rem; }
+    .foot .inner { padding: 1.5rem 20px 2.5rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+
+  @media print {
+    .toc, .toc-mobile, .copy, .presets, .skip { display: none !important; }
+    .layout { display: block; padding: 0; }
+    body { font-size: 11pt; background: #fff; }
+    .codeblock, .callout, .table-wrap, .picker, .flow-step { break-inside: avoid; }
+    .masthead { border-top: 0; }
+    a { color: #000; }
+  }
+
+  .masthead .inner { padding-top: 40px; padding-bottom: 28px; }
+  .masthead h1 { max-width: 24ch; font-size: 2.65rem; }
+  .lede { margin-bottom: 1rem; font-size: 1.08rem; }
+  .quick-links { display: flex; flex-wrap: wrap; gap: .55rem 1.15rem; margin: 1.25rem 0 0; }
+  .quick-links a { font-weight: 650; text-underline-offset: .22em; }
+  .layout { padding-top: 32px; }
+  .procedure > li { margin-bottom: 1.6rem; padding-left: .25rem; }
+  .procedure > li > h4 { margin: 0 0 .5rem; font-size: 1rem; }
+  .reference-detail { margin: 1rem 0; border: 1px solid var(--line); border-radius: 8px; padding: .8rem 1rem; }
+  .reference-detail > summary { cursor: pointer; font-weight: 650; color: var(--ink); }
+  .reference-detail[open] > summary { margin-bottom: 1rem; }
+  .reference-detail h3 { font-size: 1.1rem; }
+  .result { color: var(--teal-deep); margin-top: .8rem; }
+  .workflow .flow-step { min-width: 0; }
+  @media (max-width: 760px) { .workflow .flow-step { flex: 0 0 auto; } }
+  .workflow code { white-space: normal; overflow-wrap: anywhere; }
+  @media (max-width: 760px) {
+    .masthead .inner { padding-top: 30px; }
+    .masthead h1 { font-size: 2rem; }
+    .procedure { padding-left: 1.2rem; }
+    .reference-detail { padding: .75rem; }
+  }
+
+
+  #editor-path-form label { display: block; font-weight: 600; margin: .8rem 0 .4rem; }
+  #editor-root { display: block; width: 100%; padding: .65rem; border: 1px solid var(--line); border-radius: 6px; font: inherit; color: var(--ink); background: var(--surface); margin-bottom: .6rem; }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the guide</a>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-info" viewBox="0 0 24 24">
+<circle cx="12" cy="12" r="9"/>
+<path d="M12 11v5"/>
+<path d="M12 8h.01"/>
+</symbol>
+  <symbol id="i-check" viewBox="0 0 24 24">
+<path d="m5 13 4 4L19 7"/>
+</symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24">
+<path d="M12 4 3 20h18L12 4Z"/>
+<path d="M12 10v4"/>
+<path d="M12 17h.01"/>
+</symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24">
+<rect x="9" y="9" width="11" height="11" rx="2"/>
+<path d="M5 15V5a2 2 0 0 1 2-2h8"/>
+</symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24">
+<path d="M4 12h15"/>
+<path d="m13 6 6 6-6 6"/>
+</symbol>
+</svg>
+<header class="masthead">
+<div class="inner">
+<h1>Team operations</h1>
+<p class="lede">Start the app, check a problem, or prepare a release. Choose the task you need.</p>
+<p class="small">Current coverage: Docker. The Markdown guides contain additional operations workflows.</p>
+<nav class="quick-links" aria-label="Quick tasks">
+<a href="#local">Start Bulletin locally</a>
+<a href="#first-time">Set up for the first time</a>
+<a href="#production">Operate production</a>
+</nav>
+</div>
+</header>
+<div class="layout">
+<nav class="toc" aria-label="Guide contents">
+<p>On this page</p>
+<ol>
+<li>
+<a href="#start">Getting started</a>
+</li>
+<li>
+<a href="#local">Run Bulletin locally</a>
+</li>
+<li>
+<a href="#first-time">First-time setup</a>
+</li>
+<li>
+<a href="#workers">Run workers locally</a>
+</li>
+<li>
+<a href="#production">Operate production</a>
+</li>
+<li>
+<a href="#problems">Fix common problems</a>
+</li>
+<li>
+<a href="#reference">Docker reference</a>
+</li>
+</ol>
+</nav>
+<main id="main">
+<details class="toc-mobile">
+<summary>On this page</summary>
+<ol>
+<li>
+<a href="#start">Getting started</a>
+</li>
+<li>
+<a href="#local">Run Bulletin locally</a>
+</li>
+<li>
+<a href="#first-time">First-time setup</a>
+</li>
+<li>
+<a href="#workers">Run workers locally</a>
+</li>
+<li>
+<a href="#production">Operate production</a>
+</li>
+<li>
+<a href="#problems">Fix common problems</a>
+</li>
+<li>
+<a href="#reference">Docker reference</a>
+</li>
+</ol>
+</details>
+<section id="start">
+<h2>Getting started</h2>
+<p>Choose the task you need. You can read the Docker explanations later.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Where should I start?">
+<table>
+<caption>Where should I start?</caption>
+<thead>
+<tr>
+<th scope="col">Your task</th>
+<th scope="col">Go to</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th scope="row">I already set up this computer.</th>
+<td>
+<a href="#local">Start the local Bulletin app</a>.</td>
+</tr>
+<tr>
+<th scope="row">This is my first time on this computer.</th>
+<td>
+<a href="#first-time">Set up local development</a>.</td>
+</tr>
+<tr>
+<th scope="row">I need new earthquake data or forecasts.</th>
+<td>
+<a href="#workers">Run the workers</a>.</td>
+</tr>
+<tr>
+<th scope="row">I need to update the live website.</th>
+<td>
+<a href="#production">Follow the production procedure</a>.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>
+<strong>For local commands:</strong> Start Docker Desktop. Open PowerShell in the repository folder.</p>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Use the repository folder</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>Set-Location C:\Projects\quakestrikeph\redo\quakestrikeph</code>
+</pre>
+</div>
+<p>File links open VS Code. <a href="#editor-settings">Set your repository folder</a> if needed.</p>
+<p>Keep <code>.env</code> private. Run each command separately. If a command fails, fix the error before continuing.</p>
+<details class="reference-detail">
+<summary>Check that Docker is ready</summary>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Check Docker and Compose</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker info --format &quot;{{.ServerVersion}}&quot;
+docker compose version</code>
+</pre>
+</div>
+<p class="result">
+<strong>Check:</strong> Both commands print a version. If Docker cannot connect, open Docker Desktop and wait for its engine to start.</p>
+</details>
+</section>
+<section id="local">
+<h2>Run the Bulletin locally</h2>
+<p>Use this when you want to edit or check the Bulletin on your computer. Complete <a href="#first-time">first-time setup</a> once before using these commands.</p>
+
+<ol class="procedure">
+<li>
+<h4>Start the application.</h4>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>PowerShell · Start local web services</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml up -d --wait postgres redis backend-api bulletin</code>
+</pre>
+</div>
+</li>
+<li>
+<h4>Check the containers.</h4>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Check local status</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml ps postgres redis backend-api bulletin</code>
+</pre>
+</div>
+<p class="result">
+<strong>Check:</strong> All four services show as running and healthy. If one is unhealthy, read its logs below.</p>
+</li>
+<li>
+<h4>Open the Bulletin.</h4>
+<p>
+<a href="http://127.0.0.1:4321">Open http://127.0.0.1:4321</a>. Save a Bulletin source file to see your changes.</p>
+</li>
+</ol>
+<details class="reference-detail"><summary>Which services start with Bulletin?</summary><figure class="workflow">
+<div class="flow">
+<div class="flow-step">
+<strong>Your browser</strong>
+<small>Open the local Bulletin.</small>
+</div>
+<span class="flow-arrow" aria-hidden="true">
+<svg class="ico">
+<use href="#i-arrow"/>
+</svg>
+</span>
+<div class="flow-step">
+<strong>Bulletin + Backend</strong>
+<small>Show pages and answer API requests.</small>
+</div>
+<span class="flow-arrow" aria-hidden="true">
+<svg class="ico">
+<use href="#i-arrow"/>
+</svg>
+</span>
+<div class="flow-step">
+<strong>PostgreSQL + Redis</strong>
+<small>Keep application data and support account features.</small>
+</div>
+</div>
+<figcaption>Editing Bulletin still needs four services.</figcaption>
+</figure></details>
+<h3>While you work</h3>
+<details class="reference-detail">
+<summary>Read the Bulletin and Backend logs</summary>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Follow logs</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml logs -f --tail 100 bulletin backend-api</code>
+</pre>
+</div>
+<p>Press <kbd>Ctrl</kbd> + <kbd>C</kbd> to leave the log view. The containers keep running.</p>
+</details>
+<details class="reference-detail">
+<summary>Apply Backend code changes</summary>
+<p>Backend source is copied into its image. Rebuild and recreate the Backend after changing its code.</p>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Rebuild only Backend</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml build backend-api
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml up -d --wait --no-deps backend-api</code>
+</pre>
+</div>
+<p class="result">
+<strong>Check:</strong> Backend becomes healthy. Bulletin requests now reach the rebuilt Backend.</p>
+</details>
+<details class="reference-detail">
+<summary>After changing Bulletin dependencies</summary>
+<p>If the Bulletin lockfile changes, rebuild its image and replace its dependency volume.</p>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Refresh Bulletin dependencies</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml build bulletin
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml up -d --wait --no-deps --force-recreate -V bulletin</code>
+</pre>
+</div>
+<p>
+<code>-V</code> refreshes the Bulletin container’s anonymous volume. This command does not replace the PostgreSQL or Redis volumes.</p>
+</details>
+<h3>When you finish</h3>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Stop only the web apps</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml stop bulletin backend-api</code>
+</pre>
+</div>
+<p>PostgreSQL, Redis, and any running workers stay available. Use the startup command above when you return.</p>
+<div class="callout warn">
+<svg class="ico" aria-hidden="true">
+<use href="#i-warn"/>
+</svg>
+<div>
+<p>Do not use <code>down</code> just to stop Bulletin. The web apps and workers share PostgreSQL and Redis.</p>
+</div>
+</div>
+<details class="reference-detail">
+<summary>Work on Backend without Bulletin</summary>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Start Backend and its data services</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml up -d --wait postgres redis backend-api</code>
+</pre>
+</div>
+<p>Backend listens at <code>http://127.0.0.1:3000</code>. To stop only Backend, use:</p>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Stop only Backend</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml stop backend-api</code>
+</pre>
+</div>
+</details>
+</section>
+<section id="first-time">
+<h2>First-time local setup</h2>
+<p>Use this for a new local database. You do not repeat these steps every day.</p>
+<div class="callout warn">
+<svg class="ico" aria-hidden="true">
+<use href="#i-warn"/>
+</svg>
+<div>
+<p>If the database already contains data, back it up first. Stop its producers and consumers before migrations. Follow the <a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/docs/operations/local-runtime.md" data-repo-file="docs/operations/local-runtime.md" data-file-line="" title="Open in VS Code">local runtime guide</a> for that shared database.</p>
+</div>
+</div>
+<ol class="procedure">
+<li>
+<h4>Prepare the tools and model package.</h4>
+<p>Install Docker Desktop, Git, Python 3.12, and <code>uv</code>. Get the approved model package from the maintainer.</p>
+<p>Web-only work does not require the history import or running workers.</p>
+</li>
+<li>
+<h4>Create your local configuration.</h4>
+<p>If <code>.env</code> does not exist, copy the example. Keep an existing <code>.env</code>.</p>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Create .env only if it is missing</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>if (-not (Test-Path -LiteralPath .env)) { Copy-Item .env.example .env }</code>
+</pre>
+</div>
+<p>Edit <code>.env</code> using the settings below. The example values are placeholders.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Settings to prepare before continuing">
+<table>
+<caption>Settings to prepare before continuing</caption>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">What to enter</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th scope="row">Database passwords</th>
+<td>Add distinct <code>POSTGRES_PASSWORD</code>, <code>MIGRATION_DB_PASSWORD</code>, <code>WORKER_DB_PASSWORD</code>, and <code>BACKEND_DB_PASSWORD</code>.</td>
+</tr>
+<tr>
+<th scope="row">Database URLs</th>
+<td>Match each password to its login in <code>MIGRATION_DATABASE_URL</code>, <code>DATABASE_URL</code>, and <code>BACKEND_DATABASE_URL</code>. Keep the host as <code>postgres</code>.</td>
+</tr>
+<tr>
+<th scope="row">Model</th>
+<td>Set <code>MODEL_RELEASE_ID</code> from the approved manifest. Point <code>MODEL_ARTIFACT_HOST_DIRECTORY</code> at the packaged model.</td>
+</tr>
+<tr>
+<th scope="row">Web and accounts</th>
+<td>Set the Clerk keys, authorized local URLs, <code>ACCOUNT_REDIS_URL</code>, and account provider settings from the local runtime guide.</td>
+</tr>
+<tr>
+<th scope="row">Other required values</th>
+<td>Set the official <code>PHIVOLCS_CATALOG_URL</code> and a nonempty <code>BACKEND_IMAGE_TAG</code>. Local builds use <code>:local</code> images.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<details class="reference-detail">
+<summary>See the exact web settings</summary>
+<p>Set <code>CLERK_SECRET_KEY</code>, <code>CLERK_PUBLISHABLE_KEY</code>, <code>PUBLIC_CLERK_PUBLISHABLE_KEY</code>, and <code>IPROG_API_TOKEN</code> for account features. Set <code>CLERK_AUTHORIZED_PARTIES=http://localhost:4321,http://127.0.0.1:4321</code> and <code>ACCOUNT_REDIS_URL=redis://redis:6379/0</code>. Follow <a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/docs/operations/local-runtime.md:416" data-repo-file="docs/operations/local-runtime.md" data-file-line="416" title="Open in VS Code">section 9 of the local runtime guide</a> for setup details.</p>
+</details>
+</li>
+<li>
+<h4>Package the approved model.</h4>
+<p>Replace the example path with the approved package folder. Run each command separately.</p>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Prepare Python and package the model</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>uv python install 3.12
+uv sync --project workers --frozen
+$sourcePackage = &#x27;C:\path\to\reviewed-model-package&#x27;
+uv run --project workers quakestrike package-model-release --source-package $sourcePackage</code>
+</pre>
+</div>
+<p class="result">
+<strong>Check:</strong> Model packaging succeeds. Its release ID matches <code>MODEL_RELEASE_ID</code> in <code>.env</code>.</p>
+</li>
+<li>
+<h4>Start PostgreSQL and Redis.</h4>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Start the data services</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml up -d --wait postgres redis</code>
+</pre>
+</div>
+<p class="result">
+<strong>Check:</strong> Both containers become healthy.</p>
+</li>
+<li>
+<h4>Create the database logins.</h4>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Create migration and worker roles</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml exec -T postgres sh /opt/quakestrike/provision-roles.sh create</code>
+</pre>
+</div>
+</li>
+<li>
+<h4>Apply the database migrations.</h4>
+<p>Migrations create or update database tables. Starting containers does not run migrations.</p>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Build and run the one-time setup container</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml run --build --rm local-init</code>
+</pre>
+</div>
+</li>
+<li>
+<h4>Register and verify the model.</h4>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Register, then verify</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml run --rm local-init quakestrike register-model-release
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml run --rm local-init quakestrike verify-model-release</code>
+</pre>
+</div>
+</li>
+<li>
+<h4>Create the Backend database login.</h4>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Grant Backend its access</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml exec -T postgres sh /opt/quakestrike/provision-roles.sh create-backend</code>
+</pre>
+</div>
+</li>
+<li>
+<h4>Build the web images.</h4>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Build Backend and Bulletin</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml build backend-api bulletin</code>
+</pre>
+</div>
+<p>Continue with <a href="#local">Run the Bulletin locally</a>.</p>
+</li>
+</ol>
+<p class="result">
+<strong>Check:</strong> Setup is complete when all four services are healthy and Bulletin opens. An empty event list can mean history has not been imported.</p>
+</section>
+<section id="workers">
+<h2>Run the workers locally</h2>
+<p>Workers fetch PHIVOLCS data and create forecasts. You can edit Bulletin without running them.</p>
+<p>
+<strong>Before you start:</strong> Use initialized data, tested worker images, the approved model, and a successful history import. Keep alert delivery disabled unless the team has approved its separate activation.</p>
+<details class="reference-detail">
+<summary>First time running workers? Start here.</summary>
+<p>Use this for a new local database. Complete <a href="#first-time">local setup</a> first. Keep web apps and all workers stopped during database initialization. For an existing database, follow <a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/docs/operations/local-runtime.md" data-repo-file="docs/operations/local-runtime.md" data-file-line="" title="Open in VS Code">the runtime guide</a> before changing it.</p>
+<ol class="procedure">
+<li>
+<h4>Prepare worker settings and source history.</h4>
+<p>Set <code>WORKER_IMAGE_TAG</code> to the tested full commit SHA. Keep that clean checkout available for the build scripts.</p>
+<p>Get a preserved PHIVOLCS snapshot from the maintainer. Set <code>BOOTSTRAP_REQUIRED_AVAILABLE_THROUGH</code> to its verified source coverage time.</p>
+<p>Replace the example path, then copy the snapshot without editing it.</p>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Prepare the history input</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>$snapshotPath = &#x27;C:\path\to\preserved-bootstrap-snapshot.json&#x27;
+New-Item -ItemType Directory -Force bootstrap-snapshots | Out-Null
+Copy-Item -LiteralPath $snapshotPath -Destination bootstrap-snapshots/input.json</code>
+</pre>
+</div>
+</li>
+<li>
+<h4>Start data services and build worker images.</h4>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Wait for each command to finish</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml up -d --wait postgres redis
+&amp; infrastructure/scripts/build-worker-image.ps1
+&amp; infrastructure/scripts/build-prediction-image.ps1</code>
+</pre>
+</div>
+<p>The build scripts require the tested clean checkout and refuse to overwrite an existing release image tag. Keep an existing verified image instead of overwriting it.</p>
+</li>
+<li>
+<h4>Prepare the worker database access.</h4>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Provision roles, migrate, and grant access</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml exec -T postgres sh /opt/quakestrike/provision-roles.sh create
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike migrate
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml exec -T postgres sh /opt/quakestrike/provision-roles.sh grant-worker</code>
+</pre>
+</div>
+</li>
+<li>
+<h4>Verify the model and check old prediction work.</h4>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Run one command at a time</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike register-model-release
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike verify-model-release
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike reissue-legacy-predictions</code>
+</pre>
+</div>
+<p class="result">
+<strong>Check:</strong> The reissue command prints <code>"status": "completed"</code>. A new database has no old jobs to reissue.</p>
+</li>
+<li>
+<h4>Import history and check readiness.</h4>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Import, then check</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike bootstrap --snapshot /app/bootstrap-snapshots/input.json --run-manifest /app/bootstrap-snapshots/bootstrap-readiness.json
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml run --rm release-init quakestrike startup-check --run-manifest /app/bootstrap-snapshots/bootstrap-readiness.json</code>
+</pre>
+</div>
+<p class="result">
+<strong>Check:</strong> The final command exits successfully and prints <code>"ready": true</code>. Keep Beat off until this check passes.</p>
+</li>
+</ol>
+<p>Continue with the worker startup sequence below. See <a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/docs/operations/local-runtime.md:65" data-repo-file="docs/operations/local-runtime.md" data-file-line="65" title="Open in VS Code">the runtime guide</a> for snapshot requirements and existing-database recovery.</p>
+</details>
+<h3>Start an initialized worker setup</h3>
+<ol class="procedure">
+<li>
+<h4>Start the data services.</h4>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Start shared PostgreSQL and Redis</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml up -d --wait postgres redis</code>
+</pre>
+</div>
+</li>
+<li>
+<h4>Start Dispatcher and Data Ingestor.</h4>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Wait for each command to succeed</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml up -d --wait dispatcher
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml up -d --wait data-ingestor</code>
+</pre>
+</div>
+</li>
+<li>
+<h4>Start Prediction Worker.</h4>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Start prediction processing</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction up -d --wait prediction-worker</code>
+</pre>
+</div>
+</li>
+<li>
+<h4>Enable the schedule last.</h4>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Check consumers and enable Beat</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>&amp; infrastructure/scripts/enable-beat.ps1</code>
+</pre>
+</div>
+<p class="result">
+<strong>Check:</strong> The script succeeds. Beat waits for the next five-minute boundary; it does not fetch data immediately.</p>
+</li>
+</ol>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Check worker status</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction --profile beat ps dispatcher data-ingestor prediction-worker beat</code>
+</pre>
+</div>
+<details class="reference-detail">
+<summary>Read worker logs</summary>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Follow worker logs</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction --profile beat logs -f --tail 100 dispatcher data-ingestor prediction-worker beat</code>
+</pre>
+</div>
+</details>
+<details class="reference-detail">
+<summary>Stop the worker setup</summary>
+<p>Stop the scheduler first. Stop Dispatcher next. Let active jobs finish before stopping consumers when possible.</p>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Stop in order</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile beat stop beat
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml stop dispatcher
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction stop data-ingestor prediction-worker</code>
+</pre>
+</div>
+<p>The database, Redis, and web apps stay running. If alert services are active, also follow <a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/docs/operations/alert-runtime.md" data-repo-file="docs/operations/alert-runtime.md" data-file-line="" title="Open in VS Code">their stop procedure</a>.</p>
+</details>
+<figure class="workflow">
+<div class="flow">
+<div class="flow-step">
+<strong>Beat</strong>
+<small>Creates scheduled ingestion work in PostgreSQL.</small>
+</div>
+<span class="flow-arrow" aria-hidden="true">
+<svg class="ico">
+<use href="#i-arrow"/>
+</svg>
+</span>
+<div class="flow-step">
+<strong>Dispatcher + Redis</strong>
+<small>Dispatcher publishes pending work to separate queues.</small>
+</div>
+<span class="flow-arrow" aria-hidden="true">
+<svg class="ico">
+<use href="#i-arrow"/>
+</svg>
+</span>
+<div class="flow-step">
+<strong>Workers</strong>
+<small>Fetch source data, run the model, and save results in PostgreSQL.</small>
+</div>
+</div>
+<figcaption>Work passes through the database and queues.</figcaption>
+</figure>
+<details class="reference-detail">
+<summary>How prediction and alerts follow ingestion</summary>
+<p>Data Ingestor saves event changes and prediction jobs. Dispatcher sends prediction commands through Redis. Prediction Worker saves forecasts.</p>
+<p>When alert gates are enabled, Dispatcher also handles eligible alert work. Alert Worker sends through providers. Reconciliation and Backend callbacks record delivery evidence.</p>
+<p>Workers do not pass full events directly to each other. PostgreSQL keeps records; Redis carries commands containing record identifiers.</p>
+</details>
+</section>
+<section id="production">
+<h2>Operate production</h2>
+<p>Use this section for the live VPS. Local development commands belong on your computer.</p>
+<figure class="workflow">
+<div class="flow">
+<div class="flow-step">
+<strong>Browser</strong>
+<small>https://quakestrikeph.com</small>
+</div>
+<span class="flow-arrow" aria-hidden="true">
+<svg class="ico">
+<use href="#i-arrow"/>
+</svg>
+</span>
+<div class="flow-step">
+<strong>Cloudflare + Traefik</strong>
+<small>The tunnel reaches the HTTP router.</small>
+</div>
+<span class="flow-arrow" aria-hidden="true">
+<svg class="ico">
+<use href="#i-arrow"/>
+</svg>
+</span>
+<div class="flow-step">
+<strong>Bulletin + Backend</strong>
+<small>Pages and API requests go to separate services.</small>
+</div>
+</div>
+<figcaption>Public access uses the existing tunnel.</figcaption>
+</figure>
+<h3>First production setup</h3>
+<p>The maintainer must prepare the VPS, private configuration, backups, model, history, and Cloudflare Tunnel before the first release.</p>
+<ol>
+<li>Complete <a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/docs/operations/continuous-deployment.md:104" data-repo-file="docs/operations/continuous-deployment.md" data-file-line="104" title="Open in VS Code">VPS initialization</a> and <a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/docs/operations/local-runtime.md" data-repo-file="docs/operations/local-runtime.md" data-file-line="" title="Open in VS Code">worker initialization</a>.</li>
+<li>Complete <a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/docs/operations/backend-api.md:15" data-repo-file="docs/operations/backend-api.md" data-file-line="15" title="Open in VS Code">Backend setup</a> and its account configuration.</li>
+<li>Follow <a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/docs/operations/continuous-deployment.md:264" data-repo-file="docs/operations/continuous-deployment.md" data-file-line="264" title="Open in VS Code">the first Bulletin rollout</a> with automatic deployment disabled.</li>
+<li>Verify the public pages and API before enabling automatic deployment.</li>
+</ol>
+<h3>Update an existing production setup</h3>
+<ol class="procedure">
+<li>
+<h4>Wait for the tested main commit.</h4>
+<p>Use the commit that passed the required main checks. When automatic deployment is enabled, successful main checks trigger deployment.</p>
+</li>
+<li>
+<h4>If a manual rollout is required, use the deployment script.</h4>
+<p>Run from <code>/srv/quakestrikeph</code> on the VPS using Bash. Replace the placeholder with the full tested main SHA.</p>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>VPS · Bash · Manual deployment</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>cd /srv/quakestrikeph
+bash infrastructure/scripts/deploy-workers.sh REPLACE_WITH_TESTED_40_CHARACTER_MAIN_SHA</code>
+</pre>
+</div>
+</li>
+<li>
+<h4>Check the deployment result.</h4>
+<p>Wait for the script or CI job to finish successfully. Open <a href="https://quakestrikeph.com">the public Bulletin</a>. Check the map, event list, and a forecast page.</p>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>VPS · Check service status</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml -f infrastructure/compose.bulletin.yml --profile prediction --profile beat --profile alerts ps</code>
+</pre>
+</div>
+<p>Only previously enabled optional services should run. Follow <a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/docs/operations/continuous-deployment.md" data-repo-file="docs/operations/continuous-deployment.md" data-file-line="" title="Open in VS Code">the deployment guide</a> for public API and recovery checks.</p>
+</li>
+</ol>
+<div class="callout warn">
+<svg class="ico" aria-hidden="true">
+<use href="#i-warn"/>
+</svg>
+<div>
+<p>Do not replace this procedure with a generic <code>compose up</code>. The deployment script coordinates backups, migrations, readiness checks, and recovery.</p>
+</div>
+</div>
+<details class="reference-detail">
+<summary>What the deployment script handles</summary>
+<p>The script builds tested images, verifies backups, stops processing, applies reviewed migrations and grants, and checks readiness.</p>
+<p>It resumes services, preserves the prediction replica count, and restores Beat only if Beat was previously enabled. Alerts remain separately gated.</p>
+<p>If the database schema changes and deployment fails, follow the repair-forward procedure. The script does not automatically downgrade or restore the live database.</p>
+</details>
+<details class="reference-detail">
+<summary>Why local and production commands differ</summary>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Choose the correct environment">
+<table>
+<caption>Choose the correct environment</caption>
+<thead>
+<tr>
+<th scope="col">Local development</th>
+<th scope="col">Production</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th scope="row">PowerShell in your repository folder.</th>
+<td>Bash in <code>/srv/quakestrikeph</code>.</td>
+</tr>
+<tr>
+<th scope="row">Development images tagged <code>:local</code>.</th>
+<td>Images tagged with the tested commit SHA.</td>
+</tr>
+<tr>
+<th scope="row">Open <code>127.0.0.1:4321</code>.</th>
+<td>Open <code>https://quakestrikeph.com</code>.</td>
+</tr>
+<tr>
+<th scope="row">Does not include <code>compose.edge.yml</code>.</th>
+<td>Includes the public edge configuration.</td>
+</tr>
+<tr>
+<th scope="row">Bulletin source changes appear while you work.</th>
+<td>Deployment builds the application before replacing services.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</details>
+<details class="reference-detail">
+<summary>Planned production shutdown</summary>
+<p>Coordinate a maintenance window. Stop Beat and Dispatcher before consumers. Include active alert services and web apps before stopping shared data services.</p>
+<p>Use the operation-specific guides for the services running on the VPS. Do not run local shutdown commands on the live database.</p>
+</details>
+</section>
+<section id="problems">
+<h2>Fix common problems</h2>
+<p>Read the error from the failed command first. Use logs to check which service needs attention.</p>
+<details class="reference-detail">
+<summary>Docker cannot connect</summary>
+<p>Open Docker Desktop. Wait for the engine to start, then run the command again.</p>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Check the engine</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker info --format &quot;{{.ServerVersion}}&quot;</code>
+</pre>
+</div>
+</details>
+<details class="reference-detail">
+<summary>Port 4321 is already in use</summary>
+<p>Stop the other Bulletin server using that port. Then repeat the local startup command. Do not start a second development server.</p>
+</details>
+<details class="reference-detail">
+<summary>A container is unhealthy or keeps restarting</summary>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Check status, then recent logs</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml ps
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml logs --tail 100 backend-api bulletin</code>
+</pre>
+</div>
+<p>Check the named service’s error. Fix the missing setting, unavailable database, or application error before restarting it.</p>
+</details>
+<details class="reference-detail">
+<summary>Compose says a variable is missing</summary>
+<p>Check that you are in the repository folder and <code>.env</code> exists. Set the variable named in the error.</p>
+<p>Keep <code>--env-file .env</code> in the command. Do not paste private configuration or resolved passwords into a chat.</p>
+</details>
+<details class="reference-detail">
+<summary>My code change does not appear</summary>
+<p>Bulletin source updates use mounted local files. Backend changes require a rebuild. Dependency changes require the Bulletin dependency refresh.</p>
+<p>Use the matching procedure under <a href="#local">Run the Bulletin locally</a>.</p>
+</details>
+<details class="reference-detail">
+<summary>The Bulletin is empty</summary>
+<p>Check Backend logs first. A healthy app can have no stored events. Start initialized workers or follow the history import procedure.</p>
+<p>Do not delete the database volume to fix an empty list.</p>
+</details>
+<details class="reference-detail">
+<summary>Workers do not fetch immediately</summary>
+<p>Beat waits for the next schedule boundary. If work still does not run, check Beat, Dispatcher, and Data Ingestor logs.</p>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Read scheduler and ingestion logs</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile beat logs --tail 100 beat dispatcher data-ingestor</code>
+</pre>
+</div>
+</details>
+<details class="reference-detail">
+<summary>A setup command failed</summary>
+<p>Stop the sequence at that command. Keep its error message. Fix the stated cause before continuing.</p>
+<p>Do not delete PostgreSQL or Redis volumes as a troubleshooting shortcut. For existing database passwords, follow <a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/docs/operations/database-maintenance.md" data-repo-file="docs/operations/database-maintenance.md" data-file-line="" title="Open in VS Code">database maintenance</a>.</p>
+</details>
+</section>
+<section id="reference">
+<h2>Docker reference</h2>
+<p>Open only the explanation you need. These details support the procedures above.</p>
+<details class="reference-detail" id="editor-settings">
+<summary>Open file links in VS Code</summary>
+<p>Repository file links open VS Code. Your browser may ask you to allow the app to open.</p>
+<p>If your checkout uses a different folder, enter its full path below. This changes file links only.</p>
+<form id="editor-path-form">
+<label for="editor-root">Repository folder on your computer</label>
+<input id="editor-root" name="repository-root" type="text" value="C:/Projects/quakestrikeph/redo/quakestrikeph" required spellcheck="false" autocomplete="off" aria-describedby="editor-path-status">
+<button type="submit" class="copy">Use folder</button>
+<p id="editor-path-status" role="status" aria-live="polite"></p>
+</form>
+<p>The folder setting stays in this browser when browser storage is available. Open the guide in a normal browser if its preview blocks VS Code links.</p>
+</details>
+
+<details class="reference-detail">
+<summary>Which Compose files belong together?</summary>
+<p>
+<code>-f</code> adds a Compose file. Compose reads files in the listed order and combines them into one setup.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Files under infrastructure/">
+<table>
+<caption>Files under infrastructure/</caption>
+<thead>
+<tr>
+<th scope="col">Task</th>
+<th scope="col">Files</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th scope="row">Local web</th>
+<td>
+<code>compose.yml</code> + <code>compose.backend.yml</code> + <code>compose.local.yml</code>
+</td>
+</tr>
+<tr>
+<th scope="row">Workers</th>
+<td>
+<code>compose.yml</code> + <code>compose.release.yml</code>
+</td>
+</tr>
+<tr>
+<th scope="row">Production web</th>
+<td>
+<code>compose.yml</code> + <code>compose.backend.yml</code> + <code>compose.edge.yml</code> + <code>compose.bulletin.yml</code>
+</td>
+</tr>
+<tr>
+<th scope="row">Integration tests</th>
+<td>
+<code>compose.integration.yml</code> alone, with the fixed test project name.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Local web and workers share the <code>infrastructure</code> project. Their files select services; they do not create separate databases.</p>
+</details>
+<details class="reference-detail">
+<summary>What does each Compose file do?</summary>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Compose files · infrastructure/">
+<table>
+<caption>Compose files · infrastructure/</caption>
+<thead>
+<tr>
+<th scope="col">File</th>
+<th scope="col">Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th scope="row">
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/infrastructure/compose.yml" data-repo-file="infrastructure/compose.yml" data-file-line="" title="Open in VS Code">compose.yml</a>
+</th>
+<td>PostgreSQL, Redis, shared network, and data volumes.</td>
+</tr>
+<tr>
+<th scope="row">
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/infrastructure/compose.local.yml" data-repo-file="infrastructure/compose.local.yml" data-file-line="" title="Open in VS Code">compose.local.yml</a>
+</th>
+<td>Local ports, Bulletin source mounts, development images, and local initialization.</td>
+</tr>
+<tr>
+<th scope="row">
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/infrastructure/compose.backend.yml" data-repo-file="infrastructure/compose.backend.yml" data-file-line="" title="Open in VS Code">compose.backend.yml</a>
+</th>
+<td>Backend service and its network.</td>
+</tr>
+<tr>
+<th scope="row">
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/infrastructure/compose.bulletin.yml" data-repo-file="infrastructure/compose.bulletin.yml" data-file-line="" title="Open in VS Code">compose.bulletin.yml</a>
+</th>
+<td>Production Bulletin image.</td>
+</tr>
+<tr>
+<th scope="row">
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/infrastructure/compose.release.yml" data-repo-file="infrastructure/compose.release.yml" data-file-line="" title="Open in VS Code">compose.release.yml</a>
+</th>
+<td>Workers and one-time initialization.</td>
+</tr>
+<tr>
+<th scope="row">
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/infrastructure/compose.edge.yml" data-repo-file="infrastructure/compose.edge.yml" data-file-line="" title="Open in VS Code">compose.edge.yml</a>
+</th>
+<td>Traefik router and Cloudflare Tunnel connector.</td>
+</tr>
+<tr>
+<th scope="row">
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/infrastructure/compose.admin.yml" data-repo-file="infrastructure/compose.admin.yml" data-file-line="" title="Open in VS Code">compose.admin.yml</a>
+</th>
+<td>Optional pgAdmin database browser.</td>
+</tr>
+<tr>
+<th scope="row">
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/infrastructure/compose.integration.yml" data-repo-file="infrastructure/compose.integration.yml" data-file-line="" title="Open in VS Code">compose.integration.yml</a>
+</th>
+<td>Disposable database, Redis, and test runners.</td>
+</tr>
+<tr>
+<th scope="row">
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/infrastructure/compose.alert-testing.yml" data-repo-file="infrastructure/compose.alert-testing.yml" data-file-line="" title="Open in VS Code">compose.alert-testing.yml</a>
+</th>
+<td>Private alert testing services.</td>
+</tr>
+<tr>
+<th scope="row">
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/infrastructure/compose.alert-verification.yml" data-repo-file="infrastructure/compose.alert-verification.yml" data-file-line="" title="Open in VS Code">compose.alert-verification.yml</a>
+</th>
+<td>Controlled configuration check; combine only with the integration file.</td>
+</tr>
+<tr>
+<th scope="row">
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/infrastructure/compose.domain-cutover.yml" data-repo-file="infrastructure/compose.domain-cutover.yml" data-file-line="" title="Open in VS Code">compose.domain-cutover.yml</a>
+</th>
+<td>Special override for the documented domain transition and recovery.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</details>
+<details class="reference-detail">
+<summary>What do the command arguments mean?</summary>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Read a Compose command">
+<table>
+<caption>Read a Compose command</caption>
+<thead>
+<tr>
+<th scope="col">Part</th>
+<th scope="col">Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th scope="row">
+<code>--env-file .env</code>
+</th>
+<td>Read configuration values from this file.</td>
+</tr>
+<tr>
+<th scope="row">
+<code>-f path/to/file.yml</code>
+</th>
+<td>Include this Compose file. Later files can replace or add settings.</td>
+</tr>
+<tr>
+<th scope="row">
+<code>up</code>
+</th>
+<td>Create missing containers and apply configuration changes.</td>
+</tr>
+<tr>
+<th scope="row">
+<code>-d</code>
+</th>
+<td>Keep containers running in the background.</td>
+</tr>
+<tr>
+<th scope="row">
+<code>--wait</code>
+</th>
+<td>Wait for services to run or become healthy when health checks exist.</td>
+</tr>
+<tr>
+<th scope="row">
+<code>--no-deps</code>
+</th>
+<td>Do not start the selected service’s dependencies.</td>
+</tr>
+<tr>
+<th scope="row">
+<code>--profile prediction</code>
+</th>
+<td>Include optional services assigned to this profile.</td>
+</tr>
+<tr>
+<th scope="row">
+<code>bulletin</code>
+</th>
+<td>Target the Compose service named bulletin.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Explicitly targeting a profiled service can activate it without a profile flag. A profile selects services; it does not replace readiness checks.</p>
+</details>
+<details class="reference-detail">
+<summary>Build, start, restart, or stop?</summary>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Choose the command for your task">
+<table>
+<caption>Choose the command for your task</caption>
+<thead>
+<tr>
+<th scope="col">Command</th>
+<th scope="col">Use it when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th scope="row">
+<code>docker compose … build</code>
+</th>
+<td>You need a new image from source. It does not start containers.</td>
+</tr>
+<tr>
+<th scope="row">
+<code>docker compose … up -d --wait</code>
+</th>
+<td>You need to start services or apply changed configuration.</td>
+</tr>
+<tr>
+<th scope="row">
+<code>docker start container-name</code>
+</th>
+<td>An existing container is stopped and its saved configuration is still correct.</td>
+</tr>
+<tr>
+<th scope="row">
+<code>docker compose … restart service</code>
+</th>
+<td>You need the same container to restart. It does not apply changed image or environment settings.</td>
+</tr>
+<tr>
+<th scope="row">
+<code>docker compose … stop service</code>
+</th>
+<td>You want to stop selected services and keep their containers.</td>
+</tr>
+<tr>
+<th scope="row">
+<code>docker compose … down</code>
+</th>
+<td>You intend to remove services in the selected setup. It can remove shared data containers.</td>
+</tr>
+<tr>
+<th scope="row">
+<code>docker compose … down -v</code>
+</th>
+<td>You deliberately want to delete Docker volumes, including database data.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The <code>…</code> stands for the configuration options shown in task commands. Do not copy these table entries as commands.</p>
+</details>
+<details class="reference-detail">
+<summary>How do Dockerfiles connect to the apps?</summary>
+<figure class="workflow">
+<div class="flow">
+<div class="flow-step">
+<strong>Dockerfile + source</strong>
+<small>Build instructions and repository files.</small>
+</div>
+<span class="flow-arrow" aria-hidden="true">
+<svg class="ico">
+<use href="#i-arrow"/>
+</svg>
+</span>
+<div class="flow-step">
+<strong>Image</strong>
+<small>A packaged version of the app.</small>
+</div>
+<span class="flow-arrow" aria-hidden="true">
+<svg class="ico">
+<use href="#i-arrow"/>
+</svg>
+</span>
+<div class="flow-step">
+<strong>Container</strong>
+<small>The app process, settings, mounts, and network connections.</small>
+</div>
+</div>
+<figcaption>Source becomes an image; Docker runs the image in a container.</figcaption>
+</figure>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Dockerfiles · Build context is the repository root">
+<table>
+<caption>Dockerfiles · Build context is the repository root</caption>
+<thead>
+<tr>
+<th scope="col">Dockerfile</th>
+<th scope="col">Used by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th scope="row">
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/workers/Dockerfile" data-repo-file="workers/Dockerfile" data-file-line="" title="Open in VS Code">workers/Dockerfile</a>
+</th>
+<td>Workers and initialization containers.</td>
+</tr>
+<tr>
+<th scope="row">
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/workers/prediction-worker/Dockerfile" data-repo-file="workers/prediction-worker/Dockerfile" data-file-line="" title="Open in VS Code">workers/prediction-worker/Dockerfile</a>
+</th>
+<td>Prediction Worker, with model dependencies.</td>
+</tr>
+<tr>
+<th scope="row">
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/apps/backend-api/Dockerfile" data-repo-file="apps/backend-api/Dockerfile" data-file-line="" title="Open in VS Code">apps/backend-api/Dockerfile</a>
+</th>
+<td>Backend API.</td>
+</tr>
+<tr>
+<th scope="row">
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/apps/quakestrikeph-bulletin/Dockerfile" data-repo-file="apps/quakestrikeph-bulletin/Dockerfile" data-file-line="" title="Open in VS Code">apps/quakestrikeph-bulletin/Dockerfile</a>
+</th>
+<td>Bulletin development and production stages.</td>
+</tr>
+<tr>
+<th scope="row">
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/apps/quakestrikeph-alert-testing/Dockerfile" data-repo-file="apps/quakestrikeph-alert-testing/Dockerfile" data-file-line="" title="Open in VS Code">apps/quakestrikeph-alert-testing/Dockerfile</a>
+</th>
+<td>Private alert-testing tool.</td>
+</tr>
+<tr>
+<th scope="row">
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/workers/Dockerfile.test" data-repo-file="workers/Dockerfile.test" data-file-line="" title="Open in VS Code">workers/Dockerfile.test</a>
+</th>
+<td>Python integration runners.</td>
+</tr>
+<tr>
+<th scope="row">
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/apps/backend-api/Dockerfile.test" data-repo-file="apps/backend-api/Dockerfile.test" data-file-line="" title="Open in VS Code">apps/backend-api/Dockerfile.test</a>
+</th>
+<td>Backend integration runner.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Example: build only the local Bulletin development image. This does not start a container.</p>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Dockerfile command example</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker build -f apps/quakestrikeph-bulletin/Dockerfile --target development -t quakestrike-bulletin:local .</code>
+</pre>
+</div>
+<ul>
+<li>
+<code>-f</code> selects the Dockerfile.</li>
+<li>
+<code>--target development</code> selects the development stage.</li>
+<li>
+<code>-t</code> names and tags the image.</li>
+<li>The final <code>.</code> gives Docker access to files in the repository root.</li>
+</ul>
+<p>Compose selects the same files through <code>build.context: ..</code>, <code>build.dockerfile</code>, and <code>build.target: development</code>. Docker’s build <code>-f</code> selects a Dockerfile; Compose’s <code>-f</code> selects a YAML file.</p>
+<p>The root <a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/.dockerignore" data-repo-file=".dockerignore" data-file-line="" title="Open in VS Code">.dockerignore</a> excludes private settings, model files, and other files from the build. Release workers use tested images built by the repository’s image scripts.</p>
+</details>
+<details class="reference-detail">
+<summary>Where do data and local changes stay?</summary>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Storage and mounts">
+<table>
+<caption>Storage and mounts</caption>
+<thead>
+<tr>
+<th scope="col">Item</th>
+<th scope="col">What happens</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th scope="row">PostgreSQL and Redis volumes</th>
+<td>Data stays when containers stop or are removed. Removing volumes deletes their data.</td>
+</tr>
+<tr>
+<th scope="row">Bulletin source mount</th>
+<td>The container uses source files from your checkout. Saving a file updates the development app.</td>
+</tr>
+<tr>
+<th scope="row">Bulletin dependency volume</th>
+<td>Keeps installed packages separate from source files. Refresh it after a lockfile change.</td>
+</tr>
+<tr>
+<th scope="row">Model mount</th>
+<td>Workers read approved model files without changing them.</td>
+</tr>
+<tr>
+<th scope="row">Bootstrap snapshots</th>
+<td>Workers receive read-only access. The initialization container can write readiness evidence.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Inside a container, <code>localhost</code> means that container. Apps use names such as <code>postgres:5432</code> across shared networks. Your browser uses published local ports.</p>
+<p>PostgreSQL and Redis have no host ports here. The public Bulletin container does not connect directly to either data service.</p>
+</details>
+<details class="reference-detail">
+<summary>How production requests reach Backend</summary>
+<p>Traefik sends <code>/api/v1/</code> to Backend port 3000. Other page requests go to Bulletin port 4321.</p>
+<p>Standard production Bulletin server requests use the public domain and return through the edge. Local development sets <code>API_TARGET</code> to <code>http://backend-api:3000</code>. The documented domain-transition override also uses that internal address.</p>
+<p>Production adds no public application ports on the host. Keep private tools outside public routes.</p>
+</details>
+<details class="reference-detail">
+<summary>Run isolated integration tests</summary>
+<p>Use these on your development computer. The test database is disposable and separate from application data.</p>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Run these three commands separately</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test redis-test
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --build --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v</code>
+</pre>
+</div>
+<p>Check that pytest reports integration tests ran. Keep the exact project name. Never point <code>TEST_DATABASE_URL</code> at a development database.</p>
+<p>Follow <a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/CONTRIBUTING.md" data-repo-file="CONTRIBUTING.md" data-file-line="" title="Open in VS Code">CONTRIBUTING.md</a> for real-model tests and other required checks.</p>
+</details>
+<details class="reference-detail">
+<summary>Open pgAdmin or use private alert testing</summary>
+<p>These tools need their own settings and access setup. They are not required for ordinary Bulletin development.</p>
+<ul>
+<li>
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/docs/operations/database-maintenance.md" data-repo-file="docs/operations/database-maintenance.md" data-file-line="" title="Open in VS Code">Database maintenance and private access</a>
+</li>
+<li>
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/docs/operations/alert-testing.md" data-repo-file="docs/operations/alert-testing.md" data-file-line="" title="Open in VS Code">Private alert-testing setup</a>
+</li>
+<li>
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/docs/operations/alert-runtime.md" data-repo-file="docs/operations/alert-runtime.md" data-file-line="" title="Open in VS Code">Ordinary alert activation and operation</a>
+</li>
+</ul>
+</details>
+<details class="reference-detail">
+<summary>Check service names without starting anything</summary>
+<div class="codeblock is-command">
+<div class="codeblock-bar">
+<span>Resolve the local service list</span>
+<button class="copy" type="button" data-copy>
+<svg class="ico" aria-hidden="true">
+<use href="#i-copy"/>
+</svg>
+<span class="copy-label">Copy</span>
+</button>
+</div>
+<pre>
+<code>docker compose --env-file .env.example -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml config --services</code>
+</pre>
+</div>
+<p>This reads configuration only. Full <code>config</code> output can contain secrets when you use private settings. Share service names or redacted errors instead.</p>
+</details>
+<details class="reference-detail">
+<summary>Sources and verification limits</summary>
+<p>Updated on 19 October 2026. The linked operations guides contain the complete procedures and verification limits.</p>
+<ul>
+<li>
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/docs/operations/local-runtime.md" data-repo-file="docs/operations/local-runtime.md" data-file-line="" title="Open in VS Code">Local runtime and setup</a>
+</li>
+<li>
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/docs/operations/continuous-deployment.md" data-repo-file="docs/operations/continuous-deployment.md" data-file-line="" title="Open in VS Code">Production deployment and recovery</a>
+</li>
+<li>
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/docs/operations/backend-api.md" data-repo-file="docs/operations/backend-api.md" data-file-line="" title="Open in VS Code">Backend setup</a>
+</li>
+<li>
+<a href="vscode://file/C:/Projects/quakestrikeph/redo/quakestrikeph/docs/operations/README.md" data-repo-file="docs/operations/README.md" data-file-line="" title="Open in VS Code">All team operations</a>
+</li>
+</ul>
+<p>Documentation checks do not prove production is healthy. No migrations, image builds, provider sends, or deployments were run to edit this guide.</p>
+</details>
+</section>
+</main>
+</div>
+<footer class="foot">
+<div class="inner">
+<p>QuakeStrike PH · Team Docker guide · Updated 19 October 2026</p>
+<p>Commands are instructions. This page does not run Docker or change your configuration.</p>
+</div>
+</footer>
+<p id="copy-status" class="sr-only" role="status" aria-live="polite">
+</p>
+<script>
+(function () {
+  'use strict';
+
+  var rootInput = document.getElementById('editor-root');
+  var pathStatus = document.getElementById('editor-path-status');
+  var storageKey = 'quakestrike-docker-guide-repository-root';
+  function normalizeRoot(value) {
+    var root = value.trim().replace(/\\/g, '/').replace(/\/+$/, '');
+    return /^(?:[a-zA-Z]:\/|\/(?!\/))/.test(root) ? root : null;
+  }
+  function updateFileLinks(root) {
+    document.querySelectorAll('a[data-repo-file]').forEach(function (link) {
+      var path = root + '/' + link.dataset.repoFile;
+      // Keep Windows drive letters readable while encoding spaces and URL delimiters.
+      var encoded = path.split('/').map(function (part, index) {
+        return index === 0 && /^[a-zA-Z]:$/.test(part) ? part : encodeURIComponent(part);
+      }).join('/');
+      link.href = 'vscode://file/' + encoded + (link.dataset.fileLine ? ':' + link.dataset.fileLine : '');
+    });
+  }
+  var savedRoot;
+  try { savedRoot = localStorage.getItem(storageKey); } catch (error) { /* Static links still work. */ }
+  var initialRoot = normalizeRoot(savedRoot || rootInput.value);
+  if (initialRoot) { rootInput.value = initialRoot; updateFileLinks(initialRoot); }
+  document.getElementById('editor-path-form').addEventListener('submit', function (event) {
+    event.preventDefault();
+    var root = normalizeRoot(rootInput.value);
+    if (!root) { pathStatus.textContent = 'Enter a full folder path, such as C:/Projects/quakestrikeph.'; return; }
+    rootInput.value = root; updateFileLinks(root);
+    try { localStorage.setItem(storageKey, root); pathStatus.textContent = 'File links updated. Folder saved in this browser.'; }
+    catch (error) { pathStatus.textContent = 'File links updated for this page. Browser storage is unavailable.'; }
+  });
+  function revealLinkedSettings() {
+    if (location.hash === '#editor-settings') document.getElementById('editor-settings').open = true;
+  }
+  window.addEventListener('hashchange', revealLinkedSettings); revealLinkedSettings();
+
+  function fallbackCopy(text) {
+    var area = document.createElement('textarea');
+    area.value = text; area.setAttribute('readonly', '');
+    area.style.position = 'fixed'; area.style.left = '-9999px';
+    document.body.appendChild(area); area.select();
+    try { return document.execCommand('copy'); }
+    catch (error) { return false; }
+    finally { area.remove(); }
+  }
+  document.addEventListener('click', async function (event) {
+    var button = event.target.closest('[data-copy]');
+    if (!button) return;
+    var code = button.closest('.codeblock').querySelector('code');
+    var label = button.querySelector('.copy-label');
+    button.disabled = true;
+    var copied = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        try { await navigator.clipboard.writeText(code.textContent.trim()); copied = true; }
+        catch (error) { copied = fallbackCopy(code.textContent.trim()); }
+      } else { copied = fallbackCopy(code.textContent.trim()); }
+      label.textContent = copied ? 'Copied' : 'Select text';
+      document.getElementById('copy-status').textContent = copied ? 'Command copied.' : 'Copy failed. Select and copy the command manually.';
+      button.classList.toggle('is-copied', copied);
+    } finally {
+      button.disabled = false;
+      window.setTimeout(function () { label.textContent = 'Copy'; button.classList.remove('is-copied'); }, 2000);
+    }
+  });
+  var links = Array.from(document.querySelectorAll('.toc a'));
+  if ('IntersectionObserver' in window) {
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        links.forEach(function (link) {
+          if (link.hash === '#' + entry.target.id) link.setAttribute('aria-current', 'location');
+          else link.removeAttribute('aria-current');
+        });
+      });
+    }, { rootMargin: '-10% 0px -65% 0px' });
+    document.querySelectorAll('main > section[id]').forEach(function (s) { observer.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>

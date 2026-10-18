@@ -8,30 +8,6 @@ This README is the starting point for a developer joining the project. For the
 rules to follow before pushing any change, including documentation, use
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## What is implemented
-
-The current code includes the Python worker and data pipeline. It includes the
-scheduler, bulletin ingestion, event revision history, prediction jobs, a
-Prediction Worker, PostgreSQL migrations, Redis queues, and local Compose
-configuration. A read-only Backend API now has event search and detail routes
-with current forecast reads; its [VPS setup](docs/operations/backend-api.md)
-is explicit. The public Astro/React Bulletin reads the 30 most recent events
-from that API, supports inline list and map selection, and links observations
-to their PHIVOLCS sources. The Operations Console and production monitoring
-remain planned. Forecast alert delivery now has explicit
-SMS/email consumers, reconciliation, health checks, and audited legacy retirement.
-The alert runtime defaults to disabled. See [alert operations](docs/operations/alert-runtime.md).
-Target-provider verification and production activation remain separate gates.
-
-Forecasts open at `/forecasts/<eventId>`. Forecast links and return links clear
-location, date, and magnitude filters. The return link derives the Bulletin
-selection from the event ID in the forecast path. Browser Back restores the
-previous Bulletin URL and its filters.
-The forecast renders before browser requests load observations and the replay.
-Invalid IDs return HTTP 400, missing earthquakes return HTTP 404, and Backend
-failures return HTTP 503. Existing `/?earthquake=<eventId>` links redirect to the
-forecast route.
-
 The main flow is:
 
 ```text
@@ -39,38 +15,24 @@ PHIVOLCS bulletin -> ingestion run -> event and revision -> prediction job
                   -> Prediction Worker -> forecast
 ```
 
-PostgreSQL stores durable records. Redis carries commands that identify those
-records. The [architecture specification](docs/system-design/ARCHITECTURE/ARCHITECTURE.md)
-describes the intended full system; its diagram includes components that are
-not implemented yet.
-
-The planned Bulletin uses Clerk email/password or Google sign-in for personal
-email and SMS alert settings. IPROG SMS handles separate phone verification
-and SMS delivery; Brevo sends alert email. The separate Operations Console is
-protected by Cloudflare Access and reads selected PostgreSQL records on its
-server. See the
-[Console ADR](docs/adr/0035-cloudflare-access-operations-console.md),
-[Bulletin auth ADR](docs/adr/0037-clerk-free-bulletin-authentication.md), and
-[alert channel ADR](docs/adr/0038-email-and-sms-alert-preferences.md).
-
 ![System and layered architecture](docs/system-design/ARCHITECTURE/system-architecture-layers.png)
 
 ## Find your way around
 
-| Path | What is there now |
-| --- | --- |
-| `workers/src/quakestrike/` | Scheduling, ingestion, prediction, and shared application code. |
-| `workers/tests/` | Unit and integration tests. |
-| `database/migrations/` | PostgreSQL schema migrations. |
-| `database/initialization/` | Explicit role provisioning and release preparation scripts. |
-| `database/maintenance/` | Backup, restore-test, and retention scripts with host scheduler units. |
-| `packages/contracts/queue/` | Versioned ingestion, prediction, and alert command schemas. |
-| `packages/contracts/openapi.yaml` | Public Backend HTTP contract. |
-| `apps/backend-api/` | Read-only Node/Express/TypeScript earthquake and forecast API. |
-| `apps/quakestrikeph-bulletin/` | Astro/React/TypeScript public Bulletin with API-backed event and forecast views. |
-| `infrastructure/` | Compose files and operator scripts. |
-| `docs/adr/` | Accepted decisions that govern implementation. |
-| `docs/system-design/` | Intended architecture, database design, and data flows. |
+| Path                              | What is there now                                                                |
+| --------------------------------- | -------------------------------------------------------------------------------- |
+| `workers/src/quakestrike/`        | Scheduling, ingestion, prediction, and shared application code.                  |
+| `workers/tests/`                  | Unit and integration tests.                                                      |
+| `database/migrations/`            | PostgreSQL schema migrations.                                                    |
+| `database/initialization/`        | Explicit role provisioning and release preparation scripts.                      |
+| `database/maintenance/`           | Backup, restore-test, and retention scripts with host scheduler units.           |
+| `packages/contracts/queue/`       | Versioned ingestion, prediction, and alert command schemas.                      |
+| `packages/contracts/openapi.yaml` | Public Backend HTTP contract.                                                    |
+| `apps/backend-api/`               | Read-only Node/Express/TypeScript earthquake and forecast API.                   |
+| `apps/quakestrikeph-bulletin/`    | Astro/React/TypeScript public Bulletin with API-backed event and forecast views. |
+| `infrastructure/`                 | Compose files and operator scripts.                                              |
+| `docs/adr/`                       | Accepted decisions that govern implementation.                                   |
+| `docs/system-design/`             | Intended architecture, database design, and data flows.                          |
 
 The Operations Console does not have code under `apps/` yet.
 

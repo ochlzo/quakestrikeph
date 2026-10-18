@@ -1,9 +1,66 @@
-# Local runtime enablement
+# Run the application locally
 
-These steps use PowerShell from the repository root. They start the local data
-services, initialize the database and model release, import preserved history,
-and check whether the runtime is ready. Initialization is explicit: starting
-containers alone does not migrate or bootstrap an empty database.
+Run PowerShell commands from the repository root. Local Bulletin and workers share PostgreSQL and Redis in the `infrastructure` Compose project.
+
+| Your task | Start here |
+| --- | --- |
+| Start Bulletin after setup | [Daily Bulletin commands](#daily-bulletin-commands) |
+| Set up Bulletin and the Backend | [Local web setup](#9-add-the-local-backend-and-bulletin) |
+| Set up the full worker pipeline | [Worker prerequisites](#1-gather-the-prerequisites) |
+| Start initialized workers | [Start consumers](#7-start-consumers-then-enable-beat) |
+| Check predictions or recover queued work | [Prediction operations](#prediction-worker-operations) |
+| Test with the actual model | [Real-model checks](#real-model-integration-checks) |
+| Stop local workers | [Stop local services](#8-stop-local-services) |
+
+Container startup does not initialize an empty database. Complete the matching setup before using daily commands.
+
+## Daily Bulletin commands
+
+**Prerequisite:** Complete [local web setup](#9-add-the-local-backend-and-bulletin) once.
+
+1. Start the data and web services.
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml up -d --wait postgres redis backend-api bulletin
+```
+
+2. Open <http://127.0.0.1:4321>.
+3. If startup fails, inspect service status and recent logs.
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml ps postgres redis backend-api bulletin
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml logs --tail 100 backend-api bulletin
+```
+
+4. When finished, stop only the web services.
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml stop bulletin backend-api
+```
+
+PostgreSQL and Redis remain available to workers. Source edits appear through the Bulletin source mount; Backend edits require an image rebuild.
+
+### Rebuild after code or dependency changes
+
+For Backend changes, rebuild and replace only the Backend.
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml build backend-api
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml up -d --wait --no-deps backend-api
+```
+
+For Bulletin dependency changes, rebuild the image before renewing its dependency volume.
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml build bulletin
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml up -d --wait --no-deps --force-recreate -V bulletin
+```
+
+`-V` renews the Bulletin's anonymous dependency volume. These targeted commands preserve the shared database and Redis volumes.
+
+## First-time worker setup
+
+Complete sections 1–6 before starting recurring workers.
 
 ## 1. Gather the prerequisites
 
@@ -25,7 +82,7 @@ for the import below.
 ## 2. Configure the local environment
 
 ```powershell
-Copy-Item .env.example .env
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 uv python install 3.12
 uv sync --project workers --frozen
 ```
@@ -93,9 +150,10 @@ The named database volume remains attached; do not remove it.
 
 ## 5. Initialize the database and model release
 
-For an existing database, stop all work producers and consumers before these
-release steps. Let in-flight prediction attempts finish before stopping the
-workers when possible:
+For an existing database, stop all work producers and consumers before these release steps.
+If web services are running, stop Bulletin and Backend with [the daily web commands](#daily-bulletin-commands).
+If alerts are active, follow [alert shutdown](alert-runtime.md#rollback-and-evidence-limits) before migrations.
+Let in-flight predictions finish before stopping workers when possible:
 
 ```powershell
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile beat --profile prediction stop beat data-ingestor dispatcher prediction-worker
@@ -120,21 +178,23 @@ worker tables, enum types, and snapshot functions to the migration role.
 This permits later migrations to replace administrator-owned legacy functions.
 An exact registration repeat is safe.
 
-The reissue command handles durable `SEIS 1.0` prediction work that cannot
-produce a v2 forecast. It creates new `SEIS 1.0.1` jobs and dispatches from
-preserved input snapshots, closes eligible old jobs and dispatches, and audits
-the linked IDs. It accepts old `pending` and `retry_wait` jobs, and old
-`failed` jobs with `unsupported_schema` or `release_mismatch` errors. It
-refuses a running job or active attempt; let that work settle and rerun the
-command. It skips successful, cancelled, and unrelated failed work. Reruns are
-safe, but a conflicting existing replacement fails for investigation. Check
-that the command prints `"status": "completed"` and inspect its `reissued`
-and `reused` counts before starting Dispatcher or Prediction Worker. Each
-reissue cancels the old job with `reissued_for_release` and writes a
-`prediction_backlog_reissued` audit linking the old and new job and dispatch
-IDs. No alert is sent by reissue itself. See
-[ADR 0028](../adr/0028-legacy-prediction-backlog-reissue.md) for the
-transaction and identity rules.
+### Legacy prediction reissue reference
+
+`reissue-legacy-predictions` replaces eligible `SEIS 1.0` work with `SEIS 1.0.1` jobs from preserved input snapshots.
+It closes eligible old work and audits the linked job and dispatch IDs. Reissue itself sends no alert.
+
+| Existing job | Result |
+| --- | --- |
+| `pending` or `retry_wait` | Eligible for replacement. |
+| `failed` with `unsupported_schema` or `release_mismatch` | Eligible for replacement. |
+| Running job or active attempt | Refused; let work settle before rerunning. |
+| Successful, cancelled, or unrelated failure | Skipped. |
+| Matching replacement already exists | Reused; reruns are safe. |
+| Conflicting replacement exists | Fails for investigation. |
+
+Before starting Dispatcher or Prediction Worker, confirm `"status": "completed"` and inspect `reissued` and `reused` counts.
+Each replacement cancels the old job with `reissued_for_release`.
+The `prediction_backlog_reissued` audit links old and new job/dispatch IDs.
 
 ## 6. Import history and check readiness
 
@@ -166,6 +226,9 @@ snapshot remains valid and available.
 ```powershell
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml up -d --wait dispatcher
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml up -d --wait data-ingestor
+
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction up -d --wait prediction-worker
+
 & infrastructure/scripts/enable-beat.ps1
 ```
 
@@ -177,13 +240,7 @@ UTC wall-clock boundary of `POLL_INTERVAL_SECONDS` (five minutes by default).
 It does not poll on startup or replay missed boundaries. Beat has no automatic
 restart policy; enable it explicitly again after a stack restart.
 
-To consume prediction work, start the separate Prediction image before creating
-a poll. It loads and verifies the `SEIS 1.0.1` bundle before consuming the queue.
-The model files remain on the read-only artifact mount.
-
-```powershell
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction up -d --wait prediction-worker
-```
+The Prediction Worker loads and verifies `SEIS 1.0.1` before consuming work. Model files remain on the read-only artifact mount.
 
 The default is one healthy Prediction Worker container with one Celery child.
 To run two identical replicas on the same prediction queue, scale the service:
@@ -255,41 +312,9 @@ dispatch reaches `stopped`, and a forecast exists for that job.
 The isolated one-versus-two-replica results and reproduction details are in
 [the prediction benchmark report](../benchmarks/prediction-worker-issue-21.md).
 
-### Real-model integration checks
+### Run one poll and inspect work
 
-The standard integration runner omits model artifacts and prediction
-dependencies, so it skips the two real-model tests. A skip in that runner does
-not mean the host lacks the model bundle. The `prediction-smoke-runner` installs
-the locked prediction dependencies and mounts `MODEL_ARTIFACT_HOST_DIRECTORY`
-read-only. The default host directory is the repository's `model-artifacts/`.
-It must contain `seis-1.0.1/manifest.json` and the verified weights.
-
-To run both real-model tests against the disposable database, run:
-
-```powershell
-docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test redis-test
-docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile prediction-smoke run --build --rm prediction-smoke-runner pytest --config-file workers/pyproject.toml workers/tests/integration/test_prediction_worker.py -k test_real_seis -s
-docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v
-```
-
-Confirm the summary shows two passed tests and no skipped tests. The checks
-verify a known persisted forecast and measure one versus two worker replicas.
-If either test skips, check the reported manifest path, host mount, and
-prediction dependencies before reporting the bundle as missing.
-
-To run only the replica benchmark, use the same isolated test project and
-replace the test command with:
-
-```powershell
-docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile prediction-smoke run --build --rm prediction-smoke-runner pytest --config-file workers/pyproject.toml workers/tests/integration/test_prediction_worker.py -k test_real_seis_replica_benchmark -s
-```
-
-The benchmark reports throughput, p95 completion time, retry attempts, and
-parent/child peak resident memory for ten jobs at each replica count. These
-local measurements are a baseline; measure on the VPS before choosing its
-steady replica count.
-
-For one early poll, use the separate operator command. It first checks both
+Use the separate operator command for an early poll. It first checks both
 consumer health states and then checks readiness before creating or reusing a
 durable run and dispatch. A reused run may have been created by Beat.
 The command runs inside the Dispatcher container so it can verify that the
@@ -339,30 +364,96 @@ The explicit `alerts` profile adds the Alert Worker and independent reconciliati
 Follow [alert operations](alert-runtime.md) for rollout, legacy retirement, and finite verification.
 Provider verification and production activation remain separate gates.
 
-## 8. Stop local services
+
+### Real-model integration checks
+
+The standard integration runner omits model artifacts and prediction
+dependencies, so it skips the two real-model tests. A skip in that runner does
+not mean the host lacks the model bundle. The `prediction-smoke-runner` installs
+the locked prediction dependencies and mounts `MODEL_ARTIFACT_HOST_DIRECTORY`
+read-only. The default host directory is the repository's `model-artifacts/`.
+It must contain `seis-1.0.1/manifest.json` and the verified weights.
+
+To run both real-model tests against the disposable database, run:
 
 ```powershell
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml down
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test redis-test
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile prediction-smoke run --build --rm prediction-smoke-runner pytest --config-file workers/pyproject.toml workers/tests/integration/test_prediction_worker.py -k test_real_seis -s
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v
 ```
 
-This stops the containers and retains their volumes. Do not add `-v` unless
-you intend to delete the local PostgreSQL and Redis data.
+Confirm the summary shows two passed tests and no skipped tests. The checks
+verify a known persisted forecast and measure one versus two worker replicas.
+If either test skips, check the reported manifest path, host mount, and
+prediction dependencies before reporting the bundle as missing.
+
+To run only the replica benchmark, use the same isolated test project and
+replace the test command with:
+
+```powershell
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile prediction-smoke run --build --rm prediction-smoke-runner pytest --config-file workers/pyproject.toml workers/tests/integration/test_prediction_worker.py -k test_real_seis_replica_benchmark -s
+```
+
+The benchmark reports throughput, p95 completion time, retry attempts, and
+parent/child peak resident memory for ten jobs at each replica count. These
+local measurements are a baseline; measure on the VPS before choosing its
+steady replica count.
+
+## 8. Stop local services
+
+Stop scheduled publication before stopping consumers.
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile beat stop beat
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml stop dispatcher
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.release.yml --profile prediction stop data-ingestor prediction-worker
+```
+
+If alerts are active, follow [alert shutdown](alert-runtime.md#rollback-and-evidence-limits) before stopping their dependencies.
+Leave PostgreSQL and Redis running when local web services still need them.
+Avoid project-wide `down` for an application-specific stop. `down -v` deletes the shared data volumes.
 
 ## 9. Add the local Backend and Bulletin
 
 Use the same `infrastructure` project and root `.env` for local web development.
 Do not include `compose.edge.yml`; that file enables the production edge.
 The local override publishes only `127.0.0.1:3000` and `127.0.0.1:4321`.
-PostgreSQL and Redis remain private. See [ADR 0043](../adr/0043-shared-local-compose-runtime.md).
+PostgreSQL and Redis remain private.
 
-Set `BACKEND_DB_PASSWORD`, a matching `BACKEND_DATABASE_URL` with the
-`quakestrike_backend` login, and the registered `MODEL_RELEASE_ID` in root `.env`.
-Set `BACKEND_IMAGE_TAG` for the shared Backend file; the local override uses
-the development-only `quakestrike-backend:local` image instead.
-Set `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `PUBLIC_CLERK_PUBLISHABLE_KEY`,
-`CLERK_AUTHORIZED_PARTIES=http://localhost:4321,http://127.0.0.1:4321`,
-`ACCOUNT_REDIS_URL=redis://redis:6379/0`, and `IPROG_API_TOKEN` for account features.
-The Bulletin receives only the publishable key and local proxy targets.
+### Prepare a new local web environment
+
+If the root `.env` and packaged model already exist, check the settings table below.
+Otherwise, obtain the approved `SEIS 1.0.1` package. Replace the example package path before running these commands:
+
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+uv python install 3.12
+uv sync --project workers --frozen
+$sourcePackage = 'C:\path\to\reviewed-model-package'
+uv run --project workers quakestrike package-model-release --source-package $sourcePackage
+```
+
+Set `MODEL_ARTIFACT_HOST_DIRECTORY` to the packaged model's host directory; the default is the ignored `model-artifacts/` folder.
+
+| Settings in root `.env` | Required value |
+| --- | --- |
+| `POSTGRES_PASSWORD`, `MIGRATION_DB_PASSWORD`, `WORKER_DB_PASSWORD` | Distinct passwords; match migration/worker URLs to their respective logins. |
+| `MIGRATION_DATABASE_URL`, `DATABASE_URL`, `REDIS_URL` | Private Compose hosts `postgres:5432` and `redis:6379`. |
+| `PHIVOLCS_CATALOG_URL` | Official HTTPS catalog URL, also required by `local-init`. |
+| `MODEL_RELEASE_ID` | ID from the approved packaged model manifest. |
+| `BACKEND_DB_PASSWORD`, `BACKEND_DATABASE_URL` | Matching credentials for `quakestrike_backend` at `postgres:5432`. |
+| `BACKEND_IMAGE_TAG` | Nonempty tag required by the shared file; local override uses `quakestrike-backend:local`. |
+| `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `PUBLIC_CLERK_PUBLISHABLE_KEY` | Development Clerk credentials; only the public key reaches Bulletin. |
+| `CLERK_AUTHORIZED_PARTIES` | `http://localhost:4321,http://127.0.0.1:4321` |
+| `ACCOUNT_REDIS_URL` | `redis://redis:6379/0` |
+| `IPROG_API_TOKEN` | Approved credential when phone verification is needed. |
+
+Web-only startup does not need a history import. For live ingestion and prediction, complete [worker setup](#first-time-worker-setup).
+
+### Initialize or update the local web database
+
+For an existing shared database, back up data and stop web services and all work producers/consumers before migrations.
+If database passwords changed, follow [password rotation](database-maintenance.md#change-database-passwords-on-an-existing-volume).
 
 1. Match `MODEL_RELEASE_ID` to the verified `SEIS 1.0.1` bundle.
 2. Back up the shared database before applying pending migrations.
@@ -411,15 +502,14 @@ in its original volume; configuration consolidation does not transfer them.
 Keep that volume and the ignored configuration backup until its data is no
 longer needed. Never use `down -v` to retire the old account environment.
 
-The Bulletin mounts application source for development. After a lockfile
-change, rebuild its image and renew only its dependency volume with
-`docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.local.yml up -d --no-deps --force-recreate -V bulletin`.
-The command renews anonymous volumes; the Bulletin dependency mount must be
-anonymous so it never changes the shared PostgreSQL or Redis volumes.
+For source and dependency changes, use [the rebuild commands](#rebuild-after-code-or-dependency-changes).
 
-The local override launches the installed Astro CLI directly with `--ignore-lock`.
-Docker manages the server process. A host-mounted `.astro/dev.json` can retain a
-PID from a removed container and falsely block its replacement. The local command
-neither reads nor writes that record and avoids pnpm's automatic installation
-before script execution. Rebuild the image and renew the Bulletin dependency
-volume after dependency changes, as documented above.
+### Local development reference
+
+The local override launches Astro directly with `--ignore-lock`. Docker manages the server process.
+This avoids a stale PID in host-mounted `.astro/dev.json` blocking a replacement container.
+The command also avoids automatic package installation before server startup.
+
+`LOCAL_API_TARGET` and `LOCAL_ACCOUNT_API_TARGET` default to `http://backend-api:3000`.
+Change these values privately only when you deliberately need another API target.
+Do not include the production edge file during local development.

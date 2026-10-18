@@ -1,7 +1,15 @@
-# Bulletin account development and checks
+# Develop and check Bulletin accounts
 
-This branch adds local account implementation. It does not deploy account
-routes or enable automatic earthquake delivery.
+Use this guide for local account configuration, automated checks, and account behavior reference.
+Use [local runtime](local-runtime.md#daily-bulletin-commands) for daily startup and [CI/deployment](continuous-deployment.md) for production releases.
+
+| Task | Section |
+| --- | --- |
+| Configure local services | [Local configuration](#local-configuration) |
+| Run unit, integration, or browser checks | [Automated checks](#automated-checks) |
+| Verify live providers before release | [Provider gates](#provider-and-release-gates) |
+| Check verification, phone, and device behavior | [Account behavior reference](#account-behavior-reference) |
+| Find the retired isolated runtime | [Former runtime](#former-isolated-account-runtime) |
 
 ## Local configuration
 
@@ -12,116 +20,20 @@ Provider secrets reach only the Backend. The Bulletin receives the publishable k
 Apply migrations and restricted Backend grants before starting account routes.
 Do not include `compose.edge.yml` during local development.
 
-The development Clerk app is **QuakeStrike PH Bulletin** in Personal/Hobby:
-`app_3K8Qn66bPx5HFT1S1aJQUxveCS0`, instance
-`ins_3K8Qn2Z9aDmYnNkaBAlmgstZBba`. Email, verified email signup, password
-and Google are enabled. Device Trust remains enabled. The reverification window
-is **5 minutes** (Dashboard **Sessions**, **Session lifetime**), matching the
-Bulletin's five-minute proof reuse and the Backend first-factor `fva` check, so
-a proof the product already accepted also satisfies Clerk's own requirement for
-protected client actions such as session revocation. Set the same value on the
-production instance before release. The user-approved password
-policy is at least 8 characters, including one lowercase letter, one uppercase
-letter and one number. Compromised-password rejection and the strength estimator
-are off; special characters are not required. These settings were saved and
-verified in the development dashboard. Clerk labels character-composition rules
-as Pro; this development instance accepted them without a paid plan change.
-On 3 October 2026 the user accepted UI-only composition checks on signup,
-recovery, required password-reset session tasks and password addition/change.
-These browser checks can be bypassed through direct Clerk requests; the user
-accepts that limitation. Clerk owns credentials and applies its own server-side
-rules. Custom paid composition settings and a Backend password endpoint are
-not required. Existing-password sign-in and reverification do not apply the
-new-password composition rule. See [ADR 0042](../adr/0042-bulletin-account-implementation.md).
-Keep email-code
-capability enabled for device trust and Google-only reverification. Account
-email change/removal is not exposed through hosted profile components.
-
-Sensitive account actions use Clerk's first-factor verification age (`fva[0]`).
-The Bulletin refreshes the session token before each freshness check and reads
-the claims from Clerk's live session. A numeric age from zero to less than five
-minutes qualifies; five minutes, missing claims and negative ages require
-reverification. Recent password sign-in or first-factor verification qualifies
-without another OTP. Accounts with and without passwords follow the same rule.
-When verification expires, the existing email OTP screen requests fresh proof.
-The sign-in form retains "Forgot password?" and signed-out email recovery.
-
-When proof is missing or expired, the shared gate first shows the masked account
-email and a "Send verification code" button. Opening the gate or selecting Back
-does not request a code. Only an explicit send opens the code-entry step after
-Clerk confirms preparation. Sending disables the button and shows a spinner;
-failure leaves the confirmation available for retry. Resend remains explicit.
-
-The Bulletin keeps no separate proof cache or verification timestamp in browser
-storage. Reload and reopening settings reuse the remaining Clerk verification
-window for the same session; neither action restarts that window. Every check
-verifies session identity before and after token refresh. Missing tokens and
-late responses from another session cannot establish freshness. An explicit
-send or resend always requests a code. A provider or Backend reverification
-requirement opens the email gate even if the earlier age appeared recent.
-
-The Bulletin checks again before a password save, before replacement phone
-send/resend/verification requests and before a mobile-number removal. Expiry
-opens email reverification before continuing; a phone SMS OTP remains
-independently required for a new number. Password updates omit `currentPassword`
-and sign out other sessions. Future email change and account removal must use
-this shared gate when implemented; those features remain unavailable in this
-release.
-
-Account settings use one Manage action for an existing mobile number. It opens
-a compact modal over the account screen without changing `/account`. The modal
-contains the heading, description, saved number and two buttons: Remove number
-on the left and Change number on the right. Escape and Close dismiss only this modal and restore focus to
-Manage. Both actions close the modal and use the shared email verification
-gate. Changing screens resets the modal's open state. Back and Cancel return
-to Account settings with the modal closed; only Manage opens it again.
-Direct removal visits, reloads and history navigation also check proof.
-Removal issues `DELETE /api/v1/account/phone`, which returns the updated account,
-shows a success notification and returns to Account settings. Removing a number
-that is not saved changes nothing, reports no success audit and is not reachable
-from the screen because removal redirects when no number exists. Removal always
-acquires the shared account lock, rereads the account and cancels pending
-verification before deciding whether a saved phone needs clearing. This also
-clears a binding committed after the initial read. Start and verification keep
-their additional phone lock; an overlapping operation on the same account
-reports verification busy.
-
-The device screen lists only the signed-in sessions Clerk reports: device type,
-browser and a relative last-active time. No city, country, IP address or
-hardware identity is shown. The current session is identified as this device and
-keeps the existing ordinary sign-out. Other sessions sign out individually or
-together through the shared email verification gate, which satisfies Clerk's own
-session reverification for the protected action. A stale reverification
-requirement reopens the gate and no device action is retried automatically. When
-no other sessions exist, the bulk action is hidden.
-
-These account destinations share the settings Dialog and its mobile layout:
-
-| Route | Screen |
-| --- | --- |
-| `/account/phone` | Existing add/change number and SMS verification flow. |
-| `/account/phone/remove` | Mobile-number removal confirmation. |
-| `/account/devices` | Signed-in devices with per-device and bulk sign-out. |
-| `/account/email` | Unavailable email-change placeholder. |
-| `/account/remove` | Unavailable account-removal placeholder. |
-
-Direct visits, reloads and browser history use the same session checks as other
-settings routes. Removal without a saved number redirects to `/account`.
-The former `/account/phone/manage` page is removed. Change number continues at
-`/account/phone`; removal continues at `/account/phone/remove`.
-The email-change and account-removal placeholders remain unavailable.
-
-Clerk retains authoritative password/session checks and its own reverification
-window. The Backend retains its verified-email, ownership and five-minute
-first-factor `fva` checks on authenticated tokens. The browser freshness check
-does not replace server authorization. Keep email codes and reverification
-enabled; no MFA enrollment is required. Test the target Clerk instance before release.
-
 ## Automated checks
 
-Run `npm test` and `npm run typecheck` in the Backend; run `pnpm check`,
-`pnpm build` and `pnpm generate:api` in the Bulletin. Run the worker tests,
-Ruff lint and Ruff formatting checks from CONTRIBUTING.md.
+Run these commands from the repository root after installing locked dependencies:
+
+```powershell
+npm --prefix apps/backend-api test
+npm --prefix apps/backend-api run typecheck
+pnpm --dir apps/quakestrikeph-bulletin check
+pnpm --dir apps/quakestrikeph-bulletin build
+pnpm --dir apps/quakestrikeph-bulletin generate:api
+```
+
+Run worker tests and Ruff from [contributor checks](../../CONTRIBUTING.md#check-before-every-push).
+Review generated API changes before committing.
 
 Run the exact disposable Compose commands from CONTRIBUTING.md first. After
 the worker migration suite, provision the restricted test role and run Backend
@@ -141,7 +53,9 @@ also check that phone removal clears the number and SMS flag, cancels an
 in-flight attempt and writes one `phone_removed` audit row with no number in its
 metadata. No live SMS or production API mutation is part of automated tests.
 
-For browser checks, start the separate fixture server in the Bulletin:
+### Browser checks with the Vite fixture
+
+Run these commands from `apps/quakestrikeph-bulletin`. Start the fixture server in one terminal:
 
 ```powershell
 pnpm exec vite --config tests/accounts/vite.config.mjs
@@ -173,6 +87,210 @@ tasks, sign-out confirmations, and delayed Clerk successes and failures.
 The test-only Clerk adapter can delay or reject individual provider stages and
 record their ordering. Unused fixture branches and obsolete
 positive actions must not remain in fixture scripts.
+
+As with the existing Bulletin browser checks, expose the bundled Playwright
+package via `NODE_PATH` when it is not installed locally. The fixture server
+uses a test-only Clerk alias. The production configuration has no fixture alias,
+environment toggle or public fixture route. Screenshots and results go to the ignored
+`.impeccable/review/accounts` folder. Fixtures validate UI transitions; they
+do not prove live Clerk or IPROG success.
+
+### Browser checks with the Astro fixture
+
+Run from `apps/quakestrikeph-bulletin`. Start the Astro fixture in one terminal:
+
+```powershell
+$env:PUBLIC_CLERK_PUBLISHABLE_KEY='FIXTURE_ONLY'
+pnpm exec astro dev --config tests/accounts/astro.config.mjs --host 127.0.0.1 --port 4333
+```
+
+In another terminal, run both regressions:
+
+```powershell
+node tests/accounts/background-saves.cjs
+node tests/accounts/settings-dialog.cjs
+```
+
+Both `background-saves.cjs` and `settings-dialog.cjs` require this Astro fixture
+server on port 4333; they do not run against the Vite server.
+
+## Provider and release gates
+
+Local fixtures prove application transitions. They do not prove live Clerk or IPROG success.
+Before release, check the target provider instance with an approved recipient and send limit.
+
+1. Verify Clerk signup, Google sign-in, device trust, recovery, and recent verification.
+2. Verify IPROG only with explicit authorization for the destination and number of sends.
+3. Confirm disposable integration tests ran rather than skipped.
+4. Record Docker or provider blockers separately from passing checks.
+
+Missing IPROG credentials make phone verification unavailable. Public reading and email preferences remain usable.
+Keep provider tokens in ignored private configuration; do not purchase credits or send verification codes without approval.
+
+### Recorded provider observations
+
+On 2 October 2026, two approved OTP sends verified the live adapter and UI flow.
+The UI saved the verified phone, and both alert channels stayed off.
+Both sends consumed the approved allowance; that record authorizes no further send or resend.
+The token was stored only in the ignored Backend `.env.local` of the former `bulletin-accounts` worktree.
+This historical result does not establish readiness of another environment.
+
+## Former isolated account runtime
+
+The former `quakestrike-bulletin-accounts-dev` project is retired from the local
+development workflow. Its durable database volume remains recovery evidence.
+Configuration copies are preserved under the ignored
+`.local/backups/accounts-runtime/` directory in the main checkout.
+The former worktree's design files and runtime evidence are archived under
+`.local/backups/bulletin-accounts-worktree/` in the main checkout.
+
+Shared runtime setup does not copy account test records or fixture model metadata.
+Do not delete the old volume or start both Backends on port 3000.
+The separate disposable integration project remains unchanged.
+
+## Account behavior reference
+
+### Clerk instance and password rules
+
+| Setting | Development value or requirement |
+| --- | --- |
+| App | **QuakeStrike PH Bulletin**, Personal/Hobby. |
+| App ID | `app_3K8Qn66bPx5HFT1S1aJQUxveCS0` |
+| Instance ID | `ins_3K8Qn2Z9aDmYnNkaBAlmgstZBba` |
+| Sign-in | Email/password and Google. |
+| Signup | Verified email required. |
+| Device Trust | Enabled. |
+| Reverification | **5 minutes**, under **Sessions → Session lifetime**. |
+| New-password rule | At least eight characters, one lowercase letter, one uppercase letter, and one number. |
+| Special characters | Not required. |
+| Compromised-password rejection and strength estimator | Off in the recorded development configuration. |
+| Email codes | Enabled for device trust and Google-only reverification. |
+
+Set the same five-minute reverification window on the production instance before release.
+The Bulletin and Backend use that window for sensitive actions, including other-session sign-out.
+Email change/removal is not exposed through hosted profile components.
+
+On 3 October 2026, the user accepted browser-only composition checks for new passwords.
+They apply to signup, recovery, required reset tasks, and password addition/change.
+Existing-password sign-in and reverification do not apply the new-password rule.
+Direct Clerk requests can bypass browser composition checks; Clerk retains its own server-side credential rules.
+The implementation requires neither paid composition settings nor a Backend password endpoint.
+
+The recorded development dashboard accepted composition settings without a paid plan change, although Clerk labeled them Pro.
+That historical observation does not establish another instance's provider settings.
+
+### Verification window
+
+Sensitive account actions use Clerk's first-factor verification age (`fva[0]`).
+The Bulletin refreshes the session token before each freshness check and reads
+the claims from Clerk's live session. A numeric age from zero to less than five
+minutes qualifies; five minutes, missing claims and negative ages require
+reverification. Recent password sign-in or first-factor verification qualifies
+without another OTP. Accounts with and without passwords follow the same rule.
+When verification expires, the existing email OTP screen requests fresh proof.
+The sign-in form retains "Forgot password?" and signed-out email recovery.
+
+### Verification dialog
+
+When proof is missing or expired, the shared gate first shows the masked account
+email and a "Send verification code" button. Opening the gate or selecting Back
+does not request a code. Only an explicit send opens the code-entry step after
+Clerk confirms preparation. Sending disables the button and shows a spinner;
+failure leaves the confirmation available for retry. Resend remains explicit.
+
+### Session and proof lifetime
+
+The Bulletin keeps no separate proof cache or verification timestamp in browser
+storage. Reload and reopening settings reuse the remaining Clerk verification
+window for the same session; neither action restarts that window. Every check
+verifies session identity before and after token refresh. Missing tokens and
+late responses from another session cannot establish freshness. An explicit
+send or resend always requests a code. A provider or Backend reverification
+requirement opens the email gate even if the earlier age appeared recent.
+
+The Bulletin checks again before a password save, before replacement phone
+send/resend/verification requests and before a mobile-number removal. Expiry
+opens email reverification before continuing; a phone SMS OTP remains
+independently required for a new number. Password updates omit `currentPassword`
+and sign out other sessions. Future email change and account removal must use
+this shared gate when implemented; those features remain unavailable in this
+release.
+
+### Phone management
+
+Account settings use one Manage action for an existing mobile number. It opens
+a compact modal over the account screen without changing `/account`. The modal
+contains the heading, description, saved number and two buttons: Remove number
+on the left and Change number on the right. Escape and Close dismiss only this modal and restore focus to
+Manage. Both actions close the modal and use the shared email verification
+gate. Changing screens resets the modal's open state. Back and Cancel return
+to Account settings with the modal closed; only Manage opens it again.
+Direct removal visits, reloads and history navigation also check proof.
+Removal issues `DELETE /api/v1/account/phone`, which returns the updated account,
+shows a success notification and returns to Account settings. Removing a number
+that is not saved changes nothing, reports no success audit and is not reachable
+from the screen because removal redirects when no number exists. Removal always
+acquires the shared account lock, rereads the account and cancels pending
+verification before deciding whether a saved phone needs clearing. This also
+clears a binding committed after the initial read. Start and verification keep
+their additional phone lock; an overlapping operation on the same account
+reports verification busy.
+
+### Device management
+
+The device screen lists only the signed-in sessions Clerk reports: device type,
+browser and a relative last-active time. No city, country, IP address or
+hardware identity is shown. The current session is identified as this device and
+keeps the existing ordinary sign-out. Other sessions sign out individually or
+together through the shared email verification gate, which satisfies Clerk's own
+session reverification for the protected action. A stale reverification
+requirement reopens the gate and no device action is retried automatically. When
+no other sessions exist, the bulk action is hidden.
+
+### Account routes
+
+These account destinations share the settings Dialog and its mobile layout:
+
+| Route | Screen |
+| --- | --- |
+| `/account/phone` | Existing add/change number and SMS verification flow. |
+| `/account/phone/remove` | Mobile-number removal confirmation. |
+| `/account/devices` | Signed-in devices with per-device and bulk sign-out. |
+| `/account/email` | Unavailable email-change placeholder. |
+| `/account/remove` | Unavailable account-removal placeholder. |
+
+Direct visits, reloads and browser history use the same session checks as other
+settings routes. Removal without a saved number redirects to `/account`.
+The former `/account/phone/manage` page is removed. Change number continues at
+`/account/phone`; removal continues at `/account/phone/remove`.
+The email-change and account-removal placeholders remain unavailable.
+
+### Server checks
+
+Clerk retains authoritative password/session checks and its own reverification
+window. The Backend retains its verified-email, ownership and five-minute
+first-factor `fva` checks on authenticated tokens. The browser freshness check
+does not replace server authorization. Keep email codes and reverification
+enabled; no MFA enrollment is required. Test the target Clerk instance before release.
+
+
+### Preference saves
+
+This configuration aliases test adapters only. Onboarding Continue commits
+channel choices; selected SMS commits only after verification. Switch saves
+use a 400 ms debounce. Magnitude Check saves; X discards. Failed background
+writes restore confirmed values and show a dismissible error across navigation.
+
+Phone binding and SMS opt-in are separate transactions and have separate
+notifications. Successful binding shows "Mobile number verified." immediately.
+Selected onboarding SMS then shows "SMS alerts enabled." after its save succeeds.
+An opt-in failure shows "SMS alerts could not be enabled." with the Backend reason.
+The verified phone remains linked; the existing SMS switch can retry opt-in.
+A newer SMS-off edit suppresses the enabled notification. Settings-only phone
+verification does not enable SMS.
+
+
+## Implementation and test reference
 
 Authentication screens use specific views and named workflow operations.
 `src/lib/auth` owns all direct Clerk access, including setup, OAuth callbacks,
@@ -227,71 +345,3 @@ Synthetic click checks preserve modified/nonprimary clicks, new-tab links,
 downloads, hash links, and the same URL. Synthetic unload checks validate the
 handler, not the browser's native unload dialog. Actual Astro navigation checks
 continue to verify background-save lifetime and notifications.
-
-As with the existing Bulletin browser checks, expose the bundled Playwright
-package via `NODE_PATH` when it is not installed locally. The fixture server
-uses a test-only Clerk alias. The production configuration has no fixture alias,
-environment toggle or public fixture route. Screenshots and results go to the ignored
-`.impeccable/review/accounts` folder. Fixtures validate UI transitions; they
-do not prove live Clerk or IPROG success.
-
-For checks requiring the separate Astro fixture server on port 4333 (background
-saves across Astro navigation and desktop settings dialog behavior), start the
-isolated Astro configuration in another terminal, then run both browser regressions:
-
-```powershell
-$env:PUBLIC_CLERK_PUBLISHABLE_KEY='FIXTURE_ONLY'
-pnpm exec astro dev --config tests/accounts/astro.config.mjs --host 127.0.0.1 --port 4333
-node tests/accounts/background-saves.cjs
-node tests/accounts/settings-dialog.cjs
-```
-
-Both `background-saves.cjs` and `settings-dialog.cjs` require this Astro fixture
-server on port 4333; they do not run against the Vite server.
-
-This configuration aliases test adapters only. Onboarding Continue commits
-channel choices; selected SMS commits only after verification. Switch saves
-use a 400 ms debounce. Magnitude Check saves; X discards. Failed background
-writes restore confirmed values and show a dismissible error across navigation.
-
-Phone binding and SMS opt-in are separate transactions and have separate
-notifications. Successful binding shows "Mobile number verified." immediately.
-Selected onboarding SMS then shows "SMS alerts enabled." after its save succeeds.
-An opt-in failure shows "SMS alerts could not be enabled." with the Backend reason.
-The verified phone remains linked; the existing SMS switch can retry opt-in.
-A newer SMS-off edit suppresses the enabled notification. Settings-only phone
-verification does not enable SMS.
-
-## Provider and release gates
-
-The user's existing Google-linked IPROG account was accessed on 2 October
-2026. With explicit approval, its existing API token was saved only in the
-ignored Backend `.env.local` in the `bulletin-accounts` worktree. No new
-token was created or credits purchased. The user then approved up to two OTP
-messages to their nominated number. Both approved sends have now been used:
-the live adapter and subsequent UI flow passed network support, attempt-bound
-HMAC and provider verification checks. The UI flow saved the verified phone
-binding, and both alert channels stayed off. No further send or resend is
-authorized. Do not buy credits,
-send a test code, or enable a real destination without that authorization.
-Setup alone does not prove delivery. Missing credentials show verification
-unavailable while email preferences and public reading remain usable.
-
-Before a release, verify live Clerk signup/Google/device trust/recovery and
-recent proof; verify IPROG with an approved recipient and send cap. Confirm
-the disposable integration tests actually ran rather than skipped. Report
-Docker/provider blockers explicitly. No production migration, deployment,
-merge or alert-send action is authorized by this implementation request.
-
-## Former isolated account runtime
-
-The former `quakestrike-bulletin-accounts-dev` project is retired from the local
-development workflow. Its durable database volume remains recovery evidence.
-Configuration copies are preserved under the ignored
-`.local/backups/accounts-runtime/` directory in the main checkout.
-The former worktree's design files and runtime evidence are archived under
-`.local/backups/bulletin-accounts-worktree/` in the main checkout.
-
-Shared runtime setup does not copy account test records or fixture model metadata.
-Do not delete the old volume or start both Backends on port 3000.
-The separate disposable integration project remains unchanged.

@@ -1,15 +1,16 @@
-# Bulletin Backend API
+# Operate the Backend API
 
-The Backend exposes earthquake and forecast reads at
-`https://quakestrikeph.com/api/v1`. The API reads the production PostgreSQL
-container by its Compose service name. It has no database or host port mapping,
-does not create tables at startup, and does not use the broad pgAdmin observer
-login. The Bulletin UI is not required to start the API.
+The public API is `https://quakestrikeph.com/api/v1`.
+Use [local runtime](local-runtime.md#daily-bulletin-commands) for development and [routine deployment](continuous-deployment.md#deploy-a-tested-release) for releases.
 
-The retired hostname `quakestrikeph.qzz.io` has no API route or redirect.
-Keep the explicit new-domain Traefik host rule; reject all other hosts.
+| Task | Section |
+| --- | --- |
+| Prepare the Backend on a new VPS | [First VPS setup](#first-vps-setup) |
+| Check public search and detail routes | [Verify](#verify) |
+| Diagnose startup or stop the public path | [Failure and rollout notes](#failure-and-rollout-notes) |
+| Replace only the Backend during recovery | [Manual upgrade](#manually-upgrade-an-existing-backend) |
 
-After initial setup, [routine deployment](continuous-deployment.md#routine-release-sequence) updates the Backend with workers and Bulletin. Secret provisioning remains manual. Reviewed migrations and grants run before the new Backend starts.
+Container startup does not create tables or register the model. Apply migrations and restricted grants first.
 
 ## First VPS setup
 
@@ -26,21 +27,20 @@ worker stack running. Use a tested Git commit SHA for `BACKEND_IMAGE_TAG`.
    `quakestrikeph.com` to `http://traefik:80`. Cloudflare Tunnel must preserve
    the public host. The Traefik file route forwards only `/api/v1/` on this
    hostname. [Bulletin hosting](continuous-deployment.md#bulletin-hosting) adds a lower-priority page route on the same hostname. No Console or pgAdmin route is created here.
-3. Provision the restricted role and start the three Backend path containers:
+3. Start PostgreSQL and Redis, provision the restricted role, then build and start the Backend path:
 
 ```bash
-docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml up -d --wait postgres
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml up -d --wait postgres redis
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml exec -T postgres sh /opt/quakestrike/provision-roles.sh create-backend
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml build backend-api
 docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml up -d --wait backend-api traefik cloudflared
 ```
 
-The role has column-limited `SELECT` on events, revisions, prediction jobs, and
-model releases, plus `SELECT` on forecasts. It has read-only transactions by
-default and narrowly scoped account reads/writes plus append-only audits after the account migration. It has no writes to worker records, alerts or technical logs. See [account setup](bulletin-accounts.md). If the VPS
-already runs a Cloudflare Tunnel for this hostname, use its managed tunnel
-token and do not create an unrelated public route. The Cloudflare mapping is
-an explicit operator setup step outside this repository.
+**Expected result:** PostgreSQL, Redis, Backend, Traefik, and Cloudflared are healthy.
+Continue with [both public checks](#verify).
+
+Use the existing managed Tunnel token for this hostname. Configure its mapping in Cloudflare; the repository does not create that mapping.
+See [account setup](bulletin-accounts.md) for authenticated routes.
 
 ## Verify
 
@@ -76,6 +76,20 @@ The PostgreSQL query integration test runs in the isolated
 suite. It creates a disposable Backend role and never contacts production.
 
 ## Failure and rollout notes
+
+| Symptom | Check |
+| --- | --- |
+| Backend is unhealthy | Database connectivity, Backend password/grants, and registered `MODEL_RELEASE_ID`. |
+| Search works but detail fails | Run the detail check and reapply the restricted Backend grants. |
+| Account requests fail | Account Redis configuration and [account setup](bulletin-accounts.md). |
+| Public URL fails while Backend is healthy | Tunnel hostname, preserved Host header, and Traefik routing. |
+
+Inspect recent logs from `/srv/quakestrikeph`:
+
+```bash
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml logs --tail 100 backend-api traefik cloudflared
+```
+
 
 Backend startup checks database connectivity and the configured model release.
 The `/healthz` route checks them again for container readiness. A missing role,
@@ -138,3 +152,13 @@ docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/c
 If replacement or either public check fails, restore the prior
 `BACKEND_IMAGE_TAG` and recreate only `backend-api` with the same command.
 The added read grant remains compatible with the prior Backend image.
+
+## Access and routing reference
+
+- The Backend uses the private Compose hostname `postgres`; PostgreSQL has no published host port.
+- The Backend uses its restricted login, separate from worker, migration, and pgAdmin observer logins.
+- Read grants cover selected event, revision, prediction-job, model-release, and forecast data.
+- Account migrations add narrow account writes and append-only audits. The Backend cannot write worker records, alerts, or technical logs directly.
+- The Bulletin UI does not need to run for API requests to work.
+- `quakestrikeph.com` is the sole public domain. The retired `quakestrikeph.qzz.io` has no API route or redirect.
+- Cloudflare Tunnel preserves the public Host header. Traefik rejects unrelated hosts.

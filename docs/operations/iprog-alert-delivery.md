@@ -1,16 +1,21 @@
-# IPROG forecast delivery
+# Check IPROG SMS delivery
 
-The SMS adapter uses the server-only `IPROG_API_TOKEN` setting.
-The adapter sends ordinary messages through the existing shared sender.
-Network checks permit known Globe/TM and DITO results under ADR 0042.
-Smart/TNT is excluded. Unknown support defers resolution or skips sending.
-Successful phone verification does not prove ordinary sender support.
+Use this reference when SMS submission, delivery polling, or charging evidence needs investigation.
+For activation commands, use [alert runtime](alert-runtime.md). A configured token alone does not enable delivery.
 
-Ticket 49 provides the submission and polling boundaries.
-The normal Alert Worker does not enable ordinary submission merely because the token exists.
-Runtime activation, health checks and rollout belong to ticket 51.
-Unrestricted delivery requires the separate rollout gate.
-Shared database migrations and live messages remain separately authorized.
+| Observation | Meaning or next check |
+| --- | --- |
+| Numeric body status 200 and usable message ID | Accepted for submission; receipt remains unverified. |
+| Pending poll result | Provider acceptance. |
+| Completed poll result | Provider delivery evidence. |
+| Failed poll result | Terminal provider failure. |
+| Unknown result with a message ID | Preserve the result; reconcile using the retained reference. |
+| Unknown result without a message ID | Preserve uncertainty; do not resend automatically. |
+| Verified phone but unsupported sender network | Phone verification does not establish ordinary sender support. |
+
+The server-only `IPROG_API_TOKEN` selects the existing shared sender.
+Known Globe/TM and DITO results are supported. Smart/TNT is excluded; unknown support defers resolution or skips sending.
+Live messages and shared database changes require approval for the specific environment.
 
 ## Submission evidence
 
@@ -27,7 +32,7 @@ An explicit HTTP rate-limit rejection uses validated Retry-After timing.
 Generic server failures, malformed acceptance and transport uncertainty remain unknown.
 Unknown submissions never authorize automatic resend.
 
-Frozen content retains the full forecast URL, whitespace and QuakeStrike PH header.
+Frozen content retains the full forecast URL and whitespace. New SMS snapshots omit the application header because the provider template supplies branding.
 The local segment estimate uses GSM-7 default and extension characters or UTF-16 code units.
 The adapter never truncates required content.
 Provider-added text, encoding changes and charging differences remain unverified.
@@ -67,11 +72,10 @@ They exclude destinations, tokens, message text, response prose and credential-b
 SMS count does not establish billed segments or credits.
 Controlled checks must compare both values with the received message and account evidence.
 
-Before activation, verify the header appears exactly once on designated test destinations.
+Before activation, verify branding appears exactly once on the approved destination.
 Verify sender behavior, full-link navigation, received text, delivery reconciliation and observed charging.
 Simulate credential, credit and rate-limit failures without exhausting real credits.
 Automated tests use injected responses and never contact live providers.
 
 References: [IPROG API](https://www.iprogsms.com/api/v1/documentation),
-[provider guide](https://www.iprogsms.com/blog/building-sms-notifications-into-your-app-developers-guide),
-[ADR 0047](../adr/0047-forecast-alert-content-and-delivery-evidence.md).
+[provider guide](https://www.iprogsms.com/blog/building-sms-notifications-into-your-app-developers-guide).

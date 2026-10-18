@@ -1,11 +1,18 @@
-# Ingestion checkpoint retention
+# Maintain ingestion checkpoints
 
-Successful scheduled runs delete their own checkpoints when their summary
-commits. The hourly host job drains older successful scheduled checkpoints
-and deletes checkpoints of any other terminal run 30 days after `finished_at`.
-Active runs keep their checkpoints. `ingestion_runs` summary counters and
-earthquake, forecast, source coverage, and audit records remain. See
-[ADR 0034](../adr/0034-bound-successful-ingestion-checkpoints.md).
+Use this guide to install or check the hourly cleanup of temporary ingestion inputs.
+Run Bash commands from `/srv/quakestrikeph` on the VPS.
+
+| Records | Retention |
+| --- | --- |
+| Successful scheduled-run checkpoints | Deleted when the run summary commits; the host job drains older leftovers. |
+| Other terminal-run checkpoints | Deleted 30 days after `finished_at`. |
+| Active-run checkpoints | Kept, including old pending, running, and retry-wait runs. |
+| Run summaries, events, forecasts, coverage, and audits | Preserved by this cleanup. |
+
+## Install and enable cleanup
+
+**Prerequisites:** Deploy the reviewed scripts, apply migrations, and verify a PostgreSQL backup.
 
 Install it on the VPS after the updated repository is deployed, migrations are
 applied, and a verified PostgreSQL backup exists. From `/srv/quakestrikeph`:
@@ -21,6 +28,8 @@ sudo systemctl start quakestrike-ingestion-checkpoint-retention.service
 sudo systemctl enable --now quakestrike-ingestion-checkpoint-retention.timer
 ```
 
+## Check cleanup
+
 The first cleanup is bounded to 100,000 rows. Later hourly runs continue until
 old eligible inputs are drained. The job uses the same lock as backup and
 restore tests, so they do not overlap. Check its result and the retained row
@@ -31,6 +40,8 @@ systemctl status quakestrike-ingestion-checkpoint-retention.service
 sudo journalctl -u quakestrike-ingestion-checkpoint-retention.service --since '24 hours ago' --no-pager
 docker compose --env-file .env -f infrastructure/compose.yml exec -T postgres psql -U quakestrike -d quakestrike -c "SELECT count(*) FROM ingestion_run_inputs"
 ```
+
+## Space and recovery reference
 
 Normal PostgreSQL autovacuum makes deleted space reusable. The table file does
 not have to become smaller after the first cleanup. Do not run `VACUUM FULL`

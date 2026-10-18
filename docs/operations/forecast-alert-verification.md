@@ -1,10 +1,32 @@
-# Forecast alert verification and activation gates
+# Verify forecast alerts
 
-Local application and controlled delivery verification are complete for review, with the provider limitations recorded below.
-The user accepted the recipient observations and deferred Spam investigation on 11 October 2026.
-Production activation still requires review, environment-specific readiness, and deployment authorization.
-This report separates application verification from provider readiness, received messages, and production deployment.
-No live outcome is inferred from a successful simulation, configured secret, healthy process, or accepted submission.
+Use this guide to reproduce simulated checks and assess recorded provider evidence.
+For activation commands and shutdown order, use [alert runtime](alert-runtime.md).
+
+| What passed | What that result proves |
+| --- | --- |
+| Simulated application checks | Application behavior against disposable services and fake provider responses. |
+| Provider acceptance | The provider accepted a specific request. |
+| Authenticated delivery evidence | A specific attempt reconciled to delivered. |
+| Recipient confirmation | A person received the message and checked its content or link. |
+
+These results do not establish production readiness by themselves.
+Approval and readiness checks apply separately to each environment and channel.
+
+## Readiness summary
+
+The following observations were recorded on **11 October 2026**; they are historical evidence, not a check of the running VPS.
+
+| Area | Recorded result or limit |
+| --- | --- |
+| Application and actual-model checks | Passed on the recorded source revisions below. |
+| Initial SMS general/nearby variants | User confirmed receipt/content; retained references reconciled to delivered. |
+| Revised SMS copy | Automated checks passed; the user declined another live send. |
+| Revised email general/nearby variants | User confirmed receipt/content/links; both fresh attempts reconciled to delivered. |
+| Earlier general email attempt | Remains accepted; later retry timing remains unverified after callback HTTP 429 responses. |
+| Email placement | Messages reached Spam; a complete deliverability diagnosis remains deferred. |
+| SMS billing | Actual encoding, billed segments, and per-message charges remain unverified. |
+| Production readiness | Requires checks and authorization on the target environment. |
 
 ## Repeatable simulated verification
 
@@ -14,6 +36,10 @@ Its fixtures migrate and truncate PostgreSQL; never use a shared development or 
 ```powershell
 docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test redis-test
 docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --build --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml exec -T postgres-test sh /opt/quakestrike/provision-roles.sh create-backend
+
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --build --rm backend-test-runner
+
 docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v
 ```
 
@@ -39,7 +65,38 @@ Run worker unit/contract tests, Ruff, and Backend typecheck/unit tests against t
 This queue tracer adds the missing real alert transport seam rather than replacing lifecycle tests or starting a background consumer.
 Its simulated providers exercise delivery through the application boundary; they establish no actual provider behavior.
 
-## Recorded evidence on 11 October 2026
+
+## Activation and rollback readiness
+
+The intended deployment target is the repository's single VPS runtime; no production deployment occurred during these checks.
+Follow the commands and exact service order in [alert-runtime.md](alert-runtime.md#ordered-deployment-and-legacy-retirement).
+Before full eligible-user activation, record these environment-specific facts:
+
+1. Record the tested source SHA, compatible previous images, backup, and target environment.
+2. Stop publication and consumers while both alert gates remain false.
+3. Apply the approved migration through its owner, then refresh worker and narrow Backend grants.
+4. Deploy the complete-content Prediction Worker with the correct public Bulletin base URL.
+5. Preview and explicitly retire applicable unsent legacy jobs; retain audits and immutable evidence.
+6. Deploy the Backend callback with its separate secret and tested HTTPS routing.
+7. Complete simulated checks and controlled SMS/email receipt and reconciliation observations.
+8. Verify restricted capabilities, migration/model/bootstrap readiness, PostgreSQL, Redis, and process freshness.
+9. Start reconciliation and the Alert Worker before enabling Dispatcher publication for all eligible users.
+
+Health proves local process/dependency readiness, not provider authentication, account allowance, inbox delivery, or a working callback.
+Keep full activation disabled while required live observations or deployment authorization remain unresolved.
+Do not create a production test-account pilot or copy finite destination restrictions into normal consumers.
+
+For rollback, disable publication first, stop the Alert Worker, and pause reconciliation only when late-evidence recording can safely pause.
+Restore tested compatible images with both gates false; retain the additive schema, frozen content, audits, and unknown/accepted evidence.
+Do not downgrade retained delivery tables, reopen retired jobs, reset attempts, or resend uncertain messages.
+Resume reconciliation after corrected readiness; record any interval when callbacks or polls could not record evidence.
+
+## Recorded evidence
+
+The sections below retain source revisions, measured outcomes, and limitations for later review.
+Do not use historical test counts as evidence for another release.
+
+### Application checks on 11 October 2026
 
 The final tested application source and controlled provider images use `2e4f3e876ee98b73fc603614bc534ddd1899f770`.
 [CI run 38114036506](https://github.com/ochlzo/quakestrikeph/actions/runs/38114036506) passed on that source.
@@ -61,7 +118,7 @@ The broader image run is not reported as a complete pass or as evidence of a pro
 Cold tmpfs PostgreSQL restart evidence does not prove retained-data restart recovery.
 The retained-command test establishes bounded simulated dependency failure and recovery against real disposable storage.
 
-## Controlled provider observations
+### Controlled provider observations
 
 Use only previously authorized local destinations, supplied through private finite-runner configuration.
 Never commit those destinations, credentials, callback tokens, raw responses, inbox screenshots, or full received content.
@@ -133,7 +190,7 @@ The original private configuration and temporary recipient-comparison files rema
 | Observation | Status and required proof |
 | --- | --- |
 | IPROG account/support preflight | Controlled preflight verified designated-destination support and the account balances before and after the submissions. |
-| SMS provider header and content | User-confirmed content match for both variants; the user reported provider template branding. ADR 0048 removes the repeated application header from new SMS snapshots. |
+| SMS provider header and content | User-confirmed content match for both variants; the user reported provider template branding. New SMS snapshots omit the repeated application header. |
 | SMS encoding and charging | Local segment estimates and returned credit evidence are recorded above. The user supplied a credit-purchase receipt, not an itemized send record. Actual encoding and billed segments remain unverified; `sms_count` supplied no usable count. |
 | SMS delivery polling | Two actual retained references reconciled to delivered without resubmission. The user confirmed receipt/content. Provider delivery timestamps remain unavailable. |
 | Brevo authentication | Authorized host and relayed Linux preflight passed; direct Docker outbound IP authorization remains a deployment prerequisite. |
@@ -156,9 +213,8 @@ Record actual event echo, retry timing, received content, and charging separatel
 The provider creation reference omits an `error` subscription despite the payload guide describing it; do not invent a subscription spelling.
 See [Brevo contracts](https://developers.brevo.com/docs/transactional-webhooks), [webhook creation](https://developers.brevo.com/reference/create-webhook), and [retry policy](https://developers.brevo.com/docs/retry-mechanism).
 
-## Revised copy verification on 11 October 2026
+### Revised copy verification on 11 October 2026
 
-[ADR 0048](../adr/0048-forecast-alert-copy-amendment.md) records the user's accepted copy amendment.
 New SMS snapshots omit the application brand header because the provider template supplies it.
 Both channels omit the displayed window line while original-window expiry remains enforced.
 Email retains branding and displays the median radius and q50 maximum magnitude under the revised labels.
@@ -212,7 +268,7 @@ This decision does not establish live receipt of the revised SMS snapshots.
 The supplied SMS screenshot records a purchase of 200 credits, not per-message encoding, billed segments, or charges.
 Itemized SMS encoding and billed segments remain unavailable; local estimates and observed credit evidence remain recorded separately above.
 
-## Review disposition on 11 October 2026
+### Review and cleanup record on 11 October 2026
 
 The user requested completion of the spec for a consolidated branch review and deferred Spam investigation until afterward.
 All implementation tickets are consolidated on `codex/forecast-alerts-44` in PR #53.
@@ -226,28 +282,3 @@ The owned tunnel, callback proxy, and relay stopped; disposable PostgreSQL, Redi
 Final inventory showed zero task containers, networks, and listeners on ports 33152, 34152, and 35152.
 Copied credentials were removed, while original private configuration and private recipient-comparison artifacts were preserved.
 Automatic delivery gates remain disabled, and no shared database or production deployment changed.
-
-## Activation and rollback readiness
-
-The intended deployment target is the repository's single VPS runtime; no production deployment occurred during these checks.
-Follow the commands and exact service order in [alert-runtime.md](alert-runtime.md#ordered-deployment-and-legacy-retirement).
-Before full eligible-user activation, record these environment-specific facts:
-
-1. Record the tested source SHA, compatible previous images, backup, and target environment.
-2. Stop publication and consumers while both alert gates remain false.
-3. Apply the approved migration through its owner, then refresh worker and narrow Backend grants.
-4. Deploy the complete-content Prediction Worker with the correct public Bulletin base URL.
-5. Preview and explicitly retire applicable unsent legacy jobs; retain audits and immutable evidence.
-6. Deploy the Backend callback with its separate secret and tested HTTPS routing.
-7. Complete simulated checks and controlled SMS/email receipt and reconciliation observations.
-8. Verify restricted capabilities, migration/model/bootstrap readiness, PostgreSQL, Redis, and process freshness.
-9. Start reconciliation and the Alert Worker before enabling Dispatcher publication for all eligible users.
-
-Health proves local process/dependency readiness, not provider authentication, account allowance, inbox delivery, or a working callback.
-Keep full activation disabled while required live observations or deployment authorization remain unresolved.
-Do not create a production test-account pilot or copy finite destination restrictions into normal consumers.
-
-For rollback, disable publication first, stop the Alert Worker, and pause reconciliation only when late-evidence recording can safely pause.
-Restore tested compatible images with both gates false; retain the additive schema, frozen content, audits, and unknown/accepted evidence.
-Do not downgrade retained delivery tables, reopen retired jobs, reset attempts, or resend uncertain messages.
-Resume reconciliation after corrected readiness; record any interval when callbacks or polls could not record evidence.

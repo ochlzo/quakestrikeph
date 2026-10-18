@@ -1,54 +1,52 @@
-# PostgreSQL backups on the VPS
+# Back up PostgreSQL on the VPS
 
-The host runs installed copies of `database/maintenance/postgres-backup.sh`
-daily and `database/maintenance/postgres-restore-test.sh` weekly, independently of Celery
-Beat. The backup takes a PostgreSQL logical dump and a cluster-role export,
-records SHA-256 checksums, and uploads the files through Restic's encrypted S3
-repository in a private Backblaze B2 bucket. Temporary plaintext files are
-root-only and removed after each run. The restore test downloads the latest
-snapshot and restores it in a disposable, network-isolated PostgreSQL container;
-it does not write to the live database.
+Use this guide to check backups, install the backup jobs, or prepare database recovery.
+Run Bash commands on the VPS from `/srv/quakestrikeph` unless a step specifies another folder.
 
-Each backup, retention cleanup, and isolated restore test records its attempt
-and result in `maintenance_runs`. The backup row stores the Restic snapshot ID
-and the SHA-256 of its `SHA256SUMS` manifest; a restore-test row links to that
-backup and records the verified event count. Interrupted attempts become
-`abandoned` at the next run. If PostgreSQL is unavailable, inspect the systemd
-journal for the fallback result. If PostgreSQL is healthy but a record cannot
-be written, the service fails after its backup or restore work. Missing rows
-never prove a backup succeeded.
-The restore test requires the latest snapshot to have a successful backup row
-when PostgreSQL is healthy; if it predates this ledger or its record is missing,
-run a fresh backup before rerunning the restore test.
+| Task | Section |
+| --- | --- |
+| Inspect an installed job | [Check a run](#check-a-run) |
+| Configure storage and timers | [One-time setup](#one-time-b2-and-vps-setup) |
+| Understand retained data and recovery credentials | [Backup and recovery reference](#backup-and-recovery-reference) |
 
-The database dump uses a dedicated `quakestrike_backup` login with
-`pg_read_all_data`, no schema or write grant, and no superuser privilege. The
-role export uses `pg_dumpall --no-role-passwords`. Passwords are intentionally
-absent from the snapshot: keep a protected, off-VPS recovery copy of `.env`
-(including database role passwords and URLs) alongside the B2 key and Restic
-password. Restore those secrets from the team password manager and reprovision
-database roles before starting services. Recreate the optional observer login
-separately. The `quakestrike_maintenance` login can only read and write
-`maintenance_runs`; both host-job logins use the container's local Unix socket
-and have no password for remote login.
+| Job | Philippine time | Storage or scope |
+| --- | --- | --- |
+| PostgreSQL backup | Daily, 03:00 | Encrypted Restic snapshot in private Backblaze B2. |
+| Isolated restore test | Monday, 04:00 | Temporary network-isolated PostgreSQL container. |
+| Checkpoint cleanup | Hourly | Only [eligible ingestion inputs](ingestion-checkpoint-retention.md). |
 
-For a real recovery, initialize the replacement PostgreSQL cluster with the
-recovered `.env` so its bootstrap superuser receives `POSTGRES_PASSWORD`.
-After restoring the role export and database dump, run
-`provision-roles.sh create` with that same `.env` to reset the migration and
-worker passwords, then run `create-maintenance` below. If the bootstrap
-superuser already exists, reconcile that expected `CREATE ROLE` conflict when
-loading `globals.sql`; do not skip its other role grants. Recreate the observer
-login with `create-observer.py` if needed. The isolated scheduled test uses
-socket authentication and does not test recovered application passwords.
+Keep protected recovery copies of `.env`, model artifacts, and bootstrap snapshots separately. These jobs protect PostgreSQL only.
+
+## Check a run
+
+```bash
+systemctl status quakestrike-postgres-backup.service quakestrike-postgres-restore-test.service
+sudo journalctl -u quakestrike-postgres-backup.service -u quakestrike-postgres-restore-test.service --since '7 days ago' --no-pager
+sudo bash -c 'set -a; . /etc/quakestrike-backup/config; . /etc/quakestrike-backup/credentials; set +a; restic snapshots --tag quakestrike-postgres'
+docker compose --env-file .env -f infrastructure/compose.yml exec -T postgres sh -ec 'psql -U quakestrike_maintenance -d "$POSTGRES_DB" -c "SELECT operation_type, status, started_at, finished_at, artifact_reference, verification_summary FROM maintenance_runs ORDER BY started_at DESC LIMIT 10"'
+```
+
+**Expected result:** The services report success, the backup has a snapshot ID, and its restore test has a successful linked record.
+If PostgreSQL is available but the latest snapshot has no successful backup row, run a fresh backup before testing restoration.
+
+| Evidence | What it proves |
+| --- | --- |
+| Restic snapshot listing | An encrypted upload exists. |
+| Successful linked restore test | Download, file checksums, role/data restoration, and a query of restored `earthquake_events` succeeded. |
+| Scheduled restore test | Does not verify recovered application passwords; the isolated container uses socket authentication. |
+
+Keep the Restic password, B2 key, and database credentials in protected recovery storage.
+See [recovery requirements](#recovery-requirements) for role restoration details.
 
 ## One-time B2 and VPS setup
 
-Create a private B2 bucket and a bucket-scoped **Read and Write** application
-key. Enable **Allow List All Bucket Names** for S3 API compatibility. Do not use
-the master application key. Keep Object Lock disabled so Restic can prune old
-snapshots. Set the bucket lifecycle to **Keep only the last version of the file**
-so B2 eventually removes hidden versions after Restic prunes them.
+1. Create a private B2 bucket.
+2. Create a bucket-scoped **Read and Write** application key.
+3. Enable **Allow List All Bucket Names** for S3 compatibility.
+4. Keep Object Lock disabled so Restic can prune snapshots.
+5. Set the lifecycle to **Keep only the last version of the file**.
+
+Use the scoped application key rather than the master key. B2 removes hidden versions after Restic prunes them.
 
 On the VPS, install Restic and create root-only configuration:
 
@@ -135,25 +133,58 @@ deletes other terminal-run checkpoints after 30 days. It needs the
 [ingestion checkpoint retention guide](ingestion-checkpoint-retention.md) for
 its scope, checks, and manual run command.
 
-## Check a run
 
-```bash
-systemctl status quakestrike-postgres-backup.service quakestrike-postgres-restore-test.service
-sudo journalctl -u quakestrike-postgres-backup.service -u quakestrike-postgres-restore-test.service --since '7 days ago' --no-pager
-sudo bash -c 'set -a; . /etc/quakestrike-backup/config; . /etc/quakestrike-backup/credentials; set +a; restic snapshots --tag quakestrike-postgres'
-docker compose --env-file .env -f infrastructure/compose.yml exec -T postgres sh -ec 'psql -U quakestrike_maintenance -d "$POSTGRES_DB" -c "SELECT operation_type, status, started_at, finished_at, artifact_reference, verification_summary FROM maintenance_runs ORDER BY started_at DESC LIMIT 10"'
-```
+## Backup and recovery reference
 
-The snapshot list proves that an encrypted upload exists. A successful weekly
-restore test proves more: it downloads the snapshot, checks its source files
-against `SHA256SUMS`, restores roles and data in a fresh PostgreSQL 16
-container, and queries the restored `earthquake_events` table. The test
-initializes with the backed-up bootstrap superuser, skipping only that role's
-duplicate `CREATE ROLE` statement. This preserves PostgreSQL 16 role grants
-attributed to that superuser. It then restores schema first and sets the
-snapshot-check function's `search_path` before loading rows so older,
-pre-migration snapshots also restore. Keep the Restic password, B2 key, and
-database credentials available to authorized
-operators for disaster recovery. This job protects PostgreSQL only: model
-artifacts, bootstrap snapshots, and `.env` need separate protected recovery
-copies.
+The host runs installed copies of `database/maintenance/postgres-backup.sh`
+daily and `database/maintenance/postgres-restore-test.sh` weekly, independently of Celery
+Beat. The backup takes a PostgreSQL logical dump and a cluster-role export,
+records SHA-256 checksums, and uploads the files through Restic's encrypted S3
+repository in a private Backblaze B2 bucket. Temporary plaintext files are
+root-only and removed after each run. The restore test downloads the latest
+snapshot and restores it in a disposable, network-isolated PostgreSQL container;
+it does not write to the live database.
+
+Each backup, retention cleanup, and isolated restore test records its attempt
+and result in `maintenance_runs`. The backup row stores the Restic snapshot ID
+and the SHA-256 of its `SHA256SUMS` manifest; a restore-test row links to that
+backup and records the verified event count. Interrupted attempts become
+`abandoned` at the next run. If PostgreSQL is unavailable, inspect the systemd
+journal for the fallback result. If PostgreSQL is healthy but a record cannot
+be written, the service fails after its backup or restore work. Missing rows
+never prove a backup succeeded.
+The restore test requires the latest snapshot to have a successful backup row
+when PostgreSQL is healthy; if it predates this ledger or its record is missing,
+run a fresh backup before rerunning the restore test.
+
+### Credentials and role scope
+
+The database dump uses a dedicated `quakestrike_backup` login with
+`pg_read_all_data`, no schema or write grant, and no superuser privilege. The
+role export uses `pg_dumpall --no-role-passwords`. Passwords are intentionally
+absent from the snapshot: keep a protected, off-VPS recovery copy of `.env`
+(including database role passwords and URLs) alongside the B2 key and Restic
+password. Restore those secrets from the team password manager and reprovision
+database roles before starting services. Recreate the optional observer login
+separately. The `quakestrike_maintenance` login can only read and write
+`maintenance_runs`; both host-job logins use the container's local Unix socket
+and have no password for remote login.
+
+### Recovery requirements
+
+For a real recovery, initialize the replacement PostgreSQL cluster with the
+recovered `.env` so its bootstrap superuser receives `POSTGRES_PASSWORD`.
+After restoring the role export and database dump, run
+`provision-roles.sh create` with that same `.env` to reset the migration and
+worker passwords, then run `create-maintenance` below. If the bootstrap
+superuser already exists, reconcile that expected `CREATE ROLE` conflict when
+loading `globals.sql`; do not skip its other role grants. Recreate the observer
+login with `create-observer.py` if needed. The isolated scheduled test uses
+socket authentication and does not test recovered application passwords.
+
+### Restore compatibility reference
+
+The isolated test restores into fresh PostgreSQL 16 storage using the backed-up bootstrap superuser.
+It skips only that role's duplicate `CREATE ROLE` statement and preserves the other role grants.
+It restores schema before data and sets the snapshot-check function's `search_path` before loading rows.
+This also permits restoration of older snapshots created before that migration.
