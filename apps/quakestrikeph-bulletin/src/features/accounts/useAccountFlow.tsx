@@ -1,4 +1,4 @@
-import { useIdentity, type IdentityOutcome } from "../../lib/auth";
+import { useIdentity, type IdentityDevice, type IdentityOutcome } from "../../lib/auth";
 import { ArrowRight, Loader } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode, } from "react";
 import { Button } from "../../components/ui/button";
@@ -104,6 +104,10 @@ export function useAccountFlow(initial: string) {
   const [returnAction, setReturnAction] = useState<Screen>("phone");
   const [reverificationSent, setReverificationSent] = useState(false);
   const [phoneManagementOpen, setPhoneManagementOpen] = useState(false);
+  const [devices, setDevices] = useState<IdentityDevice[]>([]);
+  const [devicesStatus, setDevicesStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [devicesError, setDevicesError] = useState("");
+  const devicesRequested = useRef(false);
   const [sentAt, setSentAt] = useState(0),
     [now, setNow] = useState(Date.now());
   const heading = useRef<HTMLDivElement>(null),
@@ -374,6 +378,65 @@ export function useAccountFlow(initial: string) {
     locationEdit.cancel();
     toast.add({ type: 'success', title: 'Alert location removed.' });
   }
+  async function removePhone() {
+    await action(async () => {
+      // The screen was gated on entry; re-check so an expired proof reopens the gate.
+      if (await needsEmailProof("remove-phone")) return;
+      const next = await api<Account>("/phone", "DELETE");
+      if (!active.current) return;
+      updateAccount(next);
+      toast.add({ type: "success", title: "Mobile number removed." });
+      setScreen("account");
+    });
+  }
+  async function loadDevices() {
+    setDevicesStatus("loading");
+    setDevicesError("");
+    const result = await identity.listDevices();
+    if (!active.current) return;
+    if (result.kind === "completed") { setDevices(result.devices); setDevicesStatus("ready"); return; }
+    if (result.kind === "failed") { setDevicesError(result.message); setDevicesStatus("error"); }
+  }
+  async function signOutDevice(sessionId: string) {
+    await action(async () => {
+      if (await needsEmailProof("devices")) return;
+      const result = await identity.revokeDevice(sessionId);
+      if (result.kind === "verification-required") {
+        identity.clearEmailProof();
+        await openReverification("devices");
+        return;
+      }
+      if (result.kind === "failed") { reportError(result.message); return; }
+      if (result.kind !== "completed") return;
+      toast.add({ type: "success", title: "Device signed out." });
+      await loadDevices();
+    });
+  }
+  async function signOutOtherDevices() {
+    await action(async () => {
+      if (await needsEmailProof("devices")) return;
+      let signedOut = 0;
+      for (const device of devices.filter(value => !value.current)) {
+        const result = await identity.revokeDevice(device.id);
+        if (result.kind === "verification-required") {
+          identity.clearEmailProof();
+          await openReverification("devices");
+          return;
+        }
+        if (result.kind === "failed") { reportError(result.message); break; }
+        if (result.kind === "ignored") return;
+        signedOut++;
+      }
+      if (signedOut) toast.add({ type: "success", title: "Other devices signed out." });
+      await loadDevices();
+    });
+  }
+  useEffect(() => {
+    if (screen !== "devices") { devicesRequested.current = false; return; }
+    if (devicesRequested.current) return;
+    devicesRequested.current = true;
+    void loadDevices();
+  }, [screen]);
   async function saveOnboardingChannels() {
     const result = await enrollment.current!.confirmChannels({ email: channels.includes('email'), sms: channels.includes('sms') });
     if (result.kind !== 'completed') return;
@@ -511,9 +574,10 @@ export function useAccountFlow(initial: string) {
           return;
         }
         if (e.code === "REVERIFICATION_REQUIRED") {
-          setReturnAction(screen === "password" ? "password" : "phone");
+          const target = screen === "password" ? "password" : screen === "remove-phone" ? "remove-phone" : "phone";
+          setReturnAction(target);
           try {
-            await openReverification(screen === "password" ? "password" : "phone", true);
+            await openReverification(target, true);
             if (active.current && failure instanceof SmsOptInFailure) reportFailure(e.message);
           } catch {
             reportFailure(
@@ -891,11 +955,20 @@ export function useAccountFlow(initial: string) {
     openPhoneManagement,
     openDevices: () => openScreen("devices"),
     returnToAccount,
+    removePhone,
   };
   const unavailableAction = { removing: screen === "close", returnToAccount };
   const phoneManagement = {
     open: phoneManagementOpen && screen === "account" && Boolean(account?.phone),
     close: () => setPhoneManagementOpen(false),
+  };
+  const devicesFlow = {
+    list: devices,
+    loading: devicesStatus === "loading" || devicesStatus === "idle",
+    error: devicesStatus === "error" ? devicesError : "",
+    refresh: loadDevices,
+    signOut: signOutDevice,
+    signOutOthers: signOutOtherDevices,
   };
   const preferencesNavigation = { openPhone: openAlertPhoneSettings, openLocation: () => setScreen("location") };
   const departure = {
@@ -905,6 +978,7 @@ export function useAccountFlow(initial: string) {
   };
   return {
     navigation, accountActions, unavailableAction, preferencesNavigation, departure, phoneManagement,
+    devices: devicesFlow,
     authEntry, emailProof, recoveryFlow, renderResend,
     passwordFlow, reverification, openPasswordSettings, openPhoneSettings,
     identityView, taskFlow,

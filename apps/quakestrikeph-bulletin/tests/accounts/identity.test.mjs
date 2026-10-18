@@ -24,13 +24,15 @@ test('email proof expires at five minutes and cannot cross sessions or a clock r
   assert.equal(proof.recent('a', 1000), false);
 });
 function fixture() {
-  const state = { marker: 'original-session', active: true };
+  const state = { marker: 'original-session', active: true, sessions: [] };
   const calls = [], events = [];
   const call = (name, value) => async options => { calls.push({ name, options }); return typeof value === 'function' ? value(options) : value; };
   const provider = {
     sessionMarker: () => state.marker,
     getToken: call('token', 'original-token'),
     user: { passwordEnabled: true, updatePassword: call('password', undefined) },
+    sessions: async () => state.sessions,
+    currentSessionId: () => state.marker,
     signIn: {
       supportedSecondFactors: [emailFactor],
       create: call('login', complete),
@@ -369,4 +371,62 @@ test('late task-password proof requirement is swallowed before Clerk opens proof
   response.reject(new Error('Late proof requirement'));
   assert.deepEqual(await operation, { kind: 'ignored' });
   assert.deepEqual(f.events, []);
+});
+
+test('device listing normalizes Clerk sessions and marks only the current one', async () => {
+  const f = fixture();
+  f.state.sessions = [
+    { id: 'original-session', lastActiveAt: new Date('2026-10-18T02:00:00Z'),
+      latestActivity: { deviceType: 'Desktop', browserName: 'Edge' }, revoke: async () => {} },
+    { id: 'other-session', lastActiveAt: new Date('2026-10-17T02:00:00Z'),
+      latestActivity: {}, revoke: async () => {} },
+  ];
+  assert.deepEqual(await f.identity.listDevices(), { kind: 'completed', devices: [
+    { id: 'original-session', current: true, deviceType: 'Desktop', browser: 'Edge',
+      lastActiveAt: '2026-10-18T02:00:00.000Z' },
+    { id: 'other-session', current: false, deviceType: null, browser: null,
+      lastActiveAt: '2026-10-17T02:00:00.000Z' },
+  ] });
+});
+
+test('device results from a former session are ignored and the current session is never revoked', async () => {
+  const f = fixture();
+  let revoked = false;
+  f.state.sessions = [
+    { id: 'original-session', lastActiveAt: new Date(), latestActivity: {}, revoke: async () => { revoked = true; } },
+  ];
+  assert.deepEqual(await f.identity.revokeDevice('original-session'), { kind: 'ignored' });
+  assert.equal(revoked, false);
+  const listing = deferred(), revoking = deferred();
+  f.provider.sessions = () => listing.promise;
+  const listingResult = f.identity.listDevices();
+  f.state.marker = 'another-session';
+  listing.resolve([]);
+  assert.deepEqual(await listingResult, { kind: 'ignored' });
+  f.state.marker = 'original-session';
+  f.provider.sessions = async () => [{ id: 'other-session', lastActiveAt: new Date(), latestActivity: {},
+    revoke: () => revoking.promise }];
+  const revokeResult = f.identity.revokeDevice('other-session');
+  f.state.marker = 'another-session';
+  revoking.resolve();
+  assert.deepEqual(await revokeResult, { kind: 'ignored' });
+});
+
+test('a stale device revocation reports that verification is required', async () => {
+  const f = fixture();
+  f.state.sessions = [{ id: 'other-session', lastActiveAt: new Date(), latestActivity: {},
+    revoke: async () => { throw { errors: [{ code: 'session_reverification_required' }] }; } }];
+  assert.deepEqual(await f.identity.revokeDevice('other-session'), { kind: 'verification-required' });
+});
+
+test('device provider failures report a safe message', async () => {
+  const listing = fixture();
+  listing.provider.sessions = async () => { throw new Error('Provider offline'); };
+  assert.deepEqual(await listing.identity.listDevices(),
+    { kind: 'failed', message: 'Signed-in devices could not be loaded.' });
+  const revoking = fixture();
+  revoking.state.sessions = [{ id: 'other-session', lastActiveAt: new Date(), latestActivity: {},
+    revoke: async () => { throw new Error('Provider offline'); } }];
+  assert.deepEqual(await revoking.identity.revokeDevice('other-session'),
+    { kind: 'failed', message: 'That device could not be signed out. Try again.' });
 });

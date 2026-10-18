@@ -49,6 +49,8 @@ export function useIdentity(emit: (event: IdentityEvent) => void) {
   const identity = createIdentity({ signIn, signUp, user, session, clerk, getToken: auth.getToken,
     // Read the live client, even after the account island unmounts during Astro navigation.
     sessionMarker: () => identitySessionMarker(clerk.user?.id, clerk.session?.id), updateTaskPassword,
+    sessions: () => user?.getSessions() ?? Promise.resolve([]),
+    currentSessionId: () => clerk.session?.id ?? null,
   }, { marker, screenActive: () => active.current, emit, emailProof: proof.current.value });
   return { ...identity,
     session: { loaded: auth.isLoaded, signedIn: !!auth.isSignedIn, marker,

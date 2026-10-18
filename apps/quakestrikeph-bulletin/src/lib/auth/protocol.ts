@@ -12,6 +12,16 @@ export type ClerkIdentity = {
   getToken: ReturnType<typeof useAuth>['getToken'];
   sessionMarker: () => string;
   updateTaskPassword: (password: string, isCurrent: () => boolean) => Promise<unknown>;
+  sessions: () => Promise<ClerkSession[]>;
+  currentSessionId: () => string | null;
+};
+
+// The identity seam normalizes Clerk sessions; no location, IP or hardware identity.
+export type ClerkSession = {
+  id: string;
+  lastActiveAt: Date;
+  latestActivity?: { deviceType?: string; browserName?: string } | null;
+  revoke: () => Promise<unknown>;
 };
 
 export type ProofMethod = 'current-password' | 'email-code';
@@ -22,10 +32,31 @@ export type IdentityOutcome =
   | { kind: 'failed'; message: string; field?: 'password' }
   | { kind: 'ignored' };
 export type IdentityEvent = 'authentication-fields-consumed' | 'task-password-consumed';
+export type IdentityDevice = {
+  id: string;
+  current: boolean;
+  deviceType: string | null;
+  browser: string | null;
+  lastActiveAt: string | null;
+};
+export type DeviceListResult =
+  | { kind: 'completed'; devices: IdentityDevice[] }
+  | { kind: 'failed'; message: string }
+  | { kind: 'ignored' };
+export type DeviceRevokeResult =
+  | { kind: 'completed' }
+  | { kind: 'verification-required' }
+  | { kind: 'failed'; message: string }
+  | { kind: 'ignored' };
 type AccountRequest = <T>(token: string | null, path?: string, method?: string, body?: unknown) => Promise<T>;
 const ignored: IdentityOutcome = { kind: 'ignored' };
 const completed = (step: IdentityStep, sentAt?: number): IdentityOutcome => ({ kind: 'completed', step, sentAt });
 const recoveryFailure = 'Recovery could not be completed. Check your code or request a new one.';
+// Clerk reports a stale protected action with this error shape.
+const reverificationRequired = (failure: unknown) =>
+  typeof failure === 'object' && failure !== null && 'errors' in failure &&
+  Array.isArray((failure as { errors?: unknown }).errors) &&
+  (failure as { errors: Array<{ code?: string }> }).errors.some(error => error?.code === 'session_reverification_required');
 
 export function identitySessionMarker(userId: string | null | undefined, sessionId: string | null | undefined) {
   return userId && sessionId ? `${userId}:${sessionId}` : 'signed-out';
@@ -173,6 +204,38 @@ export function createIdentity(provider: ClerkIdentity, options: {
       await provider.user.updatePassword({ newPassword: password, signOutOfOtherSessions: true });
       return screenCurrent() ? completed('password-saved') : ignored;
     }, 'The password could not be saved. Try again or verify your email again.'),
+    listDevices: async (): Promise<DeviceListResult> => {
+      if (!screenCurrent()) return { kind: 'ignored' };
+      try {
+        const sessions = await provider.sessions();
+        if (!screenCurrent()) return { kind: 'ignored' };
+        const current = provider.currentSessionId();
+        return { kind: 'completed', devices: sessions.map(session => ({
+          id: session.id, current: session.id === current,
+          deviceType: session.latestActivity?.deviceType ?? null,
+          browser: session.latestActivity?.browserName ?? null,
+          lastActiveAt: session.lastActiveAt instanceof Date ? session.lastActiveAt.toISOString() : null,
+        })) };
+      } catch {
+        if (!screenCurrent()) return { kind: 'ignored' };
+        return { kind: 'failed', message: 'Signed-in devices could not be loaded.' };
+      }
+    },
+    revokeDevice: async (sessionId: string): Promise<DeviceRevokeResult> => {
+      if (!screenCurrent()) return { kind: 'ignored' };
+      // Clerk refuses to revoke the active session; never attempt it.
+      if (sessionId === provider.currentSessionId()) return { kind: 'ignored' };
+      try {
+        const sessions = await provider.sessions();
+        const target = sessions.find(session => session.id === sessionId);
+        if (target) await target.revoke();
+        return screenCurrent() ? { kind: 'completed' } : { kind: 'ignored' };
+      } catch (failure) {
+        if (!screenCurrent()) return { kind: 'ignored' };
+        if (reverificationRequired(failure)) return { kind: 'verification-required' };
+        return { kind: 'failed', message: 'That device could not be signed out. Try again.' };
+      }
+    },
     saveRequiredPassword: (password: string) => operation(async () => {
       await provider.updateTaskPassword(password, screenCurrent);
       if (!screenCurrent()) return ignored;

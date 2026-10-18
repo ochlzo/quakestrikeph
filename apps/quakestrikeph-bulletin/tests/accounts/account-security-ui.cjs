@@ -26,7 +26,10 @@ async function proof(page) {
   await page.clock.install();
   let hasPhone=true; const requests=[];
   await page.route('**/api/v1/account**',r=>{
-   requests.push(r.request().method());
+   const method=r.request().method(); requests.push(method);
+   if(method==='DELETE'&&new URL(r.request().url()).pathname.endsWith('/account/phone')){
+    hasPhone=false; return r.fulfill({json:{...account,phone:null}});
+   }
    return r.fulfill({json:{account:{...account,phone:hasPhone?account.phone:null},pending:null,nextStep:'complete'}});
   });
   await visit(page,'/account?signed=1'); await heading(page,'Account settings');
@@ -54,7 +57,7 @@ async function proof(page) {
   await heading(page,'Verify your identity'); assert.equal(new URL(page.url()).pathname,'/account/phone/remove');
   assert.deepEqual(await page.evaluate(()=>window.clerkFixture.calls.map(c=>c.method)),['getToken']);
   await proof(page); await heading(page,'Remove your mobile number?');
-  assert.equal(await button(page,'Remove number').isDisabled(),true);
+  assert.equal(await button(page,'Remove number').isDisabled(),false);
   await button(page,'Cancel').click(); await management(page).waitFor();
   await management(page).getByRole('button',{name:'Change number',exact:true}).click();
   await heading(page,'Change your mobile number');
@@ -73,7 +76,20 @@ async function proof(page) {
   await page.keyboard.press('Escape'); await heading(page,'Account settings');
   await page.locator('.account-row').filter({hasText:'Signed-in devices'}).getByRole('button',{name:'Manage',exact:true}).click();
   await heading(page,'Signed-in devices'); assert.equal(new URL(page.url()).pathname,'/account/devices');
-  assert.equal(await button(page,'Sign out other devices').isDisabled(),true);
+  await page.getByText('This device',{exact:true}).waitFor();
+  await page.getByText('Mobile · Safari').waitFor();
+  await button(page,'Sign out other devices').waitFor();
+  await page.locator('.other-devices .device-session').first().getByRole('button',{name:'Sign out',exact:true}).click();
+  await page.getByText('No other signed-in devices.',{exact:true}).waitFor();
+  assert.equal(await button(page,'Sign out other devices').count(),0,'The bulk action hides when no other devices remain');
+  await button(page,'Back').click(); await heading(page,'Account settings');
+  await page.evaluate(()=>window.clerkFixture.queue('getSessions',{fail:true}));
+  await page.locator('.account-row').filter({hasText:'Signed-in devices'}).getByRole('button',{name:'Manage',exact:true}).click();
+  await heading(page,'Signed-in devices');
+  await page.getByText('Signed-in devices could not be loaded.',{exact:true}).waitFor();
+  await button(page,'Retry').click();
+  await page.getByText('This device',{exact:true}).waitFor();
+  await button(page,'Back').click(); await heading(page,'Account settings');
   const paths=[['/account/phone/remove','Verify your identity'],['/account/devices','Signed-in devices'],['/account/email','Email change is unavailable'],['/account/remove','Account removal is unavailable']];
   for(const [path,title] of paths) {
    await visit(page,`${path}?signed=1`); await heading(page,title);
@@ -85,10 +101,19 @@ async function proof(page) {
   await manage.click(); await management(page).getByRole('button',{name:'Remove number',exact:true}).click();
   await heading(page,'Verify your identity'); await page.goBack(); await heading(page,'Account settings');
   await page.goForward(); await heading(page,'Verify your identity');
-  hasPhone=false; await visit(page,'/account/phone/remove?signed=1'); await heading(page,'Account settings');
-  assert.equal(new URL(page.url()).pathname,'/account'); assert.equal(await mobile.getByRole('button',{name:'Manage',exact:true}).count(),0);
-  await button(page,'Add').waitFor(); await page.close();
-  console.log(`PASS ${width}: modal, Escape/focus, both OTP gates, five-minute reuse/expiry, routes/history, disabled removal`);
+  await visit(page,'/account?signed=1'); await heading(page,'Account settings');
+  await manage.click(); await management(page).getByRole('button',{name:'Remove number',exact:true}).click();
+  await heading(page,'Verify your identity');
+  await proof(page); await heading(page,'Remove your mobile number?');
+  await button(page,'Remove number').click();
+  await heading(page,'Account settings'); assert.equal(new URL(page.url()).pathname,'/account');
+  assert.ok(requests.includes('DELETE'),'Removal issues the DELETE mutation');
+  assert.equal(await mobile.getByRole('button',{name:'Manage',exact:true}).count(),0);
+  await button(page,'Add').waitFor();
+  await visit(page,'/account/phone/remove?signed=1'); await heading(page,'Account settings');
+  assert.equal(new URL(page.url()).pathname,'/account');
+  await page.close();
+  console.log(`PASS ${width}: modal, Escape/focus, both OTP gates, five-minute reuse/expiry, removal mutation, devices, routes/history`);
  }
  assert.deepEqual(errors,[]);
  } finally {await browser.close()}
