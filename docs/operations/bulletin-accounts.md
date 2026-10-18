@@ -15,7 +15,12 @@ Do not include `compose.edge.yml` during local development.
 The development Clerk app is **QuakeStrike PH Bulletin** in Personal/Hobby:
 `app_3K8Qn66bPx5HFT1S1aJQUxveCS0`, instance
 `ins_3K8Qn2Z9aDmYnNkaBAlmgstZBba`. Email, verified email signup, password
-and Google are enabled. Device Trust remains enabled. The user-approved password
+and Google are enabled. Device Trust remains enabled. The reverification window
+is **5 minutes** (Dashboard **Sessions**, **Session lifetime**), matching the
+Bulletin's five-minute proof reuse and the Backend first-factor `fva` check, so
+a proof the product already accepted also satisfies Clerk's own requirement for
+protected client actions such as session revocation. Set the same value on the
+production instance before release. The user-approved password
 policy is at least 8 characters, including one lowercase letter, one uppercase
 letter and one number. Compromised-password rejection and the strength estimator
 are off; special characters are not required. These settings were saved and
