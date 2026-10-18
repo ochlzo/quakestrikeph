@@ -5,7 +5,8 @@ let origin: { href: string; focus: HTMLElement | null; scroll: number; page: Doc
 let defaultBulletin: Document | null = null;
 const preloaded = new Set<string>();
 const settingsShells = new Map<string, Document>();
-const settingsPaths = new Set(['/alerts', '/location', '/account', '/account/phone', '/account/password']);
+const settingsPaths = new Set(['/alerts', '/location', '/account', '/account/phone', '/account/password',
+  '/account/phone/remove', '/account/devices', '/account/email', '/account/remove']);
 
 function preloadDestination(href: string) {
   const connection = (navigator as Navigator & {

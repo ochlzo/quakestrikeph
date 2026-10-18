@@ -42,6 +42,35 @@ body[data-account-page] > #bulletin-view { display: none; }
 .account-app.settings-workspace { --settings-tab-index: 0; }
 .account-app.settings-workspace[data-screen="location"] { --settings-tab-index: 1; }
 .account-app.settings-workspace[data-screen="account"] { --settings-tab-index: 2; }
+.account-app .account-action-content { width: 100%; max-width: 440px; margin-inline: auto; }
+.account-app .account-action-content > .text-button { min-height: 44px; margin: 0 0 16px; padding-inline: 0; }
+.account-app .account-action-content h2 { margin: 0 0 12px; }
+.account-app .account-action-content .form-intro { margin: 0 0 28px; line-height: 1.6; }
+.account-app .account-removal-destination { margin: 0 0 24px; padding: 20px 0; border-block: 1px solid var(--line); }
+.account-app .account-removal-destination dt { font-size: 13px; color: var(--account-muted); }
+.account-app .account-removal-destination dd { margin: 6px 0 0; font-weight: 600; overflow-wrap: anywhere; }
+.account-app .account-action-buttons { display: flex; gap: 12px; margin-top: 24px; }
+.account-app .account-action-buttons > button { flex: 1; min-height: 48px; }
+.account-app .device-session { display: flex; align-items: center; gap: 16px; padding: 20px 0 24px; border-bottom: 1px solid var(--line); }
+.account-app .device-session > .text-button { min-height: 44px; }
+.account-app .device-session > svg { flex-shrink: 0; width: 24px; height: 24px; color: var(--teal); }
+.account-app .device-session > div { flex: 1; min-width: 0; }
+.account-app .account-action-content h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.account-app .device-session p, .account-app .other-devices > p { margin: 8px 0 0; color: var(--account-muted); line-height: 1.6; }
+.account-app .other-devices { padding-top: 28px; }
+.account-app .other-devices > button { margin-top: 24px; min-height: 48px; width: 100%; }
+.account-app .other-devices > .support { margin-top: 12px; }
+.phone-management-dialog { width: calc(100vw - 32px); max-width: 440px; padding: 24px; }
+.phone-management-dialog [data-slot="dialog"] { gap: 24px; outline: none; }
+.phone-management-dialog [data-slot="dialog-close"] { top: 8px; right: 8px; width: 44px; height: 44px; }
+.phone-management-dialog [data-slot="dialog-title"] { margin: 0; padding-right: 24px; font-size: 24px; line-height: 1.2; letter-spacing: -.025em; }
+.phone-management-dialog .phone-management-number { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.phone-management-dialog .phone-management-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.phone-management-dialog .phone-management-actions > button { width: 100%; min-height: 48px; margin: 0; padding-inline: 12px; }
+@media (max-width: 400px) {
+  .phone-management-dialog { padding: 20px; }
+  .phone-management-dialog .phone-management-actions > button { padding-inline: 8px; font-size: 13px; }
+}
 .account-app .settings-desktop-nav,
 .account-app .settings-mobile-tabs [data-slot="tabs-list"] { position: relative; isolation: isolate; }
 .account-app .settings-desktop-nav::before,

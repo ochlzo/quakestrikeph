@@ -103,6 +103,7 @@ export function useAccountFlow(initial: string) {
     Boolean(account?.phone) && account?.phoneVerified !== false;
   const [returnAction, setReturnAction] = useState<Screen>("phone");
   const [reverificationSent, setReverificationSent] = useState(false);
+  const [phoneManagementOpen, setPhoneManagementOpen] = useState(false);
   const [sentAt, setSentAt] = useState(0),
     [now, setNow] = useState(Date.now());
   const heading = useRef<HTMLDivElement>(null),
@@ -191,6 +192,8 @@ export function useAccountFlow(initial: string) {
       signin: "Sign in", signup: "Create an account", forgot: "Password recovery",
       preferences: "Alert preferences", location: "Alert location", account: "Account settings",
       password: "Password settings", phone: "Mobile number", profile: "Complete your profile", channels: "Alert setup",
+      "remove-phone": "Remove mobile number", devices: "Signed-in devices",
+      "change-email": "Change email", close: "Remove account",
     };
     document.title = `${labels[screen] ?? "Account verification"} · QuakeStrike PH Bulletin`;
   }, [screen]);
@@ -224,7 +227,9 @@ export function useAccountFlow(initial: string) {
       void action(async () => { await resume(); });
       return;
     }
-    if (target === "password" || (target === "phone" && account?.phone && !pending)) {
+    setPhoneManagementOpen(false);
+    if (target === "remove-phone" && !account?.phone) { setScreen("account", true); return; }
+    if (target === "password" || target === "remove-phone" || (target === "phone" && account?.phone && !pending)) {
       void action(async () => { setReturnAction(target); await openReverification(target); });
       return;
     }
@@ -392,11 +397,12 @@ export function useAccountFlow(initial: string) {
     enrollment.current!.resume(state.pending);
     if (state.nextStep === "complete") {
       const requested = screenAtPath(location.pathname) ?? initialScreen(initial);
-      if (requested === "password" || (requested === "phone" && state.account?.phone && !state.pending)) {
+      if (requested === "password" || (requested === "remove-phone" && state.account?.phone) || (requested === "phone" && state.account?.phone && !state.pending)) {
         setReturnAction(requested);
         await openReverification(requested);
       } else {
-        const next = isPublicAccountScreen(requested) || requested === "profile" ? "preferences" : requested;
+        const next = requested === "remove-phone" && !state.account?.phone ? "account" :
+          isPublicAccountScreen(requested) || requested === "profile" ? "preferences" : requested;
         setScreen(next === "phone" && state.pending ? "verify-phone" : next, true, pathForScreen(next));
       }
     } else setScreen(state.nextStep, true, "/onboarding");
@@ -429,6 +435,7 @@ export function useAccountFlow(initial: string) {
       .finally(() => setLoading(false));
   }, [isLoaded, isSignedIn, requiredStep]);
   function openScreen(next: Screen) {
+    setPhoneManagementOpen(false);
     if (next === screen) return;
     setError("");
     setFieldErrors({});
@@ -447,6 +454,12 @@ export function useAccountFlow(initial: string) {
   function openEmailChange() { openScreen("change-email"); }
   function openAccountRemoval() { openScreen("close"); }
   function returnToAccount() { setScreen("account"); }
+  function openPhoneManagement() {
+    requestDeparture(() => {
+      openScreen("account");
+      setPhoneManagementOpen(true);
+    });
+  }
   async function openAlertPhoneSettings() {
     await action(async () => {
       setPhone(account?.phone ?? "");
@@ -667,6 +680,7 @@ export function useAccountFlow(initial: string) {
   function signOutFromShell() { requestDeparture(() => void endSession("/")); }
   function signOutTask() { return endSession("/sign-in"); }
   async function sensitive(next: Screen) {
+    setPhoneManagementOpen(false);
     if (dirty) {
       requestDeparture(() => void action(async () => {
         setReturnAction(next);
@@ -830,7 +844,10 @@ export function useAccountFlow(initial: string) {
     verifying: screen === "verify-phone", phone, setPhone,
     hasPhone: Boolean(account?.phone), verified: phoneVerified,
     destination: pending?.phone ?? "your phone", expired: phoneExpired, cooldown, busy,
-    fieldError: fieldErrors.phone, goBack: () => openScreen(account?.onboardingCompleted ? "account" : "channels"),
+    fieldError: fieldErrors.phone, goBack: () => {
+      if (account?.onboardingCompleted && account.phone) openPhoneManagement();
+      else openScreen(account?.onboardingCompleted ? "account" : "channels");
+    },
     sendCode, resendCode, verifyCode, useAnotherNumber, continueWithoutSms,
   };
   const authEntry = {
@@ -857,7 +874,10 @@ export function useAccountFlow(initial: string) {
   const accountEmail = account?.email;
   const emailAt = accountEmail?.lastIndexOf('@') ?? -1;
   const reverification = {
-    goBack: () => openScreen("account"), verifyIdentity, resendCode: resendIdentityCode,
+    goBack: () => {
+      if (["phone", "verify-phone", "remove-phone"].includes(returnAction)) openPhoneManagement();
+      else openScreen("account");
+    }, verifyIdentity, resendCode: resendIdentityCode,
     sent: reverificationSent, busy,
     destination: accountEmail && emailAt > 0 ? `${accountEmail[0]}•••${accountEmail.slice(emailAt)}` : 'your account email',
     sendCode: () => action(async () => { await sendIdentityCode(); }),
@@ -865,8 +885,18 @@ export function useAccountFlow(initial: string) {
   const identityView = identity.view;
   const taskFlow = { task: requiredStep, savePassword: saveTaskPassword, signOut: signOutTask };
   const navigation = { openDestination, signOut: signOutFromShell, close: () => requestDeparture(closeAccountSettings) };
-  const accountActions = { openEmailChange, openAccountRemoval, signOut: signOutFromAccount };
+  const accountActions = {
+    openEmailChange, openAccountRemoval, signOut: signOutFromAccount,
+    openPhoneRemoval: () => { void action(() => sensitive("remove-phone")); },
+    openPhoneManagement,
+    openDevices: () => openScreen("devices"),
+    returnToAccount,
+  };
   const unavailableAction = { removing: screen === "close", returnToAccount };
+  const phoneManagement = {
+    open: phoneManagementOpen && screen === "account" && Boolean(account?.phone),
+    close: () => setPhoneManagementOpen(false),
+  };
   const preferencesNavigation = { openPhone: openAlertPhoneSettings, openLocation: () => setScreen("location") };
   const departure = {
     open: Boolean(leaveAction), error: leaveError, saving: savingBeforeLeave,
@@ -874,7 +904,7 @@ export function useAccountFlow(initial: string) {
     stay: () => { if (!savingBeforeLeave) setLeaveAction(null); },
   };
   return {
-    navigation, accountActions, unavailableAction, preferencesNavigation, departure,
+    navigation, accountActions, unavailableAction, preferencesNavigation, departure, phoneManagement,
     authEntry, emailProof, recoveryFlow, renderResend,
     passwordFlow, reverification, openPasswordSettings, openPhoneSettings,
     identityView, taskFlow,

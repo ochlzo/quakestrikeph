@@ -6,6 +6,7 @@ import { Button } from "../../components/ui/button";
 import { Toaster } from "../../components/ui/toast";
 import { Shell } from "./account-ui";
 import { AccountScreen, UnavailableActionScreen } from "./screens/AccountScreen";
+import { DevicesScreen, PhoneManagementDialog, RemovePhoneScreen } from "./screens/AccountSecurityScreens";
 import { AuthScreen, EmailCodeScreen } from "./screens/AuthScreens";
 import { AuthLoading, PreferencesLoading, UnavailableAccountScreen } from "./screens/LoadingScreens";
 import { LocationScreen } from "./screens/LocationScreen";
@@ -90,6 +91,8 @@ function AccountFlow({ initial }: { initial: string; }) {
   else if (screen === "preferences") content = <PreferencesScreen flow={flow} />;
   else if (screen === "location") content = <LocationScreen flow={flow} />;
   else if (screen === "account") content = <AccountScreen flow={flow} />;
+  else if (screen === "remove-phone") content = <RemovePhoneScreen flow={flow} />;
+  else if (screen === "devices") content = <DevicesScreen flow={flow} />;
   else if (screen === "reverify") content = <ReverificationScreen flow={flow} />;
   else if (screen === "password") content = <PasswordScreen flow={flow} />;
   else content = <UnavailableActionScreen flow={flow} />;
@@ -107,7 +110,7 @@ function AccountFlow({ initial }: { initial: string; }) {
       close={navigation.close}
       modal={!taskFlow.task && location.pathname.replace(/\/$/, '') !== '/onboarding' &&
         !isPublicAccountScreen(screen) && !["profile", "channels"].includes(screen)}
-      departureOpen={flow.departure.open}
+      departureOpen={flow.departure.open || flow.phoneManagement.open}
     >
       <div
         key={["preferences", "location", "account"].includes(screen) ? screen : "account-flow"}
@@ -119,6 +122,7 @@ function AccountFlow({ initial }: { initial: string; }) {
         {content}
       </div>
       <UnsavedChangesDialog departure={flow.departure} />
+      <PhoneManagementDialog flow={flow} />
     </Shell>
   );
 }

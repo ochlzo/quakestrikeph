@@ -60,6 +60,34 @@ Password updates omit `currentPassword` and sign out other sessions. Future
 email change and account removal must use this shared gate when implemented;
 those features remain unavailable in this release.
 
+Account settings use one Manage action for an existing mobile number. It opens
+a compact modal over the account screen without changing `/account`. The modal
+contains the heading, description, saved number and two buttons: Remove number
+on the left and Change number on the right. Escape and Close dismiss only this modal and restore focus to
+Manage. Both actions close the modal and use the shared email verification
+gate. Direct removal visits, reloads and history navigation also check proof.
+The final removal confirmation remains disabled and has no deletion handler.
+The device screen identifies only the signed-in browser and reuses ordinary
+sign-out. Other-session listing and revocation remain unavailable; no example
+devices are presented as real data. Implement the shared reverification policy
+before enabling sensitive device operations.
+
+These account destinations share the settings Dialog and its mobile layout:
+
+| Route | Screen |
+| --- | --- |
+| `/account/phone` | Existing add/change number and SMS verification flow. |
+| `/account/phone/remove` | UI-only mobile-number removal confirmation. |
+| `/account/devices` | UI-only signed-in devices screen. |
+| `/account/email` | Unavailable email-change placeholder. |
+| `/account/remove` | Unavailable account-removal placeholder. |
+
+Direct visits, reloads and browser history use the same session checks as other
+settings routes. Removal without a saved number redirects to `/account`.
+The former `/account/phone/manage` page is removed. Change number continues at
+`/account/phone`; removal continues at `/account/phone/remove`.
+Adding routes does not enable the unavailable operations.
+
 This is the Bulletin's browser flow policy, not a new server authorization
 credential. Clerk retains authoritative password/session checks and its own
 reverification window. The Backend retains its verified-email, ownership and

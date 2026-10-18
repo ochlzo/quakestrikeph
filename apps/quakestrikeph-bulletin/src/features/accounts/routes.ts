@@ -16,6 +16,8 @@ export type Screen =
   | "reverify"
   | "password"
   | "change-email"
+  | "remove-phone"
+  | "devices"
   | "close";
 
 export type AccountDestination = "preferences" | "location" | "account";
@@ -30,6 +32,10 @@ export const accountRoutes = {
   "/account": "account",
   "/account/password": "password",
   "/account/phone": "phone",
+  "/account/phone/remove": "remove-phone",
+  "/account/devices": "devices",
+  "/account/email": "change-email",
+  "/account/remove": "close",
 } as const satisfies Record<string, Screen>;
 
 export function screenAtPath(pathname: string): Screen | undefined {
@@ -55,6 +61,10 @@ export function pathForScreen(screen: Screen, onboarding = false): string {
     case "location": return "/location";
     case "password": return "/account/password";
     case "phone": case "verify-phone": return "/account/phone";
+    case "remove-phone": return "/account/phone/remove";
+    case "devices": return "/account/devices";
+    case "change-email": return "/account/email";
+    case "close": return "/account/remove";
     default: return "/account";
   }
 }
