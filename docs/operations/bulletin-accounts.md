@@ -15,7 +15,12 @@ Do not include `compose.edge.yml` during local development.
 The development Clerk app is **QuakeStrike PH Bulletin** in Personal/Hobby:
 `app_3K8Qn66bPx5HFT1S1aJQUxveCS0`, instance
 `ins_3K8Qn2Z9aDmYnNkaBAlmgstZBba`. Email, verified email signup, password
-and Google are enabled. Device Trust remains enabled. The user-approved password
+and Google are enabled. Device Trust remains enabled. The reverification window
+is **5 minutes** (Dashboard **Sessions**, **Session lifetime**), matching the
+Bulletin's five-minute proof reuse and the Backend first-factor `fva` check, so
+a proof the product already accepted also satisfies Clerk's own requirement for
+protected client actions such as session revocation. Set the same value on the
+production instance before release. The user-approved password
 policy is at least 8 characters, including one lowercase letter, one uppercase
 letter and one number. Compromised-password rejection and the strength estimator
 are off; special characters are not required. These settings were saved and
@@ -31,6 +36,86 @@ new-password composition rule. See [ADR 0042](../adr/0042-bulletin-account-imple
 Keep email-code
 capability enabled for device trust and Google-only reverification. Account
 email change/removal is not exposed through hosted profile components.
+
+Sensitive account actions use Clerk's first-factor verification age (`fva[0]`).
+The Bulletin refreshes the session token before each freshness check and reads
+the claims from Clerk's live session. A numeric age from zero to less than five
+minutes qualifies; five minutes, missing claims and negative ages require
+reverification. Recent password sign-in or first-factor verification qualifies
+without another OTP. Accounts with and without passwords follow the same rule.
+When verification expires, the existing email OTP screen requests fresh proof.
+The sign-in form retains "Forgot password?" and signed-out email recovery.
+
+When proof is missing or expired, the shared gate first shows the masked account
+email and a "Send verification code" button. Opening the gate or selecting Back
+does not request a code. Only an explicit send opens the code-entry step after
+Clerk confirms preparation. Sending disables the button and shows a spinner;
+failure leaves the confirmation available for retry. Resend remains explicit.
+
+The Bulletin keeps no separate proof cache or verification timestamp in browser
+storage. Reload and reopening settings reuse the remaining Clerk verification
+window for the same session; neither action restarts that window. Every check
+verifies session identity before and after token refresh. Missing tokens and
+late responses from another session cannot establish freshness. An explicit
+send or resend always requests a code. A provider or Backend reverification
+requirement opens the email gate even if the earlier age appeared recent.
+
+The Bulletin checks again before a password save, before replacement phone
+send/resend/verification requests and before a mobile-number removal. Expiry
+opens email reverification before continuing; a phone SMS OTP remains
+independently required for a new number. Password updates omit `currentPassword`
+and sign out other sessions. Future email change and account removal must use
+this shared gate when implemented; those features remain unavailable in this
+release.
+
+Account settings use one Manage action for an existing mobile number. It opens
+a compact modal over the account screen without changing `/account`. The modal
+contains the heading, description, saved number and two buttons: Remove number
+on the left and Change number on the right. Escape and Close dismiss only this modal and restore focus to
+Manage. Both actions close the modal and use the shared email verification
+gate. Changing screens resets the modal's open state. Back and Cancel return
+to Account settings with the modal closed; only Manage opens it again.
+Direct removal visits, reloads and history navigation also check proof.
+Removal issues `DELETE /api/v1/account/phone`, which returns the updated account,
+shows a success notification and returns to Account settings. Removing a number
+that is not saved changes nothing, reports no success audit and is not reachable
+from the screen because removal redirects when no number exists. Removal always
+acquires the shared account lock, rereads the account and cancels pending
+verification before deciding whether a saved phone needs clearing. This also
+clears a binding committed after the initial read. Start and verification keep
+their additional phone lock; an overlapping operation on the same account
+reports verification busy.
+
+The device screen lists only the signed-in sessions Clerk reports: device type,
+browser and a relative last-active time. No city, country, IP address or
+hardware identity is shown. The current session is identified as this device and
+keeps the existing ordinary sign-out. Other sessions sign out individually or
+together through the shared email verification gate, which satisfies Clerk's own
+session reverification for the protected action. A stale reverification
+requirement reopens the gate and no device action is retried automatically. When
+no other sessions exist, the bulk action is hidden.
+
+These account destinations share the settings Dialog and its mobile layout:
+
+| Route | Screen |
+| --- | --- |
+| `/account/phone` | Existing add/change number and SMS verification flow. |
+| `/account/phone/remove` | Mobile-number removal confirmation. |
+| `/account/devices` | Signed-in devices with per-device and bulk sign-out. |
+| `/account/email` | Unavailable email-change placeholder. |
+| `/account/remove` | Unavailable account-removal placeholder. |
+
+Direct visits, reloads and browser history use the same session checks as other
+settings routes. Removal without a saved number redirects to `/account`.
+The former `/account/phone/manage` page is removed. Change number continues at
+`/account/phone`; removal continues at `/account/phone/remove`.
+The email-change and account-removal placeholders remain unavailable.
+
+Clerk retains authoritative password/session checks and its own reverification
+window. The Backend retains its verified-email, ownership and five-minute
+first-factor `fva` checks on authenticated tokens. The browser freshness check
+does not replace server authorization. Keep email codes and reverification
+enabled; no MFA enrollment is required. Test the target Clerk instance before release.
 
 ## Automated checks
 
@@ -51,8 +136,10 @@ docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.inte
 The Python fixtures migrate/truncate only `quakestrike_test`. The Backend
 tests require that database name and use test-only provider fixtures. They
 check account/audit rollback, uniqueness, ownership and grants, plus Redis
-expiry, account/phone fencing, wrong-code exhaustion and sliding limits.
-No live SMS or production API mutation is part of automated tests.
+expiry, account/phone fencing, wrong-code exhaustion and sliding limits. They
+also check that phone removal clears the number and SMS flag, cancels an
+in-flight attempt and writes one `phone_removed` audit row with no number in its
+metadata. No live SMS or production API mutation is part of automated tests.
 
 For browser checks, start the separate fixture server in the Bulletin:
 
@@ -75,10 +162,12 @@ without a browser or live provider. The identity checks replace raw Clerk
 operations below the real production sequencing. Browser checks retain the
 Clerk fixture alias and exercise that same sequencing through the screens.
 
-The checks include profile operations, phone operations, authentication,
-routes, session isolation, preferences, location, and motion. Phone checks
-cover replacement refresh failures, attempt deletion retries, partial success,
-and responses from former sessions. Authentication checks cover account entry,
+The checks include profile operations, phone operations, phone removal,
+devices, authentication, routes, session isolation, preferences, location, and
+motion. Phone checks cover replacement refresh failures, attempt deletion
+retries, partial success, and responses from former sessions. Device checks
+cover session normalization, the current-session guard, provider failures and
+responses from former sessions. Authentication checks cover account entry,
 email/device codes, enumeration-safe recovery, sensitive credentials, session
 tasks, sign-out confirmations, and delayed Clerk successes and failures.
 The test-only Clerk adapter can delay or reject individual provider stages and
@@ -118,7 +207,7 @@ after an account island unmounts. The account feature retains private-state
 reset and preference-queue cancellation. No extra global runtime is required.
 First anonymous activation preserves the signup profile handoff. Token refresh
 rejection blocks proof continuation; a null refresh retains the existing
-continuation, and the HTTP helper rejects a later missing token.
+continuation, but a later freshness check refuses a missing token.
 
 Account navigation uses a restricted destination operation for Alerts,
 Location, and Account. Screen views provide named Back, sensitive-entry,

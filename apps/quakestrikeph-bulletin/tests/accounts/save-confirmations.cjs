@@ -78,7 +78,7 @@ const deferred = () => { let resolve; const promise = new Promise(done => { reso
       await phonePage.goto(`${root}/onboarding?signed=1`);
       await phonePage.getByRole('button', { name: 'Continue', exact: true }).click();
       await phonePage.getByLabel('Mobile number', { exact: true }).fill('09171234567');
-      await phonePage.getByRole('button', { name: 'Send verification code', exact: true }).click();
+      await phonePage.getByRole('button', { name: 'Send code', exact: true }).click();
       await phonePage.getByLabel('Verification code', { exact: true }).fill('123456');
       await phonePage.getByRole('button', { name: 'Verify code', exact: true }).click();
       await optInRequested.promise;

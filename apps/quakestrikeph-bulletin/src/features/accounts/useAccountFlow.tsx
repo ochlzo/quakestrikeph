@@ -1,4 +1,4 @@
-import { useIdentity, type IdentityOutcome, type ProofMethod } from "../../lib/auth";
+import { useIdentity, type IdentityDevice, type IdentityOutcome } from "../../lib/auth";
 import { ArrowRight, Loader } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode, } from "react";
 import { Button } from "../../components/ui/button";
@@ -74,7 +74,6 @@ export function useAccountFlow(initial: string) {
   const identity = useIdentity(event => {
     if (event === 'authentication-fields-consumed') {
       setPassword('');
-      setCurrentPassword('');
       setCode('');
     } else {
       setPassword('');
@@ -90,8 +89,7 @@ export function useAccountFlow(initial: string) {
   const [name, setName] = useState(""),
     [email, setEmail] = useState(""),
     [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState(""),
-    [currentPassword, setCurrentPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [code, setCode] = useState(""),
     [phone, setPhone] = useState(""),
     [channels, setChannels] = useState<string[]>(["sms"]);
@@ -104,9 +102,14 @@ export function useAccountFlow(initial: string) {
   const phoneVerified =
     Boolean(account?.phone) && account?.phoneVerified !== false;
   const [returnAction, setReturnAction] = useState<Screen>("phone");
+  const [reverificationSent, setReverificationSent] = useState(false);
+  const [phoneManagementOpen, setPhoneManagementOpen] = useState(false);
+  const [devices, setDevices] = useState<IdentityDevice[]>([]);
+  const [devicesStatus, setDevicesStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [devicesError, setDevicesError] = useState("");
+  const devicesRequested = useRef(false);
   const [sentAt, setSentAt] = useState(0),
     [now, setNow] = useState(Date.now());
-  const [reverifyMethod, setReverifyMethod] = useState<ProofMethod>("current-password");
   const heading = useRef<HTMLDivElement>(null),
     signedOnce = useRef(false);
   const signupProfileName = useRef<string | null>(null);
@@ -159,6 +162,7 @@ export function useAccountFlow(initial: string) {
   const undoingHistory = useRef(false);
   function setScreen(next: Screen, replace = false, path?: string) {
     if (!active.current) return;
+    setPhoneManagementOpen(false);
     updateScreen(next);
     writeAccountRoute(path ?? pathForScreen(next, !!account && !account.onboardingCompleted), replace);
     historyIndex.current = history.state.accountIndex;
@@ -193,6 +197,8 @@ export function useAccountFlow(initial: string) {
       signin: "Sign in", signup: "Create an account", forgot: "Password recovery",
       preferences: "Alert preferences", location: "Alert location", account: "Account settings",
       password: "Password settings", phone: "Mobile number", profile: "Complete your profile", channels: "Alert setup",
+      "remove-phone": "Remove mobile number", devices: "Signed-in devices",
+      "change-email": "Change email", close: "Remove account",
     };
     document.title = `${labels[screen] ?? "Account verification"} · QuakeStrike PH Bulletin`;
   }, [screen]);
@@ -220,15 +226,16 @@ export function useAccountFlow(initial: string) {
     setError("");
     setFieldErrors({});
     setPassword("");
-    setCurrentPassword("");
     setConfirmPassword("");
     if (!isSignedIn && !isPublicAccountScreen(target)) { setScreen("signin", true); return; }
     if (isSignedIn && (isPublicAccountScreen(target) || target === "profile")) {
       void action(async () => { await resume(); });
       return;
     }
-    if (target === "password" || (target === "phone" && account?.phone && !pending)) {
-      void action(async () => { setReturnAction(target); await prepareReverification(target); });
+    setPhoneManagementOpen(false);
+    if (target === "remove-phone" && !account?.phone) { setScreen("account", true); return; }
+    if (target === "password" || target === "remove-phone" || (target === "phone" && account?.phone && !pending)) {
+      void action(async () => { setReturnAction(target); await openReverification(target); });
       return;
     }
     updateScreen(target === "phone" && pending ? "verify-phone" : target);
@@ -293,7 +300,7 @@ export function useAccountFlow(initial: string) {
       let next = account;
       if (location) {
         if (!saves) throw new Error("Alert settings could not be saved. Try again.");
-        next = await saves.saveConfirmed(location);
+        next = await saves.saveConfirmed({ ...location, nearbyOnly: true });
       }
       if (screen === "account" && name !== account.displayName)
         next = await writeProfile(name);
@@ -356,12 +363,79 @@ export function useAccountFlow(initial: string) {
   }, [saves]);
   function savePreferences(patch: Partial<Preferences>, delay = 400) {
     if (!saves) return;
-    if (patch.nearbyOnly && (draft.latitude === null || draft.longitude === null || draft.distanceKm === null)) {
+    const next = { ...draft, ...patch };
+    if (next.nearbyOnly && (next.latitude === null || next.longitude === null || next.distanceKm === null)) {
       toast.add({ type: 'error', title: 'Choose an alert location and distance first.' });
       return;
     }
     saves.save(patch, delay);
   }
+  async function removeLocation() {
+    if (!saves) throw new Error("Alert settings could not be saved. Try again.");
+    const next = await saves.saveConfirmed({ latitude: null, longitude: null, distanceKm: null, nearbyOnly: false });
+    if (!active.current) return;
+    updateAccount(next);
+    locationEdit.refresh(next);
+    locationEdit.cancel();
+    toast.add({ type: 'success', title: 'Alert location removed.' });
+  }
+  async function removePhone() {
+    await action(async () => {
+      // The screen was gated on entry; re-check so an expired proof reopens the gate.
+      if (await needsRecentVerification("remove-phone")) return;
+      const next = await api<Account>("/phone", "DELETE");
+      if (!active.current) return;
+      updateAccount(next);
+      toast.add({ type: "success", title: "Mobile number removed." });
+      setScreen("account");
+    });
+  }
+  async function loadDevices() {
+    setDevicesStatus("loading");
+    setDevicesError("");
+    const result = await identity.listDevices();
+    if (!active.current) return;
+    if (result.kind === "completed") { setDevices(result.devices); setDevicesStatus("ready"); return; }
+    if (result.kind === "failed") { setDevicesError(result.message); setDevicesStatus("error"); }
+  }
+  async function signOutDevice(sessionId: string) {
+    await action(async () => {
+      if (await needsRecentVerification("devices")) return;
+      const result = await identity.revokeDevice(sessionId);
+      if (result.kind === "verification-required") {
+        await openReverification("devices", true);
+        return;
+      }
+      if (result.kind === "failed") { reportError(result.message); return; }
+      if (result.kind !== "completed") return;
+      toast.add({ type: "success", title: "Device signed out." });
+      await loadDevices();
+    });
+  }
+  async function signOutOtherDevices() {
+    await action(async () => {
+      if (await needsRecentVerification("devices")) return;
+      let signedOut = 0;
+      for (const device of devices.filter(value => !value.current)) {
+        const result = await identity.revokeDevice(device.id);
+        if (result.kind === "verification-required") {
+          await openReverification("devices", true);
+          return;
+        }
+        if (result.kind === "failed") { reportError(result.message); break; }
+        if (result.kind === "ignored") return;
+        signedOut++;
+      }
+      if (signedOut) toast.add({ type: "success", title: "Other devices signed out." });
+      await loadDevices();
+    });
+  }
+  useEffect(() => {
+    if (screen !== "devices") { devicesRequested.current = false; return; }
+    if (devicesRequested.current) return;
+    devicesRequested.current = true;
+    void loadDevices();
+  }, [screen]);
   async function saveOnboardingChannels() {
     const result = await enrollment.current!.confirmChannels({ email: channels.includes('email'), sms: channels.includes('sms') });
     if (result.kind !== 'completed') return;
@@ -385,11 +459,12 @@ export function useAccountFlow(initial: string) {
     enrollment.current!.resume(state.pending);
     if (state.nextStep === "complete") {
       const requested = screenAtPath(location.pathname) ?? initialScreen(initial);
-      if (requested === "password" || (requested === "phone" && state.account?.phone && !state.pending)) {
+      if (requested === "password" || (requested === "remove-phone" && state.account?.phone) || (requested === "phone" && state.account?.phone && !state.pending)) {
         setReturnAction(requested);
-        await prepareReverification(requested);
+        await openReverification(requested);
       } else {
-        const next = isPublicAccountScreen(requested) || requested === "profile" ? "preferences" : requested;
+        const next = requested === "remove-phone" && !state.account?.phone ? "account" :
+          isPublicAccountScreen(requested) || requested === "profile" ? "preferences" : requested;
         setScreen(next === "phone" && state.pending ? "verify-phone" : next, true, pathForScreen(next));
       }
     } else setScreen(state.nextStep, true, "/onboarding");
@@ -422,6 +497,7 @@ export function useAccountFlow(initial: string) {
       .finally(() => setLoading(false));
   }, [isLoaded, isSignedIn, requiredStep]);
   function openScreen(next: Screen) {
+    setPhoneManagementOpen(false);
     if (next === screen) return;
     setError("");
     setFieldErrors({});
@@ -440,6 +516,12 @@ export function useAccountFlow(initial: string) {
   function openEmailChange() { openScreen("change-email"); }
   function openAccountRemoval() { openScreen("close"); }
   function returnToAccount() { setScreen("account"); }
+  function openPhoneManagement() {
+    requestDeparture(() => {
+      openScreen("account");
+      setPhoneManagementOpen(true);
+    });
+  }
   async function openAlertPhoneSettings() {
     await action(async () => {
       setPhone(account?.phone ?? "");
@@ -491,9 +573,10 @@ export function useAccountFlow(initial: string) {
           return;
         }
         if (e.code === "REVERIFICATION_REQUIRED") {
-          setReturnAction(screen === "password" ? "password" : "phone");
+          const target = screen === "password" ? "password" : screen === "remove-phone" ? "remove-phone" : "phone";
+          setReturnAction(target);
           try {
-            await prepareReverification(screen === "password" ? "password" : "phone");
+            await openReverification(target, true);
             if (active.current && failure instanceof SmsOptInFailure) reportFailure(e.message);
           } catch {
             reportFailure(
@@ -522,13 +605,13 @@ export function useAccountFlow(initial: string) {
       setBusy(false);
     }
   }
-  async function identityAction(work: () => Promise<IdentityOutcome>, done?: (result: Extract<IdentityOutcome, { kind: 'completed' }>) => void) {
+  async function identityAction(work: () => Promise<IdentityOutcome>, done?: (result: Extract<IdentityOutcome, { kind: 'completed' }>) => void | Promise<void>) {
     await action(async () => {
       const result = await work();
       if (result.kind === 'failed') {
         if (result.field) setFieldErrors({ [result.field]: result.message });
         else reportError(result.message);
-      } else if (result.kind === 'completed') done?.(result);
+      } else if (result.kind === 'completed') await done?.(result);
     });
   }
   function authenticationCompleted(result: Extract<IdentityOutcome, { kind: 'completed' }>) {
@@ -589,33 +672,50 @@ export function useAccountFlow(initial: string) {
       toast.add({ type: 'success', title: 'Recovery code requested, if available.' });
     });
   }
-  async function prepareReverification(target: Screen = returnAction) {
-    const result = await identity.prepareReverification();
-    if (result.kind === 'failed') throw new Error(result.message);
-    if (result.kind !== 'completed') return;
-    if (result.step !== 'current-password' && result.step !== 'email-code') return;
-    setReverifyMethod(result.step);
-    if (result.sentAt !== undefined) setSentAt(result.sentAt);
+  async function openReverification(target: Screen = returnAction, force = false) {
+    setReturnAction(target);
+    if (!force && await identity.hasRecentVerification()) {
+      setScreen(target);
+      return true;
+    }
+    setReverificationSent(false);
+    setCode('');
     setScreen('reverify', false, pathForScreen(target));
+    return true;
+  }
+  async function sendIdentityCode() {
+    const result = await identity.prepareReverification('email-code');
+    if (result.kind === 'failed') throw new Error(result.message);
+    if (result.kind !== 'completed') return false;
+    if (result.step !== 'email-code') return false;
+    if (result.sentAt !== undefined) setSentAt(result.sentAt);
+    setCode('');
+    setReverificationSent(true);
+    return true;
   }
   async function verifyIdentity() {
-    await identityAction(() => identity.verifyIdentity(reverifyMethod, reverifyMethod === 'current-password' ? currentPassword : code), () => {
-      setCurrentPassword('');
+    await identityAction(() => identity.verifyIdentity('email-code', code), () => {
       setScreen(returnAction);
     });
   }
   async function resendIdentityCode() {
-    await action(() => prepareReverification(returnAction));
+    await action(async () => { await sendIdentityCode(); });
+  }
+  async function needsRecentVerification(target: Screen) {
+    if (await identity.hasRecentVerification()) return false;
+    setReturnAction(target);
+    await openReverification(target, true);
+    return true;
   }
   async function savePassword() {
     await identityAction(async () => {
       if (!passwordsMatch()) return { kind: 'ignored' };
-      const result = await identity.savePassword(password, currentPassword);
+      if (await needsRecentVerification('password')) return { kind: 'ignored' };
+      const result = await identity.savePassword(password);
       return result.kind === 'failed' ? { ...result, message: result.message + ' ' + passwordRequirements } : result;
-    }, () => {
+    }, async () => {
       setPassword('');
       setConfirmPassword('');
-      setCurrentPassword('');
       setScreen('account');
       toast.add({ type: 'success', title: 'Password saved.' });
     });
@@ -639,10 +739,11 @@ export function useAccountFlow(initial: string) {
   function signOutFromShell() { requestDeparture(() => void endSession("/")); }
   function signOutTask() { return endSession("/sign-in"); }
   async function sensitive(next: Screen) {
+    setPhoneManagementOpen(false);
     if (dirty) {
       requestDeparture(() => void action(async () => {
         setReturnAction(next);
-        await prepareReverification(next);
+        await openReverification(next);
       }));
       return;
     }
@@ -651,10 +752,11 @@ export function useAccountFlow(initial: string) {
       setName(account.displayName);
     }
     setReturnAction(next);
-    await prepareReverification(next);
+    await openReverification(next);
   }
   async function sendCode() {
     await action(async () => {
+      if (phoneVerified && await needsRecentVerification('phone')) return;
       const result = await enrollment.current!.send(phone);
       if (result.kind !== 'completed') return;
       setPhone(result.value.phone);
@@ -663,6 +765,7 @@ export function useAccountFlow(initial: string) {
   }
   async function resendCode() {
     await action(async () => {
+      if (phoneVerified && await needsRecentVerification('verify-phone')) return;
       const result = await enrollment.current!.resend(phone);
       if (result.kind !== 'completed') return;
       setCode("");
@@ -670,7 +773,10 @@ export function useAccountFlow(initial: string) {
     });
   }
   async function verifyCode() {
-    await action(async () => { await enrollment.current!.verify(code, now); });
+    await action(async () => {
+      if (phoneVerified && await needsRecentVerification('verify-phone')) return;
+      await enrollment.current!.verify(code, now);
+    });
   }
   async function useAnotherNumber() {
     await action(async () => {
@@ -807,7 +913,7 @@ export function useAccountFlow(initial: string) {
     setEmail: (value: string) => { setEmail(value); setFieldErrors(errors => ({ ...errors, email: "" })); },
     setPassword: (value: string) => { setPassword(value); setFieldErrors(errors => ({ ...errors, password: "" })); },
     switchAuthMode, signInWithPassword, createAccount, signInWithGoogle,
-    openRecovery: () => setScreen("forgot"),
+    openRecovery: () => { setPassword(''); setScreen("forgot"); },
   };
   const emailProof = {
     deviceVerification: screen === "device-code", email, goBack: () => openScreen("signin"),
@@ -819,14 +925,40 @@ export function useAccountFlow(initial: string) {
     savePassword: saveRecoveredPassword, resendCode: resendRecoveryCode,
   };
   const passwordFlow = {
-    hasPassword: identity.view.hasPassword, currentPassword, setCurrentPassword, savePassword, goBack: () => openScreen("account"),
+    hasPassword: identity.view.hasPassword, savePassword, goBack: () => openScreen("account"),
   };
-  const reverification = { goBack: () => openScreen("account"), method: reverifyMethod, currentPassword, setCurrentPassword, verifyIdentity, resendCode: resendIdentityCode };
+  const accountEmail = account?.email;
+  const emailAt = accountEmail?.lastIndexOf('@') ?? -1;
+  const reverification = {
+    goBack: () => openScreen("account"), verifyIdentity, resendCode: resendIdentityCode,
+    sent: reverificationSent, busy,
+    destination: accountEmail && emailAt > 0 ? `${accountEmail[0]}•••${accountEmail.slice(emailAt)}` : 'your account email',
+    sendCode: () => action(async () => { await sendIdentityCode(); }),
+  };
   const identityView = identity.view;
   const taskFlow = { task: requiredStep, savePassword: saveTaskPassword, signOut: signOutTask };
   const navigation = { openDestination, signOut: signOutFromShell, close: () => requestDeparture(closeAccountSettings) };
-  const accountActions = { openEmailChange, openAccountRemoval, signOut: signOutFromAccount };
+  const accountActions = {
+    openEmailChange, openAccountRemoval, signOut: signOutFromAccount,
+    openPhoneRemoval: () => { void action(() => sensitive("remove-phone")); },
+    openPhoneManagement,
+    openDevices: () => openScreen("devices"),
+    returnToAccount,
+    removePhone,
+  };
   const unavailableAction = { removing: screen === "close", returnToAccount };
+  const phoneManagement = {
+    open: phoneManagementOpen && screen === "account" && Boolean(account?.phone),
+    close: () => setPhoneManagementOpen(false),
+  };
+  const devicesFlow = {
+    list: devices,
+    loading: devicesStatus === "loading" || devicesStatus === "idle",
+    error: devicesStatus === "error" ? devicesError : "",
+    refresh: loadDevices,
+    signOut: signOutDevice,
+    signOutOthers: signOutOtherDevices,
+  };
   const preferencesNavigation = { openPhone: openAlertPhoneSettings, openLocation: () => setScreen("location") };
   const departure = {
     open: Boolean(leaveAction), error: leaveError, saving: savingBeforeLeave,
@@ -834,7 +966,8 @@ export function useAccountFlow(initial: string) {
     stay: () => { if (!savingBeforeLeave) setLeaveAction(null); },
   };
   return {
-    navigation, accountActions, unavailableAction, preferencesNavigation, departure,
+    navigation, accountActions, unavailableAction, preferencesNavigation, departure, phoneManagement,
+    devices: devicesFlow,
     authEntry, emailProof, recoveryFlow, renderResend,
     passwordFlow, reverification, openPasswordSettings, openPhoneSettings,
     identityView, taskFlow,
@@ -856,6 +989,7 @@ export function useAccountFlow(initial: string) {
     codeField,
     newPasswordFields,
     savePreferences,
+    removeLocation,
     saveOnboardingChannels,
     channels,
     setChannels,

@@ -15,8 +15,9 @@ export class RedisPhoneAttempts implements PhoneAttempts {
     try { return await this.redis.eval(script, { keys, arguments: args }); }
     catch { throw new AccountError('VERIFICATION_UNAVAILABLE', 'Mobile verification is temporarily unavailable.', 503); }
   }
-  async exclusive<T>(user: string, phone: string, work: () => Promise<T>): Promise<T> {
-    const keys = [`${userKey(user)}:lock`, `${ownerKey(phone)}:lock`];
+  async exclusive<T>(user: string, phone: string | null, work: () => Promise<T>): Promise<T> {
+    const keys = [`${userKey(user)}:lock`];
+    if (phone !== null) keys.push(`${ownerKey(phone)}:lock`);
     const token = randomUUID();
     const acquired = await this.eval(`
       for _,k in ipairs(KEYS) do if redis.call('EXISTS',k)==1 then return 0 end end

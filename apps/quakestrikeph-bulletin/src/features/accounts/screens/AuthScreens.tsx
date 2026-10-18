@@ -1,18 +1,43 @@
 import { ArrowRight } from "lucide-react";
 import { Button } from "../../../components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger, } from "../../../components/ui/tabs";
-import { BackButton, capitalizeNameWords, FormField, passwordPattern, passwordRequirements } from "../account-ui";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "../../../components/ui/tabs";
+import {
+  BackButton,
+  capitalizeNameWords,
+  FormField,
+  passwordPattern,
+  passwordRequirements,
+} from "../account-ui";
 import type { AccountFlowState } from "../useAccountFlow";
 
 type AuthScreenFlow = Pick<AccountFlowState, "authEntry" | "title" | "submit">;
-type EmailCodeScreenFlow = Pick<AccountFlowState, "emailProof" | "title" | "codeField" | "submit" | "renderResend">;
+type EmailCodeScreenFlow = Pick<
+  AccountFlowState,
+  "emailProof" | "title" | "codeField" | "submit" | "renderResend"
+>;
 
-export function AuthScreen({ flow }: { flow: AuthScreenFlow; }) {
+export function AuthScreen({ flow }: { flow: AuthScreenFlow }) {
   const { authEntry, title, submit } = flow;
   const {
-    mode: screen, switchAuthMode, busy, email, setPassword,
-    name, setName, fieldErrors, setEmail, password,
-    signInWithPassword, createAccount, signInWithGoogle, openRecovery,
+    mode: screen,
+    switchAuthMode,
+    busy,
+    email,
+    setPassword,
+    name,
+    setName,
+    fieldErrors,
+    setEmail,
+    password,
+    signInWithPassword,
+    createAccount,
+    signInWithGoogle,
+    openRecovery,
   } = authEntry;
   return (
     <Tabs
@@ -63,7 +88,7 @@ export function AuthScreen({ flow }: { flow: AuthScreenFlow; }) {
           <span>or use your email</span>
         </div>
         <form
-          onSubmit={event => {
+          onSubmit={(event) => {
             event.preventDefault();
             void (screen === "signup" ? createAccount() : signInWithPassword());
           }}
@@ -96,8 +121,10 @@ export function AuthScreen({ flow }: { flow: AuthScreenFlow; }) {
             labelAction={
               screen === "signin" && (
                 <Button
+                  type="button"
                   className="text-button"
                   variant="link"
+                  isDisabled={busy}
                   onPress={openRecovery}
                 >
                   Forgot password?
@@ -122,14 +149,13 @@ export function AuthScreen({ flow }: { flow: AuthScreenFlow; }) {
         </form>
         <a className="guest mobile-guest" href="/">
           View Bulletin without an account
-          <ArrowRight />
         </a>
       </TabsContent>
     </Tabs>
   );
 }
 
-export function EmailCodeScreen({ flow }: { flow: EmailCodeScreenFlow; }) {
+export function EmailCodeScreen({ flow }: { flow: EmailCodeScreenFlow }) {
   const { emailProof, title, codeField, submit, renderResend } = flow;
   const { deviceVerification, email, verifyCode, resendCode } = emailProof;
   return (
@@ -142,7 +168,10 @@ export function EmailCodeScreen({ flow }: { flow: EmailCodeScreenFlow; }) {
           : `Enter the code sent to ${email}.`,
       )}
       <form
-        onSubmit={event => { event.preventDefault(); void verifyCode(); }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void verifyCode();
+        }}
       >
         {codeField}
         {submit("Verify email")}

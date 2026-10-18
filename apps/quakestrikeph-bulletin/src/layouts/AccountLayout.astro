@@ -10,7 +10,7 @@ import '../styles/account-flow.css';
 import '../styles/accounts.css';
 interface Props {
   title: string;
-  initial: 'signin' | 'signup' | 'forgot' | 'onboarding' | 'account' | 'alerts' | 'location' | 'password' | 'phone' | 'callback';
+  initial: 'signin' | 'signup' | 'forgot' | 'onboarding' | 'account' | 'alerts' | 'location' | 'password' | 'phone' | 'callback' | 'remove-phone' | 'devices' | 'change-email' | 'close';
 }
 const { title, initial } = Astro.props;
 ---
@@ -23,7 +23,7 @@ const { title, initial } = Astro.props;
     <meta name="robots" content="noindex" />
     <title>{title} · QuakeStrike PH Bulletin</title>
   </head>
-  <body data-account-page data-account-settings={['alerts', 'location', 'account', 'phone', 'password'].includes(initial) || undefined}>
+  <body data-account-page data-account-settings={['alerts', 'location', 'account', 'phone', 'password', 'remove-phone', 'devices', 'change-email', 'close'].includes(initial) || undefined}>
     <div id="bulletin-view">
       <Bulletin client:visible />
     </div>
@@ -31,6 +31,8 @@ const { title, initial } = Astro.props;
     <div id="account-workspace" transition:persist="account-workspace">
       <AccountApp publishableKey={import.meta.env.PUBLIC_CLERK_PUBLISHABLE_KEY ?? ''} initial={initial} externalToaster client:only="react" />
     </div>
-    <BackgroundToaster client:only="react" transition:persist="account-notifications" />
+    <div data-react-aria-top-layer="true" transition:persist="account-notifications">
+      <BackgroundToaster client:only="react" />
+    </div>
   </body>
 </html>

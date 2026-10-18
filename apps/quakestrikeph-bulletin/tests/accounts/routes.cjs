@@ -29,7 +29,7 @@ const baseAccount = { userId: 'fixture-user', displayName: 'Maria Santos', email
       for (const [path, heading] of [
         ['/alerts', 'Alert preferences'], ['/location', 'Alert location'],
         ['/account', 'Account settings'], ['/account/phone', 'Add your mobile number'],
-        ['/account/password', 'Verify your identity again'],
+        ['/account/password', 'Verify your identity'],
       ]) {
         await page.goto(`${root}${path}?signed=1`);
         await page.getByRole('heading', { name: heading, exact: true }).waitFor();

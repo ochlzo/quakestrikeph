@@ -93,7 +93,7 @@ export class PostgresAccounts implements AccountStore {
     identity: Identity,
     action: string,
     requestId: string,
-    work: (client: PoolClient, row: Row | undefined) => Promise<Row>,
+    work: (client: PoolClient, row: Row | undefined) => Promise<Row | null>,
   ) {
     const client = await this.pool.connect();
     try {
@@ -109,6 +109,11 @@ export class PostgresAccounts implements AccountStore {
       );
       if (result.rows[0]) this.trusted(result.rows[0], identity);
       const row = await work(client, result.rows[0]);
+      // A null result leaves the locked account unchanged, without a success audit.
+      if (row === null) {
+        await client.query("COMMIT");
+        return account(result.rows[0]);
+      }
       await client.query(
         `INSERT INTO audit_logs
         (audit_id, actor_type, actor_user_id, action, target_type, target_id, outcome, request_id, correlation_id, metadata)
@@ -271,5 +276,30 @@ export class PostgresAccounts implements AccountStore {
         [phone, userId],
       )
     ).rowCount;
+  }
+
+  async removePhone(identity: Identity, requestId: string) {
+    // The row change and its success audit commit together. Metadata carries no number.
+    return this.transaction(
+      identity,
+      "phone_removed",
+      requestId,
+      async (client, row) => {
+        if (!row)
+          throw new AccountError(
+            "PROFILE_REQUIRED",
+            "Complete your profile first.",
+            409,
+          );
+        if (row.mobile_number === null) return null;
+        return (
+          await client.query(
+            `UPDATE users SET mobile_number=NULL, mobile_verified_at=NULL,
+        sms_enabled=false, updated_at=now() WHERE user_id=$1 RETURNING *`,
+            [row.user_id],
+          )
+        ).rows[0];
+      },
+    );
   }
 }

@@ -165,6 +165,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccountError'
+  /account/phone:
+    delete:
+      operationId: removePhone
+      security: [{ClerkSession: []}]
+      responses:
+        '200':
+          description: Successful owner-only operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        default:
+          description: Authentication, validation, state or provider error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountError'
   /account/phone/attempts:
     post:
       operationId: startPhoneVerification

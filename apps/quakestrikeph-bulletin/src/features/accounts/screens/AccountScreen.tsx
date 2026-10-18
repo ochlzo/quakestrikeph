@@ -92,9 +92,9 @@ export function AccountScreen({ flow }: { flow: AccountScreenFlow; }) {
         <Button
           variant="link"
           className="text-button"
-          onPress={() => void openPhoneSettings()}
+          onPress={() => account?.phone ? accountActions.openPhoneManagement() : void openPhoneSettings()}
         >
-          {account?.phone ? "Change" : "Add"}
+          {account?.phone ? "Manage" : "Add"}
         </Button>
       </div>
       <div className="account-row">
@@ -112,6 +112,15 @@ export function AccountScreen({ flow }: { flow: AccountScreenFlow; }) {
           onPress={() => void openPasswordSettings()}
         >
           {identityView.hasPassword ? "Change password" : "Add password"}
+        </Button>
+      </div>
+      <div className="account-row">
+        <span>
+          <strong>Signed-in devices</strong>
+          <small>Review where you are signed in.</small>
+        </span>
+        <Button variant="link" className="text-button" onPress={accountActions.openDevices}>
+          Manage
         </Button>
       </div>
       <div className="account-links">

@@ -67,16 +67,12 @@ const account = {
     for (const passwordless of [false, true]) {
       const flow = await setup('signed=1&initial=account' + (passwordless ? '&passwordless=1' : ''));
       await flow.page.getByRole('button', { name: passwordless ? 'Add password' : 'Change password', exact: true }).click();
-      if (passwordless) {
-        await flow.page.locator('#code').fill('111111');
-      } else {
-        // New-password composition must not apply to the current factor.
-        await flow.page.locator('#current-password').fill('fixture-password');
-        assert.equal(await flow.page.locator('#current-password').getAttribute('pattern'), null);
-      }
+      assert.equal(await flow.page.locator('#current-password').count(), 0);
+      await flow.page.getByRole('button', { name: 'Send verification code', exact: true }).click();
+      await flow.page.locator('#code').fill('111111');
       await flow.page.getByRole('button', { name: 'Verify identity', exact: true }).click();
       await flow.page.getByRole('heading', { name: passwordless ? 'Add password sign-in' : 'Change your password' }).waitFor();
-      if (!passwordless) await flow.page.locator('#current-password').fill('fixture-password');
+      assert.equal(await flow.page.locator('#current-password').count(), 0);
       await validate(flow.page, flow.writes, 'Save password');
       await flow.page.getByRole('button', { name: 'Save password', exact: true }).click();
       await flow.page.getByText('Password saved.', { exact: true }).waitFor();

@@ -27,6 +27,8 @@ export function accountRoutes(dependencies?: AccountDependencies) {
     body(req.body), String(res.getHeader('X-Request-ID')))));
   router.post('/phone/verify', async (req, res) => res.json(await dependencies!.service.verify(res.locals.identity,
     body(req.body), String(res.getHeader('X-Request-ID')))));
+  router.delete('/phone', async (_req, res) => res.json(await dependencies!.service.removePhone(res.locals.identity,
+    String(res.getHeader('X-Request-ID')))));
   router.delete('/phone/attempts', async (_req, res) => {
     await dependencies!.service.cancel(res.locals.identity); res.sendStatus(204);
   });

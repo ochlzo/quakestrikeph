@@ -7,6 +7,7 @@ export interface AccountStore {
   save(identity: Identity, preferences: Preferences, requestId: string): Promise<Account>;
   pauseSms(identity: Identity, requestId: string): Promise<Account>;
   bindPhone(identity: Identity, phone: string, requestId: string): Promise<Account>;
+  removePhone(identity: Identity, requestId: string): Promise<Account>;
   phoneAvailable(phone: string, userId: string): Promise<boolean>;
 }
 export type AuthenticateAccount = (headers: Headers) => Promise<Identity>;
@@ -20,7 +21,7 @@ export interface PhoneProvider {
 
 export interface PendingPhone { id: string; phone: string; expiresAt: string; resendAt: string }
 export interface PhoneAttempts {
-  exclusive<T>(userId: string, phone: string, work: () => Promise<T>): Promise<T>;
+  exclusive<T>(userId: string, phone: string | null, work: () => Promise<T>): Promise<T>;
   start(userId: string, phone: string): Promise<PendingPhone>;
   pending(userId: string): Promise<PendingPhone | null>;
   check(userId: string, attemptId: string): Promise<PendingPhone>;

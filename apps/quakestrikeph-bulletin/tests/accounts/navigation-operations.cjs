@@ -89,7 +89,7 @@ async function destinations(f, viewport) {
   await page.getByRole('heading', { name: 'Account removal is unavailable', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Back to account settings', exact: true }).click();
   await page.getByRole('button', { name: 'Change password', exact: true }).click();
-  await page.getByRole('heading', { name: 'Verify your identity again', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Verify your identity', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Back', exact: true }).click();
   await page.getByRole('heading', { name: 'Account settings', exact: true }).waitFor();
   await navigate('Alert preferences');
@@ -174,13 +174,14 @@ async function historyCases(f) {
   for (const key of ['password', 'code', 'displayName', 'latitude', 'draft', 'account']) assert.equal(key in historyState, false);
   await navigate('Account');
   await page.getByRole('button', { name: 'Change password', exact: true }).click();
-  await page.getByRole('heading', { name: 'Verify your identity again', exact: true }).waitFor();
-  await page.locator('#current-password').fill('Unsubmitted secret');
+  await page.getByRole('heading', { name: 'Verify your identity', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Send verification code', exact: true }).click();
+  await page.locator('#code').fill('123456');
   await page.goBack();
   await page.getByRole('heading', { name: 'Account settings', exact: true }).waitFor();
   await page.goForward();
-  await page.getByRole('heading', { name: 'Verify your identity again', exact: true }).waitFor();
-  assert.equal(await page.locator('#current-password').inputValue(), '', 'History must restart sensitive proof with cleared credentials');
+  await page.getByRole('heading', { name: 'Verify your identity', exact: true }).waitFor();
+  assert.equal(await page.locator('#code').count(), 0, 'History must restart at confirmation without credentials');
 }
 async function links(f) {
   const { page, state, open, editName } = f;

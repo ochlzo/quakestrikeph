@@ -14,6 +14,10 @@ const queue = (page, method, reply) => page.evaluate(({ method, reply }) => wind
 const calls = page => page.evaluate(() => window.clerkFixture.calls);
 const methods = async page => (await calls(page)).map(call => call.method);
 const heading = (page, name) => page.getByRole('heading', { name, exact: true }).waitFor();
+async function requestIdentityCode(page) {
+  await page.getByRole('button', { name: 'Send verification code', exact: true }).click();
+  await heading(page, 'Verify your identity again');
+}
 const button = (page, name) => page.getByRole('button', { name, exact: true }).click();
 const toast = (page, text) => page.locator('[data-slot="toast"]').getByText(text, { exact: true }).waitFor();
 async function fixture(browser, viewport, errors, query = 'signed=0') {
@@ -63,11 +67,12 @@ async function newPassword(page) {
 async function password(page, passwordless = false) {
   await heading(page, 'Account settings');
   await button(page, passwordless ? 'Add password' : 'Change password');
-  await heading(page, 'Verify your identity again');
-  await page.locator(passwordless ? '#code' : '#current-password').fill(passwordless ? '111111' : 'fixture-password');
+  await requestIdentityCode(page);
+  assert.equal(await page.locator('#current-password').count(), 0);
+  await page.locator('#code').fill('111111');
   await button(page, 'Verify identity');
   await heading(page, passwordless ? 'Add password sign-in' : 'Change your password');
-  if (!passwordless) await page.locator('#current-password').fill('fixture-password');
+  assert.equal(await page.locator('#current-password').count(), 0);
   await newPassword(page);
 }
 async function delayed(page, method, start, reply = {}) {
@@ -193,46 +198,183 @@ async function recoveryChecks(browser, viewport, errors) {
     await page.close();
   }
 }
+async function confirmationChecks(browser, viewport, errors) {
+  for (const target of ['password', 'phone']) {
+    const { page } = await fixture(browser, viewport, errors, `signed=1&initial=${target}`);
+    await heading(page, 'Verify your identity');
+    const initialCalls = await methods(page);
+    assert.equal(initialCalls.includes('startVerification'), false);
+    assert.equal(initialCalls.includes('prepareFirstFactorVerification'), false);
+    assert.equal(await page.locator('#code').count(), 0);
+    await page.getByText('To continue, we will send a verification code to f•••@example.invalid.', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Resend code', exact: true }).count(), 0);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    const buttonWidth = await page.getByRole('button', { name: 'Send verification code', exact: true }).evaluate(el => el.getBoundingClientRect().width);
+    const formWidth = await page.locator('.screen-focus form').evaluate(el => el.getBoundingClientRect().width);
+    assert.ok(Math.abs(buttonWidth - formWidth) < 1, 'Send button fills the form width');
+    if (viewport.width > 760) assert.equal(formWidth, 440, 'Desktop verification uses a compact column');
+    await page.screenshot({ path: `../../.impeccable/review/accounts/confirm-${target}-${viewport.width}.png` });
+    await button(page, 'Back');
+    await heading(page, 'Account settings');
+    await page.getByRole('dialog', { name: 'Mobile number', exact: true }).waitFor({ state: 'hidden' });
+    assert.deepEqual(await methods(page), initialCalls, 'Back must not send an OTP');
+    if (target === 'password') await button(page, 'Change password');
+    else {
+      await page.locator('.account-row').filter({ hasText: 'Mobile number' }).getByRole('button', { name: 'Manage', exact: true }).click();
+      await button(page, 'Change number');
+    }
+    await heading(page, 'Verify your identity');
+    const release = await delayed(page, 'prepareFirstFactorVerification', () => button(page, 'Send verification code'), { fail: true });
+    const sending = page.getByRole('button', { name: 'Sending...', exact: true });
+    assert.equal(await sending.isDisabled(), true);
+    assert.equal(await page.locator('.screen-focus form').getAttribute('aria-busy'), 'true');
+    assert.equal(await sending.locator('svg').count(), 1);
+    await release();
+    await toast(page, 'This request could not be completed. Please try again.');
+    await heading(page, 'Verify your identity');
+    assert.equal(await page.locator('#code').count(), 0);
+    await requestIdentityCode(page);
+    await page.getByText('We sent a code to f•••@example.invalid.', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: /Resend in/ }).isDisabled(), true);
+    await page.close();
+  }
+}
+async function sharedProofChecks(browser, viewport, errors) {
+  for (const passwordless of [false, true]) {
+    const { page } = await fixture(browser, viewport, errors, `signed=1&initial=account${passwordless ? '&passwordless=1' : ''}`);
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+    await password(page, passwordless);
+    await button(page, 'Back');
+    await heading(page, 'Account settings');
+    await page.locator('.account-row').filter({ hasText: 'Mobile number' }).getByRole('button', { name: 'Manage', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Mobile number', exact: true }).waitFor();
+    await button(page, 'Change number');
+    await heading(page, 'Change your mobile number');
+    assert.equal(await page.locator('#current-password').count(), 0);
+    assert.equal((await methods(page)).filter(method => method === 'startVerification').length, 1);
+    await button(page, 'Back');
+    await heading(page, 'Account settings');
+    await page.getByRole('dialog', { name: 'Mobile number', exact: true }).waitFor({ state: 'hidden' });
+    await page.clock.fastForward(299999);
+    await button(page, passwordless ? 'Add password' : 'Change password');
+    await heading(page, passwordless ? 'Add password sign-in' : 'Change your password');
+    await newPassword(page);
+    await page.clock.fastForward(1);
+    await button(page, 'Save password');
+    await requestIdentityCode(page);
+    assert.equal(await page.locator('#code').inputValue(), '');
+    assert.equal((await methods(page)).includes('updatePassword'), false, 'Expiry while editing must block the password write');
+    await page.locator('#code').fill('111111');
+    await button(page, 'Verify identity');
+    await heading(page, passwordless ? 'Add password sign-in' : 'Change your password');
+    await button(page, 'Save password');
+    await heading(page, 'Account settings');
+    await page.close();
+  }
+  for (const changed of ['reload', 'session', 'user', 'signed-out']) {
+    const { page } = await fixture(browser, viewport, errors, 'signed=1&initial=account');
+    await password(page);
+    if (changed === 'reload') {
+      await page.reload();
+      await heading(page, 'Change your password');
+      assert.equal(await page.locator('#new-password').count(), 1);
+      assert.equal((await methods(page)).includes('startVerification'), false, 'Refresh reuses Clerk verification age');
+      await page.clock.fastForward(300000);
+      await newPassword(page);
+      await button(page, 'Save password');
+      await heading(page, 'Verify your identity');
+    } else {
+      await page.evaluate(changed => window.dispatchEvent(new CustomEvent('fixture:auth', { detail: {
+        userId: changed === 'signed-out' ? null : changed === 'user' ? 'another-user' : 'fixture-user',
+        sessionId: changed === 'signed-out' ? null : 'another-session',
+      } })), changed);
+      await heading(page, changed === 'signed-out' ? 'Sign in' : 'Verify your identity');
+    }
+    assert.equal(await page.locator('#new-password').count(), 0);
+    await page.close();
+  }
+  const phone = await fixture(browser, viewport, errors, 'signed=1&initial=phone');
+  await phone.page.clock.pauseAt(await phone.page.evaluate(() => Date.now() + 1000));
+  await requestIdentityCode(phone.page);
+  await phone.page.locator('#code').fill('111111');
+  await button(phone.page, 'Verify identity');
+  await heading(phone.page, 'Change your mobile number');
+  await phone.page.locator('#phone').fill('09171234567');
+  let attempts = 0;
+  await phone.page.route('**/api/v1/account/phone/attempts', route => {
+    attempts++;
+    return route.fulfill({ status: 503, json: { error: { code: 'UNAVAILABLE', message: 'Fixture SMS unavailable.' } } });
+  });
+  await phone.page.clock.fastForward(300000);
+  await button(phone.page, 'Send code');
+  await requestIdentityCode(phone.page);
+  assert.equal(attempts, 0, 'Expired proof must not request an SMS');
+  await phone.page.locator('#code').fill('111111');
+  await button(phone.page, 'Verify identity');
+  await heading(phone.page, 'Change your mobile number');
+  await button(phone.page, 'Send code');
+  await toast(phone.page, 'Fixture SMS unavailable.');
+  assert.equal(attempts, 1);
+  await phone.page.close();
+}
 async function credentialChecks(browser, viewport, errors) {
   for (const passwordless of [false, true]) {
     const { page } = await fixture(browser, viewport, errors, `signed=1&initial=account${passwordless ? '&passwordless=1' : ''}`);
     await password(page, passwordless);
     const release = await delayed(page, 'updatePassword', () => button(page, 'Save password'), { fail: true });
     await release();
-    await toast(page, 'The password could not be saved. Check your current password. Use at least 8 characters, including one lowercase letter, one uppercase letter, and one number.');
+    await toast(page, 'The password could not be saved. Try again or verify your email again. Use at least 8 characters, including one lowercase letter, one uppercase letter, and one number.');
     await button(page, 'Save password');
     await toast(page, 'Password saved.');
     await heading(page, 'Account settings');
     const trace = await calls(page);
     const proof = trace.findIndex(call => call.method === 'attemptFirstFactorVerification');
+    assert.deepEqual(trace[proof].args, { strategy: 'email_code', code: '111111' });
     assert.equal(trace[proof + 1].method, 'getToken');
     assert.deepEqual(trace[proof + 1].args, { skipCache: true });
     assert.deepEqual(trace.find(call => call.method === 'updatePassword').args, {
       newPassword: 'Abcdefg1', signOutOfOtherSessions: true,
-      ...(!passwordless ? { currentPassword: 'fixture-password' } : {}),
     });
+    await button(page, passwordless ? 'Add password' : 'Change password');
+    await heading(page, passwordless ? 'Add password sign-in' : 'Change your password');
+    assert.equal((await methods(page)).filter(method => method === 'startVerification').length, 1,
+      'Recent email proof is reused after a password change');
     await page.close();
   }
+  const emailOnly = await fixture(browser, viewport, errors, 'signed=1&initial=account');
+  await heading(emailOnly.page, 'Account settings');
+  await queue(emailOnly.page, 'startVerification', { value: { supportedFirstFactors: [{ strategy: 'password' }] } });
+  await button(emailOnly.page, 'Change password');
+  await button(emailOnly.page, 'Send verification code');
+  await toast(emailOnly.page, 'This request could not be completed. Please try again.');
+  assert.deepEqual((await methods(emailOnly.page)).filter(method => method !== 'getToken'), ['startVerification']);
+  await requestIdentityCode(emailOnly.page);
+  await emailOnly.page.locator('#code').fill('222222');
+  await button(emailOnly.page, 'Verify identity');
+  await toast(emailOnly.page, 'Identity verification did not work. Check your password or code and try again.');
+  assert.equal(await emailOnly.page.locator('#new-password').count(), 0);
+  assert.equal((await methods(emailOnly.page)).includes('updatePassword'), false);
+  await emailOnly.page.close();
   for (const method of ['startVerification', 'prepareFirstFactorVerification', 'attemptFirstFactorVerification', 'getToken']) {
     const { page } = await fixture(browser, viewport, errors, 'signed=1&initial=account&passwordless=1');
     await heading(page, 'Account settings');
     const entering = ['startVerification', 'prepareFirstFactorVerification'].includes(method);
+    await button(page, 'Add password');
     if (!entering) {
-      await button(page, 'Add password');
-      await heading(page, 'Verify your identity again');
+      await requestIdentityCode(page);
       await page.locator('#code').fill('111111');
     }
     await queue(page, method, { fail: true });
-    await button(page, entering ? 'Add password' : 'Verify identity');
+    await button(page, entering ? 'Send verification code' : 'Verify identity');
     await page.locator('[data-slot="toast"]').waitFor();
     assert.equal(await page.getByRole('heading', { name: 'Add password sign-in', exact: true }).count(), 0);
-    await button(page, entering ? 'Add password' : 'Verify identity');
-    await heading(page, entering ? 'Verify your identity again' : 'Add password sign-in');
+    await button(page, entering ? 'Send verification code' : 'Verify identity');
+    await page.getByRole('heading', { name: entering ? 'Verify your identity again' : 'Add password sign-in', exact: true }).waitFor();
     await page.close();
   }
   const resend = await fixture(browser, viewport, errors, 'signed=1&initial=account&passwordless=1');
   await button(resend.page, 'Add password');
-  await heading(resend.page, 'Verify your identity again');
+  await requestIdentityCode(resend.page);
   await resend.page.clock.fastForward(61000);
   const count = (await methods(resend.page)).filter(method => method === 'startVerification').length;
   await button(resend.page, 'Resend code');
@@ -241,13 +383,14 @@ async function credentialChecks(browser, viewport, errors) {
   await resend.page.close();
   const missing = await fixture(browser, viewport, errors, 'signed=1&initial=account&passwordless=1&missing-factor=1');
   await button(missing.page, 'Add password');
+  await button(missing.page, 'Send verification code');
   await toast(missing.page, 'This request could not be completed. Please try again.');
   assert.equal(await missing.page.getByRole('heading', { name: 'Verify your identity again', exact: true }).count(), 0);
   await missing.page.close();
   const incomplete = await fixture(browser, viewport, errors, 'signed=1&initial=account');
   await button(incomplete.page, 'Change password');
-  await heading(incomplete.page, 'Verify your identity again');
-  await incomplete.page.locator('#current-password').fill('fixture-password');
+  await requestIdentityCode(incomplete.page);
+  await incomplete.page.locator('#code').fill('111111');
   const offset = (await calls(incomplete.page)).length;
   await queue(incomplete.page, 'attemptFirstFactorVerification', { value: { status: 'unverified' } });
   await button(incomplete.page, 'Verify identity');
@@ -332,7 +475,7 @@ async function isolationChecks(browser, viewport, errors) {
   const signed = 'signed=1&initial=account';
   const reverify = (method, resend = false) => ({ method, query: `${signed}&passwordless=1`,
     setup: async page => {
-      await button(page, 'Add password'); await heading(page, 'Verify your identity again');
+      await button(page, 'Add password'); await requestIdentityCode(page);
       await page.locator('#code').fill('111111'); if (resend) await page.clock.fastForward(61000);
     }, start: page => button(page, resend ? 'Resend code' : 'Verify identity'),
   });
@@ -343,8 +486,8 @@ async function isolationChecks(browser, viewport, errors) {
     email('prepareSecondFactor', false, true), email('prepareEmailAddressVerification', true, true),
     recover('signIn.create', 'request'), recover('signIn.create', 'code', true),
     recover('attemptFirstFactor', 'code'), recover('resetPassword', 'reset'),
-    { method: 'startVerification', query: signed, setup: page => heading(page, 'Account settings'), start: page => button(page, 'Change password') },
-    { method: 'prepareFirstFactorVerification', query: `${signed}&passwordless=1`, setup: page => heading(page, 'Account settings'), start: page => button(page, 'Add password') },
+    { method: 'startVerification', query: signed, setup: async page => { await heading(page, 'Account settings'); await button(page, 'Change password'); }, start: page => button(page, 'Send verification code') },
+    { method: 'prepareFirstFactorVerification', query: `${signed}&passwordless=1`, setup: async page => { await heading(page, 'Account settings'); await button(page, 'Add password'); }, start: page => button(page, 'Send verification code') },
     reverify('attemptFirstFactorVerification'), reverify('getToken'), reverify('prepareFirstFactorVerification', true),
     { method: 'updatePassword', query: signed, setup: page => password(page), start: page => button(page, 'Save password') },
     { method: 'updatePassword', query: 'signed=1&task=reset-password', setup: async page => { await heading(page, 'Choose a new password'); await newPassword(page); }, start: page => button(page, 'Save new password') },
@@ -363,7 +506,7 @@ async function isolationChecks(browser, viewport, errors) {
         await (await loaded).finished();
         await page.locator('.account-loading').waitFor({ state: 'detached' });
         const pathname = new URL(page.url()).pathname;
-        if (pathname === '/account/password') await heading(page, 'Verify your identity again');
+        if (pathname === '/account/password') await heading(page, 'Verify your identity');
         const before = await methods(page);
         await release();
         await page.waitForTimeout(100); // Allow the former operation's continuation to settle.
@@ -429,7 +572,7 @@ async function reverificationRetryChecks(browser, viewport, errors) {
   const browser = await chromium.launch({ channel: 'msedge', headless: true });
   const errors = [];
   try {
-    const checks = { entry: entryChecks, recovery: recoveryChecks, credentials: credentialChecks, tasks: taskChecks, isolation: isolationChecks, reverification: reverificationRetryChecks };
+    const checks = { confirmation: confirmationChecks, entry: entryChecks, recovery: recoveryChecks, credentials: credentialChecks, 'shared-proof': sharedProofChecks, tasks: taskChecks, isolation: isolationChecks, reverification: reverificationRetryChecks };
     if (group) assert(group in checks, `Unknown authentication group: ${group}`);
     for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
       for (const [name, check] of Object.entries(checks)) {

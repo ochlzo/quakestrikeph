@@ -9,6 +9,29 @@ const listeners = new Set<() => void>();
 const subscribe = (callback: () => void) => { listeners.add(callback); return () => { listeners.delete(callback); }; };
 let userId = 'fixture-user', sessionId = 'fixture-session';
 const snapshot = () => signed ? `${userId}:${sessionId}` : 'signed-out';
+const verificationKey = () => `fixture:verified-at:${snapshot()}`;
+function verificationAge() {
+  const verifiedAt = fixtureStorage.getItem(verificationKey());
+  const elapsed = verifiedAt === null ? -1 : Date.now() - Number(verifiedAt);
+  return [elapsed < 0 ? -1 : Math.floor(elapsed / 60000), -1];
+}
+type FixtureDevice = {
+  id: string; lastActiveAt: Date;
+  latestActivity: { deviceType?: string; browserName?: string };
+  revoke: () => Promise<unknown>;
+};
+let devices: FixtureDevice[] = [];
+function resetDevices() {
+  devices = [
+    { id: sessionId, lastActiveAt: new Date(Date.now() - 60000),
+      latestActivity: { deviceType: 'Desktop', browserName: 'Edge' },
+      revoke: () => provider('revoke', sessionId, () => { devices = devices.filter(device => device.id !== sessionId); }) },
+    { id: 'fixture-other', lastActiveAt: new Date(Date.now() - 3 * 3600000),
+      latestActivity: { deviceType: 'Mobile', browserName: 'Safari' },
+      revoke: () => provider('revoke', 'fixture-other', () => { devices = devices.filter(device => device.id !== 'fixture-other'); }) },
+  ];
+}
+resetDevices();
 // Browser tests control individual provider stages without live Clerk requests.
 type Reply = { defer?: boolean; fail?: boolean; reverify?: boolean; value?: unknown };
 type Call = { method: string; args: unknown; settled: boolean };
@@ -40,6 +63,7 @@ if (typeof window !== 'undefined') window.addEventListener('fixture:auth', event
   userId = next.userId ?? '';
   sessionId = next.sessionId ?? '';
   session.currentTask = null;
+  resetDevices();
   listeners.forEach(fn => fn());
 });
 export const ClerkProvider = ({ children }: { children: ReactNode }) => children;
@@ -64,6 +88,7 @@ export const useUser = () => ({ user: {
     console.info('fixture:password-write:update');
   }),
   emailAddresses: [],
+  getSessions: () => provider('getSessions', undefined, () => devices),
 } });
 export const useReverification = <Args extends unknown[], Result,>(work: (...args: Args) => Promise<Result>) => async (...args: Args) => {
   try { return await work(...args); }
@@ -76,12 +101,15 @@ export const useReverification = <Args extends unknown[], Result,>(work: (...arg
   }
 };
 const session = {
+  get lastActiveToken() { return { jwt: { claims: { fva: verificationAge() } } }; },
   currentTask: query.has('task') ? { key: query.get('task')! } : null,
   startVerification: (options: unknown) => provider('startVerification', options, () => ({ supportedFirstFactors: query.has('missing-factor') ? [] : [{ strategy: 'password' }, { strategy: 'email_code', emailAddressId: 'fixture-email' }] })),
   prepareFirstFactorVerification: (options: unknown) => provider('prepareFirstFactorVerification', options, () => {}),
   attemptFirstFactorVerification: (options: { password?: string; code?: string }) => provider('attemptFirstFactorVerification', options, () => {
     const { password, code } = options;
-    if (password !== 'fixture-password' && code !== '111111') throw new Error('wrong factor'); return { status: 'complete' };
+    if (password !== 'fixture-password' && code !== '111111') throw new Error('wrong factor');
+    fixtureStorage.setItem(verificationKey(), String(Date.now()));
+    return { status: 'complete' };
   }),
 };
 export const useSession = () => ({ session });

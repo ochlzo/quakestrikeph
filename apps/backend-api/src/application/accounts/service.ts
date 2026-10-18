@@ -196,4 +196,14 @@ export class AccountService {
         this.attempts.cancel(identity.clerkUserId),
       );
   }
+  async removePhone(identity: Identity, requestId: string) {
+    await this.current(identity);
+    requireRecent(identity);
+    // Always lock the account: verification may bind a phone after the initial read.
+    return this.attempts.exclusive(identity.clerkUserId, null, async () => {
+      const account = await this.current(identity);
+      await this.attempts.cancel(identity.clerkUserId);
+      return account.phone ? this.store.removePhone(identity, requestId) : account;
+    });
+  }
 }
