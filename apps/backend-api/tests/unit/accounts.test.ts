@@ -29,7 +29,7 @@ test('profile completion depends on the saved name before other onboarding steps
   assert.equal((await fixture({ ...account, onboardingCompleted: true }).service.read(identity)).nextStep, 'complete');
 });
 function fixture(initial: Account | null = account) {
-  let current = initial ? { ...initial } : null, sends = 0, checks = 0, pauses = 0;
+  let current = initial ? { ...initial } : null, sends = 0, checks = 0, pauses = 0, removals = 0;
   let pending: PendingPhone | null = null, failures = 0;
   const store: AccountStore = {
     failure: async () => {},
@@ -38,6 +38,7 @@ function fixture(initial: Account | null = account) {
     save: async (_id, p) => { current = { ...current!, ...p, onboardingCompleted: true }; return current; },
     pauseSms: async () => { pauses++; current = { ...current!, smsEnabled: false }; return current; },
     bindPhone: async (_id, phone) => { current = { ...current!, phone, smsEnabled: false }; return current; },
+    removePhone: async () => { removals++; current = { ...current!, phone: null, smsEnabled: false }; return current; },
     phoneAvailable: async () => true,
   };
   const attempts: PhoneAttempts = {
@@ -50,7 +51,7 @@ function fixture(initial: Account | null = account) {
     consume: async () => { pending = null; }, cancel: async () => { pending = null; },
   };
   const provider: PhoneProvider = { supported: async () => { checks++; return true; }, send: async () => { sends++; return 'FIXTURE_PROOF'; }, proof: () => 'FIXTURE_PROOF', verify: async () => true };
-  return { store, attempts, provider, service: new AccountService(store, attempts, provider), stats: () => ({ current, sends, checks, pauses, pending, failures }) };
+  return { store, attempts, provider, service: new AccountService(store, attempts, provider), stats: () => ({ current, sends, checks, pauses, removals, pending, failures }) };
 }
 
 test('finite rule bounds reject incomplete location, fractions and coercion', () => {
@@ -105,6 +106,36 @@ test('suspended/closed users and wrong codes cannot bind destinations', async ()
   assert.equal(f.stats().current?.phone, null); assert.equal(f.stats().failures, 1);
 });
 
+test('phone removal requires a fresh identity and clears the saved number', async () => {
+  const bound = { ...account, phone: '+639171234567', smsEnabled: true, onboardingCompleted: true };
+  const denied = fixture(bound);
+  await assert.rejects(denied.service.removePhone(identity, randomUUID()), { code: 'REVERIFICATION_REQUIRED' });
+  assert.equal(denied.stats().removals, 0);
+  const f = fixture(bound);
+  const next = await f.service.removePhone({ ...identity, recent: true }, randomUUID());
+  assert.equal(next.phone, null); assert.equal(next.smsEnabled, false); assert.equal(f.stats().removals, 1);
+});
+
+test('phone removal cancels an in-flight verification attempt before clearing', async () => {
+  const f = fixture({ ...account, phone: '+639171234567', smsEnabled: true, onboardingCompleted: true });
+  const recent = { ...identity, recent: true };
+  await f.service.start(recent, { phone: '09171234568' }, randomUUID());
+  assert.equal(f.stats().pending?.phone, '+639171234568');
+  const next = await f.service.removePhone(recent, randomUUID());
+  assert.equal(next.phone, null); assert.equal(f.stats().pending, null);
+});
+
+test('phone removal with no saved number changes nothing but cancels a pending attempt', async () => {
+  const empty = fixture({ ...account, phone: null });
+  const next = await empty.service.removePhone({ ...identity, recent: true }, randomUUID());
+  assert.equal(next.phone, null); assert.equal(empty.stats().removals, 0);
+  const adding = fixture({ ...account, phone: null });
+  await adding.service.start(identity, { phone: '09171234567' }, randomUUID());
+  assert.notEqual(adding.stats().pending, null);
+  await adding.service.removePhone({ ...identity, recent: true }, randomUUID());
+  assert.equal(adding.stats().removals, 0); assert.equal(adding.stats().pending, null);
+});
+
 test('IPROG adapter interprets documented string statuses and strips returned OTP data', async () => {
   const calls: string[] = [];
   const request = (async (url, options) => {
@@ -128,12 +159,12 @@ test('IPROG adapter interprets documented string statuses and strips returned OT
   await assert.rejects(new Iprog(undefined).send('+639171234567', 'FIXTURE_ATTEMPT'), { code: 'SMS_UNAVAILABLE' });
 });
 
-test('account HTTP routes require owner identity; removal and email mutations are absent', async () => {
-  const f = fixture();
+test('account HTTP routes require owner identity; removal clears the phone and email/account removal stay absent', async () => {
+  const f = fixture({ ...account, phone: '+639171234567', onboardingCompleted: true });
   const app = createApp({ check: async () => {}, search: async () => [], findById: async () => null }, undefined,
     { service: f.service, authenticate: async headers => {
       if (headers.get('authorization') !== 'Bearer TEST_SESSION') throw new AccountError('SIGN_IN_REQUIRED', 'Sign in', 401);
-      return identity;
+      return { ...identity, recent: true };
     } });
   const server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
   const address = server.address(); if (!address || typeof address === 'string') throw new Error('No server address');
@@ -145,6 +176,9 @@ test('account HTTP routes require owner identity; removal and email mutations ar
     for (const path of ['', '/email', '/close']) {
       assert.equal((await fetch(`${baseUrl}${path}`, { method: 'DELETE', headers: { authorization: 'Bearer TEST_SESSION' } })).status, 404);
     }
+    const removed = await fetch(`${baseUrl}/phone`, { method: 'DELETE', headers: { authorization: 'Bearer TEST_SESSION' } });
+    assert.equal(removed.status, 200); assert.equal((await removed.json()).phone, null);
+    assert.equal(f.stats().removals, 1);
   } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });
 

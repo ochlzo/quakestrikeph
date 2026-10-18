@@ -109,6 +109,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account/phone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["removePhone"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account/phone/attempts": {
         parameters: {
             query?: never;
@@ -525,6 +541,35 @@ export interface operations {
                 "application/json": components["schemas"]["Preferences"];
             };
         };
+        responses: {
+            /** @description Successful owner-only operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            /** @description Authentication, validation, state or provider error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountError"];
+                };
+            };
+        };
+    };
+    removePhone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful owner-only operation */
             200: {

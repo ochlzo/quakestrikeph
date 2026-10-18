@@ -272,4 +272,28 @@ export class PostgresAccounts implements AccountStore {
       )
     ).rowCount;
   }
+
+  async removePhone(identity: Identity, requestId: string) {
+    // The row change and its success audit commit together. Metadata carries no number.
+    return this.transaction(
+      identity,
+      "phone_removed",
+      requestId,
+      async (client, row) => {
+        if (!row)
+          throw new AccountError(
+            "PROFILE_REQUIRED",
+            "Complete your profile first.",
+            409,
+          );
+        return (
+          await client.query(
+            `UPDATE users SET mobile_number=NULL, mobile_verified_at=NULL,
+        sms_enabled=false, updated_at=now() WHERE user_id=$1 RETURNING *`,
+            [row.user_id],
+          )
+        ).rows[0];
+      },
+    );
+  }
 }

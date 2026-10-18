@@ -196,4 +196,22 @@ export class AccountService {
         this.attempts.cancel(identity.clerkUserId),
       );
   }
+  async removePhone(identity: Identity, requestId: string) {
+    const account = await this.current(identity);
+    requireRecent(identity);
+    // Removing with no saved number changes nothing and records no success audit.
+    if (!account.phone) {
+      const pending = await this.attempts.pending(identity.clerkUserId);
+      if (pending)
+        await this.attempts.exclusive(identity.clerkUserId, pending.phone, () =>
+          this.attempts.cancel(identity.clerkUserId),
+        );
+      return account;
+    }
+    // The shared account lock fences an in-flight send or verification.
+    return this.attempts.exclusive(identity.clerkUserId, account.phone, async () => {
+      await this.attempts.cancel(identity.clerkUserId);
+      return this.store.removePhone(identity, requestId);
+    });
+  }
 }

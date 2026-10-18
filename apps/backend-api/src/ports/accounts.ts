@@ -7,6 +7,7 @@ export interface AccountStore {
   save(identity: Identity, preferences: Preferences, requestId: string): Promise<Account>;
   pauseSms(identity: Identity, requestId: string): Promise<Account>;
   bindPhone(identity: Identity, phone: string, requestId: string): Promise<Account>;
+  removePhone(identity: Identity, requestId: string): Promise<Account>;
   phoneAvailable(phone: string, userId: string): Promise<boolean>;
 }
 export type AuthenticateAccount = (headers: Headers) => Promise<Identity>;

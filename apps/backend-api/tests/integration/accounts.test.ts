@@ -50,6 +50,12 @@ test('account writes enforce ownership, phone uniqueness, state and atomic audit
     const audits = await admin.query("SELECT action, metadata FROM audit_logs WHERE actor_user_id=$1 AND outcome='succeeded'", [first.userId]);
     assert.ok(audits.rows.some(row => row.action === 'preferences_saved' && row.metadata.emailEnabled === true));
     assert.equal(JSON.stringify(audits.rows).includes(phone), false);
+    const removed = await store.removePhone(identity, randomUUID());
+    assert.equal(removed.phone, null); assert.equal(removed.smsEnabled, false);
+    assert.equal((await store.read(identity))?.phone, null);
+    const removal = await admin.query("SELECT action, metadata FROM audit_logs WHERE actor_user_id=$1 AND action='phone_removed'", [first.userId]);
+    assert.equal(removal.rowCount, 1);
+    assert.equal(JSON.stringify(removal.rows).includes(phone), false);
   } finally {
     await admin.query('DELETE FROM audit_logs WHERE actor_user_id = ANY($1::uuid[])', [users]);
     await admin.query('DELETE FROM users WHERE user_id = ANY($1::uuid[])', [users]);
