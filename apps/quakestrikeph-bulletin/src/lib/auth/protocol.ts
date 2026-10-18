@@ -1,6 +1,5 @@
 import type { useAuth, useClerk, useSession, useUser } from '@clerk/react';
 import type { useSignIn, useSignUp } from '@clerk/react/legacy';
-import { EmailProof } from './email-proof.ts';
 
 // This dependency seam stays private to identity; tests replace raw Clerk calls.
 export type ClerkIdentity = {
@@ -14,6 +13,7 @@ export type ClerkIdentity = {
   updateTaskPassword: (password: string, isCurrent: () => boolean) => Promise<unknown>;
   sessions: () => Promise<ClerkSession[]>;
   currentSessionId: () => string | null;
+  factorVerificationAge: () => unknown;
 };
 
 // The identity seam normalizes Clerk sessions; no location, IP or hardware identity.
@@ -77,11 +77,16 @@ export function createIdentity(provider: ClerkIdentity, options: {
   marker: string;
   screenActive: () => boolean;
   emit: (event: IdentityEvent) => void;
-  emailProof?: EmailProof;
 }) {
-  const emailProof = options.emailProof ?? new EmailProof();
   const sessionCurrent = () => provider.sessionMarker() === options.marker;
   const screenCurrent = () => options.screenActive() && sessionCurrent();
+  async function hasRecentVerification() {
+    if (!screenCurrent()) return false;
+    const token = await provider.getToken({ skipCache: true });
+    if (!screenCurrent() || !token) return false;
+    const age = provider.factorVerificationAge();
+    return Array.isArray(age) && typeof age[0] === 'number' && age[0] >= 0 && age[0] < 5;
+  }
   async function operation(work: () => Promise<IdentityOutcome>, message: string, passwordField = false): Promise<IdentityOutcome> {
     if (!screenCurrent()) return ignored;
     try { return await work(); }
@@ -122,8 +127,7 @@ export function createIdentity(provider: ClerkIdentity, options: {
     }
   }
   return {
-    hasRecentEmailProof: () => screenCurrent() && emailProof.recent(options.marker),
-    clearEmailProof: () => emailProof.clear(),
+    hasRecentVerification,
     signInWithPassword: (email: string, password: string) => operation(async () => provider.signIn
       ? completeAuthentication(await provider.signIn.create({ identifier: email, password })) : ignored,
       'Check your email and password, then try again.'),
@@ -175,10 +179,8 @@ export function createIdentity(provider: ClerkIdentity, options: {
       catch { /* Enumeration-safe resend result. */ }
       return screenCurrent() ? completed('recovery-code', Date.now()) : ignored;
     }, 'This request could not be completed. Please try again.'),
-    prepareReverification: (method: ProofMethod = 'email-code', force = false) => operation(async () => {
+    prepareReverification: (method: ProofMethod = 'email-code') => operation(async () => {
       if (!provider.session) throw new Error('Sign in again');
-      if (force) emailProof.clear();
-      if (method === 'email-code' && emailProof.recent(options.marker)) return completed('identity-verified');
       const verification = await provider.session.startVerification({ level: 'first_factor' });
       if (!screenCurrent()) return ignored;
       if (method === 'current-password' && provider.user?.passwordEnabled && verification.supportedFirstFactors?.some(value => value.strategy === 'password'))
@@ -194,9 +196,8 @@ export function createIdentity(provider: ClerkIdentity, options: {
         ? { strategy: 'password', password: value } : { strategy: 'email_code', code: value });
       if (!screenCurrent()) return ignored;
       if (verification.status !== 'complete') throw new Error('Verification is incomplete');
-      // Preserve null-refresh behavior: proof completes; the HTTP helper later rejects a missing token.
+      // Refresh Clerk claims before returning; sensitive actions check freshness again.
       await provider.getToken({ skipCache: true });
-      if (screenCurrent() && method === 'email-code') emailProof.record(options.marker);
       return screenCurrent() ? completed('identity-verified') : ignored;
     }, 'Identity verification did not work. Check your password or code and try again.'),
     savePassword: (password: string) => operation(async () => {
@@ -227,6 +228,7 @@ export function createIdentity(provider: ClerkIdentity, options: {
       if (sessionId === provider.currentSessionId()) return { kind: 'ignored' };
       try {
         const sessions = await provider.sessions();
+        if (!screenCurrent() || sessionId === provider.currentSessionId()) return { kind: 'ignored' };
         const target = sessions.find(session => session.id === sessionId);
         if (target) await target.revoke();
         return screenCurrent() ? { kind: 'completed' } : { kind: 'ignored' };
@@ -244,7 +246,6 @@ export function createIdentity(provider: ClerkIdentity, options: {
       return screenCurrent() ? completed('task-password-saved') : ignored;
     }, 'The password could not be saved. Please try again.'),
     signOut: (redirectUrl: '/' | '/sign-in') => operation(async () => {
-      emailProof.clear();
       await provider.clerk.signOut({ redirectUrl });
       return completed('signed-out');
     }, 'Sign-out could not be completed. Please try again.'),

@@ -33,14 +33,14 @@ export function PhoneManagementDialog({ flow }: { flow: Pick<AccountFlowState, "
 export function RemovePhoneScreen({ flow }: { flow: SecurityScreenFlow }) {
   const { account, accountActions, title, busy } = flow;
   return <div className="account-action-content">
-    <BackButton onPress={accountActions.openPhoneManagement} />
+    <BackButton onPress={accountActions.returnToAccount} />
     {title("Remove your mobile number?", "SMS alerts will turn off. You can add a number again later.")}
     <dl className="account-removal-destination">
       <dt>Mobile number</dt>
       <dd>{account?.phone ?? "No mobile number added"}</dd>
     </dl>
     <div className="account-action-buttons">
-      <Button variant="outline" onPress={accountActions.openPhoneManagement} isDisabled={busy}>Cancel</Button>
+      <Button variant="outline" onPress={accountActions.returnToAccount} isDisabled={busy}>Cancel</Button>
       <Button variant="destructive" onPress={() => void accountActions.removePhone()} isDisabled={busy}>Remove number</Button>
     </div>
   </div>;

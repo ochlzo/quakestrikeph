@@ -53,8 +53,16 @@ test('account writes enforce ownership, phone uniqueness, state and atomic audit
     const removed = await store.removePhone(identity, randomUUID());
     assert.equal(removed.phone, null); assert.equal(removed.smsEnabled, false);
     assert.equal((await store.read(identity))?.phone, null);
+    const removedAt = (await admin.query('SELECT updated_at FROM users WHERE user_id=$1', [first.userId])).rows[0].updated_at;
+    const repeated = await Promise.all([
+      store.removePhone(identity, randomUUID()),
+      store.removePhone(identity, randomUUID()),
+    ]);
+    for (const result of repeated) assert.deepEqual(result, removed);
     const removal = await admin.query("SELECT action, metadata FROM audit_logs WHERE actor_user_id=$1 AND action='phone_removed'", [first.userId]);
     assert.equal(removal.rowCount, 1);
+    assert.deepEqual((await admin.query('SELECT updated_at FROM users WHERE user_id=$1', [first.userId])).rows[0].updated_at,
+      removedAt, 'Removing an absent phone must not update the account');
     assert.equal(JSON.stringify(removal.rows).includes(phone), false);
   } finally {
     await admin.query('DELETE FROM audit_logs WHERE actor_user_id = ANY($1::uuid[])', [users]);
@@ -99,7 +107,12 @@ test('Redis attempts enforce account/phone fencing, expiry, five wrong codes, co
     const running = attempts.exclusive(user, phone, async () => { entered(); await new Promise<void>(resolve => { release = resolve; }); });
     await gate;
     await assert.rejects(attempts.exclusive(other, phone, async () => {}), { code: 'VERIFICATION_BUSY' });
+    await assert.rejects(attempts.exclusive(user, null, async () => {}), { code: 'VERIFICATION_BUSY' });
     release(); await running;
+    await attempts.exclusive(user, null, async () => {
+      await assert.rejects(attempts.exclusive(user, phone, async () => {}), { code: 'VERIFICATION_BUSY' });
+      await attempts.exclusive(other, phone, async () => {});
+    });
   } finally {
     for (const prefix of [u, o, n]) await redis.del([prefix, ...['lock', 'cooldown', 'hour', 'day'].map(s => `${prefix}:${s}`)]);
     await redis.close();

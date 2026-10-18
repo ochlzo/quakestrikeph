@@ -215,11 +215,14 @@ async function confirmationChecks(browser, viewport, errors) {
     if (viewport.width > 760) assert.equal(formWidth, 440, 'Desktop verification uses a compact column');
     await page.screenshot({ path: `../../.impeccable/review/accounts/confirm-${target}-${viewport.width}.png` });
     await button(page, 'Back');
-    if (target === 'phone') await page.getByRole('dialog', { name: 'Mobile number', exact: true }).waitFor();
-    else await heading(page, 'Account settings');
+    await heading(page, 'Account settings');
+    await page.getByRole('dialog', { name: 'Mobile number', exact: true }).waitFor({ state: 'hidden' });
     assert.deepEqual(await methods(page), initialCalls, 'Back must not send an OTP');
     if (target === 'password') await button(page, 'Change password');
-    else await button(page, 'Change number');
+    else {
+      await page.locator('.account-row').filter({ hasText: 'Mobile number' }).getByRole('button', { name: 'Manage', exact: true }).click();
+      await button(page, 'Change number');
+    }
     await heading(page, 'Verify your identity');
     const release = await delayed(page, 'prepareFirstFactorVerification', () => button(page, 'Send verification code'), { fail: true });
     const sending = page.getByRole('button', { name: 'Sending...', exact: true });
@@ -250,8 +253,8 @@ async function sharedProofChecks(browser, viewport, errors) {
     assert.equal(await page.locator('#current-password').count(), 0);
     assert.equal((await methods(page)).filter(method => method === 'startVerification').length, 1);
     await button(page, 'Back');
-    await page.getByRole('dialog', { name: 'Mobile number', exact: true }).waitFor();
-    await page.keyboard.press('Escape');
+    await heading(page, 'Account settings');
+    await page.getByRole('dialog', { name: 'Mobile number', exact: true }).waitFor({ state: 'hidden' });
     await page.clock.fastForward(299999);
     await button(page, passwordless ? 'Add password' : 'Change password');
     await heading(page, passwordless ? 'Add password sign-in' : 'Change your password');
@@ -273,6 +276,12 @@ async function sharedProofChecks(browser, viewport, errors) {
     await password(page);
     if (changed === 'reload') {
       await page.reload();
+      await heading(page, 'Change your password');
+      assert.equal(await page.locator('#new-password').count(), 1);
+      assert.equal((await methods(page)).includes('startVerification'), false, 'Refresh reuses Clerk verification age');
+      await page.clock.fastForward(300000);
+      await newPassword(page);
+      await button(page, 'Save password');
       await heading(page, 'Verify your identity');
     } else {
       await page.evaluate(changed => window.dispatchEvent(new CustomEvent('fixture:auth', { detail: {
@@ -338,7 +347,7 @@ async function credentialChecks(browser, viewport, errors) {
   await button(emailOnly.page, 'Change password');
   await button(emailOnly.page, 'Send verification code');
   await toast(emailOnly.page, 'This request could not be completed. Please try again.');
-  assert.deepEqual(await methods(emailOnly.page), ['getToken', 'startVerification']);
+  assert.deepEqual((await methods(emailOnly.page)).filter(method => method !== 'getToken'), ['startVerification']);
   await requestIdentityCode(emailOnly.page);
   await emailOnly.page.locator('#code').fill('222222');
   await button(emailOnly.page, 'Verify identity');

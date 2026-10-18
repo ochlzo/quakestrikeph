@@ -162,6 +162,7 @@ export function useAccountFlow(initial: string) {
   const undoingHistory = useRef(false);
   function setScreen(next: Screen, replace = false, path?: string) {
     if (!active.current) return;
+    setPhoneManagementOpen(false);
     updateScreen(next);
     writeAccountRoute(path ?? pathForScreen(next, !!account && !account.onboardingCompleted), replace);
     historyIndex.current = history.state.accountIndex;
@@ -381,7 +382,7 @@ export function useAccountFlow(initial: string) {
   async function removePhone() {
     await action(async () => {
       // The screen was gated on entry; re-check so an expired proof reopens the gate.
-      if (await needsEmailProof("remove-phone")) return;
+      if (await needsRecentVerification("remove-phone")) return;
       const next = await api<Account>("/phone", "DELETE");
       if (!active.current) return;
       updateAccount(next);
@@ -399,11 +400,10 @@ export function useAccountFlow(initial: string) {
   }
   async function signOutDevice(sessionId: string) {
     await action(async () => {
-      if (await needsEmailProof("devices")) return;
+      if (await needsRecentVerification("devices")) return;
       const result = await identity.revokeDevice(sessionId);
       if (result.kind === "verification-required") {
-        identity.clearEmailProof();
-        await openReverification("devices");
+        await openReverification("devices", true);
         return;
       }
       if (result.kind === "failed") { reportError(result.message); return; }
@@ -414,13 +414,12 @@ export function useAccountFlow(initial: string) {
   }
   async function signOutOtherDevices() {
     await action(async () => {
-      if (await needsEmailProof("devices")) return;
+      if (await needsRecentVerification("devices")) return;
       let signedOut = 0;
       for (const device of devices.filter(value => !value.current)) {
         const result = await identity.revokeDevice(device.id);
         if (result.kind === "verification-required") {
-          identity.clearEmailProof();
-          await openReverification("devices");
+          await openReverification("devices", true);
           return;
         }
         if (result.kind === "failed") { reportError(result.message); break; }
@@ -674,8 +673,8 @@ export function useAccountFlow(initial: string) {
     });
   }
   async function openReverification(target: Screen = returnAction, force = false) {
-    if (force) identity.clearEmailProof();
-    if (identity.hasRecentEmailProof()) {
+    setReturnAction(target);
+    if (!force && await identity.hasRecentVerification()) {
       setScreen(target);
       return true;
     }
@@ -684,14 +683,10 @@ export function useAccountFlow(initial: string) {
     setScreen('reverify', false, pathForScreen(target));
     return true;
   }
-  async function sendIdentityCode(force = false) {
-    const result = await identity.prepareReverification('email-code', force);
+  async function sendIdentityCode() {
+    const result = await identity.prepareReverification('email-code');
     if (result.kind === 'failed') throw new Error(result.message);
     if (result.kind !== 'completed') return false;
-    if (result.step === 'identity-verified') {
-      setScreen(returnAction);
-      return true;
-    }
     if (result.step !== 'email-code') return false;
     if (result.sentAt !== undefined) setSentAt(result.sentAt);
     setCode('');
@@ -704,18 +699,18 @@ export function useAccountFlow(initial: string) {
     });
   }
   async function resendIdentityCode() {
-    await action(async () => { await sendIdentityCode(true); });
+    await action(async () => { await sendIdentityCode(); });
   }
-  async function needsEmailProof(target: Screen) {
-    if (identity.hasRecentEmailProof()) return false;
+  async function needsRecentVerification(target: Screen) {
+    if (await identity.hasRecentVerification()) return false;
     setReturnAction(target);
-    await openReverification(target);
+    await openReverification(target, true);
     return true;
   }
   async function savePassword() {
     await identityAction(async () => {
       if (!passwordsMatch()) return { kind: 'ignored' };
-      if (await needsEmailProof('password')) return { kind: 'ignored' };
+      if (await needsRecentVerification('password')) return { kind: 'ignored' };
       const result = await identity.savePassword(password);
       return result.kind === 'failed' ? { ...result, message: result.message + ' ' + passwordRequirements } : result;
     }, async () => {
@@ -761,7 +756,7 @@ export function useAccountFlow(initial: string) {
   }
   async function sendCode() {
     await action(async () => {
-      if (phoneVerified && await needsEmailProof('phone')) return;
+      if (phoneVerified && await needsRecentVerification('phone')) return;
       const result = await enrollment.current!.send(phone);
       if (result.kind !== 'completed') return;
       setPhone(result.value.phone);
@@ -770,7 +765,7 @@ export function useAccountFlow(initial: string) {
   }
   async function resendCode() {
     await action(async () => {
-      if (phoneVerified && await needsEmailProof('verify-phone')) return;
+      if (phoneVerified && await needsRecentVerification('verify-phone')) return;
       const result = await enrollment.current!.resend(phone);
       if (result.kind !== 'completed') return;
       setCode("");
@@ -779,7 +774,7 @@ export function useAccountFlow(initial: string) {
   }
   async function verifyCode() {
     await action(async () => {
-      if (phoneVerified && await needsEmailProof('verify-phone')) return;
+      if (phoneVerified && await needsRecentVerification('verify-phone')) return;
       await enrollment.current!.verify(code, now);
     });
   }
@@ -908,10 +903,7 @@ export function useAccountFlow(initial: string) {
     verifying: screen === "verify-phone", phone, setPhone,
     hasPhone: Boolean(account?.phone), verified: phoneVerified,
     destination: pending?.phone ?? "your phone", expired: phoneExpired, cooldown, busy,
-    fieldError: fieldErrors.phone, goBack: () => {
-      if (account?.onboardingCompleted && account.phone) openPhoneManagement();
-      else openScreen(account?.onboardingCompleted ? "account" : "channels");
-    },
+    fieldError: fieldErrors.phone, goBack: () => openScreen(account?.onboardingCompleted ? "account" : "channels"),
     sendCode, resendCode, verifyCode, useAnotherNumber, continueWithoutSms,
   };
   const authEntry = {
@@ -938,10 +930,7 @@ export function useAccountFlow(initial: string) {
   const accountEmail = account?.email;
   const emailAt = accountEmail?.lastIndexOf('@') ?? -1;
   const reverification = {
-    goBack: () => {
-      if (["phone", "verify-phone", "remove-phone"].includes(returnAction)) openPhoneManagement();
-      else openScreen("account");
-    }, verifyIdentity, resendCode: resendIdentityCode,
+    goBack: () => openScreen("account"), verifyIdentity, resendCode: resendIdentityCode,
     sent: reverificationSent, busy,
     destination: accountEmail && emailAt > 0 ? `${accountEmail[0]}•••${accountEmail.slice(emailAt)}` : 'your account email',
     sendCode: () => action(async () => { await sendIdentityCode(); }),

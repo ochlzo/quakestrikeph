@@ -37,12 +37,13 @@ Keep email-code
 capability enabled for device trust and Google-only reverification. Account
 email change/removal is not exposed through hosted profile components.
 
-Password addition/change and mobile-number replacement share an email OTP
-reverification gate. After Clerk completes email-code reverification, the
-Bulletin reuses that proof for less than five minutes in the same user/session.
-Exactly five minutes is expired. Password verification and generic fresh `fva`
-do not establish email proof. Accounts with and without passwords follow the
-same rule. There is no password fallback on the account reverification screen.
+Sensitive account actions use Clerk's first-factor verification age (`fva[0]`).
+The Bulletin refreshes the session token before each freshness check and reads
+the claims from Clerk's live session. A numeric age from zero to less than five
+minutes qualifies; five minutes, missing claims and negative ages require
+reverification. Recent password sign-in or first-factor verification qualifies
+without another OTP. Accounts with and without passwords follow the same rule.
+When verification expires, the existing email OTP screen requests fresh proof.
 The sign-in form retains "Forgot password?" and signed-out email recovery.
 
 When proof is missing or expired, the shared gate first shows the masked account
@@ -51,12 +52,13 @@ does not request a code. Only an explicit send opens the code-entry step after
 Clerk confirms preparation. Sending disables the button and shows a spinner;
 failure leaves the confirmation available for retry. Resend remains explicit.
 
-The cache exists only in memory in the mounted account flow. Reload, unmount,
-sign-out, user change, or session change discards it; no proof or credentials
-are stored in browser storage. Invalid codes, incomplete verification and late
-responses from another session cannot establish freshness. Resending an email
-code or a Backend reverification requirement clears the cache and forces a
-new challenge. Using the cache does not extend the original expiry.
+The Bulletin keeps no separate proof cache or verification timestamp in browser
+storage. Reload and reopening settings reuse the remaining Clerk verification
+window for the same session; neither action restarts that window. Every check
+verifies session identity before and after token refresh. Missing tokens and
+late responses from another session cannot establish freshness. An explicit
+send or resend always requests a code. A provider or Backend reverification
+requirement opens the email gate even if the earlier age appeared recent.
 
 The Bulletin checks again before a password save, before replacement phone
 send/resend/verification requests and before a mobile-number removal. Expiry
@@ -71,12 +73,18 @@ a compact modal over the account screen without changing `/account`. The modal
 contains the heading, description, saved number and two buttons: Remove number
 on the left and Change number on the right. Escape and Close dismiss only this modal and restore focus to
 Manage. Both actions close the modal and use the shared email verification
-gate. Direct removal visits, reloads and history navigation also check proof.
+gate. Changing screens resets the modal's open state. Back and Cancel return
+to Account settings with the modal closed; only Manage opens it again.
+Direct removal visits, reloads and history navigation also check proof.
 Removal issues `DELETE /api/v1/account/phone`, which returns the updated account,
 shows a success notification and returns to Account settings. Removing a number
 that is not saved changes nothing, reports no success audit and is not reachable
-from the screen because removal redirects when no number exists. An in-flight
-attempt for the saved number is fenced and cancelled in the same account lock.
+from the screen because removal redirects when no number exists. Removal always
+acquires the shared account lock, rereads the account and cancels pending
+verification before deciding whether a saved phone needs clearing. This also
+clears a binding committed after the initial read. Start and verification keep
+their additional phone lock; an overlapping operation on the same account
+reports verification busy.
 
 The device screen lists only the signed-in sessions Clerk reports: device type,
 browser and a relative last-active time. No city, country, IP address or
@@ -103,12 +111,11 @@ The former `/account/phone/manage` page is removed. Change number continues at
 `/account/phone`; removal continues at `/account/phone/remove`.
 The email-change and account-removal placeholders remain unavailable.
 
-This is the Bulletin's browser flow policy, not a new server authorization
-credential. Clerk retains authoritative password/session checks and its own
-reverification window. The Backend retains its verified-email, ownership and
-five-minute first-factor `fva` checks. Direct APIs do not enforce the browser's
-email-only policy. Keep email codes and reverification enabled; no MFA
-enrollment is required. Test the target Clerk instance before release.
+Clerk retains authoritative password/session checks and its own reverification
+window. The Backend retains its verified-email, ownership and five-minute
+first-factor `fva` checks on authenticated tokens. The browser freshness check
+does not replace server authorization. Keep email codes and reverification
+enabled; no MFA enrollment is required. Test the target Clerk instance before release.
 
 ## Automated checks
 
@@ -200,7 +207,7 @@ after an account island unmounts. The account feature retains private-state
 reset and preference-queue cancellation. No extra global runtime is required.
 First anonymous activation preserves the signup profile handoff. Token refresh
 rejection blocks proof continuation; a null refresh retains the existing
-continuation, and the HTTP helper rejects a later missing token.
+continuation, but a later freshness check refuses a missing token.
 
 Account navigation uses a restricted destination operation for Alerts,
 Location, and Account. Screen views provide named Back, sensitive-entry,

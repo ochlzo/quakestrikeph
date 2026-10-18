@@ -9,6 +9,12 @@ const listeners = new Set<() => void>();
 const subscribe = (callback: () => void) => { listeners.add(callback); return () => { listeners.delete(callback); }; };
 let userId = 'fixture-user', sessionId = 'fixture-session';
 const snapshot = () => signed ? `${userId}:${sessionId}` : 'signed-out';
+const verificationKey = () => `fixture:verified-at:${snapshot()}`;
+function verificationAge() {
+  const verifiedAt = fixtureStorage.getItem(verificationKey());
+  const elapsed = verifiedAt === null ? -1 : Date.now() - Number(verifiedAt);
+  return [elapsed < 0 ? -1 : Math.floor(elapsed / 60000), -1];
+}
 type FixtureDevice = {
   id: string; lastActiveAt: Date;
   latestActivity: { deviceType?: string; browserName?: string };
@@ -95,12 +101,15 @@ export const useReverification = <Args extends unknown[], Result,>(work: (...arg
   }
 };
 const session = {
+  get lastActiveToken() { return { jwt: { claims: { fva: verificationAge() } } }; },
   currentTask: query.has('task') ? { key: query.get('task')! } : null,
   startVerification: (options: unknown) => provider('startVerification', options, () => ({ supportedFirstFactors: query.has('missing-factor') ? [] : [{ strategy: 'password' }, { strategy: 'email_code', emailAddressId: 'fixture-email' }] })),
   prepareFirstFactorVerification: (options: unknown) => provider('prepareFirstFactorVerification', options, () => {}),
   attemptFirstFactorVerification: (options: { password?: string; code?: string }) => provider('attemptFirstFactorVerification', options, () => {
     const { password, code } = options;
-    if (password !== 'fixture-password' && code !== '111111') throw new Error('wrong factor'); return { status: 'complete' };
+    if (password !== 'fixture-password' && code !== '111111') throw new Error('wrong factor');
+    fixtureStorage.setItem(verificationKey(), String(Date.now()));
+    return { status: 'complete' };
   }),
 };
 export const useSession = () => ({ session });

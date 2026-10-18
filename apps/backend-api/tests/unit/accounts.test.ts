@@ -136,6 +136,41 @@ test('phone removal with no saved number changes nothing but cancels a pending a
   assert.equal(adding.stats().removals, 0); assert.equal(adding.stats().pending, null);
 });
 
+for (const pauseAt of ['read', 'lock'] as const) {
+  test(`phone removal clears verification committed after its initial ${pauseAt}`, async () => {
+    const f = fixture({ ...account, phone: null, onboardingCompleted: true });
+    const recent = { ...identity, recent: true };
+    const pending = await f.service.start(recent, { phone: '09171234567' }, randomUUID());
+    let entered!: () => void, release!: () => void;
+    const paused = new Promise<void>(resolve => { entered = resolve; });
+    const resume = new Promise<void>(resolve => { release = resolve; });
+    let pauseNextRead = pauseAt === 'read', pauseNextLock = pauseAt === 'lock', locked = false;
+    const read = f.store.read;
+    f.store.read = async owner => {
+      const snapshot = await read(owner);
+      if (pauseNextRead) { pauseNextRead = false; entered(); await resume; }
+      return snapshot;
+    };
+    f.attempts.exclusive = async (_user, _phone, work) => {
+      if (pauseNextLock) { pauseNextLock = false; entered(); await resume; }
+      if (locked) throw new AccountError('VERIFICATION_BUSY', 'Busy', 409);
+      locked = true;
+      try { return await work(); } finally { locked = false; }
+    };
+    const removing = f.service.removePhone(recent, randomUUID());
+    await paused;
+    try {
+      const verified = await f.service.verify(recent, { attemptId: pending.id, code: '123456' }, randomUUID());
+      assert.equal(verified.phone, '+639171234567');
+      assert.equal(f.stats().pending, null);
+    } finally { release(); }
+    const removed = await removing;
+    assert.equal(removed.phone, null);
+    assert.equal(f.stats().current?.phone, null, 'Removal must clear the binding committed by verification');
+    assert.equal(f.stats().removals, 1);
+  });
+}
+
 test('IPROG adapter interprets documented string statuses and strips returned OTP data', async () => {
   const calls: string[] = [];
   const request = (async (url, options) => {

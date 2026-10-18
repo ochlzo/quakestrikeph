@@ -21,7 +21,7 @@ export interface PhoneProvider {
 
 export interface PendingPhone { id: string; phone: string; expiresAt: string; resendAt: string }
 export interface PhoneAttempts {
-  exclusive<T>(userId: string, phone: string, work: () => Promise<T>): Promise<T>;
+  exclusive<T>(userId: string, phone: string | null, work: () => Promise<T>): Promise<T>;
   start(userId: string, phone: string): Promise<PendingPhone>;
   pending(userId: string): Promise<PendingPhone | null>;
   check(userId: string, attemptId: string): Promise<PendingPhone>;
