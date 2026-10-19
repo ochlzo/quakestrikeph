@@ -5,8 +5,6 @@ from __future__ import annotations
 import logging
 import os
 import signal
-import tempfile
-from pathlib import Path
 from threading import Event
 
 from quakestrike.application.dispatch import (
@@ -21,6 +19,7 @@ from quakestrike.infrastructure.database.engine import (
     create_database_engine,
     create_session_factory,
 )
+from quakestrike.infrastructure.health import DISPATCHER_SCAN_HEALTH_MARKER as SCAN_HEALTH_MARKER
 from quakestrike.infrastructure.logging.json_logging import (
     log_event,
     log_exception_event,
@@ -32,8 +31,6 @@ from quakestrike.infrastructure.queues.ingestion_publisher import CeleryIngestio
 from quakestrike.infrastructure.queues.prediction_publisher import CeleryPredictionPublisher
 from quakestrike.infrastructure.settings import Settings
 from quakestrike.runtime import run_service
-
-SCAN_HEALTH_MARKER = Path(tempfile.gettempdir()) / "quakestrike-dispatcher-scan"
 
 
 def run_dispatch_loop(

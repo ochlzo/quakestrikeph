@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 import redis
 from redis import Redis
@@ -15,6 +17,7 @@ from quakestrike.infrastructure.settings import Settings
 
 EngineFactory = Callable[[str], Engine]
 RedisClientFactory = Callable[[str], Redis]
+DISPATCHER_SCAN_HEALTH_MARKER = Path(tempfile.gettempdir()) / "quakestrike-dispatcher-scan"
 
 
 def _create_postgres_engine(database_url: str) -> Engine:

@@ -30,6 +30,15 @@ Check each failed job's first failing step. For local commands, follow [contribu
 The deploy job waits for all four jobs. It runs only for a successful push to `main` with `DEPLOY_ENABLED=true`.
 A pull request run does not deploy. The workflow uses the tested main SHA for application images.
 Ordinary deployment updates workers, Backend, Bulletin, and already-running alert services.
+Routine deployment stops pgAdmin and private alert-testing services, including their separate Redis.
+After cleanup passes, deployment and rollback do not restart optional tools; start them explicitly when needed.
+Deployment also disables the Backend's optional test Redis connection without changing its saved `.env` setting.
+The manual private-testing rollout can recreate the Backend with that saved setting when needed.
+Deployment first stops the private control service so operators cannot start or submit another test during the cleanup check.
+Before stopping consumers, it requires no session or a closed/expired session with completed cleanup.
+If cleanup cannot be verified, deployment restores the previously running control service and aborts before public application downtime.
+After consumers stop, deployment rechecks cleanup and stops private Redis last.
+If this final check fails, Redis remains running and private controls remain stopped; resolve the dependency failure before retrying.
 Private alert-testing services use their [separate manual rollout](alert-testing.md#build-and-activate-after-separate-authorization).
 The Operations Console deployment remains planned.
 
@@ -60,24 +69,39 @@ The script rejects an older release when a newer main commit exists.
 The deployment script performs these steps. Run the script rather than reproducing individual release actions manually.
 
 1. Verify the clean checkout, current main SHA, and retained previous images.
-2. Build application images before downtime.
-3. Complete an encrypted backup and isolated restore test.
-4. Check main again to reject a stale release.
-5. Stop Beat, Dispatcher, consumers, reconciliation, and Backend.
-6. Acquire the host maintenance lock.
-7. Run reviewed migrations through the `release-init` migration login.
-8. Apply restricted grants from the reviewed provisioning script through stdin.
-9. Check migrations, model release, bootstrap, PostgreSQL, and Redis.
-10. Restore Backend before consumers and already-enabled alerts.
-11. Start reconciliation before Alert Worker.
-12. Resume Dispatcher and the previously enabled Beat schedule.
-13. Check Bulletin, Traefik, and public endpoints.
-14. Save release tags only after verification succeeds.
+2. Stop private controls before verifying private-test cleanup.
+3. Stop optional tools.
+4. Build application images before downtime.
+5. Complete an encrypted backup and isolated restore test.
+6. Check main again to reject a stale release.
+7. Stop Beat, Dispatcher, consumers, reconciliation, and Backend.
+8. Acquire the host maintenance lock.
+9. Run reviewed migrations through the `release-init` migration login.
+10. Apply restricted grants from the reviewed provisioning script through stdin.
+11. Check migrations, model release, bootstrap, PostgreSQL, and Redis.
+12. Restore Backend before consumers and already-enabled alerts.
+13. Start reconciliation before Alert Worker.
+14. Resume Dispatcher and the previously enabled Beat schedule.
+15. Check Bulletin, Traefik, and public endpoints.
+16. Save release tags only after verification succeeds.
 
 The script preserves prediction replica count and previous service enablement.
+This preservation excludes pgAdmin and private alert-testing services.
+An enabled Beat uses `unless-stopped` after an unexpected exit or Docker daemon restart.
+Docker restarts do not rerun the enable helper; verify consumer health after recovery.
+An explicitly stopped Beat stays stopped until enabled again.
 The maintenance lock prevents overlap with backup, restore, and retention jobs.
 The deployment account needs noninteractive `sudo` for installed backup services and the database maintenance job.
 Secrets, model registration, bootstrap, legacy retirement, and first alert activation remain explicit operator actions.
+
+### Worker health-check cost
+
+Release workers run health checks every 30 seconds through `python -m quakestrike.operator_runtime`.
+The command avoids unrelated operator commands and loads bootstrap/model adapters only when the selected check needs them.
+Worker images compile application Python files during build to avoid repeated source compilation during checks.
+All existing database, migration, queue-consumption, process, and model checks remain in place.
+Three failed checks mark a worker unhealthy after approximately 90 seconds plus probe execution time.
+Startup grace periods and probe timeouts still apply.
 
 ### Failure and rollback
 
@@ -102,6 +126,8 @@ When adopting a changed database bind mount, plan a database restart with produc
 Follow [the local runtime sequence](local-runtime.md#4-start-postgresql-and-redis) and preserve the named volume.
 
 ## Initialize the VPS once
+
+On a 4 GB VPS, complete [the 1 GB swap setup](#configure-a-1-gb-swap-reserve) before building application images.
 
 Use a non-root deployment user with access to Docker and a clean Git checkout
 at `/srv/quakestrikeph`. The existing `ubuntu` account can serve this role for
@@ -195,6 +221,111 @@ backs up and tests a restore, pauses application processing, and applies reviewe
 migrations and grants. It checks readiness and restores services in the routine
 release order above. Recovery depends on whether the database revision changed.
 Check container health and logs after any failed run.
+
+### Configure a 1 GB swap reserve
+
+**Environment:** Bash on the Ubuntu VPS host, outside Docker.
+**Prerequisites:** You have `sudo` access, an ext4 root filesystem, and at least 2 GB of free disk space.
+The procedure allocates 1 GiB (1,024 MiB), described here as the 1 GB swap reserve.
+Other filesystems can require different swap-file preparation; consult the [Linux swap-file requirements](https://man7.org/linux/man-pages/man8/swapon.8.html).
+
+Swap gives Linux slower disk space for memory overflow during brief RAM spikes.
+Swap does not increase physical RAM or replace sufficient RAM for normal operation.
+Docker containers can use host swap within their memory and swap limits.
+These host settings survive deployments; CI does not configure swap.
+
+Run each step separately. Stop if a command fails.
+
+1. Inspect existing swap and the root filesystem.
+
+   ```bash
+   sudo swapon --show
+   free -h
+   findmnt -no FSTYPE /
+   df -h /
+   ```
+
+   Confirm the filesystem is `ext4` and disk space meets the prerequisite.
+   If a suitable swap reserve already exists, skip creation and use the verification steps below.
+   If `/swapfile` already exists, inspect that file before continuing; the creation command refuses to overwrite it.
+
+2. Create the private swap file.
+
+   ```bash
+   sudo sh -eu -c 'umask 077; dd if=/dev/zero of=/swapfile bs=1M count=1024 conv=excl status=progress'
+   sudo chmod 600 /swapfile
+   ```
+
+   `dd` writes allocated blocks; `conv=excl` prevents overwriting an existing file.
+   Permissions `600` restrict reading and writing to the file owner, root.
+
+3. Format the file for swap.
+
+   ```bash
+   sudo mkswap /swapfile
+   ```
+
+4. Enable the swap file.
+
+   ```bash
+   sudo swapon /swapfile
+   ```
+
+5. Back up the boot configuration.
+
+   ```bash
+   sudo cp -a /etc/fstab "/etc/fstab.before-swap.$(date +%Y%m%d%H%M%S)"
+   ```
+
+6. Register swap for subsequent boots.
+
+   ```bash
+   if ! sudo grep -qE '^[[:space:]]*/swapfile[[:space:]]' /etc/fstab; then
+       printf '/swapfile none swap sw 0 0\n' | sudo tee -a /etc/fstab
+   fi
+   sudo findmnt --verify --verbose
+   sudo systemctl daemon-reload
+   ```
+
+   The guard prevents adding a duplicate `/swapfile` entry.
+   Resolve any configuration errors reported by `findmnt` before a reboot.
+
+7. Configure a low preference for disk swap.
+
+   ```bash
+   printf 'vm.swappiness = 10\n' | sudo tee /etc/sysctl.d/99-quakestrike-swap.conf
+   sudo sysctl -p /etc/sysctl.d/99-quakestrike-swap.conf
+   ```
+
+   Start with `10` for this disk-based reserve and adjust only after measuring the workload.
+   Swappiness controls relative memory-reclaim costs; `10` does not mean Linux waits for 90% RAM usage.
+   See the [kernel documentation for swappiness](https://docs.kernel.org/admin-guide/sysctl/vm.html#swappiness).
+
+8. Verify the active swap configuration.
+
+   ```bash
+   sudo swapon --show --bytes
+   free -h
+   sudo stat -c '%a %U:%G %n' /swapfile
+   sysctl vm.swappiness
+   ```
+
+   **Expected results:** `/swapfile` appears as an active file with approximately 1 GiB of usable swap.
+   `free -h` reports approximately `1.0Gi` total swap if no other swap exists.
+   Permissions read `600 root:root /swapfile`, and swappiness reads `vm.swappiness = 10`.
+   Zero used swap is normal when RAM is sufficient; usage need not increase to confirm activation.
+
+9. Observe paging during normal operation.
+
+   ```bash
+   vmstat 1 5
+   ```
+
+   Ignore the first sample, which summarizes activity since boot.
+   The `si` and `so` columns show swap reads and writes per second.
+   Sustained paging with slow responses means the workload needs investigation or more RAM.
+
+After the next planned reboot, repeat step 8 to verify swap activation and the persistent swappiness setting.
 
 ## Give GitHub access to the VPS
 
