@@ -9,6 +9,7 @@ Run PowerShell commands from the repository root. Local Bulletin and workers sha
 | Set up the full worker pipeline | [Worker prerequisites](#1-gather-the-prerequisites) |
 | Start initialized workers | [Start consumers](#7-start-consumers-then-enable-beat) |
 | Check predictions or recover queued work | [Prediction operations](#prediction-worker-operations) |
+| Remove local test accounts | [Remove local test accounts](#remove-local-test-accounts) |
 | Test with the actual model | [Real-model checks](#real-model-integration-checks) |
 | Stop local workers | [Stop local services](#8-stop-local-services) |
 
@@ -57,6 +58,48 @@ docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/c
 ```
 
 `-V` renews the Bulletin's anonymous dependency volume. These targeted commands preserve the shared database and Redis volumes.
+
+## Remove local test accounts
+
+This command deletes disposable accounts from the local development database.
+It is not an account-removal product route. It also deletes the audit and
+delivery evidence for the selected accounts, so never run it against a database
+that holds real users.
+
+**Prerequisite:** Start PostgreSQL and Redis. Set `CLERK_SECRET_KEY` and
+`ACCOUNT_REDIS_URL` in the root `.env`.
+
+1. Preview the five default addresses. This step deletes nothing.
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.local.yml run --build --rm account-cleanup
+```
+
+2. Delete the default addresses.
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.local.yml run --build --rm account-cleanup quakestrike delete-accounts --apply
+```
+
+3. Replace the default list with your own addresses. Separate addresses with commas.
+
+```powershell
+docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.local.yml run --build --rm account-cleanup quakestrike delete-accounts --apply --emails "first@example.test,second@example.test"
+```
+
+The command deletes the `audit_logs`, `alert_delivery_attempts`, and
+`alert_recipients` rows for each account. It then deletes the `users` row, the
+matching Clerk users, and the Redis phone keys.
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | The plan ran. A preview returns `0` and deletes nothing. |
+| `1` | No supplied address matched a database row or a Clerk user. |
+| `2` | The command refused to start, or a delete failed partway. |
+
+The command runs with the migration login, because the application roles cannot
+delete users. The `account-cleanup` service joins a separate egress network for
+the Clerk API calls.
 
 ## First-time worker setup
 
