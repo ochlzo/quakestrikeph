@@ -4,6 +4,7 @@ import {
   AccountError,
   requireActive,
   requireRecent,
+  requireTrustedEmail,
   type Account,
   type Identity,
   type Preferences,
@@ -80,13 +81,7 @@ export class PostgresAccounts implements AccountStore {
 
   private trusted(row: Row, identity: Identity) {
     requireActive(account(row));
-    if (row.email !== identity.email || row.email_verified_at == null) {
-      throw new AccountError(
-        "EMAIL_MIRROR_MISMATCH",
-        "Your account email needs synchronization. Please contact support.",
-        409,
-      );
-    }
+    requireTrustedEmail(String(row.email), row.email_verified_at != null, identity);
   }
 
   private async transaction(
@@ -149,7 +144,6 @@ export class PostgresAccounts implements AccountStore {
         throw new AccountError(
           "PHONE_UNAVAILABLE",
           "This mobile number cannot be added to this account.",
-          409,
           "phone",
         );
       }
@@ -191,13 +185,11 @@ export class PostgresAccounts implements AccountStore {
           throw new AccountError(
             "PROFILE_REQUIRED",
             "Complete your profile first.",
-            409,
           );
         if (p.smsEnabled && (!row.mobile_number || !row.mobile_verified_at)) {
           throw new AccountError(
             "PHONE_REQUIRED",
             "Verify a supported mobile number first.",
-            400,
             "smsEnabled",
           );
         }
@@ -233,7 +225,6 @@ export class PostgresAccounts implements AccountStore {
           throw new AccountError(
             "PROFILE_REQUIRED",
             "Complete your profile first.",
-            409,
           );
         return (
           await client.query(
@@ -255,7 +246,6 @@ export class PostgresAccounts implements AccountStore {
           throw new AccountError(
             "PROFILE_REQUIRED",
             "Complete your profile first.",
-            409,
           );
         if (row.mobile_number) requireRecent(identity);
         return (
@@ -289,7 +279,6 @@ export class PostgresAccounts implements AccountStore {
           throw new AccountError(
             "PROFILE_REQUIRED",
             "Complete your profile first.",
-            409,
           );
         if (row.mobile_number === null) return null;
         return (
