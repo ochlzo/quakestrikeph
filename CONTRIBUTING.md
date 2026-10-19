@@ -17,7 +17,7 @@ git switch -c feat/ingestion-reconciliation
 ```
 
 Use `feat/` for features, `fix/` for fixes, `docs/` for documentation, `test/`
-for tests, and `chore/` for maintenance. Codex-created branches use `codex/`.
+for tests, and `chore/` for maintenance.
 Push only to a branch you own. Changes reach `main` through a reviewed pull
 request.
 
@@ -29,46 +29,68 @@ schema, ownership, or module boundaries, consult the matching specification in
 
 ## Local setup for contributor checks
 
-For Python worker checks, install [`uv`](https://docs.astral.sh/uv/) and the
-locked dependencies from the repository root:
+Run the commands below in PowerShell from the repository root.
+
+Install [`uv`](https://docs.astral.sh/uv/) first. Unit tests and lint checks do not need `.env` or running containers.
+
+### Prepare Python
+
+1. Install the Python version used by the workers.
 
 ```powershell
 uv python install 3.12
+```
+
+2. Install worker dependencies from the lockfile, keeping their recorded versions.
+
+```powershell
 uv sync --project workers --frozen
 ```
 
-The unit tests and lint checks do not need `.env` or the full runtime. For
-database and Redis integration tests, install Docker with Compose v2 and run
-this disposable test project from the repository root:
+You can now run the Python tests and lint commands under [Check before every push](#check-before-every-push).
+
+### Run database and Redis checks
+
+For integration tests, start Docker with Compose v2. Run these three steps in order.
+Integration tests check the application against PostgreSQL and Redis in a separate, disposable environment.
+
+Use the exact project name below. Test fixtures migrate and clear data; never point them at a development or production database.
+
+1. Start the test database and Redis in the background. `--wait` waits until both services are healthy.
 
 ```powershell
 docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml up -d --wait postgres-test redis-test
+```
+
+2. Build the test image and run the integration suite. `--rm` removes the runner container after it exits.
+
+```powershell
 docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --build --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration
+```
+
+Check the pytest summary for failures and confirm integration tests ran.
+The runner supplies its test database and Redis URLs. Host pytest without those URLs skips integration tests.
+
+3. After inspecting the results, remove the disposable containers, network, and volumes. This command targets only the named test project.
+
+```powershell
 docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v
 ```
 
-Use this exact project name. The test runner sets `TEST_DATABASE_URL` and
-`TEST_REDIS_URL`; host pytest without them skips integration tests. Confirm the
-pytest summary shows that integration tests ran. The fixtures migrate and
-truncate their database, so never point `TEST_DATABASE_URL` at a development
-database. The final command removes only the test project's resources.
 
-The standard `test-runner` does not mount model artifacts or install the
-prediction dependencies. It skips two real-model tests by design. These skips
-do not establish that the model bundle is missing from the host. If the approved
-`SEIS 1.0.1` bundle is available locally, also run both checks with
-[`prediction-smoke-runner`](docs/operations/local-runtime.md#real-model-integration-checks).
-Report standard integration results and real-model results separately.
+The standard runner skips two real-model tests because it excludes model artifacts and prediction dependencies.
+If the approved `SEIS 1.0.1` bundle is available, also run [the real-model checks](docs/operations/local-runtime.md#real-model-integration-checks).
+Report those results separately; standard-runner skips do not mean your local model bundle is missing.
 
 ## Check before every push
 
 Run checks that match your change:
 
-| Change | Required check |
-| --- | --- |
-| Any change, including docs | Inspect the diff and run the Git whitespace checks below. |
-| Python worker code or tests | Run the worker tests and Ruff checks below. |
-| PostgreSQL, Redis, bootstrap, ingestion, or dispatch behavior | Also run the isolated integration suite above. |
+| Change                                                        | Required check                                            |
+| ------------------------------------------------------------- | --------------------------------------------------------- |
+| Any change, including docs                                    | Inspect the diff and run the Git whitespace checks below. |
+| Python worker code or tests                                   | Run the worker tests and Ruff checks below.               |
+| PostgreSQL, Redis, bootstrap, ingestion, or dispatch behavior | Also run the isolated integration suite above.            |
 
 ```powershell
 uv run --project workers pytest --config-file workers/pyproject.toml workers/tests
