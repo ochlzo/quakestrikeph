@@ -25,7 +25,8 @@ COPY --chown=quakestrike:quakestrike workers/src ./src
 COPY --chown=quakestrike:quakestrike workers/model-release-manifests ./model-release-manifests
 COPY --chown=quakestrike:quakestrike database/alembic.ini /app/database/alembic.ini
 COPY --chown=quakestrike:quakestrike database/migrations /app/database/migrations
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev \
+    && python -m compileall -q src /app/database/migrations
 
 
 ENTRYPOINT ["uv", "run", "--frozen", "--no-dev", "--no-sync"]

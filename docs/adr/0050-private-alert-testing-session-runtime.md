@@ -292,8 +292,12 @@ explicit `ALERT_TEST_REDIS_URL`. The packaged `alert-test-redis` is a separate
 instance on the private data network, without host ports, snapshots, or AOF.
 Redis loss discards tests; operators must not replay uncertain submissions into
 a new session. PostgreSQL remains unchanged and account access remains restricted.
-The normal Backend Compose file passes the optional test URL, so already
-configured synthetic reads and callbacks retain that setting on repeat releases.
+The normal Backend Compose file passes the optional test URL during explicit manual activation.
+Routine deployment overrides that URL to empty and stops private services under the 20 October 2026 amendment to ADR 0049.
+Deployment stops private controls before checking cleanup, preventing new starts or submissions during that check.
+If cleanup is incomplete or unverifiable, deployment restores the previously running controls and aborts before public application downtime.
+After cleanup passes, deployment stops consumers, rechecks cleanup, and stops private Redis last.
+The saved private URL remains available for a subsequent manual activation.
 
 On the named VPS, Tailscale Serve uses private HTTPS 8443 to host loopback
 4341. PgAdmin keeps HTTPS 443 to loopback 5050. Origin validation allows 8443

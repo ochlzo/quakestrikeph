@@ -37,7 +37,7 @@ jobs:
 
       - name: Check deployment scripts
         run: |
-          for script in infrastructure/scripts/deploy-workers.sh infrastructure/scripts/enable-beat.sh database/initialization/*.sh database/maintenance/*.sh; do
+          for script in infrastructure/scripts/deploy-workers.sh infrastructure/scripts/stop-optional-services.sh infrastructure/scripts/enable-beat.sh database/initialization/*.sh database/maintenance/*.sh; do
             bash -n "$script"
           done
 
@@ -172,7 +172,7 @@ jobs:
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
 
-      - name: Back up, migrate, and deploy tested application
+      - name: Stop optional tools, back up, migrate, and deploy tested application
         env:
           DEPLOY_USER: ${{ vars.VPS_DEPLOY_USER }}
           DEPLOY_HOST: ${{ vars.VPS_TAILSCALE_HOST }}

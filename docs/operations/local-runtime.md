@@ -282,8 +282,13 @@ Compose also enforces both as healthy dependencies and the command checks again
 after Beat becomes healthy, stopping it if a consumer failed during startup. Each process
 also evaluates its read-only startup gates. Beat waits for the strictly next
 UTC wall-clock boundary of `POLL_INTERVAL_SECONDS` (five minutes by default).
-It does not poll on startup or replay missed boundaries. Beat has no automatic
-restart policy; enable it explicitly again after a stack restart.
+It does not poll on startup or replay missed boundaries. Once enabled, Beat uses
+`restart: unless-stopped` in both local and VPS runtimes. It restarts after an
+unexpected process exit or Docker daemon restart; an explicitly stopped Beat stays stopped.
+Use the enable helper for first enablement or after an explicit stop.
+Docker restarts do not rerun the helper or Compose dependency checks.
+Beat still evaluates its read-only startup gates; verify Dispatcher and Data Ingestor health after recovery.
+See [the Beat restart amendment](../adr/0025-explicit-local-runtime-enablement.md#amendment-retain-an-enabled-beat-schedule-after-restart--20-october-2026).
 
 The Prediction Worker loads and verifies `SEIS 1.0.1` before consuming work. Model files remain on the read-only artifact mount.
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import socket
 import time
@@ -9,14 +10,15 @@ import time
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
-from quakestrike.application.scheduling import ScheduleIngestionPoll
 from quakestrike.application.startup import evaluate_startup_gates
 from quakestrike.infrastructure.database.engine import (
     create_database_engine,
     create_session_factory,
 )
 from quakestrike.infrastructure.database.migration_state import AlembicMigrationStateGate
-from quakestrike.infrastructure.database.repositories import SqlAlchemyIngestionTransactions
+from quakestrike.infrastructure.health import (
+    DISPATCHER_SCAN_HEALTH_MARKER as SCAN_HEALTH_MARKER,
+)
 from quakestrike.infrastructure.health import (
     PostgresConnectivityHealthCheck,
     RedisConnectivityHealthCheck,
@@ -27,13 +29,7 @@ from quakestrike.infrastructure.queues.celery_app import (
     create_celery_app,
 )
 from quakestrike.infrastructure.settings import Settings
-from quakestrike.infrastructure.startup import (
-    ConfiguredModelReleaseVerifier,
-    ModelReleaseStartupGate,
-    phase_one_startup_gates,
-)
 from quakestrike.operator_output import print_json
-from quakestrike.scheduler.dispatcher import SCAN_HEALTH_MARKER
 
 
 def worker_health(action: str) -> int:
@@ -52,6 +48,8 @@ def worker_health(action: str) -> int:
         elif action == "health-ingestor":
             active = ingestor_consuming(settings, local_only=True)
         elif action == "health-prediction":
+            from quakestrike.infrastructure.startup import ModelReleaseStartupGate
+
             active = ModelReleaseStartupGate(settings).check().ready and prediction_consuming(
                 settings, local_only=True
             )
@@ -65,6 +63,8 @@ def worker_health(action: str) -> int:
                 else alert_consuming(settings, local_only=True)
             )
         else:
+            from quakestrike.infrastructure.startup import phase_one_startup_gates
+
             active = evaluate_startup_gates(phase_one_startup_gates(settings)).ready
         ready = connected and active
         result = {"action": action, "status": "healthy" if ready else "unhealthy"}
@@ -80,6 +80,13 @@ def worker_health(action: str) -> int:
 
 def immediate_poll() -> int:
     """Request one manual poll only after the read-only runtime gates pass."""
+
+    from quakestrike.application.scheduling import ScheduleIngestionPoll
+    from quakestrike.infrastructure.database.repositories import SqlAlchemyIngestionTransactions
+    from quakestrike.infrastructure.startup import (
+        ConfiguredModelReleaseVerifier,
+        phase_one_startup_gates,
+    )
 
     try:
         settings = Settings()
@@ -201,3 +208,19 @@ def reconciliation_running(settings: Settings) -> bool:
         return True
     except (OSError, ValueError):
         return False
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Read-only worker health checks.")
+    parser.add_argument(
+        "action",
+        choices=(
+            "health-dispatcher",
+            "health-ingestor",
+            "health-prediction",
+            "health-beat",
+            "health-alert",
+            "health-alert-reconciliation",
+        ),
+    )
+    raise SystemExit(worker_health(parser.parse_args().action))

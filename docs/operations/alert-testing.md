@@ -311,6 +311,13 @@ end the shared test and confirm `closure_phase=complete`. Keep private services
 deactivated throughout the normal application rollout. Private images do not
 update automatically with the ordinary deployment script.
 
+Routine deployment temporarily stops private controls before reading session state, closing the window for new starts or submissions.
+If a test is active or cleanup cannot be verified, deployment restores the previously running control service and aborts.
+The consumer and Redis remain running so operators can end the test or repair cleanup through the private UI.
+After cleanup passes, deployment stops the consumer before rechecking cleanup and stopping private Redis last.
+If the final check fails, Redis stays running and private controls stay stopped; restore the dependency before retrying deployment.
+These steps do not change the manual deactivation sequence below.
+
 1. Select End Test through the private UI.
 2. Confirm public links become invalid before cleanup completes.
 3. Wait for authorized calls and session-owned deletion to complete.

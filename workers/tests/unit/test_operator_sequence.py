@@ -12,8 +12,11 @@ from uuid import UUID
 import pytest
 
 from quakestrike import cli, operator_runtime, operator_setup
+from quakestrike.application import scheduling
 from quakestrike.application.persistence import RunDispatchResult
 from quakestrike.application.startup import GateResult
+from quakestrike.infrastructure import startup
+from quakestrike.infrastructure.database import repositories
 
 
 def test_verify_release_is_a_separate_read_only_action(monkeypatch, capsys) -> None:
@@ -55,7 +58,7 @@ def test_migration_is_an_explicit_action(monkeypatch, capsys) -> None:
 def test_failed_readiness_prevents_immediate_poll_mutation(monkeypatch, capsys) -> None:
     monkeypatch.setattr(operator_runtime, "Settings", lambda: object())
     monkeypatch.setattr(
-        operator_runtime,
+        startup,
         "phase_one_startup_gates",
         lambda _: (SimpleNamespace(check=lambda: GateResult("bootstrap", False, "Not ready.")),),
     )
@@ -75,23 +78,23 @@ def test_immediate_poll_reports_reused_scheduled_identity(monkeypatch, capsys) -
     engine = SimpleNamespace(dispose=lambda: None)
     monkeypatch.setattr(operator_runtime, "Settings", lambda: SimpleNamespace(database_url="test"))
     monkeypatch.setattr(
-        operator_runtime,
+        startup,
         "phase_one_startup_gates",
         lambda _: (SimpleNamespace(check=lambda: GateResult("ready", True, "Ready.")),),
     )
     monkeypatch.setattr(operator_runtime, "create_database_engine", lambda _: engine)
     monkeypatch.setattr(operator_runtime, "consumers_ready", lambda _: True)
     monkeypatch.setattr(operator_runtime, "create_session_factory", lambda _: object())
-    monkeypatch.setattr(operator_runtime, "ConfiguredModelReleaseVerifier", lambda _: object())
+    monkeypatch.setattr(startup, "ConfiguredModelReleaseVerifier", lambda _: object())
     monkeypatch.setattr(
-        operator_runtime,
+        repositories,
         "SqlAlchemyIngestionTransactions",
         lambda *_, **__: SimpleNamespace(
             get_ingestion_run=lambda _: SimpleNamespace(trigger_type="scheduled")
         ),
     )
     monkeypatch.setattr(
-        operator_runtime,
+        scheduling,
         "ScheduleIngestionPoll",
         lambda *_, **__: SimpleNamespace(
             execute=lambda: RunDispatchResult(run_id, dispatch_id, False)
@@ -112,7 +115,7 @@ def test_immediate_poll_reports_reused_scheduled_identity(monkeypatch, capsys) -
 def test_direct_immediate_poll_requires_consumers(monkeypatch, capsys) -> None:
     monkeypatch.setattr(operator_runtime, "Settings", lambda: object())
     monkeypatch.setattr(
-        operator_runtime,
+        startup,
         "phase_one_startup_gates",
         lambda _: (SimpleNamespace(check=lambda: GateResult("ready", True, "Ready.")),),
     )
@@ -185,7 +188,7 @@ def test_prediction_health_fails_when_release_verification_fails(monkeypatch, ca
         "AlembicMigrationStateGate",
     ):
         monkeypatch.setattr(operator_runtime, name, lambda _: ready)
-    monkeypatch.setattr(operator_runtime, "ModelReleaseStartupGate", lambda _: failed)
+    monkeypatch.setattr(startup, "ModelReleaseStartupGate", lambda _: failed)
     monkeypatch.setattr(
         operator_runtime,
         "prediction_consuming",
@@ -230,7 +233,7 @@ def test_compose_orders_consumers_before_healthy_beat() -> None:
     beat = services["beat"]
     assert beat["depends_on"]["dispatcher"]["condition"] == "service_healthy"
     assert beat["depends_on"]["data-ingestor"]["condition"] == "service_healthy"
-    assert beat["restart"] == "no"
+    assert beat["restart"] == "unless-stopped"
     assert "health-beat" in beat["healthcheck"]["test"]
     assert "health-dispatcher" in services["dispatcher"]["healthcheck"]["test"]
     assert "health-ingestor" in services["data-ingestor"]["healthcheck"]["test"]

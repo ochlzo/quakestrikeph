@@ -36,7 +36,8 @@ compose() {
 
 web_compose() {
     local edge_files=(); [[ ! -f infrastructure/compose.edge.yml ]] || edge_files=(-f infrastructure/compose.edge.yml)
-    docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml "${edge_files[@]}" -f infrastructure/compose.bulletin.yml "${cutover_files[@]}" "$@"
+    # Optional test Redis stays offline during ordinary application deployment.
+    ALERT_TEST_REDIS_URL= docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.backend.yml "${edge_files[@]}" -f infrastructure/compose.bulletin.yml "${cutover_files[@]}" "$@"
 }
 
 for service in postgres redis dispatcher data-ingestor; do
@@ -151,6 +152,8 @@ export BACKEND_IMAGE_TAG=$sha
 source infrastructure/scripts/enable-beat.sh
 compose --profile init --profile prediction --profile beat --profile alerts config --quiet
 web_compose config --quiet
+source infrastructure/scripts/stop-optional-services.sh
+stop_optional_services
 for service in backend-api traefik cloudflared; do
     [[ -n $(web_compose ps --status running -q "$service") ]] || { echo "$service is not running; complete Backend setup first" >&2; exit 2; }
 done

@@ -49,6 +49,9 @@ def test_bulletin_rollout_restores_or_saves_tags(
     )
     scripts = tmp_path / "infrastructure/scripts"
     scripts.mkdir(parents=True)
+    shutil.copyfile(
+        "infrastructure/scripts/stop-optional-services.sh", scripts / "stop-optional-services.sh"
+    )
     cutover = tmp_path / ".local/domain-cutover"
     if failure == "quakestrikeph.com":
         cutover.mkdir(parents=True)
@@ -69,6 +72,10 @@ git() {
 }
 docker() {
     log "docker $*"
+    if [[ $* == *compose.backend.yml* && -n ${ALERT_TEST_REDIS_URL:-} ]]; then
+        echo 'Deployment must disable the optional test Redis connection' >&2
+        return 26
+    fi
     if [[ $* == *"{{.Image}}"* || $* == *"{{.Id}}"* ]]; then
         echo sha256:previous-backend
     elif [[ $* == *"inspect --format"* ]]; then
@@ -144,6 +151,7 @@ curl() { log "curl $*"; return 22; }
         env={
             **os.environ,
             "PYTHON_FOR_TEST": sys.executable,
+            "ALERT_TEST_REDIS_URL": "redis://optional-test:6379/0",
             "HOME": str(tmp_path),
             "USERPROFILE": str(tmp_path),
         },
