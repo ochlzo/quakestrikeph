@@ -93,6 +93,12 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("ACCOUNT_REDIS_URL", "account_redis_url"),
     )
+    account_cleanup_require_confirmation: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "ACCOUNT_CLEANUP_REQUIRE_CONFIRMATION", "account_cleanup_require_confirmation"
+        ),
+    )
     clerk_secret_key: SecretStr | None = Field(
         default=None,
         validation_alias=AliasChoices("CLERK_SECRET_KEY", "clerk_secret_key"),

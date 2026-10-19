@@ -843,6 +843,7 @@ All files below are under `infrastructure/`. Combine them explicitly for the req
 | `compose.admin.yml` | Optional private pgAdmin. |
 | `compose.integration.yml` | Disposable database, Redis, and contributor test runners. |
 | `compose.alert-verification.yml` | Explicit isolated alert-verification runner. |
+| `compose.account-cleanup.yml` | Manual VPS test-account cleanup with explicit emails and preview confirmation; excluded from deployment. |
 | `compose.domain-cutover.yml` | Explicit domain routing transition. |
 | `compose.alert-testing.yml` | Deferred private test runtime, excluded from ordinary deployment. |
 

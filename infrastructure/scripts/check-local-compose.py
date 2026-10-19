@@ -18,6 +18,7 @@ def configuration(*files: str, profiles=()) -> dict:
     environment = {
         **os.environ,
         "WORKER_IMAGE_TAG": "0" * 40,
+        "CLERK_SECRET_KEY": "sk_test_compose_fixture",
         "CONTROLLED_DATABASE_URL": "postgresql+psycopg://quakestrike_worker:fixture@postgres-test:5432/quakestrike_test",
         "LOCAL_ACCOUNT_API_TARGET": "http://backend-api:3000",
         "LOCAL_API_TARGET": "http://backend-api:3000",
@@ -94,6 +95,18 @@ first_bulletin_recovery = configuration(
 )
 assert first_bulletin_recovery["services"]["bulletin"]["image"] == bulletin["image"]
 release = configuration("compose.yml", "compose.release.yml")
+assert "account-cleanup" not in release["services"]
+assert "account-cleanup" not in production["services"]
+cleanup = configuration(
+    "compose.yml", "compose.account-cleanup.yml", profiles=("account-cleanup",)
+)["services"]["account-cleanup"]
+assert cleanup["environment"]["ACCOUNT_CLEANUP_REQUIRE_CONFIRMATION"] == "true"
+assert cleanup["image"] == "quakestrike-workers:" + "0" * 40
+assert cleanup["pull_policy"] == "never"
+assert "build" not in cleanup and not cleanup.get("ports")
+assert not cleanup.get("volumes") and not cleanup.get("depends_on")
+assert set(cleanup["networks"]) == {"private-data", "cleanup-egress"}
+assert cleanup["restart"] == "no" and cleanup["read_only"]
 assert "alert-worker" not in release["services"]
 assert "alert-reconciliation" not in release["services"]
 alerts = configuration(

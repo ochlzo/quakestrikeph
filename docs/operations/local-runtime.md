@@ -61,6 +61,8 @@ docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/c
 
 ## Remove local test accounts
 
+For disposable accounts on the VPS, use the separate [manual VPS procedure](account-cleanup.md).
+
 This command deletes disposable accounts from the local development database.
 It is not an account-removal product route. It also deletes the audit and
 delivery evidence for the selected accounts, so never run it against a database

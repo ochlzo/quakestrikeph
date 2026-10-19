@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
+from dataclasses import replace
 from unittest.mock import Mock
 from uuid import uuid4
 
@@ -66,19 +67,29 @@ def test_phone_keys_hash_identifiers_and_include_the_suffix_family() -> None:
 def test_cli_routes_the_flag_to_the_command(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_delete_accounts(*, raw_emails: str | None, apply: bool) -> int:
-        captured.update(raw_emails=raw_emails, apply=apply)
+    def fake_delete_accounts(
+        *, raw_emails: str | None, apply: bool, confirm_plan: str | None
+    ) -> int:
+        captured.update(raw_emails=raw_emails, apply=apply, confirm_plan=confirm_plan)
         return 0
 
     monkeypatch.setattr(operator_accounts, "delete_accounts", fake_delete_accounts)
     monkeypatch.setattr(
         sys,
         "argv",
-        ["quakestrike", "delete-accounts", "--emails", "a@example.test", "--apply"],
+        [
+            "quakestrike",
+            "delete-accounts",
+            "--emails",
+            "a@example.test",
+            "--apply",
+            "--confirm-plan",
+            "fixture",
+        ],
     )
 
     assert cli.main() == 0
-    assert captured == {"raw_emails": "a@example.test", "apply": True}
+    assert captured == {"raw_emails": "a@example.test", "apply": True, "confirm_plan": "fixture"}
 
 
 @pytest.mark.parametrize("saved_phone", [None, "+639181234567", "+639171234567"])
@@ -120,7 +131,16 @@ def cleanup(monkeypatch):
     client.get.return_value = None
     client.delete.return_value = 0
     directory.delete.return_value = True
-    monkeypatch.setattr(operator_accounts, "Settings", Mock())
+    monkeypatch.setattr(
+        operator_accounts,
+        "Settings",
+        Mock(
+            return_value=Mock(
+                account_cleanup_require_confirmation=False,
+                database_url="postgresql+psycopg://migration:fixture@postgres:5432/quakestrike_test",
+            )
+        ),
+    )
     prepare = Mock(return_value=(engine, client, directory))
     monkeypatch.setattr(operator_accounts, "_prepare", prepare)
     monkeypatch.setattr(operator_accounts, "build_preview", Mock(return_value=preview))
@@ -201,3 +221,92 @@ def test_clerk_adapter_filters_matches_and_accepts_an_already_deleted_user() -> 
     )
     assert directory.delete("user_match") is False
     session.delete.return_value.raise_for_status.assert_not_called()
+
+
+@pytest.fixture
+def guarded_cleanup(cleanup):
+    account, _, _, _, prepare, _ = cleanup
+    operator_accounts.Settings.return_value.account_cleanup_require_confirmation = True
+    preview = operator_accounts.build_preview.return_value
+    operator_accounts.build_preview.return_value = replace(
+        preview,
+        clerk_accounts=(
+            *preview.clerk_accounts,
+            operator_accounts.ClerkAccount(account.clerk_user_id, account.email),
+        ),
+    )
+    return cleanup, operator_accounts.build_preview.return_value, prepare.return_value[0]
+
+
+@pytest.mark.parametrize(
+    "reason",
+    ["explicit_emails_required", "preview_confirmation_required", "clerk_identity_mismatch"],
+)
+def test_vps_guards_refuse_before_deleting(guarded_cleanup, capsys, reason) -> None:
+    cleanup, preview, _ = guarded_cleanup
+    _, _, client, directory, _, database = cleanup
+    emails = None if reason == "explicit_emails_required" else ",".join(preview.emails)
+    if reason == "clerk_identity_mismatch":
+        operator_accounts.build_preview.return_value = replace(preview, clerk_accounts=())
+    assert operator_accounts.delete_accounts(raw_emails=emails, apply=True) == 2
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])["reason"] == reason
+    database.assert_not_called()
+    directory.delete.assert_not_called()
+    client.delete.assert_not_called()
+
+
+def test_vps_preview_token_confirms_the_same_selection(guarded_cleanup, capsys) -> None:
+    cleanup, preview, engine = guarded_cleanup
+    _, _, client, directory, _, database = cleanup
+    emails = ",".join(preview.emails)
+    assert operator_accounts.delete_accounts(raw_emails=emails, apply=False) == 0
+    token = json.loads(capsys.readouterr().out.splitlines()[-1])["plan_sha256"]
+    assert len(token) == 64
+    database.assert_not_called()
+    directory.delete.assert_not_called()
+    client.delete.assert_not_called()
+    assert operator_accounts.delete_accounts(raw_emails=emails, apply=True, confirm_plan=token) == 0
+    database.assert_called_once_with(engine, preview.emails, expected=preview)
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])["status"] == "deleted"
+
+
+@pytest.mark.parametrize("change", ["account", "counts", "database", "clerk"])
+def test_changed_vps_plan_refuses_the_previous_token(guarded_cleanup, capsys, change) -> None:
+    cleanup, preview, _ = guarded_cleanup
+    _, _, client, directory, _, database = cleanup
+    settings = operator_accounts.Settings.return_value
+    token = operator_accounts.plan_sha256(preview, settings.database_url)
+    if change == "account":
+        preview = replace(preview, accounts=(replace(preview.accounts[0], user_id=uuid4()),))
+    elif change == "counts":
+        preview = replace(preview, audit_logs=1)
+    elif change == "database":
+        settings.database_url = "postgresql+psycopg://migration:fixture@other:5432/quakestrike_test"
+    else:
+        preview = replace(preview, clerk_accounts=preview.clerk_accounts[1:])
+    operator_accounts.build_preview.return_value = preview
+    assert (
+        operator_accounts.delete_accounts(
+            raw_emails=",".join(preview.emails), apply=True, confirm_plan=token
+        )
+        == 2
+    )
+    assert (
+        json.loads(capsys.readouterr().out.splitlines()[-1])["reason"]
+        == "preview_confirmation_required"
+    )
+    database.assert_not_called()
+    directory.delete.assert_not_called()
+    client.delete.assert_not_called()
+
+
+def test_plan_token_ignores_lookup_order_and_credentials(guarded_cleanup) -> None:
+    _, preview, _ = guarded_cleanup
+    token = operator_accounts.plan_sha256(preview, "postgresql://first:secret@postgres:5432/test")
+    reordered = replace(
+        preview, emails=preview.emails[::-1], clerk_accounts=preview.clerk_accounts[::-1]
+    )
+    assert (
+        operator_accounts.plan_sha256(reordered, "postgresql://other:changed@postgres:5432/test")
+        == token
+    )

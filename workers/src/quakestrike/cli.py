@@ -89,9 +89,12 @@ def main() -> int:
     parser.add_argument("--fixture-user-id", type=UUID)
     parser.add_argument("--channel", choices=("sms", "email"), action="append", default=[])
     parser.add_argument("--emails")
+    parser.add_argument("--confirm-plan")
     args = parser.parse_args()
     if args.command == "delete-accounts":
-        return operator_accounts.delete_accounts(raw_emails=args.emails, apply=args.apply)
+        return operator_accounts.delete_accounts(
+            raw_emails=args.emails, apply=args.apply, confirm_plan=args.confirm_plan
+        )
     if args.command == "migrate":
         return operator_setup.migrate()
     if args.command == "bootstrap":

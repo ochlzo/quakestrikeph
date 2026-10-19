@@ -646,6 +646,9 @@ Every FK uses `ON UPDATE RESTRICT`. Required child references have one parent; o
 
 An alert job requires one forecast and `UNIQUE (forecast_id)` allows no second job for the same forecast. A job can have zero or one dispatch by FK/UQ, but creation transactions require one for new background work. `technical_logs` and `operator_access_events` have no business FK. Closing an account clears its current phone binding; anonymize retained users rather than deleting their audit evidence. Physical deletion succeeds only when RESTRICT references are absent. Business retention requires a separately reviewed procedure; technical-log and Console-event cleanup cannot cascade through history.
 
+[ADR 0054](../../adr/0054-manual-vps-test-account-cleanup.md) permits a narrow manual exception for owner-selected disposable test accounts on the VPS.
+That procedure deletes their dependent evidence explicitly with the migration login; it adds no schema change or ordinary application permission.
+
 ## Index plan
 
 PK and UQ constraints create indexes; do not duplicate an index already covered by a useful left prefix. Index every remaining FK lookup column. Add indexes for these query paths:
