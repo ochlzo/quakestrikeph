@@ -13,7 +13,7 @@ from uuid import UUID
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
-from quakestrike import operator_runtime, operator_setup
+from quakestrike import operator_accounts, operator_runtime, operator_setup
 from quakestrike.application.bootstrap import (
     BootstrapCommandResult,
     BootstrapEvidenceConflict,
@@ -68,6 +68,7 @@ def main() -> int:
             "health-alert-reconciliation",
             "retire-legacy-alerts",
             "controlled-alert",
+            "delete-accounts",
         ),
     )
     parser.add_argument("--source-package", type=Path)
@@ -83,7 +84,10 @@ def main() -> int:
     parser.add_argument("--correlation-id", type=UUID)
     parser.add_argument("--fixture-user-id", type=UUID)
     parser.add_argument("--channel", choices=("sms", "email"), action="append", default=[])
+    parser.add_argument("--emails")
     args = parser.parse_args()
+    if args.command == "delete-accounts":
+        return operator_accounts.delete_accounts(raw_emails=args.emails, apply=args.apply)
     if args.command == "migrate":
         return operator_setup.migrate()
     if args.command == "bootstrap":

@@ -6,14 +6,14 @@ import type { PendingPhone, PhoneAttempts } from '../../ports/accounts.js';
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 const userKey = (id: string) => `bulletin:phone:user:${digest(id)}`;
 const ownerKey = (phone: string) => `bulletin:phone:owner:${digest(phone)}`;
-const expired = () => new AccountError('ATTEMPT_EXPIRED', 'Request a new code to continue.', 409, 'code');
+const expired = () => new AccountError('ATTEMPT_EXPIRED', 'Request a new code to continue.', 'code');
 
 export class RedisPhoneAttempts implements PhoneAttempts {
   constructor(private redis: RedisClientType) {}
   private async eval(script: string, keys: string[], args: string[] = []) {
-    if (!this.redis.isReady) throw new AccountError('VERIFICATION_UNAVAILABLE', 'Mobile verification is temporarily unavailable.', 503);
+    if (!this.redis.isReady) throw new AccountError('VERIFICATION_UNAVAILABLE', 'Mobile verification is temporarily unavailable.');
     try { return await this.redis.eval(script, { keys, arguments: args }); }
-    catch { throw new AccountError('VERIFICATION_UNAVAILABLE', 'Mobile verification is temporarily unavailable.', 503); }
+    catch { throw new AccountError('VERIFICATION_UNAVAILABLE', 'Mobile verification is temporarily unavailable.'); }
   }
   async exclusive<T>(user: string, phone: string | null, work: () => Promise<T>): Promise<T> {
     const keys = [`${userKey(user)}:lock`];
@@ -22,7 +22,7 @@ export class RedisPhoneAttempts implements PhoneAttempts {
     const acquired = await this.eval(`
       for _,k in ipairs(KEYS) do if redis.call('EXISTS',k)==1 then return 0 end end
       for _,k in ipairs(KEYS) do redis.call('SET',k,ARGV[1],'PX',60000) end return 1`, keys, [token]);
-    if (acquired !== 1) throw new AccountError('VERIFICATION_BUSY', 'A verification request is already running. Try again shortly.', 409);
+    if (acquired !== 1) throw new AccountError('VERIFICATION_BUSY', 'A verification request is already running. Try again shortly.');
     try { return await work(); }
     finally {
       // A failed unlock must not turn a committed operation into false failure.
@@ -57,7 +57,7 @@ export class RedisPhoneAttempts implements PhoneAttempts {
       return 'ok'`, [u, p, `${u}:cooldown`, `${p}:cooldown`, `${u}:hour`, `${p}:hour`, `${u}:day`, `${p}:day`],
     [JSON.stringify(pending), pending.id, String(now)]);
     if (result !== 'ok') throw new AccountError('SEND_LIMIT', result === 'cooldown' ?
-      'Wait 60 seconds between code requests.' : 'You have reached the verification send limit. Try again later.', 429);
+      'Wait 60 seconds between code requests.' : 'You have reached the verification send limit. Try again later.');
     return this.public(pending);
   }
   private public(p: PendingPhone): PendingPhone {

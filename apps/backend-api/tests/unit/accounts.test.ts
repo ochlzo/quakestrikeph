@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
-import { AccountError, SmsProviderError, normalizePhone, preferences, type Account, type Identity } from '../../src/domain/accounts.js';
+import { AccountError, SmsProviderError, normalizePhone, preferences, requireTrustedEmail, type Account, type Identity } from '../../src/domain/accounts.js';
 import { AccountService } from '../../src/application/accounts/service.js';
 import { Iprog } from '../../src/infrastructure/sms/iprog.js';
 import { clerkIdentity } from '../../src/infrastructure/clerk/identity.js';
@@ -13,10 +13,46 @@ const identity: Identity = { clerkUserId: 'user_test', email: 'test@example.inva
 test('configured Clerk session authentication rejects invalid tokens instead of reporting missing configuration', async () => {
   const authenticate = clerkIdentity('sk_test_fixture', ['http://localhost:4321'], 'pk_test_Y2xlcmsudGVzdC5kZXYk');
   await assert.rejects(authenticate(new Headers({ authorization: 'Bearer invalid-session-token' })),
-    (error: unknown) => error instanceof AccountError && error.code === 'SIGN_IN_REQUIRED' && error.status === 401);
+    (error: unknown) => error instanceof AccountError && error.code === 'SIGN_IN_REQUIRED');
 });
 const base = { emailEnabled: false, smsEnabled: false, magnitude: 4.5, nearbyOnly: false, latitude: null, longitude: null, distanceKm: null };
 const account: Account = { ...base, userId: randomUUID(), displayName: 'Test', email: identity.email, phone: null, onboardingCompleted: false, status: 'active' };
+test('trusted email requires matching identity and stored verification evidence', () => {
+  requireTrustedEmail(identity.email, true, identity);
+  for (const [email, verified] of [[identity.email, false], ['changed@example.invalid', true], ['changed@example.invalid', false]] as const) {
+    assert.throws(() => requireTrustedEmail(email, verified, identity),
+      (error: unknown) => error instanceof AccountError && error.code === 'EMAIL_MIRROR_MISMATCH' && !('status' in error));
+  }
+});
+
+test('account HTTP errors preserve statuses, messages, and field identifiers', async () => {
+  const groups: [number, string[]][] = [
+    [400, ['INVALID_CODE', 'INVALID_LOCATION', 'INVALID_MAGNITUDE', 'INVALID_NAME', 'INVALID_PHONE', 'INVALID_PREFERENCES', 'INVALID_REQUEST', 'PHONE_REQUIRED', 'SMS_UNSUPPORTED']],
+    [401, ['SIGN_IN_REQUIRED']],
+    [403, ['ACCOUNT_UNAVAILABLE', 'REVERIFICATION_REQUIRED', 'EMAIL_VERIFICATION_REQUIRED']],
+    [409, ['EMAIL_MIRROR_MISMATCH', 'PHONE_UNAVAILABLE', 'PROFILE_REQUIRED', 'ATTEMPT_EXPIRED', 'VERIFICATION_BUSY']],
+    [429, ['SEND_LIMIT']],
+    [503, ['AUTH_UNAVAILABLE', 'SMS_UNAVAILABLE', 'VERIFICATION_UNAVAILABLE']],
+  ];
+  const f = fixture();
+  let failure = new AccountError('INVALID_REQUEST', 'Request rejected.', 'phone');
+  f.store.read = async () => { throw failure; };
+  const server = createApp({ check: async () => {}, search: async () => [], findById: async () => null }, undefined,
+    { service: f.service, authenticate: async () => identity }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address(); if (!address || typeof address === 'string') throw new Error('No server address');
+  try {
+    for (const [status, codes] of groups) {
+      for (const code of codes) {
+        failure = new AccountError(code, 'Request rejected.', 'phone');
+        const response: Response = await fetch(`http://127.0.0.1:${address.port}/api/v1/account`);
+        assert.equal(response.status, status, code);
+        assert.deepEqual(await response.json(), { error: { code, message: 'Request rejected.', field: 'phone' } });
+      }
+    }
+  } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
 test('profile completion depends on the saved name before other onboarding steps', async () => {
   assert.equal((await fixture(null).service.read(identity)).nextStep, 'profile');
   for (const name of [null, '', '   ']) {
@@ -46,7 +82,7 @@ function fixture(initial: Account | null = account) {
     start: async (_u, phone) => { pending = { id: randomUUID(), phone, expiresAt: new Date(Date.now() + 300000).toISOString(), resendAt: new Date(Date.now() + 60000).toISOString() }; return pending; },
     pending: async () => pending,
     arm: async () => {}, matches: async () => true,
-    check: async (_u, id) => { if (!pending || pending.id !== id) throw new AccountError('ATTEMPT_EXPIRED', 'Expired', 409); return pending; },
+    check: async (_u, id) => { if (!pending || pending.id !== id) throw new AccountError('ATTEMPT_EXPIRED', 'Expired'); return pending; },
     wrong: async () => { failures++; },
     consume: async () => { pending = null; }, cancel: async () => { pending = null; },
   };
@@ -89,7 +125,7 @@ test('replacement needs fresh identity and pauses SMS even if provider is unavai
   const f = fixture({ ...account, phone: '+639171234567', smsEnabled: true, onboardingCompleted: true });
   await assert.rejects(f.service.start(identity, { phone: '09171234568' }, randomUUID()), { code: 'REVERIFICATION_REQUIRED' });
   assert.equal(f.stats().pauses, 0);
-  f.provider.supported = async () => { throw new AccountError('SMS_UNAVAILABLE', 'Unavailable', 503); };
+  f.provider.supported = async () => { throw new AccountError('SMS_UNAVAILABLE', 'Unavailable'); };
   await assert.rejects(f.service.start({ ...identity, recent: true }, { phone: '09171234568' }, randomUUID()), { code: 'SMS_UNAVAILABLE' });
   assert.equal(f.stats().current?.smsEnabled, false); assert.equal(f.stats().current?.phone, '+639171234567');
 });
@@ -153,7 +189,7 @@ for (const pauseAt of ['read', 'lock'] as const) {
     };
     f.attempts.exclusive = async (_user, _phone, work) => {
       if (pauseNextLock) { pauseNextLock = false; entered(); await resume; }
-      if (locked) throw new AccountError('VERIFICATION_BUSY', 'Busy', 409);
+      if (locked) throw new AccountError('VERIFICATION_BUSY', 'Busy');
       locked = true;
       try { return await work(); } finally { locked = false; }
     };
@@ -198,7 +234,7 @@ test('account HTTP routes require owner identity; removal clears the phone and e
   const f = fixture({ ...account, phone: '+639171234567', onboardingCompleted: true });
   const app = createApp({ check: async () => {}, search: async () => [], findById: async () => null }, undefined,
     { service: f.service, authenticate: async headers => {
-      if (headers.get('authorization') !== 'Bearer TEST_SESSION') throw new AccountError('SIGN_IN_REQUIRED', 'Sign in', 401);
+      if (headers.get('authorization') !== 'Bearer TEST_SESSION') throw new AccountError('SIGN_IN_REQUIRED', 'Sign in');
       return { ...identity, recent: true };
     } });
   const server = app.listen(0, '127.0.0.1'); await once(server, 'listening');

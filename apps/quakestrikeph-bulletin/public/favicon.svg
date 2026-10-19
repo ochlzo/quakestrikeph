@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="QuakeStrike PH">
+  <rect width="32" height="32" rx="9" fill="#0e6873" />
+  <g transform="translate(3 3) scale(1.0833333)" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21.54 15H17a2 2 0 0 0-2 2v4.54" />
+    <path d="M7 3.34V5a3 3 0 0 0 3 3a2 2 0 0 1 2 2c0 1.1.9 2 2 2a2 2 0 0 0 2-2c0-1.1.9-2 2-2h3.17" />
+    <path d="M11 21.95V18a2 2 0 0 0-2-2a2 2 0 0 1-2-2v-1a2 2 0 0 0-2-2H2.05" />
+    <circle cx="12" cy="12" r="10" />
+  </g>
+</svg>

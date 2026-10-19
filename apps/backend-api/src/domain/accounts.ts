@@ -1,5 +1,5 @@
 export class AccountError extends Error {
-  constructor(public code: string, message: string, public status = 400, public field?: string) {
+  constructor(public code: string, message: string, public field?: string) {
     super(message);
   }
 }
@@ -16,7 +16,7 @@ export interface SmsDiagnostic {
 
 export class SmsProviderError extends AccountError {
   constructor(public diagnostic: SmsDiagnostic) {
-    super('SMS_UNAVAILABLE', 'The SMS service is unavailable. Please try again later.', 503);
+    super('SMS_UNAVAILABLE', 'The SMS service is unavailable. Please try again later.');
   }
 }
 
@@ -46,16 +46,22 @@ export interface Account extends Preferences {
 }
 
 export function requireActive(account: Account) {
-  if (account.status !== 'active') throw new AccountError('ACCOUNT_UNAVAILABLE', 'This account is unavailable.', 403);
+  if (account.status !== 'active') throw new AccountError('ACCOUNT_UNAVAILABLE', 'This account is unavailable.');
 }
 
 export function requireRecent(identity: Identity) {
-  if (!identity.recent) throw new AccountError('REVERIFICATION_REQUIRED', 'Verify your identity again to continue.', 403);
+  if (!identity.recent) throw new AccountError('REVERIFICATION_REQUIRED', 'Verify your identity again to continue.');
+}
+
+export function requireTrustedEmail(email: string, verified: boolean, identity: Identity) {
+  if (email !== identity.email || !verified) {
+    throw new AccountError('EMAIL_MIRROR_MISMATCH', 'Your account email needs synchronization. Please contact support.');
+  }
 }
 
 export function displayName(value: unknown): string {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > 100) {
-    throw new AccountError('INVALID_NAME', 'Enter a name of 1–100 characters.', 400, 'displayName');
+    throw new AccountError('INVALID_NAME', 'Enter a name of 1–100 characters.', 'displayName');
   }
   return value.trim();
 }
@@ -65,7 +71,7 @@ export function normalizePhone(value: unknown): string {
   const normalized = cleaned.startsWith('09') ? `+63${cleaned.slice(1)}` :
     cleaned.startsWith('639') ? `+${cleaned}` : cleaned;
   if (!/^\+639\d{9}$/.test(normalized)) {
-    throw new AccountError('INVALID_PHONE', 'Enter a Philippine mobile number, such as 0917 123 4567.', 400, 'phone');
+    throw new AccountError('INVALID_PHONE', 'Enter a Philippine mobile number, such as 0917 123 4567.', 'phone');
   }
   return normalized;
 }
@@ -74,17 +80,17 @@ export function preferences(value: unknown): Preferences {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new AccountError('INVALID_REQUEST', 'Enter your preferences.');
   const v = value as Record<string, unknown>;
   for (const name of ['emailEnabled', 'smsEnabled', 'nearbyOnly']) {
-    if (typeof v[name] !== 'boolean') throw new AccountError('INVALID_PREFERENCES', 'Choose each receive option.', 400, name);
+    if (typeof v[name] !== 'boolean') throw new AccountError('INVALID_PREFERENCES', 'Choose each receive option.', name);
   }
   if (typeof v.magnitude !== 'number' || !Number.isFinite(v.magnitude) || v.magnitude < 1 || v.magnitude > 10 ||
       Math.abs(v.magnitude * 10 - Math.round(v.magnitude * 10)) > 1e-7) {
-    throw new AccountError('INVALID_MAGNITUDE', 'Choose M1.0–M10.0, in steps of 0.1.', 400, 'magnitude');
+    throw new AccountError('INVALID_MAGNITUDE', 'Choose M1.0–M10.0, in steps of 0.1.', 'magnitude');
   }
   const numeric = (name: string, min: number, max: number): number | null => {
     const x = v[name];
     if (x === null) return null;
     if (typeof x !== 'number' || !Number.isFinite(x) || x < min || x > max) {
-      throw new AccountError('INVALID_LOCATION', 'Choose a location and a distance of 1–1,000 km.', 400, name);
+      throw new AccountError('INVALID_LOCATION', 'Choose a location and a distance of 1–1,000 km.', name);
     }
     return x;
   };
@@ -94,7 +100,7 @@ export function preferences(value: unknown): Preferences {
   if ((latitude === null) !== (longitude === null) ||
       (distanceKm !== null && !Number.isInteger(distanceKm)) ||
       (v.nearbyOnly && (latitude === null || distanceKm === null))) {
-    throw new AccountError('INVALID_LOCATION', 'Choose a location and a whole-kilometre distance first.', 400, 'location');
+    throw new AccountError('INVALID_LOCATION', 'Choose a location and a whole-kilometre distance first.', 'location');
   }
   return { emailEnabled: v.emailEnabled as boolean, smsEnabled: v.smsEnabled as boolean,
     nearbyOnly: v.nearbyOnly as boolean, magnitude: v.magnitude, latitude, longitude, distanceKm };

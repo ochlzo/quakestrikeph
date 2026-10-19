@@ -77,7 +77,6 @@ export class AccountService {
       throw new AccountError(
         "PROFILE_REQUIRED",
         "Complete your profile first.",
-        409,
       );
     requireActive(account);
     return account;
@@ -92,7 +91,6 @@ export class AccountService {
       throw new AccountError(
         "SMS_UNSUPPORTED",
         "Verify a mobile number supported by our SMS sender first.",
-        400,
         "smsEnabled",
       );
     }
@@ -113,7 +111,6 @@ export class AccountService {
         throw new AccountError(
           "PHONE_UNAVAILABLE",
           "This mobile number cannot be added to this account.",
-          409,
           "phone",
         );
       }
@@ -121,7 +118,6 @@ export class AccountService {
         throw new AccountError(
           "SMS_UNSUPPORTED",
           "Our SMS sender currently supports only Globe/TM and DITO. Choose email or another number.",
-          400,
           "phone",
         );
       }
@@ -154,7 +150,6 @@ export class AccountService {
       throw new AccountError(
         "INVALID_CODE",
         "Enter the six-digit code.",
-        400,
         "code",
       );
     }
@@ -178,7 +173,6 @@ export class AccountService {
           throw new AccountError(
             "INVALID_CODE",
             "That code did not work. Try again or request a new code.",
-            400,
             "code",
           );
         }

@@ -89,6 +89,14 @@ class Settings(BaseSettings):
     redis_url: str = Field(
         validation_alias=AliasChoices("REDIS_URL", "redis_url"),
     )
+    account_redis_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("ACCOUNT_REDIS_URL", "account_redis_url"),
+    )
+    clerk_secret_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("CLERK_SECRET_KEY", "clerk_secret_key"),
+    )
     phivolcs_catalog_url: str = Field(
         validation_alias=AliasChoices("PHIVOLCS_CATALOG_URL", "phivolcs_catalog_url"),
     )
@@ -238,6 +246,20 @@ class Settings(BaseSettings):
             value,
             allowed_schemes={"redis", "rediss"},
             field_name="REDIS_URL",
+            require_path=False,
+        )
+
+    @field_validator("account_redis_url", mode="before")
+    @classmethod
+    def validate_account_redis_url(cls, value: object) -> object:
+        if value is None or not isinstance(value, str):
+            return value
+        if not value.strip():
+            return None
+        return _validate_url(
+            value,
+            allowed_schemes={"redis", "rediss"},
+            field_name="ACCOUNT_REDIS_URL",
             require_path=False,
         )
 

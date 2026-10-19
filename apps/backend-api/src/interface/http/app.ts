@@ -7,6 +7,7 @@ import { InvalidRequest } from './searchRequest.js';
 import { earthquakeRoutes } from './routes/earthquakes.js';
 import { accountRoutes, type AccountDependencies } from './routes/account.js';
 import { AccountError, SmsProviderError } from '../../domain/accounts.js';
+import { accountErrorStatus } from './accountErrors.js';
 import { brevoRoutes, type BrevoDependencies } from './routes/brevo.js';
 
 export function createApp(reader: EarthquakeReader, now: () => Date = () => new Date(), accounts?: AccountDependencies,
@@ -49,7 +50,7 @@ export function createApp(reader: EarthquakeReader, now: () => Date = () => new 
     if (error instanceof AccountError) {
       if (error instanceof SmsProviderError) console.error(JSON.stringify({ service: 'backend-api', event: 'sms_provider_failed',
         requestId: res.getHeader('X-Request-ID'), ...error.diagnostic }));
-      res.status(error.status).json({ error: { code: error.code, message: error.message, ...(error.field ? { field: error.field } : {}) } });
+      res.status(accountErrorStatus(error)).json({ error: { code: error.code, message: error.message, ...(error.field ? { field: error.field } : {}) } });
       return;
     }
     if (error instanceof InvalidRequest) {

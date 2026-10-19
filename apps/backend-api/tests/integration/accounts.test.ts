@@ -28,6 +28,17 @@ test('account writes enforce ownership, phone uniqueness, state and atomic audit
     const second = await store.profile(other, 'Other Reader', randomUUID()); users.push(second.userId);
     assert.equal(await store.read({ ...identity, clerkUserId: 'missing_test_user' }), null);
     await assert.rejects(store.read({ ...identity, email: 'changed@example.invalid' }), { code: 'EMAIL_MIRROR_MISMATCH' });
+    for (const [email, verifiedAt] of [['changed@example.invalid', new Date()], [identity.email, null]]) {
+      await admin.query('UPDATE users SET email=$2,email_verified_at=$3 WHERE user_id=$1', [first.userId, email, verifiedAt]);
+      await assert.rejects(store.read(identity), { code: 'EMAIL_MIRROR_MISMATCH' });
+      const deniedRequest = randomUUID();
+      await assert.rejects(store.save(identity, { ...p, magnitude: 7.5 }, deniedRequest), { code: 'EMAIL_MIRROR_MISMATCH' });
+      await assert.rejects(store.profile(identity, 'Rejected name', randomUUID()), { code: 'EMAIL_MIRROR_MISMATCH' });
+      const unchanged = (await admin.query('SELECT display_name,alert_trigger_magnitude FROM users WHERE user_id=$1', [first.userId])).rows[0];
+      assert.equal(unchanged.display_name, 'Reader'); assert.equal(Number(unchanged.alert_trigger_magnitude), 4.5);
+      assert.equal((await admin.query('SELECT 1 FROM audit_logs WHERE request_id=$1', [deniedRequest])).rowCount, 0);
+    }
+    await admin.query('UPDATE users SET email=$2,email_verified_at=now() WHERE user_id=$1', [first.userId, identity.email]);
     await store.bindPhone(identity, phone, randomUUID());
     await assert.rejects(store.bindPhone(other, phone, randomUUID()), { code: 'PHONE_UNAVAILABLE' });
     await store.save(identity, { ...p, emailEnabled: true, smsEnabled: true }, randomUUID());

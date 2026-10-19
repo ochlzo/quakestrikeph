@@ -8,7 +8,7 @@ export function accountRoutes(dependencies?: AccountDependencies) {
   const router = Router();
   router.use(async (req, res, next) => {
     res.setHeader('Cache-Control', 'private, no-store');
-    if (!dependencies) throw new AccountError('AUTH_UNAVAILABLE', 'Account access is temporarily unavailable.', 503);
+    if (!dependencies) throw new AccountError('AUTH_UNAVAILABLE', 'Account access is temporarily unavailable.');
     const headers = new Headers();
     if (req.headers.authorization) headers.set('authorization', req.headers.authorization);
     res.locals.identity = await dependencies.authenticate(headers);
