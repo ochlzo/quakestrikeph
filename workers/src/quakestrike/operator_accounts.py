@@ -9,6 +9,7 @@ it only against a local development Compose database.
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -351,20 +352,27 @@ def _delete_database(
 
 def _delete_clerk(
     directory: ClerkDirectory, accounts: Iterable[ClerkAccount]
-) -> tuple[int, tuple[str, ...]]:
+) -> tuple[int, tuple[ClerkAccount, ...]]:
     deleted = 0
-    failed: list[str] = []
+    failed: list[ClerkAccount] = []
     for account in accounts:
         try:
             if directory.delete(account.clerk_user_id):
                 deleted += 1
         except Exception:
-            failed.append(account.clerk_user_id)
+            failed.append(account)
     return deleted, tuple(failed)
 
 
 def _delete_redis(client: Redis, accounts: Sequence[LocalAccount]) -> int:
-    keys = phone_keys(accounts)
+    keys = list(phone_keys(accounts))
+    for account in accounts:
+        user_key = f"bulletin:phone:user:{_digest(account.clerk_user_id)}"
+        pending = client.get(user_key)
+        if pending is not None:
+            owner_prefix = f"bulletin:phone:owner:{_digest(json.loads(pending)['phone'])}"
+            keys.extend(f"{owner_prefix}{suffix}" for suffix in PHONE_KEY_SUFFIXES)
+    keys = list(dict.fromkeys(keys))
     deleted = 0
     for start in range(0, len(keys), REDIS_DELETE_BATCH):
         chunk = keys[start : start + REDIS_DELETE_BATCH]
@@ -391,7 +399,7 @@ def _payload(
     *,
     counts: DeletionCounts | None = None,
     clerk_deleted: int = 0,
-    clerk_failed: Sequence[str] = (),
+    clerk_failed: Sequence[ClerkAccount] = (),
     redis_deleted: int = 0,
 ) -> dict[str, Any]:
     effective = counts or DeletionCounts(
@@ -408,7 +416,10 @@ def _payload(
         "local_accounts": len(preview.accounts),
         "clerk_users": len(preview.clerk_accounts),
         "clerk_users_deleted": clerk_deleted,
-        "clerk_users_failed": list(clerk_failed),
+        "clerk_users_failed": [
+            {"clerk_user_id": account.clerk_user_id, "email": account.email}
+            for account in clerk_failed
+        ],
         "redis_keys_deleted": redis_deleted,
         "audit_logs": effective.audit_logs,
         "alert_recipients": effective.alert_recipients,

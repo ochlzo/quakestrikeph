@@ -90,6 +90,8 @@ docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/c
 The command deletes the `audit_logs`, `alert_delivery_attempts`, and
 `alert_recipients` rows for each account. It then deletes the `users` row, the
 matching Clerk users, and the Redis phone keys.
+Redis cleanup includes the saved number and any pending verification number.
+If a Clerk deletion fails, `clerk_users_failed` lists its email and Clerk user ID.
 
 | Exit code | Meaning |
 | --- | --- |
