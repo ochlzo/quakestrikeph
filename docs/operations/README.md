@@ -18,6 +18,7 @@ Its current coverage is Docker.
 | Task | Guide |
 | --- | --- |
 | Understand CI or deploy a tested release | [CI and deployment](continuous-deployment.md) |
+| Back up, replace, and discard a server | [Server replacement](server-replacement.md) |
 | Set up, verify, or recover the Backend | [Backend API](backend-api.md) |
 | Change database passwords or open private pgAdmin | [Database maintenance](database-maintenance.md) |
 | Configure backups or check a restore test | [PostgreSQL backups](postgres-backups.md) |
