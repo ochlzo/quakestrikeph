@@ -32,14 +32,17 @@ jobs:
 
       - name: Check Python style
         run: |
-          uv run --project workers ruff check workers database infrastructure/scripts/save-release-tags.py infrastructure/scripts/cleanup-release-images.py
-          uv run --project workers ruff format --check workers database infrastructure/scripts/save-release-tags.py infrastructure/scripts/cleanup-release-images.py
+          uv run --project workers ruff check workers database infrastructure/scripts/save-release-tags.py infrastructure/scripts/cleanup-release-images.py infrastructure/scripts/server-transfer.py infrastructure/scripts/smoke-alert-testing-package.py infrastructure/tests
+          uv run --project workers ruff format --check workers database infrastructure/scripts/save-release-tags.py infrastructure/scripts/cleanup-release-images.py infrastructure/scripts/server-transfer.py infrastructure/scripts/smoke-alert-testing-package.py infrastructure/tests
 
       - name: Check deployment scripts
         run: |
-          for script in infrastructure/scripts/deploy-workers.sh infrastructure/scripts/stop-optional-services.sh infrastructure/scripts/enable-beat.sh database/initialization/*.sh database/maintenance/*.sh; do
+          for script in infrastructure/scripts/*.sh database/initialization/*.sh database/maintenance/*.sh; do
             bash -n "$script"
           done
+
+      - name: Check server recovery safeguards and disposable volume restoration
+        run: python3 -m unittest discover -s infrastructure/tests -v
 
       - name: Check local Compose isolation
         run: python3 infrastructure/scripts/check-local-compose.py

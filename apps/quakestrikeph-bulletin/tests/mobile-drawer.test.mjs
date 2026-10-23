@@ -59,7 +59,7 @@ test('a capped drawer reveals the forecast on an upward swipe without raising it
     '@internationalized/date': { today: () => date },
     '@/components/ui/button': { buttonVariants: () => '' },
   });
-  h.states.push(true, '234px', 'event', 234, 360);
+  h.states.push('', true, '234px', 'event', 234, 360);
   let tree = h.render();
   const popup = find(tree, node => node.type === 'DrawerContent');
   popup.props.onPointerDownCapture?.({ isPrimary: true, clientX: 200, clientY: 145 });

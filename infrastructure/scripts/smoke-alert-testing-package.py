@@ -1,6 +1,7 @@
 """Probe packaged controls with disposable Redis and no provider credentials."""
 
 import json
+import os
 import re
 import runpy
 import socket
@@ -76,6 +77,14 @@ def main(tag):
     services["alert-test-consumer"]["environment"]["ALERT_TEST_CONSUMER_ENABLED"] = (
         "true"
     )
+    # Recovery checks own their disposable resources explicitly for scoped cleanup.
+    owner = os.environ.get("QUAKESTRIKE_TRANSFER_OWNER")
+    labels = {"io.quakestrike.transfer": owner} if owner else {}
+    if owner:
+        for service in services.values():
+            service["labels"] = labels
+        services["postgres-test"] = {"labels": labels}
+        services["redis-test"] = {"labels": labels}
     with tempfile.TemporaryDirectory(prefix="quakestrike-package-test-") as directory:
         overlay = Path(directory) / "compose.json"
         overlay.write_text(
@@ -87,8 +96,9 @@ def main(tag):
                             "external": True,
                             "name": "quakestrike-data-ingestion-test_phase2-test",
                         },
-                        "alert-test-access": {},
-                        "alert-test-egress": {"internal": True},
+                        "alert-test-access": {"labels": labels},
+                        "alert-test-egress": {"internal": True, "labels": labels},
+                        "phase2-test": {"labels": labels},
                     },
                 }
             )

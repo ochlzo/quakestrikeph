@@ -18,7 +18,7 @@ RUN if [ -n "$TEST_EXTRA" ]; then uv sync --project workers --frozen --no-instal
 COPY workers ./workers
 COPY database ./database
 COPY packages ./packages
-COPY infrastructure/compose.yml ./infrastructure/compose.yml
+COPY infrastructure ./infrastructure
 COPY .dockerignore ./.dockerignore
 COPY .env.example ./.env.example
 RUN if [ -n "$TEST_EXTRA" ]; then uv sync --project workers --frozen --extra "$TEST_EXTRA"; else uv sync --project workers --frozen; fi
