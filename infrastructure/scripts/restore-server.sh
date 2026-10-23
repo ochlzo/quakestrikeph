@@ -226,6 +226,12 @@ as_operator gh variable set VPS_DEPLOY_USER --body ubuntu --repo "$repository"
 printf '%s %s\n' "$host" "$(cut -d ' ' -f 1-2 /etc/ssh/ssh_host_ed25519_key.pub)" \
     | as_operator gh secret set DEPLOY_KNOWN_HOSTS --repo "$repository"
 
+compose up -d --wait --no-build --pull never data-ingestor dispatcher
+prediction_count=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["running"].get("prediction-worker",0))' "$backup_dir/manifest.json")
+if (( prediction_count > 0 )); then
+    compose up -d --wait --no-build --pull never --scale "prediction-worker=$prediction_count" prediction-worker
+fi
+
 confirm 'Confirm the old cloudflared is stopped and provider IP restrictions are updated. Start public traffic?' CONNECT
 public_started=1
 compose up -d --wait --no-build --pull never cloudflared
@@ -233,11 +239,6 @@ curl --fail --silent --show-error --retry 5 --retry-all-errors https://quakestri
 curl --fail --silent --show-error -H 'Content-Type: application/json' --data '{"limit":1}' https://quakestrikeph.com/api/v1/earthquakes/search >/dev/null
 curl --fail --silent --show-error "https://quakestrikeph.com/api/v1/earthquakes/$event_id" >/dev/null
 curl --fail --silent --show-error "https://quakestrikeph.com/forecasts/$event_id" >/dev/null
-compose up -d --wait --no-build --pull never data-ingestor dispatcher
-prediction_count=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["running"].get("prediction-worker",0))' "$backup_dir/manifest.json")
-if (( prediction_count > 0 )); then
-    compose up -d --wait --no-build --pull never --scale "prediction-worker=$prediction_count" prediction-worker
-fi
 if [[ $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["running"].get("beat",0))' "$backup_dir/manifest.json") != 0 ]]; then
     compose up -d --wait --no-build --pull never beat
     for service in beat dispatcher data-ingestor; do
