@@ -221,8 +221,9 @@ When the existing tunnel is reused, Cloudflare normally needs no dashboard chang
 Two connectors can receive traffic for one tunnel; keep the old connector stopped.
 See [Cloudflare replicas](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/tunnel-availability/deploy-replicas/).
 
-After the checks pass, type `CONNECT` at the installer prompt.
-The script starts Cloudflare, checks public HTTPS, and starts ingestion and prediction.
+The script starts ingestion and the saved Prediction Worker replicas before requesting public cutover.
+If all required consumers become healthy, type `CONNECT` at the installer prompt.
+The script starts Cloudflare and checks public HTTPS.
 It preserves the previous Prediction Worker replica count, including a disabled Prediction Worker.
 It restores the Beat schedule only if Beat ran before backup.
 Ordinary alerts and private testing remain disabled.
