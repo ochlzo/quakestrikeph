@@ -280,6 +280,7 @@ def test_bootstrap_is_resumable_and_keeps_prediction_dispatch_in_scope(
     from types import SimpleNamespace
 
     from quakestrike import operator_bootstrap_recovery as recovery
+    from quakestrike.infrastructure import bootstrap_recovery as recovery_files
 
     with migrated_engine.begin() as connection:
         connection.execute(
@@ -333,15 +334,25 @@ def test_bootstrap_is_resumable_and_keeps_prediction_dispatch_in_scope(
     assert json.loads(capsys.readouterr().out)["status"] == "ready_to_apply"
     assert not settings.bootstrap_run_manifest.exists()
 
-    publish = recovery._publish_exclusively
+    publish = recovery_files.publish_exclusively
 
     def interrupt(_path, _payload):
+        # A separate connection must see the committed audit before publication starts.
+        with migrated_engine.connect() as connection:
+            assert (
+                connection.scalar(
+                    select(func.count())
+                    .select_from(audit_logs)
+                    .where(audit_logs.c.action == "bootstrap_readiness_recovery_verified")
+                )
+                == 1
+            )
         raise OSError("simulated interruption")
 
-    monkeypatch.setattr(recovery, "_publish_exclusively", interrupt)
+    monkeypatch.setattr(recovery_files, "publish_exclusively", interrupt)
     assert recovery.recover_bootstrap_readiness(apply=True, **kwargs) == 2
     assert not settings.bootstrap_run_manifest.exists()
-    monkeypatch.setattr(recovery, "_publish_exclusively", publish)
+    monkeypatch.setattr(recovery_files, "publish_exclusively", publish)
     assert recovery.recover_bootstrap_readiness(apply=True, **kwargs) == 0
     capsys.readouterr()
     recovered = json.loads(settings.bootstrap_run_manifest.read_text(encoding="utf-8"))

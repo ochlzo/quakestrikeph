@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 from uuid import UUID
@@ -42,6 +43,8 @@ class BootstrapRunStore(Protocol):
 
 
 class BootstrapCoverage(Protocol):
+    first_prediction_anchor: datetime
+
     def history_coverage(self) -> HistoryCoverage: ...
 
 

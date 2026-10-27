@@ -52,3 +52,6 @@ in the protected VPS `.env`, then run the full startup check:
 Proceed only if `ready` is true. Follow the normal consumer and public cutover
 checks before enabling ingestion or Cloudflare. Keep the original failed report
 and the reconstructed file in protected recovery storage.
+
+Deployment, server backup, and server restore use the configured readiness path.
+Keep the reconstructed file inside `/app/bootstrap-snapshots` so server backup includes it.

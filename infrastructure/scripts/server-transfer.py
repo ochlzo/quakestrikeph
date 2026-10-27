@@ -61,6 +61,30 @@ def write_json(path, value):
     Path(path).write_text(json.dumps(value, indent=2) + "\n")
 
 
+def readiness_path(config):
+    """Map the configured container sidecar to its packaged repository path."""
+    value = (
+        config["services"]["release-init"]
+        .get("environment", {})
+        .get(
+            "BOOTSTRAP_RUN_MANIFEST",
+            "/app/bootstrap-snapshots/bootstrap-readiness.json",
+        )
+    )
+    if not isinstance(value, str) or not value:
+        raise ValueError("Bootstrap readiness evidence requires a file path.")
+    path = PurePosixPath(value)
+    if (
+        not path.is_relative_to("/app/bootstrap-snapshots")
+        or ".." in path.parts
+        or path == PurePosixPath("/app/bootstrap-snapshots")
+    ):
+        raise ValueError(
+            "Bootstrap readiness evidence must be inside /app/bootstrap-snapshots."
+        )
+    return path.relative_to("/app").as_posix()
+
+
 def config_valid(config, root):
     """Refuse layouts the migration cannot preserve rather than guessing."""
     root = Path(root).resolve()
@@ -352,7 +376,8 @@ def verify(directory):
     if manifest["format"] != 1 or not re.fullmatch(r"[0-9a-f]{40}", manifest["sha"]):
         raise ValueError("Unsupported manifest or invalid release SHA.")
     uuid.UUID(manifest["id"])
-    config_valid(read_json(directory / "compose.json"), manifest["repository"])
+    config = read_json(directory / "compose.json")
+    config_valid(config, manifest["repository"])
     for name in (
         "application.tar.gz",
         "host-settings.tar.gz",
@@ -364,10 +389,7 @@ def verify(directory):
         safe_members(directory / "pgadmin_data.tar.gz")
     with tarfile.open(directory / "application.tar.gz") as stream:
         names = {m.name.removeprefix("./").rstrip("/") for m in stream}
-        if (
-            ".env" not in names
-            or "bootstrap-snapshots/bootstrap-readiness.json" not in names
-        ):
+        if ".env" not in names or readiness_path(config) not in names:
             raise ValueError(
                 "Application secrets or bootstrap readiness evidence are missing."
             )
@@ -479,6 +501,8 @@ def main():
     command, *args = sys.argv[1:]
     if command == "validate-config":
         config_valid(json.load(sys.stdin), args[0])
+    elif command == "readiness-path":
+        print(readiness_path(json.load(sys.stdin)))
     elif command == "fresh-host":
         fresh_host()
     elif command == "empty-project":
