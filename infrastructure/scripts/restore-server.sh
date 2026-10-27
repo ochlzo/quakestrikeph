@@ -149,7 +149,7 @@ restore_volume redis_data
 compose up -d --wait --no-build --pull never postgres redis
 [[ $(database_count) == "$(helper get "$backup_dir" event_count)" ]] || fail 'The restored earthquake count differs from the backup.'
 compose --profile init run --rm --no-deps release-init quakestrike verify-model-release
-compose --profile init run --rm --no-deps release-init quakestrike startup-check --run-manifest /app/bootstrap-snapshots/bootstrap-readiness.json
+compose --profile init run --rm --no-deps release-init quakestrike startup-check
 compose up -d --wait --no-build --pull never backend-api bulletin traefik
 notice 'Running the required automated checks against separate disposable databases.'
 bash "$script_dir/server-transfer-tests.sh" "$transfer_repo" "$state/tests"

@@ -115,10 +115,17 @@ def test_restricted_account_search_masks_fields_and_never_writes(
         assert code == 200 and response["page"] == 1
         assert [item["id"] for item in response["accounts"]] == [str(ids[6])]
         assert response["accounts"][0]["status"] == "suspended"
+        assert all(
+            not channel["eligible"] and "not active" in channel["reason"]
+            for channel in response["accounts"][0]["channels"].values()
+        )
         body.update(selected=[str(ids[5])])
-        assert not api.request("search", path="/api/test/testers", body=body)[1]["accounts"][0][
-            "onboarding_complete"
-        ]
+        incomplete = api.request("search", path="/api/test/testers", body=body)[1]["accounts"][0]
+        assert not incomplete["onboarding_complete"]
+        assert all(
+            not channel["eligible"] and "incomplete" in channel["reason"]
+            for channel in incomplete["channels"].values()
+        )
         body.update(query="%' OR true --", selected=None)
         assert api.request("search", path="/api/test/testers", body=body)[1]["total"] == 0
         body.update(query="Tester", size=500)

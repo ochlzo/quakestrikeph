@@ -69,7 +69,7 @@ class TransferSafety(unittest.TestCase):
     def tearDown(self):
         self.directory.cleanup()
 
-    def package(self):
+    def package(self, readiness=None):
         package = self.root / "package"
         package.mkdir(mode=0o700)
         for name in transfer.FILES:
@@ -84,12 +84,15 @@ class TransferSafety(unittest.TestCase):
                 "architecture": "fixture",
             },
         )
-        transfer.write_json(
-            package / "compose.json", configuration(self.root / "source")
-        )
+        config = configuration(self.root / "source")
+        if readiness is not None:
+            config["services"]["release-init"]["environment"][
+                "BOOTSTRAP_RUN_MANIFEST"
+            ] = readiness
+        transfer.write_json(package / "compose.json", config)
         archive(
             package / "application.tar.gz",
-            {".env": "FIXTURE=1", "bootstrap-snapshots/bootstrap-readiness.json": "{}"},
+            {".env": "FIXTURE=1", transfer.readiness_path(config): "{}"},
         )
         archive(
             package / "host-settings.tar.gz",
@@ -102,6 +105,45 @@ class TransferSafety(unittest.TestCase):
             archive(package / f"{name}.tar.gz", {"data": "fixture"})
         transfer.seal(package)
         return package
+
+    def test_recovered_manifest_survives_verification_and_restore(self):
+        readiness = "/app/bootstrap-snapshots/recovered-readiness.json"
+        package = self.package(readiness)
+        transfer.verify(package)
+        for rehearsal in (True, False):
+            config = transfer.restore_config(
+                package, self.root / "restored", rehearsal, "owner"
+            )
+            environment = config["services"]["release-init"]["environment"]
+            self.assertEqual(environment["BOOTSTRAP_RUN_MANIFEST"], readiness)
+            self.assertEqual(
+                transfer.readiness_path(config),
+                "bootstrap-snapshots/recovered-readiness.json",
+            )
+
+    def test_original_manifest_cannot_substitute_for_configured_recovery_file(self):
+        package = self.package("/app/bootstrap-snapshots/recovered-readiness.json")
+        archive(
+            package / "application.tar.gz",
+            {".env": "FIXTURE=1", "bootstrap-snapshots/bootstrap-readiness.json": "{}"},
+        )
+        transfer.seal(package)
+        with self.assertRaisesRegex(ValueError, "readiness evidence are missing"):
+            transfer.verify(package)
+
+    def test_readiness_path_stays_inside_packaged_bootstrap_files(self):
+        config = configuration(self.root)
+        environment = config["services"]["release-init"]["environment"]
+        for path in (
+            "/outside/file.json",
+            "/app/bootstrap-snapshots/../file.json",
+            "relative.json",
+            "",
+        ):
+            with self.subTest(path=path):
+                environment["BOOTSTRAP_RUN_MANIFEST"] = path
+                with self.assertRaises(ValueError):
+                    transfer.readiness_path(config)
 
     def test_package_checksums_detect_tampering(self):
         package = self.package()

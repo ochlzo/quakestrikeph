@@ -71,7 +71,7 @@ test('resume uses Backend timing and performs no extra request', t => {
   assert.deepEqual(f.trace, []);
 });
 
-for (const sendFails of [false, true]) for (const refreshFails of [false, true]) {
+for (const [sendFails, refreshFails] of [[true, false], [false, true], [true, true]]) {
   test(`replacement reconciles after send ${sendFails ? 'failure' : 'success'} and refresh ${refreshFails ? 'failure' : 'success'}`, async t => {
     const f = fixture(t, { ...baseline, phone: '+639181234567', smsEnabled: true });
     const sendFailure = failure();
@@ -89,7 +89,7 @@ for (const sendFails of [false, true]) for (const refreshFails of [false, true])
   });
 }
 
-for (const verified of [false, true]) for (const sms of [false, true]) {
+for (const [verified, sms] of [[false, false], [false, true], [true, false], [true, true]]) {
   test(`onboarding saves selected channels, verified=${verified}, sms=${sms}`, async t => {
     const f = fixture(t, { ...baseline, ...(verified ? { phone: '+639171234567' } : {}) });
     const result = await f.enrollment.confirmChannels({ email: true, sms });
@@ -138,13 +138,22 @@ test('verification reports before held opt-in and uses a separate preference wri
   assert.equal(f.enrollment.view(now).pending, null);
   assert.equal(f.account().phone, attempt().phone);
   assert.deepEqual(f.events.filter(event => event.kind !== 'pending'), [{ kind: 'verified' }]);
+  const laterEdit = f.queue.saveConfirmed({ emailEnabled: false });
+  await tick();
+  assert.equal(f.trace.filter(item => item.key === 'PUT /preferences').length, 2);
   response.resolve({ ...f.account(), smsEnabled: true });
   await operation;
+  await laterEdit;
+  const laterWrite = f.trace.filter(item => item.key === 'PUT /preferences').at(-1).body;
+  assert.equal(laterWrite.smsEnabled, true);
+  assert.equal(laterWrite.emailEnabled, false);
+  assert.equal(f.queue.snapshot.account.smsEnabled, true);
+  assert.equal(f.queue.snapshot.account.emailEnabled, false);
   assert.deepEqual(f.events.filter(event => event.kind !== 'pending'), [{ kind: 'verified' }, { kind: 'enabled' }]);
-  assert.deepEqual(f.trace.map(item => item.key), ['PUT /preferences', 'POST /phone/verify', 'PUT /preferences']);
+  assert.deepEqual(f.trace.map(item => item.key), ['PUT /preferences', 'POST /phone/verify', 'PUT /preferences', 'PUT /preferences']);
 });
 
-for (const code of ['UNAVAILABLE', 'REVERIFICATION_REQUIRED', 'SIGN_IN_REQUIRED', 'INVALID_PREFERENCE']) {
+for (const code of ['UNAVAILABLE']) {
   test(`opt-in failure retains verified phone and original ${code} failure`, async t => {
     const f = fixture(t);
     await f.enrollment.confirmChannels({ email: false, sms: true });

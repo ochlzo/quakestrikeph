@@ -83,6 +83,7 @@ def _ingestion_run_state(row) -> IngestionRunState:
         error_message=row["error_message"],
         snapshot_sha256=row["bootstrap_snapshot_sha256"],
         enriched_snapshot_sha256=row["bootstrap_enriched_snapshot_sha256"],
+        finished_at=row["finished_at"],
     )
 
 
@@ -306,54 +307,62 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                 .mappings()
                 .one_or_none()
             )
-            return _ingestion_run_state(row) if row is not None else None
+            if row is None:
+                return None
+            return replace(
+                _ingestion_run_state(row), retention_checked_at=session.scalar(select(func.now()))
+            )
 
     def bootstrap_database_counts(self, run_id: UUID) -> dict[str, int]:
         """Return database counts scoped to one bootstrap run."""
-
         with self._session_factory() as session:
-            input_checkpoints = session.scalar(
-                select(func.count())
-                .select_from(ingestion_run_inputs)
-                .where(ingestion_run_inputs.c.run_id == run_id)
+            return self.bootstrap_database_counts_in_session(session, run_id)
+
+    @staticmethod
+    def bootstrap_database_counts_in_session(session: Session, run_id: UUID) -> dict[str, int]:
+        """Read bootstrap counts inside an existing evidence transaction."""
+        input_checkpoints = session.scalar(
+            select(func.count())
+            .select_from(ingestion_run_inputs)
+            .where(ingestion_run_inputs.c.run_id == run_id)
+        )
+        event_revisions = session.scalar(
+            select(func.count())
+            .select_from(earthquake_event_revisions)
+            .where(earthquake_event_revisions.c.ingestion_run_id == run_id)
+        )
+        prediction_jobs_for_run = (
+            select(func.count())
+            .select_from(prediction_jobs)
+            .join(
+                earthquake_event_revisions,
+                earthquake_event_revisions.c.event_revision_id
+                == prediction_jobs.c.event_revision_id,
             )
-            event_revisions = session.scalar(
-                select(func.count())
-                .select_from(earthquake_event_revisions)
-                .where(earthquake_event_revisions.c.ingestion_run_id == run_id)
+            .where(earthquake_event_revisions.c.ingestion_run_id == run_id)
+        )
+        prediction_jobs_count = session.scalar(prediction_jobs_for_run)
+        prediction_dispatches = (
+            select(func.count())
+            .select_from(job_dispatches)
+            .join(
+                prediction_jobs,
+                prediction_jobs.c.job_id == job_dispatches.c.prediction_job_id,
             )
-            prediction_jobs_for_run = (
-                select(func.count())
-                .select_from(prediction_jobs)
-                .join(
-                    earthquake_event_revisions,
-                    earthquake_event_revisions.c.event_revision_id
-                    == prediction_jobs.c.event_revision_id,
-                )
-                .where(earthquake_event_revisions.c.ingestion_run_id == run_id)
+            .join(
+                earthquake_event_revisions,
+                earthquake_event_revisions.c.event_revision_id
+                == prediction_jobs.c.event_revision_id,
             )
-            prediction_jobs_count = session.scalar(prediction_jobs_for_run)
-            prediction_dispatches = (
-                select(func.count())
-                .select_from(job_dispatches)
-                .join(
-                    prediction_jobs,
-                    prediction_jobs.c.job_id == job_dispatches.c.prediction_job_id,
-                )
-                .join(
-                    earthquake_event_revisions,
-                    earthquake_event_revisions.c.event_revision_id
-                    == prediction_jobs.c.event_revision_id,
-                )
-                .where(earthquake_event_revisions.c.ingestion_run_id == run_id)
-            )
-            prediction_dispatches_count = session.scalar(prediction_dispatches)
-            return {
-                "input_checkpoints": int(input_checkpoints or 0),
-                "event_revisions": int(event_revisions or 0),
-                "prediction_jobs": int(prediction_jobs_count or 0),
-                "prediction_dispatches": int(prediction_dispatches_count or 0),
-            }
+            .where(earthquake_event_revisions.c.ingestion_run_id == run_id)
+        )
+        prediction_dispatches_count = session.scalar(prediction_dispatches)
+        return {
+            "input_checkpoints": int(input_checkpoints or 0),
+            "event_revisions": int(event_revisions or 0),
+            "prediction_jobs": int(prediction_jobs_count or 0),
+            "prediction_dispatches": int(prediction_dispatches_count or 0),
+        }
 
     def backfill_run_exists(self) -> bool:
         """Detect an orphaned bootstrap run before a missing sidecar is recreated."""

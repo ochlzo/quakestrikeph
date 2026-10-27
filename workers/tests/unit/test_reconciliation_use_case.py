@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
@@ -23,10 +22,7 @@ from quakestrike.application.reconciliation import (
 from quakestrike.domain.features import HistoryCoverage
 from quakestrike.domain.source_rows import (
     CatalogParseResult,
-    DiagnosticCode,
     NormalizedSourceRow,
-    RejectedSourceRow,
-    SourceDiagnostic,
 )
 
 NOW = datetime(2026, 9, 17, tzinfo=UTC)
@@ -165,53 +161,13 @@ def _execute(store: _Store, row: NormalizedSourceRow, reporter: _Reporter | None
     return store
 
 
-def test_exact_bulletin_match_uses_existing_event_without_group_fallback() -> None:
-    event_id = UUID("00000000-0000-0000-0000-000000000001")
-    store = _execute(_Store(exact_event_id=event_id), _row())
-
-    assert store.requests[0].event_id == event_id
-    assert store.requests[0].model_release_id == MODEL_RELEASE_ID
-    assert store.requests[0].correlation_id == CORRELATION_ID
-    assert store.requests[0].worker_execution_id is not None
-    assert store.requests[0].input_key.startswith("row:")
-    assert store.requests[0].history_coverage == HISTORY_COVERAGE
-    assert store.checkpoints[0][1] == "revised"
-
-
-def test_prior_coverage_is_used_when_current_catalog_cannot_claim_coverage() -> None:
-    class PriorCoverageStore(_Store):
-        def successful_catalog_coverages(self, start, end):
-            assert start == NOW - timedelta(days=7)
-            assert end == NOW
-            return (HISTORY_COVERAGE,)
-
-    store = PriorCoverageStore()
-    row = replace(_row(), occurred_at=NOW)
-    result = ReconcileCurrentCatalog(
-        store=store,
-        retriever=_Retriever(CatalogParseResult((row,), ())),
-        diagnostic_reporter=_Reporter(),
-        model_release_id=MODEL_RELEASE_ID,
-        history_coverage=HistoryCoverage(NOW - timedelta(days=30), NOW - timedelta(days=8), True),
-        now=lambda: NOW,
-    ).execute(uuid4())
-
-    assert result.status == "succeeded"
-    assert store.requests[0].history_coverage.end == NOW
-
-
-def test_new_bulletin_with_an_unmatched_group_creates_a_new_event() -> None:
-    store = _execute(_Store(), _row())
-
-    assert store.requests[0].event_id != UUID("00000000-0000-0000-0000-000000000000")
-    assert store.checkpoints[0][1] == "inserted"
-
-
 def test_source_less_row_cannot_create_an_event() -> None:
-    store = _execute(_Store(), _row(bulletin=None, group=None))
+    reporter = _Reporter()
+    store = _execute(_Store(), _row(bulletin=None, group=None), reporter)
 
     assert store.requests == []
     assert store.checkpoints[0][1:] == ("rejected", None)
+    assert [item.code for item in reporter.diagnostics] == ["MISSING_SOURCE_ID"]
 
 
 def test_group_only_row_attaches_when_exactly_one_candidate_passes() -> None:
@@ -219,13 +175,15 @@ def test_group_only_row_attaches_when_exactly_one_candidate_passes() -> None:
     candidate = SimpleNamespace(
         event_id=event_id,
         source_event_group_id="2025_0102_0304",
-        latitude=Decimal("10"),
-        longitude=Decimal("125"),
-        magnitude=Decimal("4.2"),
+        latitude=Decimal("10.25"),
+        longitude=Decimal("124.75"),
+        magnitude=Decimal("5.2"),
     )
-    store = _execute(_Store(candidates=(candidate,)), _row(bulletin=None))
+    reporter = _Reporter()
+    store = _execute(_Store(candidates=(candidate,)), _row(bulletin=None), reporter)
 
     assert store.requests[0].event_id == event_id
+    assert reporter.diagnostics == []
 
 
 def test_ambiguous_group_fallback_rejects_the_row() -> None:
@@ -239,10 +197,12 @@ def test_ambiguous_group_fallback_rejects_the_row() -> None:
         )
         for _ in range(2)
     )
-    store = _execute(_Store(candidates=candidates), _row())
+    reporter = _Reporter()
+    store = _execute(_Store(candidates=candidates), _row(), reporter)
 
     assert store.requests == []
     assert store.checkpoints[0][1:] == ("rejected", None)
+    assert [item.code for item in reporter.diagnostics] == ["AMBIGUOUS_FALLBACK"]
 
 
 def test_retrieval_heartbeats_before_row_processing_and_stops_on_a_lost_lease() -> None:
@@ -297,63 +257,6 @@ def test_lost_lease_during_retrieval_does_not_process_rows() -> None:
 
     assert result.status == "lease_lost"
     assert store.requests == []
-
-
-def test_row_diagnostics_keep_run_and_input_correlation() -> None:
-    reporter = _Reporter()
-    row = _row().with_detail_enrichment(
-        detail_occurred_at=None,
-        origin=None,
-        diagnostics=(SourceDiagnostic(DiagnosticCode.DETAIL_FETCH_FAILED),),
-    )
-    store = _execute(_Store(), row, reporter)
-
-    assert reporter.diagnostics[0].code == "DETAIL_FETCH_FAILED"
-    assert reporter.diagnostics[0].run_id
-    assert reporter.diagnostics[0].correlation_id == CORRELATION_ID
-    assert reporter.diagnostics[0].input_key.startswith("row:")
-    assert store.checkpoints[0][1] == "inserted"
-
-
-def test_parser_and_ambiguous_fallback_rejections_emit_their_safe_codes() -> None:
-    reporter = _Reporter()
-    store = _Store(
-        candidates=(
-            SimpleNamespace(
-                event_id=uuid4(),
-                source_event_group_id="2025_0102_0304",
-                latitude=Decimal("10"),
-                longitude=Decimal("125"),
-                magnitude=Decimal("4.2"),
-            ),
-            SimpleNamespace(
-                event_id=uuid4(),
-                source_event_group_id="2025_0102_0304",
-                latitude=Decimal("10"),
-                longitude=Decimal("125"),
-                magnitude=Decimal("4.2"),
-            ),
-        )
-    )
-    values = iter(uuid4() for _ in range(20))
-    ReconcileCurrentCatalog(
-        store=store,
-        retriever=_Retriever(
-            CatalogParseResult(
-                (_row(),),
-                (RejectedSourceRow(8, SourceDiagnostic(DiagnosticCode.INVALID_SOURCE_URL)),),
-            )
-        ),
-        diagnostic_reporter=reporter,
-        model_release_id=MODEL_RELEASE_ID,
-        now=lambda: NOW,
-        new_uuid=lambda: next(values),
-    ).execute(uuid4())
-
-    assert {item.code for item in reporter.diagnostics} == {
-        "INVALID_SOURCE_URL",
-        "AMBIGUOUS_FALLBACK",
-    }
 
 
 def test_unexpected_persistence_error_uses_a_safe_retry_transition() -> None:

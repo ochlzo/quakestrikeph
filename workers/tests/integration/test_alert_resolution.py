@@ -287,10 +287,11 @@ def test_partial_sms_failure_recovery_preserves_email_and_fences_old_claim(migra
 
     class Unavailable:
         def supported(self, phone):
-            raise SmsSupportUnavailable("unavailable")
+            raise SmsSupportUnavailable("private@example.invalid")
 
     first = resolve_direct(store, Unavailable(), dispatch)
     assert first.status == "incomplete"
+    assert first.support_failures == ("sms_support_unavailable",)
     with migrated_engine.connect() as connection:
         rows = connection.execute(select(alert_recipients)).all()
         assert len(rows) == 1 and rows[0].channel == "email"

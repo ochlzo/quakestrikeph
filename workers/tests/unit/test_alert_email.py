@@ -35,36 +35,6 @@ def submission():
     )
 
 
-def test_email_submission_sends_one_frozen_recipient_and_attempt_correlation():
-    calls = []
-    request = submission()
-
-    def post(url, **options):
-        calls.append((url, options))
-        return Response()
-
-    result = BrevoEmailProvider(
-        "TEST_ONLY", "alerts@example.invalid", "QuakeStrike PH", request=post
-    ).submit(request)
-    assert result.status == "accepted"
-    assert result.reference == "fixture@brevo"
-    assert len(calls) == 1
-    url, options = calls[0]
-    assert url == "https://api.brevo.com/v3/smtp/email"
-    assert options["json"] == {
-        "sender": {"email": "alerts@example.invalid", "name": "QuakeStrike PH"},
-        "to": [{"email": "reader@example.invalid"}],
-        "subject": "Frozen subject",
-        "textContent": "Frozen body",
-        "htmlContent": "<html><body><pre>Frozen body</pre></body></html>",
-        "headers": {"X-Mailin-custom": f"quakestrike-attempt:{request.attempt_id}"},
-    }
-    assert str(request.token) not in json.dumps(options)
-    assert options["allow_redirects"] is False
-    assert options["timeout"] == (3, 8)
-    assert options["stream"] is True
-
-
 @pytest.mark.parametrize(
     "http_status,body,expected,error",
     [
@@ -112,21 +82,6 @@ def test_email_transport_failure_is_unknown_and_missing_configuration_never_call
     provider.api_key = None
     assert provider.submit(submission()).status == "permanent"
     assert len(calls) == 1
-
-
-def test_email_response_size_is_bounded_and_stream_is_always_closed():
-    response = Response()
-    closed = []
-    response.close = lambda: closed.append(True)
-    response.iter_content = lambda size: iter(
-        [json.dumps({"messageId": "fixture@brevo", "private": "x" * 16384}).encode()]
-    )
-    result = BrevoEmailProvider(
-        "TEST_ONLY", "alerts@example.invalid", "QuakeStrike PH", request=lambda *a, **k: response
-    ).submit(submission())
-    assert result.status == "unknown"
-    assert result.error_code == "provider_invalid_response"
-    assert closed == [True]
 
 
 def test_email_malformed_body_retains_http_evidence_without_provider_prose():

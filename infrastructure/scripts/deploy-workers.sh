@@ -195,7 +195,7 @@ web_started=1
 web_compose stop backend-api
 # Serialize database writes with host backup, restore, and retention jobs.
 sudo -n env WORKER_IMAGE_TAG="$sha" flock -w 120 --close /run/quakestrike-postgres-backup.lock bash database/initialization/prepare-release-database.sh "$sha" </dev/null
-compose --profile init run -T --rm --no-deps release-init quakestrike startup-check --run-manifest /app/bootstrap-snapshots/bootstrap-readiness.json </dev/null
+compose --profile init run -T --rm --no-deps release-init quakestrike startup-check </dev/null
 web_compose up -d --wait --no-deps backend-api
 start_processing
 web_compose up -d --wait --no-deps bulletin

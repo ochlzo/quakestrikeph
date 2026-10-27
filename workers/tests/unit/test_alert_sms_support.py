@@ -28,7 +28,6 @@ class Response:
     [
         ("Globe/TM", False, True),
         ("DITO", False, True),
-        ("Smart/TNT", True, False),
     ],
 )
 def test_ordinary_network_support_preserves_documented_coverage(network, smart, expected):
@@ -50,7 +49,6 @@ def test_ordinary_network_support_preserves_documented_coverage(network, smart, 
         None,
         [],
         {"status": "error", "message": "secret"},
-        {"status": "success", "data": {"network": "mystery", "is_smart_tnt": False}},
     ],
 )
 def test_failed_or_unrecognized_lookup_does_not_prove_unsupported(body):

@@ -11,25 +11,6 @@ const attempt = '11111111-1111-4111-8111-111111111111';
 const payload = { event: 'delivered', 'message-id': '<fixture@brevo>', ts_event: 1791676800,
   'X-Mailin-custom': `quakestrike-attempt:${attempt}` };
 
-test('authenticated Brevo callback reconciles normalized evidence through the public app', async () => {
-  const received: unknown[] = [];
-  const app = createApp({ check: async () => {}, search: async () => [], findById: async () => null }, now,
-    undefined, { token: 'TEST_ONLY_CALLBACK_TOKEN', reconciler: { reconcile: async input => {
-      received.push(input); return 'applied';
-    } } });
-  const server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
-  const address = server.address(); if (!address || typeof address === 'string') throw new Error('No test address');
-  try {
-    const response = await fetch(`http://127.0.0.1:${address.port}/api/v1/callbacks/brevo`, {
-      method: 'POST', headers: { authorization: 'Bearer TEST_ONLY_CALLBACK_TOKEN', 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    assert.equal(response.status, 204);
-    assert.deepEqual(received, [{ attemptId: attempt, reference: 'fixture@brevo', status: 'delivered',
-      providerTime: '2026-10-11T00:00:00.000Z', errorCode: null }]);
-  } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
-});
-
 async function withCallback(reconcile: AlertReconciler['reconcile'], run: (url: string) => Promise<void>) {
   const app = createApp({ check: async () => {}, search: async () => [], findById: async () => null }, now,
     undefined, { token: 'TEST_ONLY_CALLBACK_TOKEN', reconciler: { reconcile } });

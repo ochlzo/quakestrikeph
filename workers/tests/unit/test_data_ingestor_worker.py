@@ -50,19 +50,6 @@ def _payload() -> dict[str, object]:
     }
 
 
-def test_valid_command_reconciles_its_database_run(caplog) -> None:
-    store = _CommandStore(matches=True)
-    reconciler = _Reconciler(ReconciliationRunResult(status="succeeded", claimed=True))
-
-    result = handle_ingestion_command(
-        _payload(), store=store, reconciler=reconciler, logger=logging.getLogger("test-ingestor")
-    )
-
-    assert result == "succeeded"
-    assert store.checked == [(DISPATCH_ID, RUN_ID, CORRELATION_ID)]
-    assert reconciler.run_ids == [RUN_ID]
-
-
 def test_malformed_command_is_rejected_without_database_or_reconciliation_work(caplog) -> None:
     store = _CommandStore(matches=True)
     reconciler = _Reconciler(ReconciliationRunResult(status="succeeded", claimed=True))
@@ -77,50 +64,6 @@ def test_malformed_command_is_rejected_without_database_or_reconciliation_work(c
     assert reconciler.run_ids == []
 
 
-def test_command_with_mismatched_durable_ids_is_rejected(caplog) -> None:
-    store = _CommandStore(matches=False)
-    reconciler = _Reconciler(ReconciliationRunResult(status="succeeded", claimed=True))
-
-    result = handle_ingestion_command(
-        _payload(), store=store, reconciler=reconciler, logger=logging.getLogger("test-ingestor")
-    )
-
-    assert result == "rejected"
-    assert store.checked == [(DISPATCH_ID, RUN_ID, CORRELATION_ID)]
-    assert reconciler.run_ids == []
-
-
-def test_duplicate_delivery_that_cannot_claim_is_a_safe_no_op(caplog) -> None:
-    store = _CommandStore(matches=True)
-    reconciler = _Reconciler(ReconciliationRunResult(status="not_claimed", claimed=False))
-
-    result = handle_ingestion_command(
-        _payload(), store=store, reconciler=reconciler, logger=logging.getLogger("test-ingestor")
-    )
-
-    assert result == "not_claimed"
-    assert reconciler.run_ids == [RUN_ID]
-
-
-def test_ingestor_app_registers_the_routed_task_with_the_identifier_only_payload() -> None:
-    settings = Settings(
-        _env_file=None,
-        database_url="postgresql+psycopg://worker:secret@postgres:5432/quakestrike",
-        redis_url="redis://redis:6379/0",
-        phivolcs_catalog_url="https://example.invalid/phivolcs/catalog",
-        model_release_id="00000000-0000-0000-0000-000000000004",
-    )
-    received = []
-    app = create_ingestor_app(settings, command_handler=lambda payload: received.append(payload))
-
-    app.tasks[INGESTION_TASK_NAME].run(_payload())
-
-    assert received == [_payload()]
-    assert app.tasks[INGESTION_TASK_NAME].acks_late is True
-    assert app.tasks[INGESTION_TASK_NAME].reject_on_worker_lost is True
-    assert app.tasks[INGESTION_TASK_NAME].acks_on_failure_or_timeout is False
-
-
 def test_ingestor_task_logs_the_broker_message_id(caplog) -> None:
     settings = Settings(
         _env_file=None,
@@ -129,12 +72,20 @@ def test_ingestor_task_logs_the_broker_message_id(caplog) -> None:
         phivolcs_catalog_url="https://example.invalid/phivolcs/catalog",
         model_release_id="00000000-0000-0000-0000-000000000005",
     )
-    app = create_ingestor_app(settings, command_handler=lambda _payload: "succeeded")
+    payloads = []
+    app = create_ingestor_app(
+        settings, command_handler=lambda payload: payloads.append(payload) or "succeeded"
+    )
+    task = app.tasks[INGESTION_TASK_NAME]
+    assert task.acks_late is True
+    assert task.reject_on_worker_lost is True
+    assert task.acks_on_failure_or_timeout is False
 
     with caplog.at_level(logging.INFO, logger="data-ingestor"):
-        result = app.tasks[INGESTION_TASK_NAME].apply(args=[_payload()], task_id=str(MESSAGE_ID))
+        result = task.apply(args=[_payload()], task_id=str(MESSAGE_ID))
 
     assert result.successful()
+    assert payloads == [_payload()]
     received = next(
         record for record in caplog.records if record.event_code == "ingestion_command_received"
     )

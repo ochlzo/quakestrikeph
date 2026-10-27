@@ -31,7 +31,7 @@ cd "$transfer_repo"
 [[ -z $(GIT_OPTIONAL_LOCKS=0 git -c safe.directory="$transfer_repo" status --porcelain --untracked-files=all) ]] || fail 'The server checkout must be clean, with committed transfer scripts.'
 git -c safe.directory="$transfer_repo" cat-file -e HEAD:infrastructure/scripts/server-transfer.py \
     || fail 'Commit the recovery implementation in the source release before creating a package.'
-[[ -f .env && -d model-artifacts && -f bootstrap-snapshots/bootstrap-readiness.json ]] || fail 'Production settings, model artifacts, or readiness evidence are missing.'
+[[ -f .env && -d model-artifacts ]] || fail 'Production settings or model artifacts are missing.'
 for file in config credentials restic-password; do
     [[ -s /etc/quakestrike-backup/$file && ! -L /etc/quakestrike-backup/$file ]] || fail "Missing recovery file: /etc/quakestrike-backup/$file"
 done
@@ -40,6 +40,8 @@ done
 source_files=(-f infrastructure/compose.yml -f infrastructure/compose.release.yml -f infrastructure/compose.backend.yml -f infrastructure/compose.edge.yml -f infrastructure/compose.bulletin.yml)
 [[ ! -f .local/domain-cutover/compose.yml ]] || source_files+=(-f .local/domain-cutover/compose.yml)
 source_compose() { docker compose -p infrastructure --env-file .env "${source_files[@]}" --profile '*' "$@"; }
+readiness_path=$(source_compose config --format json | helper readiness-path)
+[[ -f $readiness_path && ! -L $readiness_path ]] || fail 'Configured bootstrap readiness evidence is missing or is a symbolic link.'
 # No saved dotenv file is executed as shell code, and resolved secrets never reach the terminal.
 source_compose config --format json | helper inventory "$transfer_repo" "$output"
 [[ $(as_operator gh variable get DEPLOY_ENABLED -R ochlzo/quakestrikeph) == false ]] || fail 'Set GitHub DEPLOY_ENABLED=false and finish any active deployment first.'

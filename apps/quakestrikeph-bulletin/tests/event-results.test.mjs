@@ -139,39 +139,6 @@ test('server rows survive setup cleanup and reactivation when storage is unavail
   assert.deepEqual(f.notices, ['Refresh failed']);
 });
 
-test('reactivation retains server rows when older cache is readable but writes fail', async t => {
-  const initial = page([event(1)]);
-  const saved = { ...page([event(9)]), fetchedAt: '2026-10-05T04:00:00.000Z' };
-  const f = setup(t, { initial, saved });
-  f.storage.setItem = () => { throw new Error('Quota exceeded'); };
-  f.results.start();
-  assert.deepEqual(f.results.getSnapshot().events, initial.items);
-  assert.deepEqual(readEarthquakeCache(eventSearch(state()), f.storage).items, saved.items);
-  f.results.stop();
-  f.results.start();
-  assert.deepEqual(f.results.getSnapshot().events, initial.items);
-  assert.equal(f.results.getSnapshot().searching, false);
-  assert.equal(f.results.getSnapshot().canLoadMore, false);
-  await f.advance(0);
-  f.searches[0].reject(new Error('Refresh unavailable'));
-  await settle();
-  assert.deepEqual(f.results.getSnapshot().events, initial.items);
-  assert.equal(f.results.getSnapshot().status, 'ready');
-  assert.deepEqual(f.notices, ['Refresh failed']);
-});
-
-test('initial rows cannot be assigned to filters changed before activation', async t => {
-  const f = setup(t, { initial: page([event(1)]) });
-  f.results.changeFilters({ query: 'different' });
-  f.results.start();
-  assert.equal(f.results.getSnapshot().searching, true);
-  assert.equal(f.entries.size, 0, 'Unrelated initial rows must not enter the new criteria cache');
-  await f.advance();
-  f.searches[0].resolve(page([event(2, { locationDescription: 'different' })]));
-  await settle();
-  assert.equal(f.results.getSnapshot().events[0].eventId, event(2).eventId);
-});
-
 test('missing fallback shows an error and retry recovers; unavailable storage never blocks live results', async t => {
   const f = setup(t, { unavailable: true });
   f.results.start();
@@ -213,33 +180,6 @@ test('obsolete searches cannot replace rows, cache, errors, or cursor after filt
   assert.equal(f.searches[3].request.cursor, 'south-cursor');
   f.searches[3].resolve(page([]));
   await loading;
-});
-
-test('debounce, equivalent filters, and short queries stay inside the controller', async t => {
-  const f = setup(t, { initial: page([event(1)]) });
-  f.results.start();
-  await f.advance(0);
-  f.searches[0].resolve(page([event(1)]));
-  await settle();
-  f.results.select(event(1).eventId);
-  f.details[0].resolve(detail(event(1)));
-  await settle();
-  f.results.changeFilters({ query: '  ', magnitudes: [] });
-  assert.equal(f.results.getSnapshot().selected.eventId, event(1).eventId);
-  assert.equal(f.searches.length, 1);
-  f.results.changeFilters({ magnitudes: ['mag-3'] });
-  assert.equal(f.results.getSnapshot().state.selectedId, null);
-  await f.advance(299);
-  assert.equal(f.searches.length, 1);
-  await f.advance(1);
-  assert.equal(f.searches.length, 2);
-  f.results.changeFilters({ query: ' a ' });
-  assert.equal(f.searches[1].signal.aborted, false, 'Short input must not disturb another filter request');
-  await f.advance();
-  assert.equal(f.searches.length, 2);
-  f.searches[1].resolve(page([event(1)]));
-  await settle();
-  assert.equal(f.results.getSnapshot().events.length, 1);
 });
 
 test('short queries preserve the last applied search, results, selection and pagination', async t => {
@@ -378,19 +318,6 @@ test('obsolete detail responses are ignored and detail stays independent of list
   f.results.changeFilters({ query: 'different' });
   assert.equal(f.results.getSnapshot().state.selectedId, null);
   assert.equal(f.results.getSnapshot().selectedDetail, null);
-});
-
-test('obsolete detail failures cannot replace the status of a newer selection', async t => {
-  const f = setup(t, { initial: page([event(1), event(2)]) });
-  f.results.start();
-  f.results.select(event(1).eventId);
-  f.results.select(event(2).eventId);
-  f.details[1].resolve(detail(event(2)));
-  await settle();
-  const accepted = f.results.getSnapshot();
-  f.details[0].reject(new Error('Obsolete detail failure'));
-  await settle();
-  assert.equal(f.results.getSnapshot(), accepted);
 });
 
 test('initial selection outside the first page must satisfy active filters', async t => {

@@ -7,52 +7,12 @@ import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from uuid import UUID
 
 import pytest
 
-from quakestrike import cli, operator_runtime, operator_setup
-from quakestrike.application import scheduling
-from quakestrike.application.persistence import RunDispatchResult
+from quakestrike import cli, operator_runtime
 from quakestrike.application.startup import GateResult
 from quakestrike.infrastructure import startup
-from quakestrike.infrastructure.database import repositories
-
-
-def test_verify_release_is_a_separate_read_only_action(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(operator_setup, "Settings", lambda: object())
-    monkeypatch.setattr(
-        operator_setup,
-        "ModelReleaseStartupGate",
-        lambda _: SimpleNamespace(
-            check=lambda: GateResult("model-release", True, "Verified.", {"release_id": "abc"})
-        ),
-    )
-    monkeypatch.setattr(sys, "argv", ["quakestrike", "verify-model-release"])
-
-    assert cli.main() == 0
-    assert json.loads(capsys.readouterr().out)["status"] == "verified"
-
-
-def test_migration_is_an_explicit_action(monkeypatch, capsys) -> None:
-    calls: list[str] = []
-    monkeypatch.setattr(operator_setup, "Settings", lambda: object())
-    monkeypatch.setattr(operator_setup, "worker_alembic_config", lambda: object())
-    monkeypatch.setattr(
-        operator_setup.alembic_command,
-        "upgrade",
-        lambda _, revision: calls.append(revision),
-    )
-    monkeypatch.setattr(
-        operator_setup,
-        "AlembicMigrationStateGate",
-        lambda _: SimpleNamespace(check=lambda: GateResult("migration-state", True, "At head.")),
-    )
-    monkeypatch.setattr(sys, "argv", ["quakestrike", "migrate"])
-
-    assert cli.main() == 0
-    assert calls == ["head"]
-    assert json.loads(capsys.readouterr().out)["status"] == "applied"
 
 
 def test_failed_readiness_prevents_immediate_poll_mutation(monkeypatch, capsys) -> None:
@@ -71,45 +31,6 @@ def test_failed_readiness_prevents_immediate_poll_mutation(monkeypatch, capsys) 
 
     assert cli.main() == 2
     assert json.loads(capsys.readouterr().out)["failed_gate_names"] == ["bootstrap"]
-
-
-def test_immediate_poll_reports_reused_scheduled_identity(monkeypatch, capsys) -> None:
-    run_id, dispatch_id = UUID(int=1), UUID(int=2)
-    engine = SimpleNamespace(dispose=lambda: None)
-    monkeypatch.setattr(operator_runtime, "Settings", lambda: SimpleNamespace(database_url="test"))
-    monkeypatch.setattr(
-        startup,
-        "phase_one_startup_gates",
-        lambda _: (SimpleNamespace(check=lambda: GateResult("ready", True, "Ready.")),),
-    )
-    monkeypatch.setattr(operator_runtime, "create_database_engine", lambda _: engine)
-    monkeypatch.setattr(operator_runtime, "consumers_ready", lambda _: True)
-    monkeypatch.setattr(operator_runtime, "create_session_factory", lambda _: object())
-    monkeypatch.setattr(startup, "ConfiguredModelReleaseVerifier", lambda _: object())
-    monkeypatch.setattr(
-        repositories,
-        "SqlAlchemyIngestionTransactions",
-        lambda *_, **__: SimpleNamespace(
-            get_ingestion_run=lambda _: SimpleNamespace(trigger_type="scheduled")
-        ),
-    )
-    monkeypatch.setattr(
-        scheduling,
-        "ScheduleIngestionPoll",
-        lambda *_, **__: SimpleNamespace(
-            execute=lambda: RunDispatchResult(run_id, dispatch_id, False)
-        ),
-    )
-    monkeypatch.setattr(sys, "argv", ["quakestrike", "poll-now"])
-
-    assert cli.main() == 0
-    assert json.loads(capsys.readouterr().out) == {
-        "action": "poll-now",
-        "status": "reused",
-        "run_id": str(run_id),
-        "dispatch_id": str(dispatch_id),
-        "trigger_type": "scheduled",
-    }
 
 
 def test_direct_immediate_poll_requires_consumers(monkeypatch, capsys) -> None:

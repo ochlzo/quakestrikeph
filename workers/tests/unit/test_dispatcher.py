@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 import os
 from pathlib import Path
@@ -54,64 +55,41 @@ class OneScanDispatcher:
         )
 
 
-def test_dispatcher_loop_scans_then_waits_at_the_configured_interval() -> None:
-    stop_event = StopAfterWait()
-    dispatcher = OneScanDispatcher()
-
-    run_dispatch_loop(
-        dispatcher,
-        poll_interval_seconds=5,
-        stop_event=stop_event,
-        logger=logging.getLogger("test-dispatcher"),
-    )
-
-    assert dispatcher.calls == 1
-    assert stop_event.waits == [5]
-
-
 def test_dispatcher_marker_only_follows_a_successful_scan(monkeypatch, tmp_path: Path) -> None:
     marker = tmp_path / "scan"
     monkeypatch.setattr(dispatcher_module, "SCAN_HEALTH_MARKER", marker)
+    dispatcher = OneScanDispatcher()
+    success_stop = StopAfterWait()
     run_dispatch_loop(
-        OneScanDispatcher(),
+        dispatcher,
         poll_interval_seconds=5,
-        stop_event=StopAfterWait(),  # type: ignore[arg-type]
+        stop_event=success_stop,  # type: ignore[arg-type]
         logger=logging.getLogger("test-dispatcher"),
     )
+    assert dispatcher.calls == 1
+    assert success_stop.waits == [5]
     assert marker.read_text(encoding="ascii") == str(os.getpid())
     marker.unlink()
 
     class FailingDispatcher:
         def dispatch_due(self) -> DispatchBatchResult:
-            raise RuntimeError("scan failed")
+            raise RuntimeError("redis://worker:secret@example.invalid/0?password=must-not-log")
 
+    output = io.StringIO()
+    failure_stop = StopAfterWait()
     run_dispatch_loop(
         FailingDispatcher(),  # type: ignore[arg-type]
         poll_interval_seconds=5,
-        stop_event=StopAfterWait(),  # type: ignore[arg-type]
-        logger=logging.getLogger("test-dispatcher"),
+        stop_event=failure_stop,  # type: ignore[arg-type]
+        logger=configure_logging("scheduler-dispatcher", level="INFO", stream=output),
     )
     assert not marker.exists()
-
-
-def test_dispatcher_scan_logging_labels_target_counts() -> None:
-    output = io.StringIO()
-    logger = configure_logging("scheduler-dispatcher", level="INFO", stream=output)
-    stop_event = StopAfterWait()
-
-    run_dispatch_loop(
-        OneScanDispatcher(),
-        poll_interval_seconds=5,
-        stop_event=stop_event,
-        logger=logger,
-    )
-
-    assert '"ingestion_claimed":1' in output.getvalue()
-    assert '"prediction_claimed":0' in output.getvalue()
-    assert '"event_code":"dispatch_enqueued"' in output.getvalue()
-    assert '"dispatch_id":"11111111-1111-4111-8111-111111111111"' in output.getvalue()
-    assert '"run_id":"22222222-2222-4222-8222-222222222222"' in output.getvalue()
-    assert '"correlation_id":"33333333-3333-4333-8333-333333333333"' in output.getvalue()
+    assert failure_stop.waits == [5]
+    record = json.loads(output.getvalue())
+    assert record["event_code"] == "dispatcher_scan_failed"
+    assert record["context"] == {"exception_type": "RuntimeError"}
+    assert "secret" not in output.getvalue()
+    assert "password" not in output.getvalue()
 
 
 def test_dispatcher_retry_log_has_target_ids_and_bounded_error() -> None:
@@ -148,25 +126,3 @@ def test_dispatcher_retry_log_has_target_ids_and_bounded_error() -> None:
     assert '"exception_type":"RuntimeError"' in log
     assert "secret" not in log
     assert "password" not in log
-
-
-def test_dispatcher_scan_failure_uses_structured_redacted_logging() -> None:
-    class FailingDispatcher:
-        def dispatch_due(self) -> DispatchBatchResult:
-            raise RuntimeError("redis://worker:secret@example.invalid/0?password=must-not-log")
-
-    output = io.StringIO()
-    logger = configure_logging("scheduler-dispatcher", level="INFO", stream=output)
-    stop_event = StopAfterWait()
-
-    run_dispatch_loop(
-        FailingDispatcher(),  # type: ignore[arg-type]
-        poll_interval_seconds=5,
-        stop_event=stop_event,  # type: ignore[arg-type]
-        logger=logger,
-    )
-
-    assert '"event_code":"dispatcher_scan_failed"' in output.getvalue()
-    assert '"exception_type":"RuntimeError"' in output.getvalue()
-    assert "secret" not in output.getvalue()
-    assert "password" not in output.getvalue()

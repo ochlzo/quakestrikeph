@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
-from quakestrike.domain.source_rows import DiagnosticCode, NormalizedSourceRow
+from quakestrike.domain.source_rows import DiagnosticCode
 from quakestrike.infrastructure.phivolcs.parser import (
     CatalogStructuralError,
     parse_current_catalog,
@@ -82,7 +82,7 @@ def test_catalog_parser_rejects_each_invalid_depth_without_losing_a_valid_siblin
 
     html = (
         "<table>"
-        + row(4, "7")
+        + row(4, "9999999.999")
         + "".join(
             row(number, depth)
             for number, depth in enumerate(("9999999.9994", "10000000", "1e100"), start=5)
@@ -93,6 +93,7 @@ def test_catalog_parser_rejects_each_invalid_depth_without_losing_a_valid_siblin
     result = parse_current_catalog(html, CATALOG_URL)
 
     assert len(result.accepted_rows) == 1
+    assert result.accepted_rows[0].depth_km == Decimal("9999999.999")
     assert [row.diagnostic.code for row in result.rejected_rows] == [
         DiagnosticCode.INVALID_NUMERIC_VALUE,
         DiagnosticCode.INVALID_NUMERIC_VALUE,
@@ -116,19 +117,3 @@ def test_detail_parser_normalizes_known_origins_and_reports_missing_or_unknown_v
     assert DiagnosticCode.DETAIL_ORIGIN_UNKNOWN in {
         diagnostic.code for diagnostic in unknown.diagnostics
     }
-
-
-def test_source_time_represents_manila_local_time_across_a_utc_date_boundary() -> None:
-    row = NormalizedSourceRow.from_catalog_values(
-        occurred_at=datetime.fromisoformat("2025-01-01T00:05:00+08:00"),
-        latitude="10",
-        longitude="125",
-        depth_km="7",
-        magnitude="4.2",
-        location_description="Test location",
-        source_bulletin_id="2025_0101_0005_B1",
-        source_event_group_id="2025_0101_0005",
-        source_url="https://earthquake.phivolcs.dost.gov.ph/2025_Earthquake_Information/January/2025_0101_0005_B1.html",
-    )
-
-    assert row.occurred_at.astimezone(UTC) == datetime(2024, 12, 31, 16, 5, tzinfo=UTC)

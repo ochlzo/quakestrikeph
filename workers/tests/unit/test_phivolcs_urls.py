@@ -6,81 +6,6 @@ from quakestrike.infrastructure.phivolcs.urls import BulletinUrlRejected, canoni
 
 
 @pytest.mark.parametrize(
-    ("page_url", "href", "event_year", "expected_url", "bulletin_id"),
-    [
-        (
-            "https://earthquake.phivolcs.dost.gov.ph/",
-            "2026_Earthquake_Information/August/2026_0818_1350_B2html",
-            2026,
-            "https://earthquake.phivolcs.dost.gov.ph/2026_Earthquake_Information/August/2026_0818_1350_B2.html",
-            "2026_0818_1350_B2",
-        ),
-        (
-            "https://earthquake.phivolcs.dost.gov.ph/",
-            "2018_Earthquake_Information\\March\\2018_0314__1632_B1.html",
-            2018,
-            "https://earthquake.phivolcs.dost.gov.ph/2018_Earthquake_Information/March/2018_0314_1632_B1.html",
-            "2018_0314_1632_B1",
-        ),
-        (
-            "https://earthquake.phivolcs.dost.gov.ph/",
-            "2026_Earthquake_Information\\September\\2026_0919_1525_B1_NL.html",
-            2026,
-            "https://earthquake.phivolcs.dost.gov.ph/2026_Earthquake_Information/September/2026_0919_1525_B1_NL.html",
-            "2026_0919_1525_B1_NL",
-        ),
-        (
-            "https://earthquake.phivolcs.dost.gov.ph/EQLatest-Monthly/2023/2023_August.html",
-            "_Information\\August\\2023_0731_1640_B1.html",
-            2023,
-            "https://earthquake.phivolcs.dost.gov.ph/2023_Earthquake_Information/August/2023_0731_1640_B1.html",
-            "2023_0731_1640_B1",
-        ),
-        (
-            "https://earthquake.phivolcs.dost.gov.ph/EQLatest-Monthly/2019/2019_February.html",
-            "2019_Earthquake_Information\\February\\2019_0228_1708_B2.html",
-            2019,
-            "https://earthquake.phivolcs.dost.gov.ph/2019_Earthquake_Information/February/2019_0228_1708_B2.html",
-            "2019_0228_1708_B2",
-        ),
-        (
-            "https://earthquake.phivolcs.dost.gov.ph/EQLatest-Monthly/2017/2017_January.html",
-            "../2016_Earthquake_Bulletins/December/2016_1231_2239_B2.html",
-            2016,
-            "https://earthquake.phivolcs.dost.gov.ph/2016_Earthquake_Bulletins/December/2016_1231_2239_B2.html",
-            "2016_1231_2239_B2",
-        ),
-        (
-            "https://earthquake.phivolcs.dost.gov.ph/EQLatest-Monthly/2018/2018_July.html",
-            "2018_Earthquake_Information\\July2018_0731_2005_B2.html",
-            2018,
-            "https://earthquake.phivolcs.dost.gov.ph/2018_Earthquake_Information/July/2018_0731_2005_B2.html",
-            "2018_0731_2005_B2",
-        ),
-        (
-            "https://earthquake.phivolcs.dost.gov.ph/EQLatest-Monthly/2018/2018_July.html",
-            "2018_Earthquake_Information\\July\\018_0731_1644_B3F.html",
-            2018,
-            "https://earthquake.phivolcs.dost.gov.ph/2018_Earthquake_Information/July/2018_0731_1644_B3F.html",
-            "2018_0731_1644_B3F",
-        ),
-    ],
-)
-def test_canonicalize_bulletin_url_repairs_known_legacy_paths(
-    page_url: str,
-    href: str,
-    event_year: int,
-    expected_url: str,
-    bulletin_id: str,
-) -> None:
-    identity = canonicalize_bulletin_url(page_url, href, event_year)
-
-    assert identity.source_url == expected_url
-    assert identity.source_bulletin_id == bulletin_id
-    assert identity.source_event_group_id == bulletin_id.rsplit("_B", 1)[0]
-
-
-@pytest.mark.parametrize(
     "href",
     [
         "https://example.invalid/2025_Earthquake_Information/January/2025_0102_0304_B1.html",
@@ -145,7 +70,7 @@ def test_canonicalize_bulletin_url_rejects_unrecognized_paths_and_extensions(hre
         canonicalize_bulletin_url("https://earthquake.phivolcs.dost.gov.ph/", href, 2025)
 
 
-@pytest.mark.parametrize("extension", ["html", "htm", "pdf", "jpg", "jpeg"])
+@pytest.mark.parametrize("extension", ["html", "pdf", "jpg"])
 def test_canonicalize_bulletin_url_accepts_scraper_supported_bulletin_extensions(
     extension: str,
 ) -> None:

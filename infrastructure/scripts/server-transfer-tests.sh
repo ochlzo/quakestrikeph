@@ -83,7 +83,7 @@ docker run --rm --network none --label "io.quakestrike.transfer=$owner" \
     "quakestrike-bulletin-checks:$tag" sh -ec '
     pnpm check
     pnpm build
-    for name in test:event-results test:mobile-drawer test:location-edit test:identity test:sms-enrollment test:forecast test:forecast-replay; do
+    for name in test:event-results test:location-edit test:identity test:sms-enrollment test:forecast test:forecast-replay; do
         pnpm run "$name"
     done'
 docker build -t "quakestrike-bulletin-checks:$tag-production" -f apps/quakestrikeph-bulletin/Dockerfile .

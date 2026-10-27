@@ -1,12 +1,17 @@
 import json
 import logging
+from html import escape
 
 import pytest
 from sqlalchemy import select
 
 from quakestrike.alert_worker.worker import handle_alert_command
 from quakestrike.infrastructure.database.alerts import SqlAlchemyAlertStore
-from quakestrike.infrastructure.database.tables import alert_delivery_attempts, alert_jobs
+from quakestrike.infrastructure.database.tables import (
+    alert_delivery_attempts,
+    alert_jobs,
+    alert_recipients,
+)
 from quakestrike.infrastructure.email.brevo import BrevoEmailProvider
 
 from .test_alert_resolution import Support, account, queued
@@ -26,9 +31,31 @@ def test_forecast_to_email_records_single_recipient_acceptance_without_inbox_del
         with migrated_engine.connect() as connection:
             attempt = connection.execute(select(alert_delivery_attempts)).one()
             job = connection.execute(select(alert_jobs)).one()
+            recipient = connection.execute(select(alert_recipients)).one()
             assert attempt.status == "sending"
+            assert url == "https://api.brevo.com/v3/smtp/email"
+            assert options["timeout"] == (3, 8)
+            assert options["allow_redirects"] is False
+            assert options["stream"] is True
+            assert options["json"]["sender"] == {
+                "email": "alerts@example.invalid",
+                "name": "Fixture",
+            }
+            assert options["json"]["to"] == [{"email": recipient.destination_snapshot}]
             assert options["json"]["textContent"] == job.email_body_snapshot
             assert options["json"]["subject"] == job.email_subject_snapshot
+            assert options["json"]["htmlContent"] == (
+                f"<html><body><pre>{escape(job.email_body_snapshot)}</pre></body></html>"
+            )
+            assert set(options["json"]) == {
+                "sender",
+                "to",
+                "subject",
+                "textContent",
+                "htmlContent",
+                "headers",
+            }
+            assert str(recipient.worker_execution_id) not in json.dumps(options)
             assert options["json"]["headers"] == {
                 "X-Mailin-custom": f"quakestrike-attempt:{attempt.delivery_attempt_id}"
             }

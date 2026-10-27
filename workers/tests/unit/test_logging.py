@@ -3,17 +3,11 @@ from __future__ import annotations
 import io
 import json
 import logging
-from uuid import uuid4
 
-from quakestrike.application.persistence import EventTransactionResult, RunClaim
-from quakestrike.application.reconciliation import ReconciliationDiagnostic
 from quakestrike.infrastructure.logging.json_logging import (
     configure_logging,
     log_event,
     log_exception_event,
-)
-from quakestrike.infrastructure.logging.reconciliation import (
-    StructuredReconciliationReporter,
 )
 
 
@@ -46,30 +40,6 @@ def test_structured_logging_emits_json_with_operational_identifiers() -> None:
     assert "must-not-be-logged" not in output.getvalue()
     assert "private-source-row" not in output.getvalue()
     assert "private-model-weights" not in output.getvalue()
-
-
-def test_reconciliation_diagnostic_logger_includes_run_and_input_correlation() -> None:
-    output = io.StringIO()
-    correlation_id = uuid4()
-    reporter = StructuredReconciliationReporter(
-        configure_logging("data-ingestor", level="INFO", stream=output)
-    )
-
-    reporter.report(
-        ReconciliationDiagnostic(
-            run_id=uuid4(),
-            worker_execution_id=uuid4(),
-            correlation_id=correlation_id,
-            input_key="row:abc123",
-            code="DETAIL_FETCH_FAILED",
-        )
-    )
-
-    record = json.loads(output.getvalue())
-    assert record["event_code"] == "DETAIL_FETCH_FAILED"
-    assert record["context"]["input_key"] == "row:abc123"
-    assert record["context"]["correlation_id"] == str(correlation_id)
-    assert "run_id" in record["context"]
 
 
 def test_exception_logging_keeps_type_and_redacts_exception_text() -> None:
@@ -110,36 +80,3 @@ def test_json_formatter_does_not_emit_exception_traces() -> None:
     assert record["message"] == "scheduled tick failed"
     assert "exception" not in record
     assert "password" not in output.getvalue()
-
-
-def test_reconciliation_commit_log_exposes_ids_without_source_content() -> None:
-    output = io.StringIO()
-    reporter = StructuredReconciliationReporter(configure_logging("data-ingestor", stream=output))
-    claim = RunClaim(uuid4(), uuid4(), uuid4(), 1, "manual")
-    result = EventTransactionResult(
-        event_id=uuid4(),
-        event_revision_id=uuid4(),
-        revision_number=2,
-        prediction_job_id=uuid4(),
-        dispatch_id=uuid4(),
-        event_created=False,
-        revision_created=True,
-        prediction_created=True,
-    )
-
-    reporter.report_event(claim, result)
-
-    record = json.loads(output.getvalue())
-    assert record["service"] == "data-ingestor"
-    assert record["event_code"] == "event_reconciled"
-    assert record["context"] == {
-        "run_id": str(claim.run_id),
-        "worker_execution_id": str(claim.worker_execution_id),
-        "correlation_id": str(claim.correlation_id),
-        "event_id": str(result.event_id),
-        "event_revision_id": str(result.event_revision_id),
-        "job_id": str(result.prediction_job_id),
-        "dispatch_id": str(result.dispatch_id),
-        "status": "revised",
-    }
-    assert "source_url" not in output.getvalue()

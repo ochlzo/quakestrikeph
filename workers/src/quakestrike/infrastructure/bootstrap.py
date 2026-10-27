@@ -218,9 +218,20 @@ def evaluate_bootstrap_readiness(
 
     if database_counts is not None:
         expected_database_counts = {
-            "input_checkpoints": run_state.events_found,
             "event_revisions": run_state.events_inserted + run_state.events_revised,
         }
+        checkpoint_count = database_counts.get("input_checkpoints")
+        finished_at = getattr(run_state, "finished_at", None)
+        checked_at = getattr(run_state, "retention_checked_at", None) or datetime.now(UTC)
+        checkpoints_expired = (
+            checkpoint_count == 0
+            and finished_at is not None
+            and finished_at.tzinfo is not None
+            and checked_at.tzinfo is not None
+            and finished_at < checked_at - timedelta(days=30)
+        )
+        if checkpoint_count != run_state.events_found and not checkpoints_expired:
+            return _not_ready("The database input_checkpoints count is inconsistent with the run.")
         for key, expected in expected_database_counts.items():
             if database_counts.get(key) != expected:
                 return _not_ready(f"The database {key} count is inconsistent with the run.")
@@ -824,7 +835,18 @@ def prepare_run_manifest(
                 raise BootstrapSnapshotError(evidence_error)
             return manifest
 
-    manifest = {
+    manifest = new_run_manifest(snapshot)
+    if enriched_snapshot_path is not None:
+        manifest["enriched_snapshot_path"] = str(enriched_snapshot_path.resolve())
+        manifest["enriched_snapshot_sha256"] = enriched_snapshot_sha256
+    write_run_manifest(path, manifest)
+    return manifest
+
+
+def new_run_manifest(snapshot: BootstrapSnapshot) -> dict[str, Any]:
+    """Build snapshot-derived fields without writing evidence or touching a database."""
+
+    return {
         "schema_version": RUN_MANIFEST_SCHEMA_VERSION,
         "snapshot_path": str(snapshot.path),
         "snapshot_sha256": snapshot.sha256,
@@ -846,11 +868,6 @@ def prepare_run_manifest(
             "normalized_inputs": snapshot.normalized_input_count,
         },
     }
-    if enriched_snapshot_path is not None:
-        manifest["enriched_snapshot_path"] = str(enriched_snapshot_path.resolve())
-        manifest["enriched_snapshot_sha256"] = enriched_snapshot_sha256
-    write_run_manifest(path, manifest)
-    return manifest
 
 
 def _is_readiness_only_manifest(path: Path) -> bool:

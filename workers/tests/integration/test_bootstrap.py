@@ -6,7 +6,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import delete, func, insert, select, update
 
 from quakestrike.application.bootstrap import run_bootstrap
 from quakestrike.application.persistence import RunIdentityConflict
@@ -21,6 +21,7 @@ from quakestrike.infrastructure.bootstrap import (
 from quakestrike.infrastructure.database.engine import create_session_factory
 from quakestrike.infrastructure.database.repositories import SqlAlchemyIngestionTransactions
 from quakestrike.infrastructure.database.tables import (
+    audit_logs,
     earthquake_bulletin_event_identities,
     earthquake_event_revisions,
     earthquake_events,
@@ -84,7 +85,7 @@ def test_backfill_run_rejects_changed_enrichment_evidence(migrated_engine) -> No
 
 
 def test_bootstrap_is_resumable_and_keeps_prediction_dispatch_in_scope(
-    migrated_engine, tmp_path: Path
+    migrated_engine, tmp_path: Path, monkeypatch, capsys
 ) -> None:
     release_id = uuid4()
     previous_run_id = uuid4()
@@ -274,6 +275,106 @@ def test_bootstrap_is_resumable_and_keeps_prediction_dispatch_in_scope(
     assert proof.ready is True
     assert json.loads(proof.details["database_counts"])["input_checkpoints"] == 8
     assert int(proof.details["usable_history_count"]) > 0
+
+    # Exercise recovery after retention removes the completed run's checkpoints.
+    from types import SimpleNamespace
+
+    from quakestrike import operator_bootstrap_recovery as recovery
+    from quakestrike.infrastructure import bootstrap_recovery as recovery_files
+
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            update(ingestion_runs)
+            .where(ingestion_runs.c.run_id == run_id)
+            .values(
+                started_at=datetime.now(UTC) - timedelta(days=32),
+                finished_at=datetime.now(UTC) - timedelta(days=31),
+            )
+        )
+        first_key = connection.scalar(
+            select(func.min(ingestion_run_inputs.c.input_key)).where(
+                ingestion_run_inputs.c.run_id == run_id
+            )
+        )
+        connection.execute(
+            delete(ingestion_run_inputs).where(
+                ingestion_run_inputs.c.run_id == run_id,
+                ingestion_run_inputs.c.input_key != first_key,
+            )
+        )
+    settings = Settings(
+        _env_file=None,
+        database_url=migrated_engine.url.render_as_string(hide_password=False),
+        redis_url="redis://redis:6379/0",
+        phivolcs_catalog_url="https://example.invalid/phivolcs/catalog",
+        model_release_id=release_id,
+        bootstrap_run_manifest=tmp_path / "recovered.json",
+    )
+    monkeypatch.setattr(recovery, "Settings", lambda: settings)
+
+    def ready_gate(_settings):
+        return SimpleNamespace(check=lambda: SimpleNamespace(ready=True))
+
+    monkeypatch.setattr(recovery, "AlembicMigrationStateGate", ready_gate)
+    monkeypatch.setattr(recovery, "ModelReleaseStartupGate", ready_gate)
+    kwargs = dict(
+        snapshot_path=FIXTURE,
+        enriched_snapshot_path=None,
+        manifest_path=settings.bootstrap_run_manifest,
+        run_id=None,
+    )
+    assert recovery.recover_bootstrap_readiness(apply=False, **kwargs) == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "rejected"
+    assert not settings.bootstrap_run_manifest.exists()
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            delete(ingestion_run_inputs).where(ingestion_run_inputs.c.run_id == run_id)
+        )
+    assert recovery.recover_bootstrap_readiness(apply=False, **kwargs) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "ready_to_apply"
+    assert not settings.bootstrap_run_manifest.exists()
+
+    publish = recovery_files.publish_exclusively
+
+    def interrupt(_path, _payload):
+        # A separate connection must see the committed audit before publication starts.
+        with migrated_engine.connect() as connection:
+            assert (
+                connection.scalar(
+                    select(func.count())
+                    .select_from(audit_logs)
+                    .where(audit_logs.c.action == "bootstrap_readiness_recovery_verified")
+                )
+                == 1
+            )
+        raise OSError("simulated interruption")
+
+    monkeypatch.setattr(recovery_files, "publish_exclusively", interrupt)
+    assert recovery.recover_bootstrap_readiness(apply=True, **kwargs) == 2
+    assert not settings.bootstrap_run_manifest.exists()
+    monkeypatch.setattr(recovery_files, "publish_exclusively", publish)
+    assert recovery.recover_bootstrap_readiness(apply=True, **kwargs) == 0
+    capsys.readouterr()
+    recovered = json.loads(settings.bootstrap_run_manifest.read_text(encoding="utf-8"))
+    assert recovered["run_id"] == str(run_id)
+    assert recovered["recovery"]["kind"] == "reconstructed"
+    assert BootstrapReadinessStartupGate(settings).check().ready
+    assert recovery.recover_bootstrap_readiness(apply=True, **kwargs) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "already_recovered"
+    with migrated_engine.connect() as connection:
+        assert (
+            connection.scalar(
+                select(func.count())
+                .select_from(audit_logs)
+                .where(audit_logs.c.action == "bootstrap_readiness_recovery_verified")
+            )
+            == 1
+        )
+    with migrated_engine.begin() as connection:
+        connection.execute(
+            delete(audit_logs).where(audit_logs.c.action == "bootstrap_readiness_recovery_verified")
+        )
+    assert not BootstrapReadinessStartupGate(settings).check().ready
 
 
 def _manifest_uuid(manifest: dict[str, object], key: str) -> UUID:

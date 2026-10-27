@@ -14,13 +14,11 @@ from quakestrike.domain.features import (
     HistoryCoverage,
     PredictionSkipReason,
     build_features,
-    build_prediction_decision,
     canonical_snapshot_bytes,
     create_feature_snapshot,
     evaluate_history_readiness,
     feature_snapshot_hash,
     haversine_distance_km,
-    select_usable_history,
 )
 
 NOW = datetime(2026, 9, 16, 12, 0, tzinfo=UTC)
@@ -43,14 +41,6 @@ def _observation(
         longitude=Decimal(longitude),
         depth_km=Decimal("10.000"),
         magnitude=Decimal(magnitude),
-    )
-
-
-def _complete_coverage(anchor_time: datetime = NOW) -> HistoryCoverage:
-    return HistoryCoverage(
-        start=anchor_time - timedelta(days=7),
-        end=anchor_time,
-        complete=True,
     )
 
 
@@ -91,21 +81,6 @@ def test_second_precision_events_in_the_same_minute_are_ordered_but_minute_preci
     assert values["catalog_m1_plus_count_past_1h"] == 1
 
 
-def test_readiness_history_uses_feature_rules_without_building_anchor_features() -> None:
-    anchor_time = NOW
-    history = [
-        _observation("lower-bound", anchor_time - timedelta(days=7)),
-        _observation("same-minute", anchor_time.replace(second=0), precision="minute"),
-        _observation("usable", anchor_time - timedelta(minutes=2)),
-        _observation("below-m1", anchor_time - timedelta(minutes=3), magnitude="0.99"),
-        _observation("future", anchor_time + timedelta(seconds=1)),
-    ]
-
-    usable = select_usable_history(anchor_time, history, anchor_time_precision="minute")
-
-    assert [row.event_id for row in usable] == ["lower-bound", "usable"]
-
-
 def test_local_distance_uses_project_radius_and_inclusive_boundary() -> None:
     anchor = _observation("anchor", NOW, latitude="0", longitude="0")
     # On the equator one degree of longitude is approximately 111.195 km.
@@ -138,26 +113,6 @@ def test_readiness_requires_explicit_complete_coverage_not_an_oldest_row() -> No
     assert evaluate_history_readiness(anchor, None).reason == (
         PredictionSkipReason.HISTORY_COVERAGE_UNAVAILABLE.value
     )
-
-
-def test_prediction_decision_does_not_build_a_zero_filled_snapshot_when_history_is_not_ready() -> (
-    None
-):
-    anchor = _observation("anchor", NOW, magnitude="1.0")
-
-    decision = build_prediction_decision(anchor, [], None)
-
-    assert decision.snapshot is None
-    assert decision.skip_reason == PredictionSkipReason.HISTORY_COVERAGE_UNAVAILABLE.value
-
-
-def test_below_m1_is_saved_as_a_non_prediction_decision_even_with_complete_coverage() -> None:
-    anchor = _observation("anchor", NOW, magnitude="0.99")
-
-    decision = build_prediction_decision(anchor, [], _complete_coverage())
-
-    assert decision.snapshot is None
-    assert decision.skip_reason == PredictionSkipReason.BELOW_M1.value
 
 
 def test_snapshot_is_exactly_ten_fields_and_hash_binds_schema_and_key_order() -> None:

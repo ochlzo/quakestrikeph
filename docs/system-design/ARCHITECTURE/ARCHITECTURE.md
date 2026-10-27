@@ -707,7 +707,8 @@ flowchart TB
 | Responsibility | Files and folders |
 | --- | --- |
 | Operator command boundary | [cli.py](../../../workers/src/quakestrike/cli.py), [operator_setup.py](../../../workers/src/quakestrike/operator_setup.py), [operator_runtime.py](../../../workers/src/quakestrike/operator_runtime.py) |
-| Bootstrap, model setup, and recovery workflows | [application/bootstrap.py](../../../workers/src/quakestrike/application/bootstrap.py), [application/model_releases.py](../../../workers/src/quakestrike/application/model_releases.py), [application/historical_recovery.py](../../../workers/src/quakestrike/application/historical_recovery.py) |
+| Bootstrap, model setup, and recovery workflows | [application/bootstrap.py](../../../workers/src/quakestrike/application/bootstrap.py), [application/bootstrap_recovery.py](../../../workers/src/quakestrike/application/bootstrap_recovery.py), [application/model_releases.py](../../../workers/src/quakestrike/application/model_releases.py), [application/historical_recovery.py](../../../workers/src/quakestrike/application/historical_recovery.py) |
+| Bootstrap recovery adapters | [infrastructure/bootstrap_recovery.py](../../../workers/src/quakestrike/infrastructure/bootstrap_recovery.py), [infrastructure/database/bootstrap_recovery.py](../../../workers/src/quakestrike/infrastructure/database/bootstrap_recovery.py) |
 | Migration and restricted grants | [database/migrations/](../../../database/migrations/) and [database/initialization/](../../../database/initialization/) |
 | Host timers, backups, restore tests, retention | [database/maintenance/](../../../database/maintenance/) |
 | Coordinated deployment | [infrastructure/scripts/deploy-workers.sh](../../../infrastructure/scripts/deploy-workers.sh) |

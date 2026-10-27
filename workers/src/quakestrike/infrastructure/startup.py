@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from collections.abc import Iterator
@@ -9,6 +10,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from quakestrike.application.bootstrap import HistoricalBootstrapOperation
@@ -31,6 +33,7 @@ from quakestrike.infrastructure.database.feature_history import SqlAlchemyFeatur
 from quakestrike.infrastructure.database.migration_state import AlembicMigrationStateGate
 from quakestrike.infrastructure.database.model_releases import SqlAlchemyModelReleaseRegistry
 from quakestrike.infrastructure.database.repositories import SqlAlchemyIngestionTransactions
+from quakestrike.infrastructure.database.tables import audit_logs
 from quakestrike.infrastructure.health import (
     PostgresConnectivityHealthCheck,
     RedisConnectivityHealthCheck,
@@ -187,6 +190,42 @@ class BootstrapReadinessStartupGate:
                     model_release_verifier=ConfiguredModelReleaseVerifier(self.settings),
                 )
                 state = store.get_ingestion_run(UUID(str(preparation.manifest["run_id"])))
+                recovery = preparation.manifest.get("recovery")
+                if recovery is not None:
+                    if not isinstance(recovery, dict) or recovery.get("kind") != "reconstructed":
+                        raise BootstrapSnapshotError("The recovery marker is invalid.")
+                    audit_id = UUID(str(recovery.get("audit_id")))
+                    with session_factory() as session:
+                        audit = (
+                            session.execute(
+                                select(audit_logs).where(audit_logs.c.audit_id == audit_id)
+                            )
+                            .mappings()
+                            .one_or_none()
+                        )
+                    saved = dict(preparation.manifest)
+                    saved.pop("readiness", None)
+                    payload = (
+                        json.dumps(saved, sort_keys=True, indent=2, ensure_ascii=True) + "\n"
+                    ).encode()
+                    metadata = audit["metadata"] if audit is not None else None
+                    if (
+                        state is None
+                        or audit is None
+                        or audit["action"] != "bootstrap_readiness_recovery_verified"
+                        or audit["actor_type"] != "system"
+                        or audit["target_type"] != "ingestion_run"
+                        or audit["target_id"] != str(state.run_id)
+                        or audit["correlation_id"] != state.correlation_id
+                        or audit["outcome"] != "succeeded"
+                        or not isinstance(metadata, dict)
+                        or metadata.get("manifest_sha256") != hashlib.sha256(payload).hexdigest()
+                        or metadata.get("snapshot_sha256") != preparation.source_snapshot.sha256
+                        or metadata.get("manifest_path") != str(preparation.manifest_path)
+                    ):
+                        raise BootstrapSnapshotError(
+                            "The reconstructed readiness audit is invalid."
+                        )
                 database_counts = None
                 history_observation_count = None
                 usable_history_count = None

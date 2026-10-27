@@ -166,48 +166,6 @@ def _prediction(release_id, *, magnitude: str = "4.20", job_id=None, dispatch_id
     )
 
 
-def test_event_revision_prediction_and_dispatch_commit_together(migrated_engine) -> None:
-    run_id = uuid4()
-    release_id = uuid4()
-    with migrated_engine.begin() as connection:
-        connection.execute(
-            insert(ingestion_runs).values(
-                run_id=run_id,
-                trigger_type="backfill",
-                status="succeeded",
-                started_at=NOW,
-                finished_at=NOW,
-                correlation_id=uuid4(),
-                bootstrap_snapshot_sha256=uuid4().hex * 2,
-            )
-        )
-        connection.execute(
-            insert(model_releases).values(
-                model_release_id=release_id,
-                version_label="SEIS 1.0",
-                artifact_manifest_uri="model-artifacts/manifest.json",
-                artifact_manifest_hash="a" * 64,
-                input_schema_version=INPUT_SCHEMA_VERSION,
-                output_schema_version="1",
-            )
-        )
-    revision = _revision(run_id)
-    prediction = _prediction(release_id)
-    _transactions(migrated_engine).process_event(
-        EventTransactionRequest(
-            event_id=uuid4(),
-            ingestion_run_id=run_id,
-            revision=revision,
-            prediction=prediction,
-        )
-    )
-    with migrated_engine.connect() as connection:
-        assert connection.scalar(select(func.count()).select_from(earthquake_events)) == 1
-        assert connection.scalar(select(func.count()).select_from(earthquake_event_revisions)) == 1
-        assert connection.scalar(select(func.count()).select_from(prediction_jobs)) == 1
-        assert connection.scalar(select(func.count()).select_from(job_dispatches)) == 1
-
-
 def test_event_transaction_failure_rolls_back_event_and_revision(migrated_engine) -> None:
     run_id = uuid4()
     with migrated_engine.begin() as connection:
@@ -279,118 +237,6 @@ def _event_request(run_id, release_id, *, event_id=None, revision=None, predicti
     )
 
 
-def test_duplicate_event_delivery_reuses_original_work(migrated_engine) -> None:
-    run_id, release_id = _seed_run_and_release(migrated_engine)
-    transactions = _transactions(migrated_engine)
-    first_request = _event_request(run_id, release_id)
-    first = transactions.process_event(first_request)
-    replay = replace(
-        first_request,
-        revision=replace(first_request.revision, event_revision_id=uuid4()),
-        prediction=replace(
-            first_request.prediction,
-            job_id=uuid4(),
-            dispatch_id=uuid4(),
-            idempotency_key=str(uuid4()),
-        ),
-    )
-    second = transactions.process_event(replay)
-
-    assert second.event_revision_id == first.event_revision_id
-    assert second.prediction_job_id == first.prediction_job_id
-    assert second.dispatch_id == first.dispatch_id
-    assert second.revision_created is False
-    assert second.prediction_created is False
-    with migrated_engine.connect() as connection:
-        assert connection.scalar(select(func.count()).select_from(earthquake_events)) == 1
-        assert connection.scalar(select(func.count()).select_from(earthquake_event_revisions)) == 1
-        assert connection.scalar(select(func.count()).select_from(prediction_jobs)) == 1
-        assert connection.scalar(select(func.count()).select_from(job_dispatches)) == 1
-
-
-def test_group_only_event_delivery_reuses_original_revision(migrated_engine) -> None:
-    run_id, release_id = _seed_run_and_release(migrated_engine)
-    transactions = _transactions(migrated_engine)
-    group_only_revision = replace(_revision(run_id), source_bulletin_id=None)
-    first_request = _event_request(run_id, release_id, revision=group_only_revision)
-    first = transactions.process_event(first_request)
-
-    replay = replace(
-        first_request,
-        revision=replace(group_only_revision, event_revision_id=uuid4()),
-        prediction=replace(
-            first_request.prediction,
-            job_id=uuid4(),
-            dispatch_id=uuid4(),
-            idempotency_key=str(uuid4()),
-        ),
-    )
-    second = transactions.process_event(replay)
-
-    assert second.event_revision_id == first.event_revision_id
-    assert second.revision_number == first.revision_number
-    assert second.prediction_job_id == first.prediction_job_id
-    assert second.dispatch_id == first.dispatch_id
-    assert second.revision_created is False
-    assert second.prediction_created is False
-    with migrated_engine.connect() as connection:
-        assert connection.scalar(select(func.count()).select_from(earthquake_event_revisions)) == 1
-        assert connection.scalar(select(func.count()).select_from(prediction_jobs)) == 1
-        assert connection.scalar(select(func.count()).select_from(job_dispatches)) == 1
-
-
-def test_same_bulletin_enrichment_appends_a_revision_and_unchanged_replay_is_a_no_op(
-    migrated_engine,
-) -> None:
-    run_id, release_id = _seed_run_and_release(migrated_engine)
-    transactions = _transactions(migrated_engine)
-    request = _event_request(run_id, release_id)
-    transactions.process_event(request)
-    enriched = replace(
-        request,
-        revision=replace(request.revision, event_revision_id=uuid4(), origin="TECTONIC"),
-        prediction=replace(
-            request.prediction,
-            job_id=uuid4(),
-            dispatch_id=uuid4(),
-            input_snapshot_hash=request.prediction.input_snapshot_hash,
-            idempotency_key=str(uuid4()),
-            correlation_id=uuid4(),
-        ),
-    )
-    changed = transactions.process_event(enriched)
-    replay = transactions.process_event(
-        replace(enriched, revision=replace(enriched.revision, event_revision_id=uuid4()))
-    )
-
-    assert changed.revision_created is True
-    assert changed.revision_number == 2
-    assert replay.revision_created is False
-    assert replay.event_revision_id == changed.event_revision_id
-    with migrated_engine.connect() as connection:
-        assert connection.scalar(select(func.count()).select_from(earthquake_event_revisions)) == 2
-
-
-def test_same_bulletin_cannot_be_attached_to_a_different_event(migrated_engine) -> None:
-    run_id, release_id = _seed_run_and_release(migrated_engine)
-    transactions = _transactions(migrated_engine)
-    original = _event_request(run_id, release_id)
-    transactions.process_event(original)
-
-    with pytest.raises(ValueError, match="belongs to another event"):
-        transactions.process_event(
-            _event_request(
-                run_id,
-                release_id,
-                event_id=uuid4(),
-                revision=replace(_revision(run_id), event_revision_id=uuid4()),
-            )
-        )
-    with migrated_engine.connect() as connection:
-        assert connection.scalar(select(func.count()).select_from(earthquake_events)) == 1
-        assert connection.scalar(select(func.count()).select_from(earthquake_event_revisions)) == 1
-
-
 def test_supplied_prediction_identity_collision_rolls_back(migrated_engine) -> None:
     run_id, release_id = _seed_run_and_release(migrated_engine)
     transactions = _transactions(migrated_engine)
@@ -425,11 +271,11 @@ def test_concurrent_event_revisions_are_serial_and_duplicate_safe(migrated_engin
     transactions = _transactions(migrated_engine)
     event_id = uuid4()
     first_revision = _revision(run_id)
-    changed_revision = replace(
-        _revision(run_id),
+    second_bulletin = replace(
+        first_revision,
+        event_revision_id=uuid4(),
         source_bulletin_id="2026_0831_1609_B2",
         source_url="https://earthquake.phivolcs.dost.gov.ph/example-b2",
-        magnitude=Decimal("4.30"),
     )
     requests = [
         _event_request(run_id, release_id, event_id=event_id, revision=first_revision),
@@ -437,8 +283,7 @@ def test_concurrent_event_revisions_are_serial_and_duplicate_safe(migrated_engin
             run_id,
             release_id,
             event_id=event_id,
-            revision=changed_revision,
-            prediction=_prediction(release_id, magnitude="4.30"),
+            revision=second_bulletin,
         ),
     ]
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -446,6 +291,10 @@ def test_concurrent_event_revisions_are_serial_and_duplicate_safe(migrated_engin
     assert sorted(result.revision_number for result in results) == [1, 2]
     with migrated_engine.connect() as connection:
         assert connection.scalar(select(func.count()).select_from(earthquake_events)) == 1
+        assert set(connection.scalars(select(earthquake_event_revisions.c.source_bulletin_id))) == {
+            first_revision.source_bulletin_id,
+            second_bulletin.source_bulletin_id,
+        }
 
     duplicate_requests = [
         _event_request(
@@ -509,50 +358,36 @@ def test_revisionless_unknown_event_is_rejected_without_creating_an_identity(
         assert connection.scalar(select(func.count()).select_from(earthquake_events)) == 0
 
 
-def test_revisionless_existing_event_updates_last_seen_run(migrated_engine) -> None:
-    first_run_id, release_id = _seed_run_and_release(migrated_engine)
-    transactions = _transactions(migrated_engine)
-    request = _event_request(first_run_id, release_id)
-    transactions.process_event(request)
-    later_run_id = uuid4()
-    with migrated_engine.begin() as connection:
-        connection.execute(
-            insert(ingestion_runs).values(
-                run_id=later_run_id,
-                trigger_type="backfill",
-                status="succeeded",
-                started_at=NOW,
-                finished_at=NOW,
-                correlation_id=uuid4(),
-                bootstrap_snapshot_sha256=uuid4().hex * 2,
-            )
-        )
-
-    result = transactions.process_event(
-        EventTransactionRequest(event_id=request.event_id, ingestion_run_id=later_run_id)
-    )
-
-    assert result.event_created is False
-    assert result.event_revision_id is None
-    with migrated_engine.connect() as connection:
-        assert (
-            connection.scalar(
-                select(earthquake_events.c.last_seen_run_id).where(
-                    earthquake_events.c.event_id == request.event_id
-                )
-            )
-            == later_run_id
-        )
-
-
 def test_group_only_revert_after_a_changed_revision_creates_a_new_revision(migrated_engine) -> None:
     run_id, release_id = _seed_run_and_release(migrated_engine)
     transactions = _transactions(migrated_engine)
     event_id = uuid4()
     first_revision = replace(_revision(run_id), source_bulletin_id=None)
-    first = transactions.process_event(
-        _event_request(run_id, release_id, event_id=event_id, revision=first_revision)
+    first_request = _event_request(run_id, release_id, event_id=event_id, revision=first_revision)
+    first = transactions.process_event(first_request)
+    replay = transactions.process_event(
+        replace(
+            first_request,
+            revision=replace(first_revision, event_revision_id=uuid4()),
+            prediction=replace(
+                first_request.prediction,
+                job_id=uuid4(),
+                dispatch_id=uuid4(),
+                idempotency_key=str(uuid4()),
+            ),
+        )
     )
+    assert replay.event_revision_id == first.event_revision_id
+    assert replay.revision_number == first.revision_number
+    assert replay.prediction_job_id == first.prediction_job_id
+    assert replay.dispatch_id == first.dispatch_id
+    assert replay.revision_created is False
+    assert replay.prediction_created is False
+    with migrated_engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(earthquake_events)) == 1
+        assert connection.scalar(select(func.count()).select_from(earthquake_event_revisions)) == 1
+        assert connection.scalar(select(func.count()).select_from(prediction_jobs)) == 1
+        assert connection.scalar(select(func.count()).select_from(job_dispatches)) == 1
     changed_revision = replace(
         _revision(run_id),
         source_bulletin_id="2026_0831_1610_B1",

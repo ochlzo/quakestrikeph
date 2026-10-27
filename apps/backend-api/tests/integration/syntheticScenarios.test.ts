@@ -30,14 +30,21 @@ test('disposable submitted scenario: closure gate, expiry, cleanup, replacement,
         await activate();
         const previewKey = `quakestrike:alert-testing:${sessionId}:preview:${eventId}`;
         await redis.del(key);
-        await redis.set(previewKey, JSON.stringify({ ...fixture, submitted: false, preview: true, saved_at_ms: fixture.submitted_at_ms }),
+        await redis.set(previewKey, JSON.stringify({ ...fixture, submitted: false, preview: true, saved_at_ms: fixture.submitted_at_ms,
+          selected: ['private-tester'], inputs: { location: 'private-draft' }, preparation_token: 'private-token' }),
           { expiration: { type: 'PXAT', value: deadline } });
-        assert.equal((await fetch(url)).status, 200, 'Persisted preview is readable before submission');
+        const previewResponse = await fetch(url);
+        assert.equal(previewResponse.status, 200, 'Persisted preview is readable before submission');
+        const preview = await previewResponse.json() as { item: unknown; expiresAt: string };
+        assert.doesNotMatch(JSON.stringify(preview), /private-tester|private-draft|preparation_token/);
+        assert.equal(previewResponse.headers.get('cache-control'), 'no-store');
         await redis.hSet(control, { lifecycle: 'closed' });
         assert.equal((await fetch(url)).status, 404, 'Preview obeys session closure');
         await redis.del(previewKey);
         await activate();
-        const first = await (await fetch(url)).json() as { item: unknown };
+        const first = await (await fetch(url)).json() as { item: unknown; expiresAt: string };
+        assert.deepEqual(first.item, preview.item);
+        assert.equal(first.expiresAt, preview.expiresAt);
         assert.deepEqual((await (await fetch(url)).json() as { item: unknown }).item, first.item);
         const start = fixture.scenario.forecast.window_start_ms;
         const response = await observations(base, start, start + 86400000);

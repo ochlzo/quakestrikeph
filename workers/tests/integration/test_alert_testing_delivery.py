@@ -428,6 +428,12 @@ def test_ordinary_eligibility_rechecked_after_queueing(redis_client, inputs, cha
         h.consumer.once(h.owner)
         assert not h.providers["email"].calls
         assert len(h.providers["sms"].calls) == (1 if change == "email_verified_at" else 0)
+        if change in {"threshold", "nearby"}:
+            rows = request(h, "results", event_id=scenario["event_id"])[1]["recipients"]
+            assert len(rows) == 2
+            assert {row["channel"] for row in rows} == {"email", "sms"}
+            reason = "Below M5.3" if change == "threshold" else "Outside"
+            assert all(row["status"] == "skipped" and reason in row["reason"] for row in rows)
 
 
 def test_nearby_variants_and_changed_sms_destination(redis_client, inputs):

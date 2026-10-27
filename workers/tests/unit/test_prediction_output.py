@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 
@@ -9,21 +9,6 @@ from quakestrike.domain.prediction import (
 from quakestrike.infrastructure.models.deterministic_test import DeterministicTestModel
 
 EVENT_TIME = datetime(2026, 9, 23, 12, tzinfo=UTC)
-
-
-def test_composition_and_exact_window() -> None:
-    raw = DeterministicTestModel().predict({"anchor_magnitude": 4.2})
-    forecast = compose_forecast(raw, EVENT_TIME)
-    assert forecast.window_start == EVENT_TIME
-    assert forecast.window_end == EVENT_TIME + timedelta(hours=24)
-    assert forecast.probability_m1_plus_24h == 0.6
-    assert forecast.probability_m4_plus_24h == pytest.approx(0.24)
-    assert forecast.probability_m5_plus_24h == pytest.approx(0.06)
-    assert (
-        forecast.maximum_magnitude_q05_24h,
-        forecast.maximum_magnitude_q50_24h,
-        forecast.maximum_magnitude_q95_24h,
-    ) == (3.7, 4.2, 4.7)
 
 
 @pytest.mark.parametrize(

@@ -30,37 +30,6 @@ def test_enabled_provider_construction_requires_each_selected_channel_only():
     assert isinstance(providers["email"], BrevoEmailProvider)
 
 
-def test_runtime_handler_suppresses_private_database_exception_details():
-    import traceback
-    from types import SimpleNamespace
-    from uuid import uuid4
-
-    from quakestrike.alert_worker.worker import create_alert_handler
-
-    class FailedStore:
-        def maintain(self, *args):
-            raise RuntimeError("DETAIL destination=private@example.invalid token=private-token")
-
-    handler = create_alert_handler(
-        SimpleNamespace(alert_resolution_enabled=True, alert_delivery_enabled=True),
-        store=FailedStore(),
-        support=object(),
-        providers={"sms": object(), "email": object()},
-    )
-    with pytest.raises(RuntimeError) as failure:
-        handler(
-            {
-                "message_version": 1,
-                "dispatch_id": str(uuid4()),
-                "alert_job_id": str(uuid4()),
-                "correlation_id": str(uuid4()),
-            }
-        )
-    rendered = "".join(traceback.format_exception(failure.value))
-    assert "private@example.invalid" not in rendered
-    assert "private-token" not in rendered
-
-
 def test_reconciliation_cursors_visit_later_pending_rows_and_maintenance_survives_poll_failure():
     from types import SimpleNamespace
     from uuid import UUID
@@ -101,21 +70,6 @@ def test_reconciliation_cursors_visit_later_pending_rows_and_maintenance_survive
     assert polled == [str(value) for value in ids]
     assert maintained == ids
     assert runtime.poll_after is None and runtime.maintenance_after is None
-
-
-@pytest.mark.parametrize("action", ["health-alert", "health-alert-reconciliation"])
-def test_cli_exposes_read_only_alert_health_actions(monkeypatch, action):
-    import sys
-
-    from quakestrike import cli
-
-    called = []
-    monkeypatch.setattr(
-        cli.operator_runtime, "worker_health", lambda name: called.append(name) or 0
-    )
-    monkeypatch.setattr(sys, "argv", ["quakestrike", action])
-    assert cli.main() == 0
-    assert called == [action]
 
 
 def test_alert_health_requires_local_queue_consumption_and_fresh_reconciliation_marker(

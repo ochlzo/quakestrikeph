@@ -8,12 +8,10 @@ import os
 import subprocess
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from threading import Barrier, Event
 from uuid import uuid4
 
 import pytest
@@ -233,6 +231,12 @@ def test_prediction_command_completes_once_and_stops_dispatch(migrated_engine, c
         assert job.status == attempt.status == "succeeded"
         assert forecast.window_start == NOW
         assert forecast.window_end == NOW + timedelta(hours=24)
+        assert forecast.probability_m1_plus_24h == 0.6
+        assert (
+            forecast.maximum_magnitude_q05_24h,
+            forecast.maximum_magnitude_q50_24h,
+            forecast.maximum_magnitude_q95_24h,
+        ) == (3.7, 4.2, 4.7)
         assert forecast.probability_m4_plus_24h == pytest.approx(0.24)
         assert forecast.probability_m5_plus_24h == pytest.approx(0.06)
         assert dispatch.status == "stopped"
@@ -251,70 +255,6 @@ def test_prediction_command_completes_once_and_stops_dispatch(migrated_engine, c
             "forecast_id": str(forecast.forecast_id),
             "alert_job_id": str(alert.alert_job_id),
         }
-
-
-def test_two_prediction_executions_complete_independent_jobs_concurrently(migrated_engine):
-    first = seed(migrated_engine)
-    with migrated_engine.connect() as connection:
-        release_id = connection.scalar(select(model_releases.c.model_release_id))
-    commands = [
-        first,
-        seed(migrated_engine, existing_release_id=release_id, source_minute="1201"),
-    ]
-    overlap = Barrier(2, timeout=10)
-
-    class OverlapModel(DeterministicTestModel):
-        def predict(self, features):
-            overlap.wait()
-            return super().predict(features)
-
-    def process(command):
-        return handle_prediction_command(
-            command.to_message(),
-            store=store(migrated_engine, configured_release_id=release_id),
-            model=OverlapModel(),
-            logger=logging.getLogger(__name__),
-        )
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(process, commands))
-    assert results == ["succeeded", "succeeded"]
-    with migrated_engine.connect() as connection:
-        assert connection.scalar(select(func.count()).select_from(prediction_attempts)) == 2
-        assert connection.scalar(select(func.count()).select_from(forecasts)) == 2
-
-
-def test_two_prediction_executions_racing_for_one_job_keep_one_attempt(migrated_engine):
-    command = seed(migrated_engine)
-    with migrated_engine.connect() as connection:
-        release_id = connection.scalar(select(model_releases.c.model_release_id))
-    started, finish = Event(), Event()
-
-    class HeldModel(DeterministicTestModel):
-        def predict(self, features):
-            started.set()
-            assert finish.wait(10)
-            return super().predict(features)
-
-    def process(model):
-        return handle_prediction_command(
-            command.to_message(),
-            store=store(migrated_engine, configured_release_id=release_id),
-            model=model,
-            logger=logging.getLogger(__name__),
-        )
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        first = pool.submit(process, HeldModel())
-        try:
-            assert started.wait(10)
-            assert pool.submit(process, DeterministicTestModel()).result(timeout=10) == "unclaimed"
-        finally:
-            finish.set()
-        assert first.result(timeout=10) == "succeeded"
-    with migrated_engine.connect() as connection:
-        assert connection.scalar(select(func.count()).select_from(prediction_attempts)) == 1
-        assert connection.scalar(select(func.count()).select_from(forecasts)) == 1
 
 
 @pytest.mark.parametrize("trigger_type,expired", [("backfill", False), ("manual", True)])
@@ -575,68 +515,6 @@ def test_real_seis_bundle_persists_known_forecast(migrated_engine):
         assert forecast.maximum_magnitude_q95_24h == pytest.approx(4.97934202670072)
         assert forecast.activity_radius_median_km_24h == pytest.approx(11.585661189276763)
         assert connection.scalar(select(prediction_jobs.c.status)) == "succeeded"
-
-
-def test_published_v1_command_is_consumed_by_a_running_worker(migrated_engine):
-    command = seed(migrated_engine)
-    with migrated_engine.connect() as connection:
-        release_id = connection.scalar(select(model_releases.c.model_release_id))
-    settings = Settings(
-        _env_file=None,
-        database_url=os.environ["TEST_DATABASE_URL"],
-        redis_url=os.environ["TEST_REDIS_URL"],
-        phivolcs_catalog_url="https://example.invalid/catalog",
-        model_release_id=release_id,
-    )
-    app = create_prediction_app(settings, command_handler=lambda _: "unused")
-    redis_client = Redis.from_url(settings.redis_url)
-    redis_client.delete("prediction")
-    environment = os.environ | {
-        "DATABASE_URL": settings.database_url,
-        "REDIS_URL": settings.redis_url,
-        "PHIVOLCS_CATALOG_URL": settings.phivolcs_catalog_url,
-        "MODEL_RELEASE_ID": str(settings.model_release_id),
-    }
-    worker = subprocess.Popen(
-        [
-            sys.executable,
-            "-c",
-            "from quakestrike.infrastructure.settings import Settings; "
-            "from quakestrike.prediction_worker.worker import run_prediction; "
-            "from quakestrike.infrastructure.models.deterministic_test "
-            "import DeterministicTestModel; "
-            "run_prediction(Settings(_env_file=None), model=DeterministicTestModel())",
-        ],
-        env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    try:
-        CeleryPredictionPublisher(app).publish(
-            PredictionDispatch(command.dispatch_id, command.job_id, command.correlation_id)
-        )
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            with migrated_engine.connect() as connection:
-                if connection.scalar(select(func.count()).select_from(forecasts)) == 1:
-                    break
-            if worker.poll() is not None:
-                pytest.fail(f"Prediction worker exited: {worker.stdout.read()[-2000:]}")
-            time.sleep(0.2)
-        else:
-            pytest.fail("Prediction worker did not consume the queued command.")
-    finally:
-        worker.terminate()
-        try:
-            worker.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            worker.kill()
-            worker.communicate(timeout=5)
-        redis_client.delete("prediction")
-        redis_client.close()
-    with migrated_engine.connect() as connection:
-        assert connection.scalar(select(func.count()).select_from(forecasts)) == 1
 
 
 @contextmanager

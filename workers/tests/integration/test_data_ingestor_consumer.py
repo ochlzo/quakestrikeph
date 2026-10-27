@@ -21,7 +21,7 @@ from quakestrike.application.persistence import (
 )
 from quakestrike.application.reconciliation import ReconcileCurrentCatalog
 from quakestrike.data_ingestor.worker import create_ingestor_app, handle_ingestion_command
-from quakestrike.domain.features import INPUT_SCHEMA_VERSION, HistoryCoverage
+from quakestrike.domain.features import INPUT_SCHEMA_VERSION, HistoryCoverage, feature_snapshot_hash
 from quakestrike.domain.source_rows import CatalogEvidence, CatalogParseResult, NormalizedSourceRow
 from quakestrike.infrastructure.database.dispatch import SqlAlchemyDispatchStore
 from quakestrike.infrastructure.database.engine import create_session_factory
@@ -273,6 +273,7 @@ def test_beat_to_ingestor_to_prediction_queue_replays_safely(migrated_engine) ->
         with migrated_engine.connect() as connection:
             database_now = connection.scalar(select(func.now()))
 
+        anchor_time = (database_now - timedelta(hours=1)).replace(second=0, microsecond=0)
         model_release_id = uuid4()
         bootstrap_run_id = uuid4()
         with migrated_engine.begin() as connection:
@@ -314,7 +315,7 @@ def test_beat_to_ingestor_to_prediction_queue_replays_safely(migrated_engine) ->
                     source_event_group_id="2026_0918_1100",
                     source_url="https://earthquake.phivolcs.dost.gov.ph/2026_0918_1100_B1.html",
                     source_time_precision="second",
-                    event_time=database_now - timedelta(hours=2),
+                    event_time=anchor_time - timedelta(days=7),
                     latitude=14,
                     longitude=121,
                     depth_km=10,
@@ -325,7 +326,7 @@ def test_beat_to_ingestor_to_prediction_queue_replays_safely(migrated_engine) ->
         )
 
         row = NormalizedSourceRow.from_catalog_values(
-            occurred_at=database_now - timedelta(hours=1),
+            occurred_at=anchor_time,
             latitude="14.00",
             longitude="121.00",
             depth_km="10",
@@ -425,6 +426,33 @@ def test_beat_to_ingestor_to_prediction_queue_replays_safely(migrated_engine) ->
                 )
             ).one()
 
+        assert set(prediction_job.input_snapshot_json) == {
+            "anchor_magnitude",
+            "anchor_depth_km",
+            "anchor_latitude",
+            "anchor_longitude",
+            "anchor_time_is_minute_precision",
+            "catalog_m1_plus_count_past_1h",
+            "catalog_m1_plus_count_past_24h",
+            "catalog_m1_plus_count_past_7d",
+            "local_m1_plus_count_past_24h_within_50km",
+            "local_m1_plus_count_past_24h_within_100km",
+        }
+        assert prediction_job.input_snapshot_json["catalog_m1_plus_count_past_7d"] == 1
+        assert prediction_job.input_snapshot_hash == feature_snapshot_hash(
+            prediction_job.input_snapshot_json, INPUT_SCHEMA_VERSION
+        )
+        assert prediction_dispatch.prediction_job_id == prediction_job.job_id
+        assert prediction_job.correlation_id == scheduled.correlation_id
+        with migrated_engine.connect() as connection:
+            revision = connection.execute(
+                select(earthquake_event_revisions).where(
+                    earthquake_event_revisions.c.event_revision_id
+                    == prediction_job.event_revision_id
+                )
+            ).one()
+        assert revision.prediction_skip_reason is None
+
         prediction_dispatcher = DurableDispatcher(
             SqlAlchemyDispatchStore(session_factory),
             {
@@ -436,6 +464,18 @@ def test_beat_to_ingestor_to_prediction_queue_replays_safely(migrated_engine) ->
         )
         published_prediction = prediction_dispatcher.dispatch_due()
         assert published_prediction.target_counts_for("prediction").enqueued == 1
+        assert redis_client.llen(PREDICTION_QUEUE) == 1
+        with migrated_engine.connect() as connection:
+            enqueued = connection.execute(
+                select(job_dispatches).where(
+                    job_dispatches.c.dispatch_id == prediction_dispatch.dispatch_id
+                )
+            ).one()
+        assert enqueued.status == "enqueued"
+        assert enqueued.last_dispatched_at is not None
+        assert enqueued.next_dispatch_at is None
+        assert enqueued.lease_expires_at is None
+        assert enqueued.dispatch_token is None
 
         with Connection(redis_url) as connection:
             queue = connection.SimpleQueue(PREDICTION_QUEUE)
@@ -444,9 +484,12 @@ def test_beat_to_ingestor_to_prediction_queue_replays_safely(migrated_engine) ->
                 assert message.headers["task"] == PREDICTION_TASK_NAME
                 assert message.delivery_info["routing_key"] == PREDICTION_QUEUE
                 prediction_payload = message.payload[0][0]
-                assert prediction_payload["dispatch_id"] == str(prediction_dispatch.dispatch_id)
-                assert prediction_payload["job_id"] == str(prediction_job.job_id)
-                assert prediction_payload["correlation_id"] == str(prediction_job.correlation_id)
+                assert prediction_payload == {
+                    "message_version": 1,
+                    "dispatch_id": str(prediction_dispatch.dispatch_id),
+                    "job_id": str(prediction_job.job_id),
+                    "correlation_id": str(prediction_job.correlation_id),
+                }
             finally:
                 message.ack()
                 queue.close()

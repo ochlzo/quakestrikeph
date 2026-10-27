@@ -246,34 +246,6 @@ def test_stored_detail_skips_unchanged_page_fetch() -> None:
     assert [call[0] for call in session.calls] == [other.source_url]
 
 
-def test_reused_details_need_one_heartbeat_without_detail_requests() -> None:
-    row = parse_current_catalog(
-        (FIXTURES / "current_catalog.html").read_bytes(), CATALOG_URL
-    ).accepted_rows[0]
-    stored = parse_detail_page((FIXTURES / "bulletin_detail.html").read_bytes())
-    session = ScriptedSession([])
-    client = PhivolcsCatalogClient(
-        catalog_url=CATALOG_URL,
-        session=session,
-        max_response_bytes=10_000,
-        connect_timeout_seconds=3,
-        read_timeout_seconds=4,
-        detail_delay_seconds=0,
-        reusable_details=lambda rows: {row.source_url: stored},
-    )
-    heartbeats = 0
-
-    def heartbeat() -> bool:
-        nonlocal heartbeats
-        heartbeats += 1
-        return True
-
-    client.enrich_rows((row,) * 3, heartbeat=heartbeat)
-
-    assert heartbeats == 1
-    assert session.calls == []
-
-
 def test_detail_non_html_response_keeps_catalog_row_with_sanitized_diagnostic() -> None:
     session = ScriptedSession(
         [

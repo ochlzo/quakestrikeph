@@ -4,8 +4,6 @@ import io
 import json
 from datetime import UTC, datetime
 
-from celery import Celery
-
 from quakestrike.infrastructure.logging.json_logging import configure_logging
 from quakestrike.infrastructure.queues.celery_app import (
     DURABLE_INGESTION_TICK,
@@ -29,7 +27,32 @@ def _settings() -> Settings:
 def test_due_beat_entry_runs_local_tick_without_publishing_a_task() -> None:
     ticks: list[str] = []
     app = create_celery_app(_settings(), ingestion_tick=lambda: ticks.append("created"))
+    assert set(app.conf.beat_schedule) == {"durable-ingestion-tick"}
+    schedule = app.conf.beat_schedule["durable-ingestion-tick"]
+    assert schedule["task"] == DURABLE_INGESTION_TICK
+    assert isinstance(schedule["schedule"], UtcBoundarySchedule)
+    assert schedule["schedule"].interval_seconds == 300
+    assert schedule["args"] == ()
+    assert app.conf.beat_scheduler == "quakestrike.scheduler.beat:DurableBeatScheduler"
+    assert app.conf.quakestrike_poll_interval_seconds == 300
+    assert DURABLE_INGESTION_TICK not in app.conf.task_routes
+    assert (
+        app.conf.task_routes["quakestrike.data_ingestor.worker.process_ingestion"]["queue"]
+        == "ingestion"
+    )
+    assert app.conf.task_acks_late is True
+    assert app.conf.task_reject_on_worker_lost is True
+    assert app.conf.worker_concurrency == 1
+    assert app.conf.task_ignore_result is True
+    assert (
+        app.conf.task_routes["quakestrike.infrastructure.queues.tasks.publish_prediction"]["queue"]
+        == "prediction"
+    )
+    app.connection_for_write = lambda *args, **kwargs: (_ for _ in ()).throw(  # type: ignore[method-assign]
+        AssertionError("Beat must not connect to the broker")
+    )
     scheduler = DurableBeatScheduler(app)
+    assert scheduler.producer is None
     app.send_task = lambda *args, **kwargs: (_ for _ in ()).throw(  # type: ignore[method-assign]
         AssertionError("Beat must not publish a queue task")
     )
@@ -49,51 +72,23 @@ def test_new_beat_scheduler_waits_for_the_next_boundary_before_writing() -> None
     app.conf.beat_schedule["durable-ingestion-tick"]["schedule"] = UtcBoundarySchedule(
         300, nowfun=lambda: now[0]
     )
+    schedule = app.conf.beat_schedule["durable-ingestion-tick"]["schedule"]
+    started_at = now[0]
+    due, remaining = schedule.is_due(started_at)
+    assert due is False
+    assert remaining == 180
     scheduler = DurableBeatScheduler(app)
 
     assert scheduler.tick() > 0
     assert writes == []
 
     now[0] = datetime(2026, 9, 18, 12, 5, tzinfo=UTC)
+    assert schedule.is_due(started_at).is_due is True
+    assert schedule.is_due(now[0]).is_due is False
     scheduler.tick()
     assert writes == ["run"]
-
-
-def test_scheduler_can_be_constructed_by_celery_with_the_configured_class() -> None:
-    app = Celery("test", broker="memory://")
-    app.conf.update(
-        beat_schedule={
-            "durable-ingestion-tick": {
-                "task": DURABLE_INGESTION_TICK,
-                "schedule": 300,
-            }
-        },
-        quakestrike_scheduled_ingestion_tick=lambda: None,
-    )
-
-    scheduler = DurableBeatScheduler(app)
-
-    assert scheduler.schedule["durable-ingestion-tick"].task == DURABLE_INGESTION_TICK
-    assert set(scheduler.schedule) == {"durable-ingestion-tick"}
-
-
-def test_scheduler_does_not_construct_a_broker_producer() -> None:
-    app = Celery("test", broker="redis://invalid.example:6379/0")
-    app.conf.update(
-        beat_schedule={
-            "durable-ingestion-tick": {
-                "task": DURABLE_INGESTION_TICK,
-                "schedule": 300,
-            }
-        },
-        quakestrike_scheduled_ingestion_tick=lambda: None,
-    )
-    app.connection_for_write = lambda *args, **kwargs: (_ for _ in ()).throw(  # type: ignore[method-assign]
-        AssertionError("Beat must not connect to the broker")
-    )
-    scheduler = DurableBeatScheduler(app)
-
-    assert scheduler.producer is None
+    scheduler.tick()
+    assert writes == ["run"]
 
 
 def test_beat_tick_failure_uses_structured_redacted_logging() -> None:

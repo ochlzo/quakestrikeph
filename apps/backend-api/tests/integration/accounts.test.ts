@@ -5,7 +5,7 @@ import { Pool } from 'pg';
 import { createClient } from 'redis';
 import { PostgresAccounts } from '../../src/infrastructure/postgres/accounts.js';
 import { RedisPhoneAttempts } from '../../src/infrastructure/redis/phoneAttempts.js';
-import type { Identity } from '../../src/domain/accounts.js';
+import { AccountError, type Identity } from '../../src/domain/accounts.js';
 
 const database = process.env.TEST_DATABASE_URL, backend = process.env.TEST_BACKEND_DATABASE_URL, redisUrl = process.env.TEST_REDIS_URL;
 const p = { emailEnabled: false, smsEnabled: false, magnitude: 4.5, nearbyOnly: false, latitude: null, longitude: null, distanceKm: null };
@@ -22,15 +22,17 @@ test('account writes enforce ownership, phone uniqueness, state and atomic audit
   const other: Identity = { clerkUserId: `test_other_${id}`, email: `other_${id}@example.invalid`, recent: true };
   const phone = `+639${randomInt(100000000, 999999999)}`;
   const users: string[] = [];
+  const trustMismatch = (error: unknown) => error instanceof AccountError &&
+    error.code === 'EMAIL_MIRROR_MISMATCH' && !('status' in error);
   try {
     const [first, same] = await Promise.all([store.profile(identity, 'Reader', randomUUID()), store.profile(identity, 'Reader', randomUUID())]);
     users.push(first.userId); assert.equal(first.userId, same.userId);
     const second = await store.profile(other, 'Other Reader', randomUUID()); users.push(second.userId);
     assert.equal(await store.read({ ...identity, clerkUserId: 'missing_test_user' }), null);
-    await assert.rejects(store.read({ ...identity, email: 'changed@example.invalid' }), { code: 'EMAIL_MIRROR_MISMATCH' });
+    await assert.rejects(store.read({ ...identity, email: 'changed@example.invalid' }), trustMismatch);
     for (const [email, verifiedAt] of [['changed@example.invalid', new Date()], [identity.email, null]]) {
       await admin.query('UPDATE users SET email=$2,email_verified_at=$3 WHERE user_id=$1', [first.userId, email, verifiedAt]);
-      await assert.rejects(store.read(identity), { code: 'EMAIL_MIRROR_MISMATCH' });
+      await assert.rejects(store.read(identity), trustMismatch);
       const deniedRequest = randomUUID();
       await assert.rejects(store.save(identity, { ...p, magnitude: 7.5 }, deniedRequest), { code: 'EMAIL_MIRROR_MISMATCH' });
       await assert.rejects(store.profile(identity, 'Rejected name', randomUUID()), { code: 'EMAIL_MIRROR_MISMATCH' });

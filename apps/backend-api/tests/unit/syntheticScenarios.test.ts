@@ -5,15 +5,6 @@ import { projectSubmittedScenario } from '../../src/domain/submittedScenario.js'
 import { submittedFixture, eventId, sessionId } from '../fixtures/submittedScenario.js';
 import { observations, publicWorkflow } from '../fixtures/publicScenarioWorkflow.js';
 
-test('public preview uses the same projection without private workspace data', () => {
-  const deadline = Date.now() + 3600000, fixture = submittedFixture(deadline);
-  const preview = { ...fixture, submitted: false, preview: true, saved_at_ms: fixture.submitted_at_ms,
-    selected: ['private-tester'], inputs: { location: 'private-draft' } };
-  const result = projectSubmittedScenario(preview, sessionId, deadline, eventId);
-  assert.deepEqual(result, projectSubmittedScenario(fixture, sessionId, deadline, eventId));
-  assert.doesNotMatch(JSON.stringify(result), /private-tester|private-draft|preparation_token/);
-});
-
 test('submitted public projection, stable pagination, privacy, absence, validation and outage isolation', async () => {
   const deadline = Date.now() + 3600000, fixture = submittedFixture(deadline);
   const scenario = projectSubmittedScenario(fixture, sessionId, deadline, eventId)!;

@@ -53,6 +53,7 @@ def main() -> int:
             "bootstrap",
             "bootstrap-recover",
             "bootstrap-readiness",
+            "recover-bootstrap-readiness",
             "package-model-release",
             "register-model-release",
             "verify-model-release",
@@ -74,6 +75,9 @@ def main() -> int:
     parser.add_argument("--source-package", type=Path)
     parser.add_argument("--snapshot", type=Path)
     parser.add_argument("--run-manifest", type=Path)
+    parser.add_argument("--run-id", type=UUID)
+    parser.add_argument("--enriched-snapshot", type=Path)
+    parser.add_argument("--check", action="store_true")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--reconcile", action="store_true")
     parser.add_argument("--batch-size", type=int, default=50)
@@ -100,6 +104,18 @@ def main() -> int:
         return _run_startup_check(args.run_manifest)
     if args.command == "bootstrap-readiness":
         return _run_bootstrap_readiness(args.run_manifest)
+    if args.command == "recover-bootstrap-readiness":
+        if args.check == args.apply:
+            parser.error("recover-bootstrap-readiness requires exactly one of --check or --apply")
+        from quakestrike.operator_bootstrap_recovery import recover_bootstrap_readiness
+
+        return recover_bootstrap_readiness(
+            apply=args.apply,
+            snapshot_path=args.snapshot,
+            enriched_snapshot_path=args.enriched_snapshot,
+            manifest_path=args.run_manifest,
+            run_id=args.run_id,
+        )
     if args.command == "package-model-release":
         if args.source_package is None:
             parser.error("package-model-release requires --source-package")
