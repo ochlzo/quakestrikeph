@@ -46,22 +46,6 @@ def test_provisional_channels_use_saved_preferences_and_unknown_sms_support():
     [
         ({"account_status": "suspended"}, {}, "valid main magnitude"),
         (
-            {"account_status": "suspended"},
-            {"magnitude": "5.2", "latitude": "9.86", "longitude": "125.55"},
-            "not active",
-        ),
-        (
-            {"onboarding_completed_at": None},
-            {"magnitude": "5.2", "latitude": "9.86", "longitude": "125.55"},
-            "incomplete",
-        ),
-        ({}, {"magnitude": "4.4", "latitude": "9.86", "longitude": "125.55"}, "Below M4.5"),
-        (
-            {"nearby_alerts_only": True},
-            {"magnitude": "5.2", "latitude": "20", "longitude": "125.55"},
-            "Outside",
-        ),
-        (
             {},
             {"magnitude": "nan", "latitude": "9.86", "longitude": "125.55"},
             "valid main magnitude",

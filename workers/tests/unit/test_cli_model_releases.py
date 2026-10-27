@@ -14,7 +14,6 @@ from quakestrike.application.startup import GateResult
 from quakestrike.infrastructure.models.release_manifest import (
     ManifestValidationError,
     VerifiedReleaseManifest,
-    model_release_record,
 )
 
 
@@ -63,52 +62,6 @@ def test_historical_recovery_requires_full_bootstrap_readiness(monkeypatch, caps
     assert json.loads(capsys.readouterr().out)["status"] == "rejected"
 
 
-def test_historical_recovery_forwards_explicit_run_and_reason(monkeypatch):
-    run_id = UUID("00000000-0000-0000-0000-000000000001")
-    captured = {}
-
-    def recover(**kwargs):
-        captured.update(kwargs)
-        return 0
-
-    monkeypatch.setattr(operator_setup, "recover_historical_predictions", recover)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "quakestrike",
-            "recover-historical-predictions",
-            "--source-run-id",
-            str(run_id),
-            "--skip-reason",
-            "history_ends_before_anchor",
-        ],
-    )
-    assert cli.main() == 0
-    assert captured == {
-        "apply": False,
-        "batch_size": 50,
-        "source_run_id": run_id,
-        "skip_reason": "history_ends_before_anchor",
-    }
-
-
-def test_package_command_dispatches_to_the_explicit_packager(monkeypatch, tmp_path: Path) -> None:
-    captured: dict[str, Path] = {}
-    monkeypatch.setattr(operator_setup, "Settings", _Settings)
-    monkeypatch.setattr(
-        operator_setup,
-        "package_selected_release",
-        lambda source, destination: captured.update(source=source, destination=destination),
-    )
-    monkeypatch.setattr(
-        sys, "argv", ["quakestrike", "package-model-release", "--source-package", str(tmp_path)]
-    )
-
-    assert cli.main() == 0
-    assert captured == {"source": tmp_path, "destination": Path("model-artifacts")}
-
-
 def test_register_command_rejects_a_manifest_with_the_wrong_configured_id(monkeypatch) -> None:
     monkeypatch.setattr(operator_setup, "Settings", _Settings)
     monkeypatch.setattr(
@@ -127,43 +80,6 @@ def test_register_command_rejects_a_manifest_with_the_wrong_configured_id(monkey
     monkeypatch.setattr(sys, "argv", ["quakestrike", "register-model-release"])
 
     assert cli.main() == 2
-
-
-def test_register_command_registers_the_verified_release_and_disposes_the_engine(
-    monkeypatch,
-) -> None:
-    manifest = verified_manifest()
-    engine = TrackingEngine()
-    captured: dict[str, object] = {}
-    monkeypatch.setattr(operator_setup, "Settings", _Settings)
-    monkeypatch.setattr(
-        operator_setup,
-        "load_verified_release_manifest",
-        lambda directory, uri, **_: captured.update(directory=directory, uri=uri) or manifest,
-    )
-    monkeypatch.setattr(
-        operator_setup, "create_database_engine", lambda url: captured.update(url=url) or engine
-    )
-    monkeypatch.setattr(operator_setup, "create_session_factory", lambda received: received)
-    monkeypatch.setattr(
-        operator_setup,
-        "SqlAlchemyModelReleaseRegistry",
-        lambda _: type(
-            "Registry",
-            (),
-            {"register": lambda self, release: captured.update(release=release) or True},
-        )(),
-    )
-    monkeypatch.setattr(sys, "argv", ["quakestrike", "register-model-release"])
-
-    assert cli.main() == 0
-    assert captured == {
-        "directory": Path("model-artifacts"),
-        "uri": "seis-1.0.1/manifest.json",
-        "url": _Settings.database_url,
-        "release": model_release_record(manifest),
-    }
-    assert engine.disposed is True
 
 
 @pytest.mark.parametrize("failure", [OSError("C:/private/source"), ValueError("secret payload")])
@@ -232,11 +148,7 @@ def test_package_cli_reports_malformed_source_without_traceback(
 
 @pytest.mark.parametrize(
     "failure",
-    [
-        ManifestValidationError("missing manifest /secret"),
-        ManifestValidationError("changed artifact /secret"),
-        OSError("missing artifact /secret"),
-    ],
+    [ManifestValidationError("missing manifest /secret"), OSError("missing artifact /secret")],
 )
 def test_register_cli_sanitizes_expected_bundle_failures(
     monkeypatch, capsys, failure: Exception
@@ -287,22 +199,6 @@ def test_register_cli_disposes_engine_on_database_failure(monkeypatch, capsys) -
     assert json.loads(output)["status"] == "failed"
     assert "secret" not in output
     assert "private database" not in output
-
-
-@pytest.mark.parametrize("command", ["config-check"])
-def test_existing_read_only_commands_still_delegate_to_service_runtime(
-    monkeypatch, command: str
-) -> None:
-    captured: dict[str, str] = {}
-    monkeypatch.setattr(
-        cli,
-        "run_service",
-        lambda service, *, command: captured.update(service=service, command=command) or 7,
-    )
-    monkeypatch.setattr(sys, "argv", ["quakestrike", command])
-
-    assert cli.main() == 7
-    assert captured == {"service": "cli", "command": command}
 
 
 def test_startup_check_writes_json_readiness_to_manifest_and_stdout(

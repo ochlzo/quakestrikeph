@@ -8,9 +8,11 @@ import pytest
 from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
-from quakestrike.application.dispatch import DispatchPermanentError
-from quakestrike.application.ingestion_dispatch import IngestionDispatch
-from quakestrike.application.prediction_dispatch import PredictionDispatch
+from quakestrike.application.dispatch import (
+    DispatchPermanentError,
+    IngestionDispatch,
+    PredictionDispatch,
+)
 from quakestrike.infrastructure.queues.contracts import (
     IngestionCommandV1,
     PredictionCommandV1,
@@ -145,13 +147,18 @@ def test_celery_ingestion_publisher_emits_the_v1_identifier_command() -> None:
 @pytest.mark.parametrize("model", [IngestionCommandV1, PredictionCommandV1])
 def test_queue_bindings_reject_unknown_fields_and_wrong_versions(model: type[object]) -> None:
     payload = {
-        "message_version": 2,
+        "message_version": 1,
         "dispatch_id": str(uuid4()),
-        "run_id": str(uuid4()),
-        "job_id": str(uuid4()),
         "correlation_id": str(uuid4()),
-        "full_event_payload": "must-not-cross-the-queue",
+        "run_id" if model is IngestionCommandV1 else "job_id": str(uuid4()),
     }
-
-    with pytest.raises(ValidationError):
-        model.model_validate(payload)  # type: ignore[attr-defined]
+    model.model_validate(payload)  # type: ignore[attr-defined]
+    for field, value, error_type in (
+        ("message_version", 2, "literal_error"),
+        ("full_event_payload", "must-not-cross-the-queue", "extra_forbidden"),
+    ):
+        with pytest.raises(ValidationError) as failure:
+            model.model_validate({**payload, field: value})  # type: ignore[attr-defined]
+        assert [(error["loc"], error["type"]) for error in failure.value.errors()] == [
+            ((field,), error_type)
+        ]

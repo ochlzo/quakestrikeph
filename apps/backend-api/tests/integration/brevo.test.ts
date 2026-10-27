@@ -169,9 +169,12 @@ test('authenticated early callbacks reconcile atomically and retain duplicate ol
     assert.equal((await callback('delivered', 1791676800, reference, true, 'Bearer WRONG')).status, 401);
     assert.equal((await admin.query('SELECT status,provider_message_id FROM alert_delivery_attempts WHERE delivery_attempt_id=$1', [ids.attempt])).rows[0].status, 'sending');
     assert.equal((await callback('request', 1791676800)).status, 204);
-    let row = (await admin.query(`SELECT a.status,a.provider_message_id,r.status AS recipient_status FROM alert_delivery_attempts a
+    let row = (await admin.query(`SELECT a.status,a.provider_message_id,a.delivery_attempt_id,a.provider_status_at,a.error_code,r.status AS recipient_status FROM alert_delivery_attempts a
       JOIN alert_recipients r USING(recipient_id) WHERE a.delivery_attempt_id=$1`, [ids.attempt])).rows[0];
     assert.equal(row.status, 'accepted'); assert.equal(row.recipient_status, 'accepted'); assert.equal(row.provider_message_id, reference);
+    assert.equal(row.delivery_attempt_id, ids.attempt);
+    assert.equal(row.provider_status_at.toISOString(), '2026-10-11T00:00:00.000Z');
+    assert.equal(row.error_code, null);
     assert.equal((await callback('request', 1791676800)).status, 204);
     assert.equal((await callback('hard_bounce', 1791676801)).status, 204);
     assert.equal((await callback('request', 1791676800)).status, 204);

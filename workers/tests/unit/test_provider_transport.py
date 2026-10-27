@@ -27,7 +27,7 @@ from quakestrike.infrastructure.sms.iprog import IprogAlertProvider, IprogSmsSup
     ],
 )
 def test_provider_deadline_includes_headers_and_dripping_body(kind, mode):
-    calls = []
+    calls, responses, closed = [], [], []
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -81,7 +81,18 @@ def test_provider_deadline_includes_headers_and_dripping_body(kind, mode):
 
     def request(url, **options):
         method = "GET" if kind == "poll" else "POST"
-        return requests.request(method, f"http://127.0.0.1:{server.server_port}/fixture", **options)
+        response = requests.request(
+            method, f"http://127.0.0.1:{server.server_port}/fixture", **options
+        )
+        responses.append(response)
+        original_close = response.close
+
+        def close():
+            closed.append(response)
+            original_close()
+
+        response.close = close
+        return response
 
     try:
         previous = signal.getsignal(signal.SIGALRM)
@@ -106,6 +117,11 @@ def test_provider_deadline_includes_headers_and_dripping_body(kind, mode):
                 if mode == "oversize"
                 else "provider_transport_uncertain"
             )
+        if mode == "oversize" and kind in {"submit", "email"}:
+            assert result.evidence["http_status"] == (201 if kind == "email" else 200)
+            assert result.reference is None
+            assert "private" not in repr(result)
+        assert closed == responses
         assert elapsed < 12.8
         assert signal.getsignal(signal.SIGALRM) is previous
         assert signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0)

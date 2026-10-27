@@ -10,7 +10,6 @@ from quakestrike.domain.features import (
     FeatureObservation,
     FeatureSnapshot,
     HistoryCoverage,
-    HistoryReadiness,
     PredictionDecision,
     build_prediction_decision,
 )
@@ -52,7 +51,6 @@ class PredictionSnapshotResult:
 
     decision: PredictionDecision
     snapshot: FeatureSnapshot | None
-    readiness: HistoryReadiness | None
 
 
 def decide_prediction_snapshot(
@@ -69,5 +67,4 @@ def decide_prediction_snapshot(
     return PredictionSnapshotResult(
         decision=decision,
         snapshot=decision.snapshot,
-        readiness=decision.readiness,
     )

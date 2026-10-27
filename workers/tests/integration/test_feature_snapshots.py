@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import os
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
 import pytest
-from kombu import Connection
-from redis import Redis
 from sqlalchemy import func, insert, select
 
 from quakestrike.application.dispatch import DispatchClaimLost, DurableDispatcher
@@ -39,16 +36,6 @@ from quakestrike.infrastructure.database.tables import (
     model_releases,
     prediction_jobs,
 )
-from quakestrike.infrastructure.queues.celery_app import (
-    PREDICTION_QUEUE,
-    create_celery_app,
-)
-from quakestrike.infrastructure.queues.ingestion_publisher import CeleryIngestionPublisher
-from quakestrike.infrastructure.queues.prediction_publisher import (
-    PREDICTION_TASK_NAME,
-    CeleryPredictionPublisher,
-)
-from quakestrike.infrastructure.settings import Settings
 
 pytestmark = pytest.mark.integration
 NOW = datetime(2026, 9, 16, 12, 0, tzinfo=UTC)
@@ -217,28 +204,6 @@ def test_below_m1_and_incomplete_history_retain_revisions_without_prediction_wor
             .all()
         )
     assert reasons == ["magnitude_below_m1", "history_starts_after_required_window"]
-
-
-def test_custom_incomplete_history_reason_is_mapped_and_revision_is_retained(
-    migrated_engine,
-) -> None:
-    run_id, release_id = _seed_run_and_release(migrated_engine)
-    request = _feature_request(
-        run_id,
-        release_id,
-        coverage=HistoryCoverage(
-            NOW - timedelta(days=7),
-            NOW,
-            False,
-            reason="source_feed_gap",
-        ),
-    )
-
-    result = _transactions(migrated_engine).process_event_with_features(request)
-
-    assert result.prediction_created is False
-    assert result.prediction_skip_reason == "incomplete_feature_history"
-    assert _counts(migrated_engine) == {"events": 1, "revisions": 1, "jobs": 0, "dispatches": 0}
 
 
 def test_unconfigured_schema_compatible_release_cannot_create_prediction_work(
@@ -417,51 +382,6 @@ def test_readiness_history_query_uses_latest_revision_without_an_anchor_event(
     )
 
 
-def test_eligible_revision_stores_complete_snapshot_and_prediction_dispatch(
-    migrated_engine,
-) -> None:
-    run_id, release_id = _seed_run_and_release(migrated_engine)
-    _insert_history_event(
-        migrated_engine,
-        run_id,
-        _revision(
-            run_id,
-            event_time=NOW - timedelta(days=7),
-            bulletin_id="2026_0909_1200_B1",
-            precision="second",
-        ),
-    )
-    result = _transactions(migrated_engine, release_id).process_event_with_features(
-        _feature_request(run_id, release_id)
-    )
-
-    assert result.prediction_created is True
-    assert result.prediction_skip_reason is None
-    with migrated_engine.connect() as connection:
-        job = connection.execute(select(prediction_jobs)).one()
-        dispatch = connection.execute(select(job_dispatches)).one()
-
-    assert set(job.input_snapshot_json) == {
-        "anchor_magnitude",
-        "anchor_depth_km",
-        "anchor_latitude",
-        "anchor_longitude",
-        "anchor_time_is_minute_precision",
-        "catalog_m1_plus_count_past_1h",
-        "catalog_m1_plus_count_past_24h",
-        "catalog_m1_plus_count_past_7d",
-        "local_m1_plus_count_past_24h_within_50km",
-        "local_m1_plus_count_past_24h_within_100km",
-    }
-    assert job.input_snapshot_json["catalog_m1_plus_count_past_7d"] == 1
-    assert job.input_snapshot_hash == feature_snapshot_hash(
-        job.input_snapshot_json,
-        INPUT_SCHEMA_VERSION,
-    )
-    assert dispatch.prediction_job_id == job.job_id
-    assert result.dispatch_id == dispatch.dispatch_id
-
-
 def test_missing_model_release_retains_revision_without_prediction_work(migrated_engine) -> None:
     run_id, _ = _seed_run_and_release(migrated_engine)
     request = _feature_request(run_id, uuid4())
@@ -476,143 +396,6 @@ def test_missing_model_release_retains_revision_without_prediction_work(migrated
 class FailingPublisher:
     def publish(self, dispatch) -> None:
         raise RuntimeError("Redis is unavailable")
-
-
-def test_publish_failure_after_commit_leaves_durable_prediction_work(migrated_engine) -> None:
-    run_id, release_id = _seed_run_and_release(migrated_engine)
-    _insert_history_event(
-        migrated_engine,
-        run_id,
-        _revision(
-            run_id,
-            event_time=NOW - timedelta(hours=1),
-            bulletin_id="2026_0916_1100_B1",
-        ),
-    )
-
-    result = _transactions(migrated_engine, release_id).process_event_with_features(
-        _feature_request(run_id, release_id)
-    )
-    dispatch_result = DurableDispatcher(
-        SqlAlchemyDispatchStore(create_session_factory(migrated_engine)),
-        {"ingestion": FailingPublisher(), "prediction": FailingPublisher()},
-        batch_size=10,
-    ).dispatch_due()
-
-    assert result.prediction_created is True
-    assert dispatch_result.retry_wait == 1
-    assert _counts(migrated_engine) == {"events": 2, "revisions": 2, "jobs": 1, "dispatches": 1}
-    with migrated_engine.connect() as connection:
-        dispatch = connection.execute(select(job_dispatches)).one()
-    assert dispatch.status == "retry_wait"
-    assert dispatch.next_dispatch_at is not None
-    assert dispatch.lease_expires_at is None
-    assert dispatch.dispatch_token is None
-    assert dispatch.last_error == "RuntimeError"
-
-
-class RecordingPublisher:
-    def __init__(self) -> None:
-        self.messages = []
-
-    def publish(self, dispatch) -> None:
-        self.messages.append(dispatch)
-
-
-def test_successful_prediction_publication_records_enqueued_state(migrated_engine) -> None:
-    run_id, release_id = _seed_run_and_release(migrated_engine)
-    _insert_history_event(
-        migrated_engine,
-        run_id,
-        _revision(
-            run_id,
-            event_time=NOW - timedelta(hours=1),
-            bulletin_id="2026_0916_1100_B1",
-        ),
-    )
-    publisher = RecordingPublisher()
-
-    result = _transactions(migrated_engine, release_id).process_event_with_features(
-        _feature_request(run_id, release_id)
-    )
-    dispatch_result = DurableDispatcher(
-        SqlAlchemyDispatchStore(create_session_factory(migrated_engine)),
-        {"ingestion": publisher, "prediction": publisher},
-        batch_size=10,
-    ).dispatch_due()
-
-    assert result.prediction_created is True
-    assert dispatch_result.enqueued == 1
-    assert len(publisher.messages) == 1
-    with migrated_engine.connect() as connection:
-        dispatch = connection.execute(select(job_dispatches)).one()
-    assert dispatch.status == "enqueued"
-    assert dispatch.last_dispatched_at is not None
-    assert dispatch.next_dispatch_at is None
-    assert dispatch.lease_expires_at is None
-    assert dispatch.dispatch_token is None
-
-
-def test_ingestion_transaction_reaches_real_prediction_queue(migrated_engine) -> None:
-    database_url = os.environ.get("TEST_DATABASE_URL")
-    redis_url = os.environ.get("TEST_REDIS_URL")
-    if database_url is None or redis_url is None:
-        pytest.skip("TEST_DATABASE_URL and TEST_REDIS_URL are required for this integration test.")
-
-    redis_client = Redis.from_url(redis_url)
-    redis_client.delete(PREDICTION_QUEUE)
-    try:
-        run_id, release_id = _seed_run_and_release(migrated_engine)
-        _insert_history_event(
-            migrated_engine,
-            run_id,
-            _revision(
-                run_id,
-                event_time=NOW - timedelta(hours=1),
-                bulletin_id="2026_0916_1100_B1",
-            ),
-        )
-        settings = Settings(
-            _env_file=None,
-            database_url=database_url,
-            redis_url=redis_url,
-            phivolcs_catalog_url="https://example.invalid/phivolcs/catalog",
-            model_release_id=release_id,
-        )
-        app = create_celery_app(settings)
-        transactions = _transactions(migrated_engine, release_id)
-        request = _feature_request(run_id, release_id)
-        result = transactions.process_event_with_features(request)
-        dispatch_result = DurableDispatcher(
-            SqlAlchemyDispatchStore(create_session_factory(migrated_engine)),
-            {
-                "ingestion": CeleryIngestionPublisher(app),
-                "prediction": CeleryPredictionPublisher(app),
-            },
-            batch_size=10,
-        ).dispatch_due()
-
-        assert result.prediction_created is True
-        assert dispatch_result.enqueued == 1
-        with Connection(redis_url) as connection:
-            queue = connection.SimpleQueue(PREDICTION_QUEUE)
-            message = queue.get(block=False)
-            try:
-                assert message.headers["task"] == PREDICTION_TASK_NAME
-                assert message.delivery_info["routing_key"] == PREDICTION_QUEUE
-                payload = message.payload[0][0]
-                assert payload == {
-                    "message_version": 1,
-                    "dispatch_id": str(result.dispatch_id),
-                    "job_id": str(result.prediction_job_id),
-                    "correlation_id": str(request.correlation_id),
-                }
-            finally:
-                message.ack()
-                queue.close()
-    finally:
-        redis_client.delete(PREDICTION_QUEUE)
-        redis_client.close()
 
 
 def test_prediction_dispatch_reclaims_expired_claim_and_fences_old_token(
@@ -684,8 +467,16 @@ def test_prediction_dispatch_exhaustion_stops_the_existing_identity(migrated_eng
 
     first = dispatcher.dispatch_due()
     assert first.retry_wait == 1
+    assert result.prediction_created is True
+    assert _counts(migrated_engine) == {"events": 2, "revisions": 2, "jobs": 1, "dispatches": 1}
     with migrated_engine.connect() as connection:
-        retry_at = connection.scalar(select(job_dispatches.c.next_dispatch_at))
+        retrying = connection.execute(select(job_dispatches)).one()
+    assert retrying.status == "retry_wait"
+    assert retrying.next_dispatch_at is not None
+    assert retrying.lease_expires_at is None
+    assert retrying.dispatch_token is None
+    assert retrying.last_error == "RuntimeError"
+    retry_at = retrying.next_dispatch_at
     current_time = retry_at
 
     second = dispatcher.dispatch_due()
@@ -708,43 +499,75 @@ def test_duplicate_delivery_reuses_work_and_later_revision_gets_own_job(
     _insert_history_event(
         migrated_engine,
         run_id,
-        _revision(
-            run_id,
-            event_time=NOW - timedelta(hours=1),
-            bulletin_id="2026_0916_1100_B1",
-        ),
+        _revision(run_id, event_time=NOW - timedelta(hours=1), bulletin_id="2026_0916_1100_B1"),
     )
     transactions = _transactions(migrated_engine, release_id)
     first_request = _feature_request(run_id, release_id)
     first = transactions.process_event_with_features(first_request)
-    replay = transactions.process_event_with_features(
-        _feature_request(
-            run_id,
-            release_id,
-            event_id=first_request.event_id,
-            revision=replace(first_request.revision, event_revision_id=uuid4()),
-        )
+    replay_request = replace(
+        first_request,
+        revision=replace(first_request.revision, event_revision_id=uuid4()),
+        job_id=uuid4(),
+        dispatch_id=uuid4(),
+        idempotency_key=str(uuid4()),
     )
-
-    later_revision = _revision(
-        run_id,
-        event_time=NOW,
-        bulletin_id="2026_0916_1200_B2",
-        precision="minute",
-        source_url="https://earthquake.phivolcs.dost.gov.ph/2026_0916_1200_B2",
-    )
-    later = transactions.process_event_with_features(
-        _feature_request(
-            run_id,
-            release_id,
-            event_id=first_request.event_id,
-            revision=later_revision,
-        )
-    )
-
-    assert replay.prediction_created is False
+    replay = transactions.process_event_with_features(replay_request)
+    assert replay.event_revision_id == first.event_revision_id
     assert replay.prediction_job_id == first.prediction_job_id
+    assert replay.dispatch_id == first.dispatch_id
+    assert replay.revision_created is False
+    assert replay.prediction_created is False
+    assert _counts(migrated_engine) == {"events": 2, "revisions": 2, "jobs": 1, "dispatches": 1}
+
+    later_request = replace(
+        first_request,
+        revision=replace(first_request.revision, event_revision_id=uuid4(), origin="TECTONIC"),
+        job_id=uuid4(),
+        dispatch_id=uuid4(),
+        idempotency_key=str(uuid4()),
+    )
+    later = transactions.process_event_with_features(later_request)
+    assert later.event_id == first.event_id
     assert later.revision_created is True
+    assert later.revision_number == 2
     assert later.prediction_created is True
     assert later.prediction_job_id != first.prediction_job_id
-    assert _counts(migrated_engine) == {"events": 2, "revisions": 3, "jobs": 2, "dispatches": 2}
+    with migrated_engine.connect() as connection:
+        corrected = connection.execute(
+            select(earthquake_event_revisions).where(
+                earthquake_event_revisions.c.event_revision_id == later.event_revision_id
+            )
+        ).one()
+    assert corrected.event_id == first_request.event_id
+    assert corrected.source_bulletin_id == first_request.revision.source_bulletin_id
+    assert corrected.origin == "TECTONIC"
+
+    corrected_replay = transactions.process_event_with_features(
+        replace(
+            later_request,
+            revision=replace(later_request.revision, event_revision_id=uuid4()),
+            job_id=uuid4(),
+            dispatch_id=uuid4(),
+            idempotency_key=str(uuid4()),
+        )
+    )
+    assert corrected_replay.event_revision_id == later.event_revision_id
+    assert corrected_replay.revision_number == later.revision_number
+    assert corrected_replay.prediction_job_id == later.prediction_job_id
+    assert corrected_replay.dispatch_id == later.dispatch_id
+    assert corrected_replay.revision_created is False
+    assert corrected_replay.prediction_created is False
+    expected_counts = {"events": 2, "revisions": 3, "jobs": 2, "dispatches": 2}
+    assert _counts(migrated_engine) == expected_counts
+    with pytest.raises(ValueError, match="belongs to another event"):
+        transactions.process_event_with_features(
+            replace(
+                later_request,
+                event_id=uuid4(),
+                revision=replace(later_request.revision, event_revision_id=uuid4()),
+                job_id=uuid4(),
+                dispatch_id=uuid4(),
+                idempotency_key=str(uuid4()),
+            )
+        )
+    assert _counts(migrated_engine) == expected_counts

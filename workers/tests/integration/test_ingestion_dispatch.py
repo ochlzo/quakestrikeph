@@ -6,15 +6,15 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import insert, select, update
 
-from quakestrike.application.ingestion_dispatch import (
+from quakestrike.application.dispatch import (
+    DispatchClaim,
     DispatchClaimLost,
     IngestionDispatch,
-    IngestionDispatchClaim,
+)
+from quakestrike.infrastructure.database.dispatch import (
+    SqlAlchemyDispatchStore,
 )
 from quakestrike.infrastructure.database.engine import create_session_factory
-from quakestrike.infrastructure.database.ingestion_dispatch import (
-    SqlAlchemyIngestionDispatchStore,
-)
 from quakestrike.infrastructure.database.tables import ingestion_runs, job_dispatches
 
 pytestmark = pytest.mark.integration
@@ -65,7 +65,7 @@ def _seed_pending_dispatch(
 
 def test_claim_commits_before_acceptance_and_fences_enqueue(migrated_engine) -> None:
     run_id, dispatch_id, correlation_id = _seed_pending_dispatch(migrated_engine)
-    store = SqlAlchemyIngestionDispatchStore(create_session_factory(migrated_engine))
+    store = SqlAlchemyDispatchStore(create_session_factory(migrated_engine))
 
     claims = store.claim_due(10, now=NOW)
 
@@ -109,7 +109,7 @@ def test_claim_is_due_only_and_fences_terminal_runs(migrated_engine) -> None:
         next_dispatch_at=NOW - timedelta(minutes=2),
         run_status="succeeded",
     )
-    store = SqlAlchemyIngestionDispatchStore(create_session_factory(migrated_engine))
+    store = SqlAlchemyDispatchStore(create_session_factory(migrated_engine))
 
     claims = store.claim_due(10, now=NOW)
 
@@ -128,7 +128,7 @@ def test_claim_fences_a_processing_retry_until_its_run_is_due(migrated_engine) -
         run_status="retry_wait",
         run_next_attempt_at=NOW + timedelta(minutes=1),
     )
-    store = SqlAlchemyIngestionDispatchStore(create_session_factory(migrated_engine))
+    store = SqlAlchemyDispatchStore(create_session_factory(migrated_engine))
 
     assert store.claim_due(10, now=NOW) == ()
 
@@ -173,7 +173,7 @@ def test_enqueued_dispatch_is_recovered_when_processing_becomes_due(
                 attempt_count=1,
             )
         )
-    store = SqlAlchemyIngestionDispatchStore(create_session_factory(migrated_engine))
+    store = SqlAlchemyDispatchStore(create_session_factory(migrated_engine))
 
     claim = store.claim_due(1, now=NOW)[0]
 
@@ -220,7 +220,7 @@ def test_enqueued_dispatch_stays_fenced_while_processing_is_not_due(
                 attempt_count=1,
             )
         )
-    store = SqlAlchemyIngestionDispatchStore(create_session_factory(migrated_engine))
+    store = SqlAlchemyDispatchStore(create_session_factory(migrated_engine))
 
     assert store.claim_due(1, now=NOW) == ()
 
@@ -242,7 +242,7 @@ def test_expired_submission_claim_is_not_republished_for_a_terminal_run(
                 attempt_count=1,
             )
         )
-    store = SqlAlchemyIngestionDispatchStore(create_session_factory(migrated_engine))
+    store = SqlAlchemyDispatchStore(create_session_factory(migrated_engine))
 
     assert store.claim_due(10, now=NOW) == ()
 
@@ -277,7 +277,7 @@ def test_exhaustion_does_not_fail_a_live_processing_lease(migrated_engine) -> No
                 attempt_count=4,
             )
         )
-    store = SqlAlchemyIngestionDispatchStore(create_session_factory(migrated_engine))
+    store = SqlAlchemyDispatchStore(create_session_factory(migrated_engine))
 
     assert store.claim_due(10, now=NOW) == ()
 
@@ -291,7 +291,7 @@ def test_exhaustion_does_not_fail_a_live_processing_lease(migrated_engine) -> No
 
 def test_retry_delays_stop_exhausted_dispatch_without_replacing_ids(migrated_engine) -> None:
     run_id, dispatch_id, correlation_id = _seed_pending_dispatch(migrated_engine)
-    store = SqlAlchemyIngestionDispatchStore(create_session_factory(migrated_engine))
+    store = SqlAlchemyDispatchStore(create_session_factory(migrated_engine))
     original = (run_id, dispatch_id, correlation_id)
     claim = store.claim_due(1, now=NOW)[0]
 
@@ -344,7 +344,7 @@ def test_expired_claim_is_recovered_and_old_token_cannot_acknowledge_it(
                 attempt_count=1,
             )
         )
-    store = SqlAlchemyIngestionDispatchStore(create_session_factory(migrated_engine))
+    store = SqlAlchemyDispatchStore(create_session_factory(migrated_engine))
 
     claim = store.claim_due(1, now=NOW)[0]
 
@@ -355,5 +355,5 @@ def test_expired_claim_is_recovered_and_old_token_cannot_acknowledge_it(
         correlation_id=correlation_id,
     )
     with pytest.raises(DispatchClaimLost):
-        store.mark_enqueued(IngestionDispatchClaim(dispatch=claim.dispatch, token=old_token))
+        store.mark_enqueued(DispatchClaim(dispatch=claim.dispatch, token=old_token))
     store.mark_enqueued(claim)

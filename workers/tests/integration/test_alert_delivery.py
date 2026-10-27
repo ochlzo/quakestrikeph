@@ -275,7 +275,7 @@ def test_late_response_after_recovery_preserves_reference_without_resend(migrate
         assert connection.execute(select(alert_recipients)).one().status == "accepted"
 
 
-def test_sms_outage_checks_once_and_drains_all_committed_email(migrated_engine):
+def test_sms_outage_checks_once_and_drains_all_committed_email(migrated_engine, caplog):
     from quakestrike.application.alert_delivery import SubmissionResult
     from quakestrike.application.alerts import SmsSupportUnavailable
     from quakestrike.infrastructure.database.tables import alert_recipients
@@ -288,13 +288,14 @@ def test_sms_outage_checks_once_and_drains_all_committed_email(migrated_engine):
     class Unavailable:
         def supported(self, phone):
             lookup_calls.append(phone)
-            raise SmsSupportUnavailable()
+            raise SmsSupportUnavailable("sms_support_configuration")
 
     class Email:
         def submit(self, request):
             sent.append(request)
             return SubmissionResult("accepted", reference=str(request.attempt_id))
 
+    caplog.set_level(logging.INFO)
     handle_alert_command(
         {
             "message_version": 1,
@@ -309,6 +310,13 @@ def test_sms_outage_checks_once_and_drains_all_committed_email(migrated_engine):
     )
     assert len(lookup_calls) == 1
     assert len(sent) == 4
+    resolution = [
+        record
+        for record in caplog.records
+        if getattr(record, "event_code", None) == "alert_resolution_processed"
+    ]
+    assert len(resolution) == 1
+    assert resolution[0].context["reason"] == "sms_support_configuration"
     with migrated_engine.connect() as connection:
         job = connection.execute(select(alert_jobs)).one()
         assert job.status == "resolving"

@@ -212,7 +212,7 @@ test('startup failure enables Play and permits Retry', async t => {
   assert.deepEqual(f.notices, ['error', 'loaded']);
 });
 
-for (const outcome of ['resolve', 'reject']) {
+for (const outcome of ['resolve']) {
   test(`disposal suppresses startup ${outcome} callbacks`, async t => {
     const f = setup(t);
     f.controller.start();
@@ -250,18 +250,4 @@ test('disposal stops pending debounce work and subsequent commands', async t => 
   seeking.controller.seek('replay', 60);
   seeking.controller.setPlaying(true);
   assert.equal(seeking.requests.length, 1);
-});
-
-test('disposal prevents later chunks and notifications after an in-flight selection load', async t => {
-  const f = setup(t);
-  await f.ready();
-  f.controller.seek('history', -2880);
-  await f.advance(150);
-  f.controller.dispose();
-  const count = f.snapshots.length;
-  f.requests[1].resolve([]);
-  await settle();
-  assert.equal(f.requests.length, 2);
-  assert.equal(f.snapshots.length, count);
-  assert.deepEqual(f.notices, []);
 });

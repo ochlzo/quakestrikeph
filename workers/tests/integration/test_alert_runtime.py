@@ -179,6 +179,7 @@ def test_runtime_recovers_retained_command_after_database_outage_and_rejects_old
         "alert_job_id": str(dispatch.alert_job_id),
         "correlation_id": str(dispatch.correlation_id),
     }
+    assert handler({"message_version": 2}) == "rejected"
     assert handler({**payload, "message_snapshot": "obsolete earthquake-only text"}) == "rejected"
     with pytest.raises(RuntimeError) as failure:
         handler(payload)

@@ -49,8 +49,20 @@ def test_forecast_sms_acceptance_then_restart_poll_atomically_delivers(migrated_
         with migrated_engine.connect() as connection:
             attempt = connection.execute(select(alert_delivery_attempts)).one()
             job = connection.execute(select(alert_jobs)).one()
+            recipient = connection.execute(select(alert_recipients)).one()
             assert attempt.status == "sending"
-            assert kwargs["json"]["message"] == job.message_snapshot
+            assert url == "https://www.iprogsms.com/api/v1/sms_messages"
+            assert kwargs == {
+                "json": {
+                    "api_token": "secret",
+                    "phone_number": recipient.destination_snapshot,
+                    "message": job.message_snapshot,
+                },
+                "timeout": (3, 8),
+                "allow_redirects": False,
+                "stream": True,
+            }
+            assert str(recipient.worker_execution_id) not in json.dumps(kwargs)
         sent.append(kwargs["json"]["message"])
         return Response({"status": 200, "message_id": "iSms-known", "sms_rate": 3})
 
@@ -69,6 +81,11 @@ def test_forecast_sms_acceptance_then_restart_poll_atomically_delivers(migrated_
     )
     with migrated_engine.connect() as connection:
         assert connection.execute(select(alert_recipients)).one().status == "accepted"
+        attempt = connection.execute(select(alert_delivery_attempts)).one()
+        assert attempt.status == "accepted"
+        assert attempt.provider_message_id == "iSms-known"
+        assert attempt.provider_evidence_snapshot["provider_code"] == 200
+        assert attempt.provider_evidence_snapshot["http_status"] == 200
     observed = []
 
     def get(url, **kwargs):
@@ -289,17 +306,31 @@ def test_pending_poll_retains_separate_credit_and_count_evidence(migrated_engine
 
 @pytest.mark.parametrize("network,smart", [("Smart/TNT", True), ("Unknown Network", False)])
 def test_shared_sender_excludes_unsupported_and_unknown_without_post(
-    migrated_engine, network, smart
+    migrated_engine, network, smart, caplog
 ):
     from quakestrike.infrastructure.sms.iprog import IprogSmsSupport
 
-    support = IprogSmsSupport(
-        "secret",
-        request=lambda *a, **k: Response(
-            {"status": "success", "data": {"network": network, "is_smart_tnt": smart}}
-        ),
-    )
-    _, _, sent = send_sms(migrated_engine, None, support=support)
+    def detect(url, **options):
+        assert url == "https://www.iprogsms.com/api/v1/phone_numbers/detect"
+        assert options["timeout"] == (3, 8)
+        assert options["allow_redirects"] is False
+        return Response({"status": "success", "data": {"network": network, "is_smart_tnt": smart}})
+
+    support = IprogSmsSupport("secret", request=detect)
+    with caplog.at_level(logging.INFO):
+        _, _, sent = send_sms(migrated_engine, None, support=support)
     assert sent == []
     with migrated_engine.connect() as connection:
         assert connection.execute(select(alert_delivery_attempts)).first() is None
+        assert connection.execute(select(alert_jobs)).one().status == (
+            "completed" if smart else "resolving"
+        )
+        recipients = connection.execute(select(alert_recipients)).all()
+        if smart:
+            assert len(recipients) == 1
+            assert recipients[0].status == "skipped"
+            assert recipients[0].last_error_code == "sms_sender_unsupported"
+        else:
+            assert recipients == []
+    assert "secret" not in caplog.text
+    assert "+63917123456" not in caplog.text

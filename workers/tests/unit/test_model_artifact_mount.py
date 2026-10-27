@@ -8,22 +8,11 @@ from pathlib import Path
 import pytest
 
 
-def test_future_worker_artifact_mount_is_explicit_and_read_only() -> None:
-    compose = (Path(__file__).resolve().parents[3] / "infrastructure" / "compose.yml").read_text(
-        encoding="utf-8"
-    )
-
-    assert "x-future-worker-artifact-mount:" in compose
-    assert ":/app/model-artifacts:ro" in compose
-    assert "model-artifacts" in (Path(__file__).resolve().parents[3] / ".dockerignore").read_text(
-        encoding="utf-8"
-    )
-
-
 def test_rendered_future_mount_is_a_read_only_host_bind(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[3]
+    assert "model-artifacts" in (root / ".dockerignore").read_text(encoding="utf-8")
     if shutil.which("docker") is None:
         pytest.skip("Docker CLI is unavailable")
-    root = Path(__file__).resolve().parents[3]
     base = root / "infrastructure" / "compose.yml"
     env = root / ".env.example"
     rendered = json.loads(

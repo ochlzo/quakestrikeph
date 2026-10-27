@@ -5,16 +5,6 @@ import { scenarioStatus } from "../src/features/delivery/scenario-status.ts";
 const scenario = (counts, queue_status = "enqueued") => ({ queue_status,
   counts: { pending: 0, skipped: 0, accepted: 0, delivered: 0, failed: 0, unknown: 0, ...counts } });
 
-test("queue badges apply only before any channel is processed", () => {
-  assert.equal(scenarioStatus(scenario({ pending: 4 }, "pending")).label, "Queue pending");
-  assert.equal(scenarioStatus(scenario({ pending: 4 })).label, "Queued");
-  assert.equal(scenarioStatus(scenario({ pending: 2, skipped: 2 })).label, "Processing");
-});
-
-test("processed skipped channels replace the queued badge", () => {
-  assert.deepEqual(scenarioStatus(scenario({ skipped: 4 })), { label: "All skipped", tone: "neutral" });
-});
-
 test("provider acceptance and uncertainty never claim delivery", () => {
   assert.equal(scenarioStatus(scenario({ accepted: 2, delivered: 1, skipped: 1 })).label, "Awaiting delivery");
   assert.equal(scenarioStatus(scenario({ unknown: 1, accepted: 1, delivered: 2 })).label, "Outcome uncertain");

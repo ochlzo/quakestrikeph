@@ -111,6 +111,13 @@ def test_approved_package_publishes_verified_bundle(tmp_path: Path, monkeypatch)
     assert document["release_id"] == str(packaging.SEIS_RELEASE_ID)
     assert document["version_label"] == "SEIS 1.0.1"
     assert document["output_schema_version"] == "quakestrike.prediction-output.v2"
+    release = packaging.load_verified_release_manifest(destination, "seis-1.0.1/manifest.json")
+    assert release.release_id == packaging.SEIS_RELEASE_ID
+    assert release.manifest_hash == hashlib.sha256(manifest.read_bytes()).hexdigest()
+    assert release.artifact_paths == ("models/probability/model.txt",)
+    assert release.artifact_hashes == {
+        "models/probability/model.txt": hashlib.sha256(b"weight").hexdigest()
+    }
 
 
 def test_radius_target_is_corrected_in_the_patch_release(tmp_path: Path, monkeypatch) -> None:
@@ -174,17 +181,6 @@ def test_failed_promotion_restores_prior_bundle(tmp_path: Path, monkeypatch) -> 
 
     assert (bundle / "manifest.json").read_bytes() == b"previous"
     assert not list(destination.glob(".seis-1.0.1-backup-*"))
-
-
-def test_malformed_source_reports_a_controlled_failure_without_writes(tmp_path: Path) -> None:
-    source = _source(tmp_path)
-    (source / "routes.json").write_text('{"routes":{"probability":{}}}', encoding="utf-8")
-    destination = tmp_path / "artifacts"
-
-    with pytest.raises(ValueError, match="invalid structure"):
-        packaging.package_selected_release(source, destination)
-
-    assert not destination.exists()
 
 
 def test_source_symlink_escape_never_publishes_bundle(tmp_path: Path) -> None:

@@ -14,12 +14,24 @@ const prepared = (owner = "owner", id = "event") => ({ session_id: owner, event_
   forecast: { quantiles: [2, 4, 6] } });
 const workspace = () => { const memory = new WorkspaceMemory(); memory.accept(active()); return memory; };
 
-test("lost submission responses freeze the reviewed request and reuse its identity", async () => {
+test("submission retries keep the reviewed identity until a deliberate new event", async () => {
   const memory = workspace();
   memory.edit({ ...memory.state.draft, selected: ["tester"] });
   await memory.prepare(async () => prepared());
-  let original;
-  await memory.submit(async body => { original = body; throw new Error("lost response"); });
+  let original, calls = 0;
+  const send = async body => {
+    calls++;
+    if (calls === 1) { original = body; throw new Error("lost response"); }
+    if (calls <= 3) {
+      assert.equal(body, original);
+      assert.deepEqual(body.selected, ["tester"]);
+      return { event_id: "event", queue_status: calls === 2 ? "pending" : "enqueued" };
+    }
+    assert.notEqual(body, original);
+    assert.equal(body.scenario.event_id, "new-event");
+    return { event_id: body.scenario.event_id, queue_status: "enqueued" };
+  };
+  await memory.submit(send);
   assert.equal(memory.state.submissionPending, true);
   assert.equal(memory.state.submissionError, "Could not confirm sending.");
   assert.equal(memory.state.prepared.event_id, "event");
@@ -27,42 +39,22 @@ test("lost submission responses freeze the reviewed request and reuse its identi
   memory.edit({ ...reviewed, selected: ["different"] });
   await memory.prepare(async () => prepared("owner", "different"));
   assert.equal(memory.state.draft, reviewed);
-  await memory.submit(async body => {
-    assert.equal(body, original);
-    assert.deepEqual(body.selected, ["tester"]);
-    return { event_id: "event", queue_status: "enqueued" };
-  });
-  assert.equal(memory.state.submission.event_id, "event");
-  assert.equal(memory.state.submissionPending, false);
-  assert.equal(memory.state.submissionError, "");
-});
-
-test("a new deliberate submission requires a newly prepared event", async () => {
-  const memory = workspace();
-  memory.edit({ ...memory.state.draft, selected: ["tester"] });
-  await memory.prepare(async () => prepared());
-  let calls = 0;
-  const send = async body => { calls++; return { event_id: body.scenario.event_id, queue_status: "enqueued" }; };
   await memory.submit(send);
-  await memory.submit(send);
-  assert.equal(calls, 1);
-  await memory.prepare(async () => prepared("owner", "new-event"));
-  await memory.submit(send);
-  assert.equal(memory.state.submission.event_id, "new-event");
-  assert.equal(calls, 2);
-});
-
-test("pending publication retains preparation and retries the same request", async () => {
-  const memory = workspace();
-  memory.edit({ ...memory.state.draft, selected: ["tester"] });
-  await memory.prepare(async () => prepared());
-  let first;
-  await memory.submit(async body => { first = body; return { event_id: "event", queue_status: "pending" }; });
   assert.equal(memory.state.submission, null);
   assert.equal(memory.state.submissionPending, true);
   assert.equal(memory.state.submissionError, "");
-  await memory.submit(async body => { assert.equal(body, first); return { event_id: "event", queue_status: "enqueued" }; });
+  assert.equal(memory.state.prepared.event_id, "event");
+  await memory.submit(send);
+  assert.equal(memory.state.submission.event_id, "event");
   assert.equal(memory.state.submissionPending, false);
+  assert.equal(memory.state.submissionError, "");
+  assert.equal(calls, 3);
+  await memory.submit(send);
+  assert.equal(calls, 3);
+  await memory.prepare(async () => prepared("owner", "new-event"));
+  await memory.submit(send);
+  assert.equal(calls, 4);
+  assert.equal(memory.state.submission.event_id, "new-event");
 });
 
 test("replacement clears submission and rejects the delayed response", async () => {
@@ -91,13 +83,7 @@ test("validation rejection preserves reviewed values and unlocks editing", async
   assert.deepEqual(memory.state.draft.selected, ["other"]);
 });
 
-test("default event is approximately one hour ago in Philippine time", () => {
-  const memory = workspace();
-  const elapsed = Date.now() - Date.parse(memory.state.draft.inputs.time + "+08:00");
-  assert.ok(elapsed >= 3600000 && elapsed < 3660000);
-});
-
-test("preparation retains exact immutable observations across subscribers and tester edits", async () => {
+test("tester edits preserve immutable preparation while scenario edits invalidate it", async () => {
   const memory = workspace();
   const result = prepared();
   await memory.prepare(async () => result);
@@ -111,13 +97,9 @@ test("preparation retains exact immutable observations across subscribers and te
   assert.equal(memory.state.prepared, result);
   memory.accept(active());
   assert.equal(memory.state.prepared, result);
-});
-
-test("editing scenario inputs clears preparation", async () => {
-  const memory = workspace();
-  await memory.prepare(async () => prepared());
   memory.edit({ ...memory.state.draft, inputs: { ...memory.state.draft.inputs, radius: "43" } });
   assert.equal(memory.state.prepared, null);
+  assert.deepEqual(memory.state.draft.selected, ["tester"]);
 });
 
 test("A to B to A edits reject an older response even when values match again", async () => {
@@ -192,13 +174,4 @@ test("session conflict clears selections while dependency failure retains inputs
   await memory.prepare(async () => { throw { code: "session-conflict" }; });
   assert.equal(memory.state.ready, false);
   assert.deepEqual(memory.state.draft.selected, []);
-});
-
-test("separate tabs and a reload start independent workspaces", async () => {
-  const first = workspace();
-  const second = workspace();
-  await first.prepare(async () => prepared());
-  first.edit({ ...first.state.draft, selected: ["tester"] });
-  assert.equal(second.state.prepared, null);
-  assert.deepEqual(second.state.draft.selected, []);
 });

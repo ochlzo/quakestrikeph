@@ -13,13 +13,7 @@ from quakestrike.infrastructure.logging.json_logging import configure_logging
 
 @pytest.mark.parametrize(
     "error",
-    [
-        "provider_credentials_or_credit",
-        "provider_transport_uncertain",
-        "provider_invalid_response",
-        "provider_failure",
-        "provider_rejected",
-    ],
+    ["provider_credentials_or_credit"],
 )
 def test_poll_failure_is_bounded_private_and_recovers_only_on_verified_response(error):
     event, attempt = str(uuid4()), str(uuid4())

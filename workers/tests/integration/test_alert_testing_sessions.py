@@ -280,6 +280,10 @@ def test_private_pages_and_assets_are_scoped_to_build_directory(redis_client, tm
     (tmp_path / "index.html").write_text("private page")
     (tmp_path / "_astro").mkdir()
     (tmp_path / "_astro" / "app.js").write_text("// private asset")
+    places = tmp_path / "assets/accounts/philippine-places.json"
+    places.parent.mkdir(parents=True)
+    places.write_text('[{"name":"Fixture place"}]')
+    (tmp_path / "private.json").write_text('"private"')
     with private_http(RedisSessionStore(redis_client), tmp_path) as api:
         for path, content_type in (("/", "text/html"), ("/_astro/app.js", "text/javascript")):
             with urlopen(api.url + path) as response:
@@ -288,3 +292,16 @@ def test_private_pages_and_assets_are_scoped_to_build_directory(redis_client, tm
                 assert response.headers["X-Frame-Options"] == "DENY"
         assert api.request(path="/_astro/../../outside.txt")[0] == 404
         assert api.request(path="/runtime.py")[0] == 404
+        with urlopen(api.url + "/assets/accounts/philippine-places.json") as response:
+            assert response.status == 200
+            assert response.headers["Content-Type"] == "application/json"
+            assert response.headers["Cache-Control"] == "no-store"
+            assert response.read() == places.read_bytes()
+        assert (
+            api.request(
+                path="/assets/accounts/philippine-places.json", headers={"Host": "public.invalid"}
+            )[0]
+            == 403
+        )
+        assert api.request(path="/assets/accounts/../../private.json")[0] == 404
+        assert api.request(path="/private.json")[0] == 404

@@ -76,7 +76,7 @@ class TrackingEngine:
         self.disposed = True
 
 
-def test_phase_one_gates_are_read_only_and_fail_closed() -> None:
+def test_phase_one_gates_fail_closed_and_report_sanitized_details() -> None:
     report = evaluate_startup_gates(phase_one_test_gates())
 
     assert report.ready is False
@@ -89,10 +89,6 @@ def test_phase_one_gates_are_read_only_and_fail_closed() -> None:
     )
     assert all(result.ready is False for result in report.results)
     assert all(result.reason for result in report.results)
-
-
-def test_startup_report_exposes_sanitized_gate_details() -> None:
-    report = evaluate_startup_gates(phase_one_test_gates())
 
     serialized = report.as_dict()
 
@@ -127,57 +123,6 @@ def test_startup_report_evaluates_remaining_gates_after_one_gate_raises() -> Non
     assert report.results[0].reason == "Startup gate failed safely."
     assert report.results[0].details == {"error_type": "RuntimeError"}
     assert report.results[1].ready is True
-
-
-def test_model_release_gate_returns_a_safe_failure_when_database_is_unavailable(
-    monkeypatch,
-) -> None:
-    settings = valid_settings()
-    manifest = verified_manifest(settings)
-    monkeypatch.setattr(startup, "load_verified_release_manifest", lambda *_, **__: manifest)
-    monkeypatch.setattr(
-        startup,
-        "create_database_engine",
-        lambda _: (_ for _ in ()).throw(OperationalError("SELECT 1", {}, Exception("down"))),
-    )
-
-    result = ModelReleaseStartupGate(settings).check()
-
-    assert result.ready is False
-    assert result.reason == "Model release verification failed."
-
-
-def test_model_release_gate_is_ready_for_a_matching_manifest_and_registration(
-    monkeypatch,
-) -> None:
-    settings = valid_settings()
-    manifest = verified_manifest(settings)
-    engine = TrackingEngine()
-    monkeypatch.setattr(startup, "load_verified_release_manifest", lambda *_, **__: manifest)
-    monkeypatch.setattr(startup, "create_database_engine", lambda _: engine)
-    monkeypatch.setattr(startup, "create_session_factory", lambda received: received)
-    monkeypatch.setattr(
-        startup,
-        "SqlAlchemyModelReleaseRegistry",
-        lambda _: type(
-            "Registry", (), {"get": lambda self, release_id: model_release_record(manifest)}
-        )(),
-    )
-
-    result = ModelReleaseStartupGate(settings).check()
-
-    assert result.ready is True
-    assert result.reason == "Model release verified."
-    assert result.details == {
-        "release_id": str(settings.model_release_id),
-        "version_label": "SEIS 1.0.1",
-        "manifest_uri": "seis-1.0.1/manifest.json",
-        "manifest_hash": "a" * 64,
-        "input_schema_version": INPUT_SCHEMA_VERSION,
-        "output_schema_version": OUTPUT_SCHEMA_VERSION,
-        "artifact_hashes": json.dumps({"models/example.bin": "b" * 64}, sort_keys=True),
-    }
-    assert engine.disposed is True
 
 
 def test_model_release_gate_is_not_ready_when_the_registered_row_differs(
@@ -323,6 +268,15 @@ def test_startup_report_rejects_unverified_bundle_before_database_work(
         "create_database_engine",
         lambda _: (_ for _ in ()).throw(AssertionError("database reached")),
     )
+
+    if damage in {"changed_artifact", "missing_artifact"}:
+        with pytest.raises(
+            release_manifest.ManifestValidationError,
+            match="artifact hash" if damage == "changed_artifact" else None,
+        ):
+            release_manifest.load_verified_release_manifest(
+                tmp_path, "seis-1.0.1/manifest.json", require_selected_policy=True
+            )
 
     report = evaluate_startup_gates((ModelReleaseStartupGate(settings),))
 

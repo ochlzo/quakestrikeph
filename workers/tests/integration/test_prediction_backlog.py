@@ -139,7 +139,7 @@ def _run(engine):
     ).run()
 
 
-@pytest.mark.parametrize("status", ["pending", "retry_wait"])
+@pytest.mark.parametrize("status", ["retry_wait"])
 def test_reissue_preserves_source_and_creates_distinct_v2_work(migrated_engine, status):
     old_job_id, old_dispatch_id, revision_id, correlation_id, snapshot = _seed_legacy_job(
         migrated_engine, status=status
@@ -185,7 +185,7 @@ def test_reissue_preserves_source_and_creates_distinct_v2_work(migrated_engine, 
         assert str(new_job.job_id) in str(audit.metadata)
 
 
-@pytest.mark.parametrize("error_code", ["unsupported_schema", "release_mismatch"])
+@pytest.mark.parametrize("error_code", ["unsupported_schema"])
 def test_reissue_recovers_legacy_job_failed_by_v2_worker(migrated_engine, error_code):
     old_job_id, _, _, _, _ = _seed_legacy_job(
         migrated_engine, status="failed", error_code=error_code

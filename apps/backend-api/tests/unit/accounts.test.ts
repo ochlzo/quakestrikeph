@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
-import { AccountError, SmsProviderError, normalizePhone, preferences, requireTrustedEmail, type Account, type Identity } from '../../src/domain/accounts.js';
+import { AccountError, SmsProviderError, normalizePhone, preferences, type Account, type Identity } from '../../src/domain/accounts.js';
 import { AccountService } from '../../src/application/accounts/service.js';
 import { Iprog } from '../../src/infrastructure/sms/iprog.js';
 import { clerkIdentity } from '../../src/infrastructure/clerk/identity.js';
@@ -17,13 +17,6 @@ test('configured Clerk session authentication rejects invalid tokens instead of 
 });
 const base = { emailEnabled: false, smsEnabled: false, magnitude: 4.5, nearbyOnly: false, latitude: null, longitude: null, distanceKm: null };
 const account: Account = { ...base, userId: randomUUID(), displayName: 'Test', email: identity.email, phone: null, onboardingCompleted: false, status: 'active' };
-test('trusted email requires matching identity and stored verification evidence', () => {
-  requireTrustedEmail(identity.email, true, identity);
-  for (const [email, verified] of [[identity.email, false], ['changed@example.invalid', true], ['changed@example.invalid', false]] as const) {
-    assert.throws(() => requireTrustedEmail(email, verified, identity),
-      (error: unknown) => error instanceof AccountError && error.code === 'EMAIL_MIRROR_MISMATCH' && !('status' in error));
-  }
-});
 
 test('account HTTP errors preserve statuses, messages, and field identifiers', async () => {
   const groups: [number, string[]][] = [
@@ -142,25 +135,6 @@ test('suspended/closed users and wrong codes cannot bind destinations', async ()
   assert.equal(f.stats().current?.phone, null); assert.equal(f.stats().failures, 1);
 });
 
-test('phone removal requires a fresh identity and clears the saved number', async () => {
-  const bound = { ...account, phone: '+639171234567', smsEnabled: true, onboardingCompleted: true };
-  const denied = fixture(bound);
-  await assert.rejects(denied.service.removePhone(identity, randomUUID()), { code: 'REVERIFICATION_REQUIRED' });
-  assert.equal(denied.stats().removals, 0);
-  const f = fixture(bound);
-  const next = await f.service.removePhone({ ...identity, recent: true }, randomUUID());
-  assert.equal(next.phone, null); assert.equal(next.smsEnabled, false); assert.equal(f.stats().removals, 1);
-});
-
-test('phone removal cancels an in-flight verification attempt before clearing', async () => {
-  const f = fixture({ ...account, phone: '+639171234567', smsEnabled: true, onboardingCompleted: true });
-  const recent = { ...identity, recent: true };
-  await f.service.start(recent, { phone: '09171234568' }, randomUUID());
-  assert.equal(f.stats().pending?.phone, '+639171234568');
-  const next = await f.service.removePhone(recent, randomUUID());
-  assert.equal(next.phone, null); assert.equal(f.stats().pending, null);
-});
-
 test('phone removal with no saved number changes nothing but cancels a pending attempt', async () => {
   const empty = fixture({ ...account, phone: null });
   const next = await empty.service.removePhone({ ...identity, recent: true }, randomUUID());
@@ -231,11 +205,12 @@ test('IPROG adapter interprets documented string statuses and strips returned OT
 });
 
 test('account HTTP routes require owner identity; removal clears the phone and email/account removal stay absent', async () => {
-  const f = fixture({ ...account, phone: '+639171234567', onboardingCompleted: true });
+  const f = fixture({ ...account, phone: '+639171234567', smsEnabled: true, onboardingCompleted: true });
+  let recent = false;
   const app = createApp({ check: async () => {}, search: async () => [], findById: async () => null }, undefined,
     { service: f.service, authenticate: async headers => {
       if (headers.get('authorization') !== 'Bearer TEST_SESSION') throw new AccountError('SIGN_IN_REQUIRED', 'Sign in');
-      return { ...identity, recent: true };
+      return { ...identity, recent };
     } });
   const server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
   const address = server.address(); if (!address || typeof address === 'string') throw new Error('No server address');
@@ -247,8 +222,18 @@ test('account HTTP routes require owner identity; removal clears the phone and e
     for (const path of ['', '/email', '/close']) {
       assert.equal((await fetch(`${baseUrl}${path}`, { method: 'DELETE', headers: { authorization: 'Bearer TEST_SESSION' } })).status, 404);
     }
+    const denied = await fetch(`${baseUrl}/phone`, { method: 'DELETE', headers: { authorization: 'Bearer TEST_SESSION' } });
+    assert.equal(denied.status, 403);
+    assert.equal((await denied.json()).error.code, 'REVERIFICATION_REQUIRED');
+    assert.equal(f.stats().removals, 0);
+    recent = true;
+    await f.service.start({ ...identity, recent }, { phone: '09171234568' }, randomUUID());
+    assert.equal(f.stats().pending?.phone, '+639171234568');
     const removed = await fetch(`${baseUrl}/phone`, { method: 'DELETE', headers: { authorization: 'Bearer TEST_SESSION' } });
-    assert.equal(removed.status, 200); assert.equal((await removed.json()).phone, null);
+    assert.equal(removed.status, 200);
+    const next = await removed.json();
+    assert.equal(next.phone, null); assert.equal(next.smsEnabled, false);
+    assert.equal(f.stats().pending, null);
     assert.equal(f.stats().removals, 1);
   } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });

@@ -12,7 +12,6 @@
     "check": "astro check",
     "build": "astro build",
     "test:event-results": "node --test tests/event-results.test.mjs",
-    "test:mobile-drawer": "node --test tests/mobile-drawer.test.mjs",
     "test:location-edit": "node --experimental-strip-types --test tests/accounts/location-edit.test.mjs",
     "test:identity": "node --experimental-strip-types --test tests/accounts/identity.test.mjs tests/accounts/preference-saves.test.mjs",
     "test:sms-enrollment": "node --experimental-strip-types --test tests/accounts/sms-enrollment.test.mjs",

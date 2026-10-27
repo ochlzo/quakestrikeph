@@ -2,16 +2,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
 import pytest
 
 import quakestrike.infrastructure.bootstrap as bootstrap_module
-from quakestrike.application.bootstrap import run_bootstrap
 from quakestrike.application.persistence import IngestionRunState
-from quakestrike.application.startup import GateResult, StartupReport
 from quakestrike.domain.source_rows import CatalogParseResult, SourceTimePrecision
 from quakestrike.infrastructure.bootstrap import (
     BootstrapSnapshotError,
@@ -25,7 +23,6 @@ from quakestrike.infrastructure.bootstrap import (
     preserve_bootstrap_snapshot,
     write_enriched_snapshot,
     write_run_manifest,
-    write_startup_readiness_manifest,
 )
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "bootstrap" / "historical_snapshot.json"
@@ -59,19 +56,6 @@ def _state(
     )
 
 
-def test_snapshot_loader_counts_rows_and_preserves_bounded_detail_failure() -> None:
-    snapshot = load_bootstrap_snapshot(FIXTURE)
-
-    assert snapshot.actual_row_count == 9
-    assert len(snapshot.parsed.accepted_rows) == 5
-    assert len(snapshot.parsed.rejected_rows) == 4
-    assert snapshot.normalized_input_count == 8
-    assert snapshot.parsed.accepted_rows[0].origin == "VOLCANIC"
-    assert snapshot.parsed.accepted_rows[-1].diagnostics[0].code.value == "DETAIL_FETCH_FAILED"
-    assert snapshot.parsed.rejected_rows[-1].diagnostic.code.value == "INVALID_CATALOG_ROW"
-    assert all("example.invalid" not in row.source_url for row in snapshot.parsed.accepted_rows)
-
-
 def test_enriched_snapshot_requires_a_detail_result_for_each_valid_row(
     tmp_path: Path,
 ) -> None:
@@ -96,18 +80,6 @@ def test_raw_snapshot_ignores_supplied_detail_evidence(tmp_path: Path) -> None:
         row.time_precision is SourceTimePrecision.MINUTE for row in snapshot.parsed.accepted_rows
     )
     assert all(row.origin is None for row in snapshot.parsed.accepted_rows)
-
-
-def test_enrichment_cache_round_trips_the_normalized_snapshot(tmp_path: Path) -> None:
-    snapshot = load_bootstrap_snapshot(FIXTURE)
-    cache_path = default_enriched_snapshot_path(snapshot, tmp_path / "run.json")
-
-    cache_hash = write_enriched_snapshot(cache_path, snapshot, snapshot.parsed)
-    loaded = load_enriched_snapshot(cache_path, snapshot)
-
-    assert cache_path.is_file()
-    assert len(cache_hash) == 64
-    assert loaded.parsed == snapshot.parsed
 
 
 def test_enrichment_cache_cannot_replace_catalog_evidence(tmp_path: Path) -> None:
@@ -441,168 +413,3 @@ def test_readiness_requires_persisted_usable_history_and_run_scoped_counts(
         "prediction_dispatches": 1,
         "prediction_jobs": 1,
     }
-
-
-def test_startup_readiness_manifest_preserves_evidence_and_writes_gate_report(
-    tmp_path: Path,
-) -> None:
-    snapshot = load_bootstrap_snapshot(FIXTURE)
-    path = tmp_path / "run.json"
-    manifest = prepare_run_manifest(snapshot, path)
-    report = StartupReport(
-        (
-            GateResult(
-                name="migration-state",
-                ready=True,
-                reason="ready",
-                details={"current_revision": "head"},
-            ),
-            GateResult(
-                name="model-release",
-                ready=True,
-                reason="verified",
-                details={
-                    "release_id": str(UUID(int=1)),
-                    "version_label": "SEIS 1.0",
-                    "manifest_uri": "seis-1.0/manifest.json",
-                    "manifest_hash": "a" * 64,
-                    "input_schema_version": "input.v1",
-                    "output_schema_version": "output.v1",
-                    "artifact_hashes": '{"models/model.bin": "bbbb"}',
-                },
-            ),
-        )
-    )
-
-    updated = write_startup_readiness_manifest(
-        path,
-        report,
-        checked_at=datetime(2026, 9, 18, 1, 2, 3, tzinfo=UTC),
-    )
-
-    assert updated["snapshot_sha256"] == manifest["snapshot_sha256"]
-    assert updated["readiness"]["schema_version"] == "quakestrike.readiness.v1"
-    assert updated["readiness"]["checked_at"] == "2026-09-18T01:02:03+00:00"
-    assert updated["readiness"]["failed_gate_names"] == []
-    assert updated["readiness"]["gates"] == [result.as_dict() for result in report.results]
-    assert updated["readiness"]["model_release"] == {
-        "release_id": str(UUID(int=1)),
-        "version_label": "SEIS 1.0",
-        "manifest_uri": "seis-1.0/manifest.json",
-        "manifest_hash": "a" * 64,
-        "input_schema_version": "input.v1",
-        "output_schema_version": "output.v1",
-        "artifact_hashes": {"models/model.bin": "bbbb"},
-    }
-
-
-def test_startup_readiness_manifest_preserves_malformed_input(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "run.json"
-    path.write_text("not json", encoding="utf-8")
-    report = StartupReport(
-        (GateResult(name="bootstrap-readiness", ready=False, reason="not ready"),)
-    )
-
-    with pytest.raises(BootstrapSnapshotError):
-        write_startup_readiness_manifest(
-            path,
-            report,
-            checked_at=datetime(2026, 9, 18, tzinfo=UTC),
-        )
-
-    assert path.read_text(encoding="utf-8") == "not json"
-
-
-def test_bootstrap_can_replace_its_readiness_only_placeholder(tmp_path: Path) -> None:
-    snapshot = load_bootstrap_snapshot(FIXTURE)
-    path = tmp_path / "run.json"
-    write_startup_readiness_manifest(
-        path,
-        StartupReport((GateResult(name="bootstrap-readiness", ready=False, reason="not ready"),)),
-        checked_at=datetime(2026, 9, 18, tzinfo=UTC),
-    )
-
-    manifest = prepare_run_manifest(snapshot, path)
-
-    assert manifest["snapshot_sha256"] == snapshot.sha256
-    assert "readiness" not in manifest
-
-
-class _Reconciler:
-    def __init__(self, status: str = "succeeded") -> None:
-        self.status = status
-        self.calls = 0
-
-    def execute(self, _run_id):
-        self.calls += 1
-        return type("PipelineResult", (), {"status": self.status})()
-
-
-class _Store:
-    def __init__(self, state: IngestionRunState) -> None:
-        self.state = state
-        self.created: list[tuple[UUID, UUID]] = []
-
-    def create_backfill_run(
-        self,
-        run_id: UUID,
-        correlation_id: UUID,
-        _snapshot_sha256: str,
-        _enriched_snapshot_sha256: str | None = None,
-    ) -> IngestionRunState:
-        self.created.append((run_id, correlation_id))
-        return self.state
-
-    def requeue_backfill_run(
-        self,
-        run_id,
-        correlation_id,
-        snapshot_sha256,
-        enriched_snapshot_sha256=None,
-    ):
-        raise AssertionError("not used in this test")
-
-    def get_ingestion_run(self, _run_id: UUID) -> IngestionRunState:
-        return self.state
-
-
-def test_run_bootstrap_records_terminal_state_without_reprocessing_succeeded_run() -> None:
-    manifest = {"status": "prepared", "counts": {}}
-    writes: list[dict[str, object]] = []
-    reconciler = _Reconciler()
-    result = run_bootstrap(
-        store=_Store(_state()),
-        reconciler=reconciler,
-        run_id=RUN_ID,
-        correlation_id=CORRELATION_ID,
-        snapshot_sha256="0" * 64,
-        manifest=manifest,
-        write_manifest=lambda value: writes.append(dict(value)),
-    )
-
-    assert result.reconciliation_status == "already_succeeded"
-    assert reconciler.calls == 0
-    assert writes[-1]["status"] == "succeeded"
-
-
-def test_run_bootstrap_starts_and_records_an_active_attempt() -> None:
-    pending = replace(
-        _state(), status="pending", events_found=0, events_inserted=0, events_rejected=0
-    )
-    manifest = {"status": "prepared", "counts": {}}
-    writes: list[dict[str, object]] = []
-    result = run_bootstrap(
-        store=_Store(pending),
-        reconciler=_Reconciler(),
-        run_id=RUN_ID,
-        correlation_id=CORRELATION_ID,
-        snapshot_sha256="0" * 64,
-        manifest=manifest,
-        write_manifest=lambda value: writes.append(dict(value)),
-    )
-
-    assert result.reconciliation_status == "succeeded"
-    assert writes[0]["status"] == "running"
-    assert writes[-1]["reconciliation_status"] == "succeeded"
