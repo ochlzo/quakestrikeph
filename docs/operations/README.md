@@ -23,6 +23,7 @@ Its current coverage is Docker.
 | Change database passwords or open private pgAdmin | [Database maintenance](database-maintenance.md) |
 | Configure backups or check a restore test | [PostgreSQL backups](postgres-backups.md) |
 | Install or check checkpoint cleanup | [Checkpoint retention](ingestion-checkpoint-retention.md) |
+| Recover missing bootstrap readiness evidence | [Bootstrap readiness recovery](bootstrap-readiness-recovery.md) |
 | Recover forecasts for a selected historical run | [Historical prediction recovery](historical-prediction-recovery.md) |
 
 ## Operate alerts

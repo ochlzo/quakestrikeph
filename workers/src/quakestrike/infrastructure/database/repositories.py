@@ -83,6 +83,7 @@ def _ingestion_run_state(row) -> IngestionRunState:
         error_message=row["error_message"],
         snapshot_sha256=row["bootstrap_snapshot_sha256"],
         enriched_snapshot_sha256=row["bootstrap_enriched_snapshot_sha256"],
+        finished_at=row["finished_at"],
     )
 
 
@@ -306,7 +307,11 @@ class SqlAlchemyIngestionTransactions(IngestionTransactions):
                 .mappings()
                 .one_or_none()
             )
-            return _ingestion_run_state(row) if row is not None else None
+            if row is None:
+                return None
+            return replace(
+                _ingestion_run_state(row), retention_checked_at=session.scalar(select(func.now()))
+            )
 
     def bootstrap_database_counts(self, run_id: UUID) -> dict[str, int]:
         """Return database counts scoped to one bootstrap run."""

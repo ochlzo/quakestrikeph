@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
@@ -324,6 +324,40 @@ def test_readiness_requires_successful_run_and_matching_sidecar_counts(tmp_path:
         ).ready
         is False
     )
+
+
+@pytest.mark.parametrize(
+    ("age_days", "checkpoints", "expected"),
+    [(31, 0, True), (30, 0, False), (29, 0, False), (31, 4, False), (29, 8, True)],
+)
+def test_readiness_respects_checkpoint_retention(
+    tmp_path: Path, age_days: int, checkpoints: int, expected: bool
+) -> None:
+    snapshot = load_bootstrap_snapshot(FIXTURE)
+    manifest = prepare_run_manifest(snapshot, tmp_path / "run.json")
+    manifest.update(run_id=str(RUN_ID), correlation_id=str(CORRELATION_ID), status="succeeded")
+    manifest["counts"].update(
+        checkpointed_inputs=8,
+        events_inserted=4,
+        events_revised=0,
+        events_unchanged=0,
+        events_rejected=4,
+    )
+    checked_at = datetime(2026, 10, 27, tzinfo=UTC)
+    state = replace(
+        _state(snapshot_sha256=snapshot.sha256),
+        finished_at=checked_at - timedelta(days=age_days),
+        retention_checked_at=checked_at,
+    )
+    result = evaluate_bootstrap_readiness(
+        snapshot,
+        manifest,
+        state,
+        history_observation_count=4,
+        usable_history_count=4,
+        database_counts={"input_checkpoints": checkpoints, "event_revisions": 4},
+    )
+    assert result.ready is expected
 
 
 def test_readiness_requires_preserved_source_metadata(tmp_path: Path) -> None:

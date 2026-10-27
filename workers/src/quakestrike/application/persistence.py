@@ -149,6 +149,8 @@ class IngestionRunState:
     error_message: str | None = None
     snapshot_sha256: str | None = None
     enriched_snapshot_sha256: str | None = None
+    finished_at: datetime | None = None
+    retention_checked_at: datetime | None = None
 
 
 class IngestionTransactions(Protocol):
