@@ -51,8 +51,13 @@ const { chromium } = require("playwright");
         },
       });
     });
+    await page.route("**/api/v1/earthquakes/search", route => route.fulfill({ json: {
+      items: [{ eventId: "00000000-0000-4000-8000-000000000001", eventTime: "2026-10-05T04:00:00Z", magnitude: 3,
+        latitude: 13, longitude: 123, depthKm: 10, locationDescription: "Sidebar test event", forecast: null }],
+      nextCursor: null, hasMore: false, fetchedAt: "2026-10-05T05:00:00Z"
+    } }));
     await page.goto(process.env.BULLETIN_URL || "http://localhost:4321");
-    await page.locator("astro-island[ssr]").waitFor({ state: "detached" });
+    await page.locator('astro-island[component-url*="Bulletin"][ssr]').waitFor({ state: "detached" });
     const toggle = page.getByRole("button", {
       name: "Toggle sidebar",
       exact: true,

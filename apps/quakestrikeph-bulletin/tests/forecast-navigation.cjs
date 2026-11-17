@@ -243,23 +243,28 @@ function release() {
       });
       const listUrl = `${root}/?${params}`;
       async function openDrawer() {
-        if (
-          viewport.width < 760 &&
-          !(await page
-            .getByRole("button", { name: "Close earthquakes", exact: true })
-            .isVisible())
-        ) {
-          await page
-            .getByRole("button", { name: "Show earthquakes", exact: true })
-            .click();
+        if (viewport.width >= 760) return;
+        await page.waitForFunction(() => {
+          const visible = (element) => element && element.getClientRects().length > 0;
+          return visible(document.querySelector('.earthquake-drawer-trigger')) ||
+            visible(document.querySelector('[aria-label="Close earthquakes"]'));
+        });
+        const trigger = page.getByRole("button", { name: "Show earthquakes", exact: true });
+        if (await trigger.isVisible()) await trigger.click();
+        const showList = page.getByRole("button", { name: "Show earthquake list", exact: true });
+        if (await showList.isVisible()) await showList.click();
+      }
+      async function showSelected() {
+        if (viewport.width < 760) {
+          await page.locator('.event-row-v2[aria-pressed="true"]').click();
         }
+        await page.locator(".selected-card").waitFor();
       }
       async function checkRestored() {
         await page.waitForFunction(
           () => document.querySelectorAll("astro-island[ssr]").length === 0,
         );
         await openDrawer();
-        await page.locator(".selected-card").waitFor();
         assert.equal(
           await page
             .getByRole("textbox", { name: "Search by province" })
@@ -278,13 +283,13 @@ function release() {
         assert.equal(url.searchParams.get("selected"), eventId);
         assert.equal(url.searchParams.get("from"), params.get("from"));
         assert.equal(url.searchParams.get("to"), params.get("to"));
+        await showSelected();
       }
       async function checkUnfiltered() {
         await page.waitForFunction(
           () => document.querySelectorAll("astro-island[ssr]").length === 0,
         );
         await openDrawer();
-        await page.locator(".selected-card").waitFor();
         assert.equal(
           await page
             .getByRole("textbox", { name: "Search by province" })
@@ -300,6 +305,7 @@ function release() {
           "All magnitudes",
         );
         assert.equal(new URL(page.url()).search, `?selected=${eventId}`);
+        await showSelected();
       }
       await page.goto(listUrl);
       await checkRestored();
@@ -311,7 +317,7 @@ function release() {
         `/forecasts/${eventId}`,
       );
       await page.getByRole("link", { name: "View forecast" }).click();
-      await page.locator(".forecast-page").waitFor();
+      await page.locator("body.forecast-page").waitFor();
       assert.equal(new URL(page.url()).pathname, `/forecasts/${eventId}`);
       assert.equal(new URL(page.url()).search, "");
       assert.match(
@@ -770,9 +776,9 @@ function release() {
       );
       const imageDirForPopup = resolve("../../.impeccable/review");
       mkdirSync(imageDirForPopup, { recursive: true });
-      for (const close of await page
+      for (const close of (await page
         .getByRole("button", { name: "Close toast", exact: true })
-        .all())
+        .all()).reverse())
         await close.click();
       await page.locator(".map-panel").screenshot({
         path: resolve(
@@ -1334,9 +1340,9 @@ function release() {
       );
       const imageDir = resolve("../../.impeccable/review");
       mkdirSync(imageDir, { recursive: true });
-      for (const close of await page
+      for (const close of (await page
         .getByRole("button", { name: "Close toast", exact: true })
-        .all())
+        .all()).reverse())
         await close.click();
       await page.locator('.probability[aria-expanded="true"]').click();
       await page.locator(".supporting-estimates details[open] summary").click();
@@ -1369,7 +1375,7 @@ function release() {
       await page.goto(listUrl);
       await checkRestored();
       await page.getByRole("link", { name: "View forecast" }).click();
-      await page.locator(".forecast-page").waitFor();
+      await page.locator("body.forecast-page").waitFor();
       assert.equal(new URL(page.url()).search, "");
       await page.goBack();
       await checkRestored();
@@ -1381,6 +1387,7 @@ function release() {
         /Test location/,
       );
       mode = "normal";
+      await openDrawer();
       await page
         .getByRole("textbox", { name: "Search by province" })
         .fill("No matching province");
@@ -1617,9 +1624,9 @@ function release() {
         ),
         true,
       );
-      for (const close of await page
+      for (const close of (await page
         .getByRole("button", { name: "Close toast", exact: true })
-        .all())
+        .all()).reverse())
         await close.click();
       await timeline.screenshot({
         path: resolve(imageDir, "forecast-now-" + viewport.width + ".png"),
@@ -1644,11 +1651,11 @@ function release() {
         await page.locator("#replay-handle").press("PageDown");
       }
       if (mode === "partial" || mode === "error") {
-        await page
-          .getByText("Observed earthquakes could not be loaded.", {
-            exact: true,
-          })
-          .waitFor();
+        const errorToast = page.locator('[data-slot="toast"]')
+          .filter({ hasText: "Observed earthquakes could not be loaded." });
+        await errorToast.getByText("Observed earthquakes could not be loaded.", {
+          exact: true,
+        }).waitFor();
         assert.match(
           await page.locator("#forecast-panel-activity").textContent(),
           /80%/,
@@ -1665,7 +1672,7 @@ function release() {
           mode === "partial" ? 2 : 1,
         );
         mode = "normal";
-        await page.getByRole("button", { name: "Retry", exact: true }).click();
+        await errorToast.getByRole("button", { name: "Retry", exact: true }).click();
         await page.waitForFunction(
           () =>
             document.querySelector("#replay-load-status")?.textContent === "",

@@ -19,10 +19,11 @@
     "test:forecast-replay": "node --experimental-strip-types --test tests/forecast-replay.test.mjs tests/synthetic-validity.test.mjs",
     "test:forecast-navigation": "node tests/forecast-navigation.cjs",
     "generate:api": "openapi-typescript ../../packages/contracts/openapi.yaml -o src/lib/api/schema.d.ts",
-    "start": "node ./dist/server/entry.mjs"
+    "start": "node ./dist/server/entry.mjs",
+    "test:browser": "node --test tests/browser-suite.cjs",
+    "test": "node --experimental-strip-types --test \"tests/*.test.mjs\" \"tests/accounts/*.test.mjs\" && pnpm run test:browser"
   },
   "dependencies": {
-    "@quakestrikeph/ui": "file:../../packages/ui",
     "@astrojs/node": "11.1.6",
     "@astrojs/react": "7.0.0",
     "@base-ui/react": "^1.8.0",
@@ -31,6 +32,7 @@
     "@internationalized/date": "3.12.4",
     "@mapbox/vector-tile": "3.0.0",
     "@maplibre/vt-pbf": "4.3.2",
+    "@quakestrikeph/ui": "file:../../packages/ui",
     "astro": "7.3.5",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
@@ -50,6 +52,7 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "openapi-typescript": "7.13.0",
+    "playwright": "1.62.1",
     "tailwindcss": "^4.3.3",
     "typescript": "6.0.2"
   }
