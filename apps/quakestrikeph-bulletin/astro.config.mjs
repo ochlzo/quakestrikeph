@@ -43,6 +43,10 @@ export default defineConfig({
           target: process.env.ACCOUNT_API_TARGET || "http://127.0.0.1:3000",
           changeOrigin: false,
         },
+        "/api/v1/forecast-simulations": {
+          target: process.env.SIMULATION_BACKEND_TARGET || "http://127.0.0.1:3000",
+          changeOrigin: false,
+        },
         "/api/v1": {
           target: process.env.API_TARGET || "https://quakestrikeph.com",
           changeOrigin: true,
