@@ -9,10 +9,12 @@ import { FormField } from "@/features/accounts/FormField";
 import LocationSearchControls from "@/features/accounts/LocationSearchControls";
 import { browserLocation } from "@/features/accounts/location-edit";
 import { usePlaces } from "@/features/accounts/location-places";
-import { displayTime, magnitude } from "@/lib/events";
+import { displayPreciseTime } from "@/lib/events";
 import { initForecastDetails } from "@/lib/forecast-details";
 import {
+  refreshSimulationPage,
   runForecastSimulation,
+  unavailableCatalog,
   type SimulationCatalog,
   type SimulationResult,
 } from "@/lib/api/forecast-simulations";
@@ -93,7 +95,7 @@ const messages = {
   },
   unavailable: {
     title: "The PHIVOLCS catalog could not be checked",
-    description: "Reload the page to check again.",
+    description: "This page will check again automatically.",
   },
   unknown: {
     title: "The simulation outcome could not be confirmed",
@@ -107,6 +109,10 @@ const messages = {
 type RunFeedback = Exclude<keyof typeof messages, SimulationCatalog["status"]>;
 const formErrorToast = "simulation-form-error";
 const minuteMs = 60_000;
+const catalogRefreshMs = 30_000;
+const scenarioMagnitude = new Intl.NumberFormat("en-PH", {
+  minimumFractionDigits: 1, maximumFractionDigits: 20,
+});
 const dayMs = 86_400_000;
 const recordDays = 7;
 const timelineDate = new Intl.DateTimeFormat("en-PH", {
@@ -222,7 +228,7 @@ function RecordsTimeline({ cutoff }: { cutoff: string }) {
 
 export default function Simulation({
   catalog: initialCatalog,
-  guestCookieConfirmed,
+  guestCookieConfirmed: initialGuestCookieConfirmed,
 }: {
   catalog: SimulationCatalog;
   guestCookieConfirmed: boolean | null;
@@ -235,6 +241,7 @@ export default function Simulation({
     errors: {},
   });
   const [catalog, setCatalog] = useState(initialCatalog);
+  const [guestCookieConfirmed, setGuestCookieConfirmed] = useState(initialGuestCookieConfirmed);
   const [feedback, setFeedback] = useState<RunFeedback | null>(null);
   const [retryAt, setRetryAt] = useState<number | null>(null);
   const [result, setResult] = useState<SimulationResult | null>(null);
@@ -250,18 +257,16 @@ export default function Simulation({
   const { catalogCutoff: cutoff, status } = catalog;
   const eligible = status === "current" || status === "stale";
   const catalogMessage = eligible ? null : messages[status];
-  const message = feedback
-    ? messages[feedback]
-    : guestCookieConfirmed === false
-      ? blockedCookieMessage
-      : catalogMessage;
+  const message = guestCookieConfirmed === false
+    ? blockedCookieMessage
+    : catalogMessage ?? (feedback ? messages[feedback] : null);
   const blocked =
     running || !eligible || guestCookieConfirmed !== true || feedback === "cookies" || retryAt !== null;
   const hasResult = result !== null;
   const sourceSummary = (
     <>
-      <span>PHIVOLCS records used through</span>
-      {cutoff ? <time dateTime={cutoff}>{displayTime(cutoff)}</time> : <strong>Unavailable</strong>}
+      <span>PHIVOLCS records available through</span>
+      {cutoff ? <time dateTime={cutoff}>{displayPreciseTime(cutoff)}</time> : <strong>Unavailable</strong>}
       {status === "stale" && <span className="simulate-stale">Records older than 24 hours</span>}
     </>
   );
@@ -281,6 +286,32 @@ export default function Simulation({
   }, []);
 
   useEffect(() => setHydrated(true), []);
+
+  useEffect(() => {
+    if (running) return;
+    const request = new AbortController();
+    const timer = window.setInterval(async () => {
+      if (document.visibilityState !== "visible" || pending.current) return;
+      const page = await refreshSimulationPage(request.signal, guestCookieConfirmed === false);
+      if (request.signal.aborted || pending.current) return;
+      const refreshedCatalog = page?.catalog ?? unavailableCatalog;
+      setCatalog((previous) =>
+        previous.status === refreshedCatalog.status &&
+        previous.catalogCutoff === refreshedCatalog.catalogCutoff
+          ? previous
+          : refreshedCatalog,
+      );
+      if (!page) return;
+      setGuestCookieConfirmed(page.guestCookieConfirmed);
+      if (page.guestCookieConfirmed) {
+        setFeedback((previous) => previous === "cookies" ? null : previous);
+      }
+    }, catalogRefreshMs);
+    return () => {
+      window.clearInterval(timer);
+      request.abort();
+    };
+  }, [running, guestCookieConfirmed]);
 
   useEffect(() => {
     if (!message) return;
@@ -504,10 +535,10 @@ export default function Simulation({
               <CircleAlert size={18} aria-hidden="true" />
               <div>
                 <strong>{message.title}</strong>
-                {retryAt === null ? (
-                  <p>{message.description}</p>
-                ) : (
+                {message === messages.limit && retryAt !== null ? (
                   <RetryCountdown key={retryAt} retryAt={retryAt} onElapsed={clearRunLimit} />
+                ) : (
+                  <p>{message.description}</p>
                 )}
               </div>
             </div>
@@ -555,7 +586,7 @@ export default function Simulation({
                   </div>
                   <div>
                     <dt className="field-label">Magnitude</dt>
-                    <dd>{magnitude(result.scenario.magnitude)}</dd>
+                    <dd>M{scenarioMagnitude.format(result.scenario.magnitude)}</dd>
                   </div>
                   <div>
                     <dt className="field-label">Depth</dt>
@@ -569,14 +600,14 @@ export default function Simulation({
                 </div>
                 <div className="window-times">
                   <div>
-                    <span className="field-label">Starts</span>
+                    <span className="field-label">Starts at PHIVOLCS cutoff</span>
                     <time dateTime={result.forecast.windowStart}>
-                      {displayTime(result.forecast.windowStart)}
+                      {displayPreciseTime(result.forecast.windowStart)}
                     </time>
                   </div>
                   <div>
                     <span className="field-label">Ends</span>
-                    <time dateTime={result.forecast.windowEnd}>{displayTime(result.forecast.windowEnd)}</time>
+                    <time dateTime={result.forecast.windowEnd}>{displayPreciseTime(result.forecast.windowEnd)}</time>
                   </div>
                 </div>
               </div>

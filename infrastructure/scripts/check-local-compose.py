@@ -42,12 +42,18 @@ assert set(services["bulletin"]["environment"]) == {
     "PUBLIC_CLERK_PUBLISHABLE_KEY",
     "ACCOUNT_API_TARGET",
     "API_TARGET",
+    "SIMULATION_BACKEND_TARGET",
+    "SIMULATION_PAGE_TOKEN",
     "DEV_USE_POLLING",
     "CI",
 }
 assert services["bulletin"]["environment"]["DEV_USE_POLLING"] == "true"
 assert services["bulletin"]["environment"]["CI"] == "true"
 assert services["bulletin"]["environment"]["API_TARGET"] == "http://backend-api:3000"
+assert (
+    services["bulletin"]["environment"]["SIMULATION_BACKEND_TARGET"]
+    == "http://backend-api:3000"
+)
 assert (
     services["bulletin"]["environment"]["ACCOUNT_API_TARGET"]
     == "http://backend-api:3000"

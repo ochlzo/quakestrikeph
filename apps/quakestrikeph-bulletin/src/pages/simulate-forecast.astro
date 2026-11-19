@@ -27,7 +27,10 @@ Astro.response.headers.set('Cache-Control', 'no-store');
   </head>
   <body class="forecast-page simulate-page">
     <a class="skip" href="#simulator">Skip to simulation</a>
-    <main class="shell" id="simulator" tabindex="-1">
+    <main class="shell" id="simulator" tabindex="-1"
+      data-catalog-status={catalog.status}
+      data-catalog-cutoff={catalog.catalogCutoff}
+      data-guest-cookie-confirmed={guestCookieConfirmed?.toString()}>
       <h1>Simulate Forecast</h1>
       <Simulation client:load catalog={catalog} guestCookieConfirmed={guestCookieConfirmed} />
     </main>

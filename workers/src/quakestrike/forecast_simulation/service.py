@@ -12,8 +12,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from quakestrike.domain.prediction import compose_forecast
 from quakestrike.forecast_simulation.catalog import CatalogStatus, utc_timestamp
 from quakestrike.forecast_simulation.quota import QuotaOutcomeUnknown, QuotaUnavailable
+from quakestrike.infrastructure.logging.json_logging import log_exception_event
 
-_LOG = logging.getLogger(__name__)
+_LOG = logging.getLogger("forecast-simulator.service")
 
 
 class CatalogReader(Protocol):
@@ -126,8 +127,14 @@ class Simulator:
         # Quota admission is the start boundary. A lost client never interrupts this call.
         try:
             output = compose_forecast(model.predict(features), cutoff)
-        except Exception:
-            _LOG.error("Simulation model execution failed.")
+        except Exception as error:
+            log_exception_event(
+                _LOG,
+                logging.ERROR,
+                "Simulation model execution failed.",
+                event_code="simulation_model_failed",
+                error=error,
+            )
             return rejection(
                 500,
                 "SIMULATION_MODEL_FAILED",

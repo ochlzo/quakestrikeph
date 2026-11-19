@@ -17,9 +17,10 @@ from sqlalchemy import create_engine
 from quakestrike.forecast_simulation.catalog import BootstrapCoverage, SimulationCatalog
 from quakestrike.forecast_simulation.quota import SimulationQuota
 from quakestrike.forecast_simulation.service import Response, Simulator, rejection
+from quakestrike.infrastructure.logging.json_logging import configure_logging, log_exception_event
 from quakestrike.infrastructure.models.seis import SeisModel
 
-_LOG = logging.getLogger(__name__)
+_LOG = logging.getLogger("forecast-simulator.runtime")
 
 
 class SimulationServer(ThreadingHTTPServer):
@@ -63,8 +64,14 @@ class SimulationHandler(BaseHTTPRequestHandler):
     def _handle(self, operation) -> None:
         try:
             response = operation()
-        except Exception:
-            _LOG.error("Simulation request failed.")
+        except Exception as error:
+            log_exception_event(
+                _LOG,
+                logging.ERROR,
+                "Simulation request failed.",
+                event_code="simulation_request_failed",
+                error=error,
+            )
             response = rejection(500, "INTERNAL_ERROR", "Internal server error.")
         self._write(response)
 
@@ -93,6 +100,7 @@ class SimulationHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    configure_logging("forecast-simulator")
     token = os.environ["SIMULATION_SERVICE_TOKEN"]
     if not re.fullmatch(r"[a-f0-9]{64}", token):
         raise ValueError("SIMULATION_SERVICE_TOKEN must contain 64 hexadecimal characters.")

@@ -13,6 +13,48 @@ export const unavailableCatalog: SimulationCatalog = {
   catalogCutoff: null,
 };
 
+export function readSimulationCatalog(status: unknown, cutoff: unknown): SimulationCatalog | null {
+  switch (status) {
+    case "current":
+    case "stale":
+    case "too_old":
+      return typeof cutoff === "string" && Number.isFinite(Date.parse(cutoff))
+        ? { status, catalogCutoff: cutoff }
+        : null;
+    case "insufficient_history":
+    case "unavailable":
+      return cutoff === null ? { status, catalogCutoff: null } : null;
+    default:
+      return null;
+  }
+}
+
+export async function refreshSimulationPage(signal: AbortSignal, confirmOnly: boolean) {
+  try {
+    // Use the existing page so only the Bulletin server calls the private Backend route.
+    const url = new URL(window.location.pathname, window.location.origin);
+    if (confirmOnly) url.searchParams.set("confirm", "1");
+    const response = await fetch(url, {
+      mode: "same-origin",
+      cache: "no-store",
+      signal: AbortSignal.any([signal, AbortSignal.timeout(8000)]),
+    });
+    if (!response.ok) return null;
+    const template = document.createElement("template");
+    template.innerHTML = await response.text();
+    const page = template.content.querySelector("#simulator");
+    if (!page) return null;
+    const catalog = readSimulationCatalog(
+      page.getAttribute("data-catalog-status"),
+      page.getAttribute("data-catalog-cutoff"),
+    );
+    const cookie = page.getAttribute("data-guest-cookie-confirmed");
+    return catalog ? { catalog, guestCookieConfirmed: cookie === null ? null : cookie === "true" } : null;
+  } catch {
+    return null;
+  }
+}
+
 type Failure =
   | { state: "field"; field: keyof SimulationScenario; message: string }
   | { state: "limit"; retryAt: number | null }

@@ -8,6 +8,7 @@ services:
       POSTGRES_USER: quakestrike_test
       POSTGRES_PASSWORD: integration-only
       BACKEND_DB_PASSWORD: integration-only
+      SIMULATION_DB_PASSWORD: integration-only
     tmpfs:
       - /var/lib/postgresql/data
     volumes:
@@ -81,6 +82,27 @@ services:
       options:
         max-size: "20m"
         max-file: "5"
+
+  forecast-simulator-fixture:
+    profiles: ["forecast-simulation"]
+    build:
+      context: ..
+      dockerfile: workers/Dockerfile.test
+    command: [python, workers/tests/fixtures/forecast_simulator_server.py]
+    environment:
+      TEST_SIMULATION_DATABASE_URL: postgresql+psycopg://quakestrike_simulator:integration-only@postgres-test:5432/quakestrike_test
+      TEST_REDIS_URL: redis://redis-test:6379/0
+    networks: [phase2-test]
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "from urllib.request import urlopen; urlopen('http://127.0.0.1:4350/healthz', timeout=2).close()"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
 
   prediction-smoke-runner:
     profiles: ["prediction-smoke"]

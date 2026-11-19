@@ -1,5 +1,5 @@
 import { getSecret } from "astro:env/server";
-import { unavailableCatalog, type SimulationCatalog } from "./forecast-simulations";
+import { readSimulationCatalog, unavailableCatalog, type SimulationCatalog } from "./forecast-simulations";
 
 type SimulationPageData = {
   guestCookieConfirmed: boolean | null;
@@ -37,21 +37,8 @@ export async function loadSimulationPage(
     if (!response.ok) return fallback;
 
     const data = await response.json();
-    const catalog = data?.catalog;
+    const catalog = readSimulationCatalog(data?.catalog?.status, data?.catalog?.catalogCutoff);
     if (typeof data?.guestCookieConfirmed !== "boolean" || !catalog) return fallback;
-    switch (catalog.status) {
-      case "current":
-      case "stale":
-      case "too_old":
-        if (!Number.isFinite(Date.parse(catalog.catalogCutoff))) return fallback;
-        break;
-      case "insufficient_history":
-      case "unavailable":
-        if (catalog.catalogCutoff !== null) return fallback;
-        break;
-      default:
-        return fallback;
-    }
     return {
       guestCookieConfirmed: data.guestCookieConfirmed,
       catalog,

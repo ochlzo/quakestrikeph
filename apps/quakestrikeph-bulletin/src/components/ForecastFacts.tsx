@@ -1,6 +1,7 @@
 import { Fragment } from "react";
 import type { components } from "../lib/api/schema";
 import { magnitude, likelihoodLevel } from "../lib/events";
+import { formatForecastCount as count, formatForecastPercent as percent } from "../lib/forecast-format";
 
 interface Props {
   forecast: components["schemas"]["SimulatedForecast"];
@@ -8,13 +9,6 @@ interface Props {
 }
 
 export default function ForecastFacts({ forecast, simulated = false }: Props) {
-  const percent = (value: number) =>
-    value > 0 && value < 0.005
-      ? "<1%"
-      : value < 1 && value >= 0.995
-        ? ">99%"
-        : String(Math.round(value * 100)) + "%";
-  const count = (value: number) => new Intl.NumberFormat("en-PH", { maximumFractionDigits: 2 }).format(value);
   const probabilities = [
     { threshold: "1.0", value: forecast.probabilityM1Plus24h },
     { threshold: "4.0", value: forecast.probabilityM4Plus24h },

@@ -53,11 +53,15 @@ jobs:
       - name: Run integration tests
         run: docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --build --rm test-runner pytest --config-file workers/pyproject.toml workers/tests/integration
 
-      - name: Provision restricted Backend test login
-        run: docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml exec -T postgres-test sh /opt/quakestrike/provision-roles.sh create-backend
+      - name: Provision restricted Backend test logins
+        run: |
+          docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml exec -T postgres-test sh /opt/quakestrike/provision-roles.sh create-backend
+          docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml exec -T postgres-test sh /opt/quakestrike/provision-roles.sh create-simulator
 
       - name: Run Backend integration tests
-        run: docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --build --rm backend-test-runner
+        run: |
+          docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile forecast-simulation up --build -d --wait forecast-simulator-fixture
+          docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --build --rm -e TEST_SIMULATION_SERVICE_URL=http://forecast-simulator-fixture:4350 backend-test-runner
 
       - name: Start disposable alert-testing Backend fixture
         run: docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile alert-testing-workflow up --build -d --wait alert-testing-backend-fixture
@@ -67,7 +71,7 @@ jobs:
 
       - name: Remove isolated test services
         if: always()
-        run: docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile alert-testing-workflow down -v
+        run: docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile forecast-simulation --profile alert-testing-workflow down -v
 
   backend-unit:
     runs-on: ubuntu-24.04

@@ -71,10 +71,19 @@ docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.inte
 Check the pytest summary for failures and confirm integration tests ran.
 The runner supplies its test database and Redis URLs. Host pytest without those URLs skips integration tests.
 
+Run these commands after the worker suite migrates the database to include public forecast simulation HTTP checks.
+
+```powershell
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml exec -T postgres-test sh /opt/quakestrike/provision-roles.sh create-backend
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml exec -T postgres-test sh /opt/quakestrike/provision-roles.sh create-simulator
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile forecast-simulation up --build -d --wait forecast-simulator-fixture
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml run --build --rm -e TEST_SIMULATION_SERVICE_URL=http://forecast-simulator-fixture:4350 backend-test-runner
+```
+
 3. After inspecting the results, remove the disposable containers, network, and volumes. This command targets only the named test project.
 
 ```powershell
-docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml down -v
+docker compose -p quakestrike-data-ingestion-test -f infrastructure/compose.integration.yml --profile forecast-simulation down -v
 ```
 
 

@@ -1,5 +1,6 @@
 import type { components } from "../lib/api/schema";
 import { magnitude } from "../lib/events";
+import { formatForecastCount as count, formatForecastPercent as percent } from "../lib/forecast-format";
 
 interface Props {
   forecast: components["schemas"]["SimulatedForecast"];
@@ -7,13 +8,6 @@ interface Props {
 }
 
 export default function ForecastDiscussion({ forecast, simulated = false }: Props) {
-  const percent = (value: number) =>
-    value > 0 && value < 0.005
-      ? "<1%"
-      : value < 1 && value >= 0.995
-        ? ">99%"
-        : String(Math.round(value * 100)) + "%";
-  const count = (value: number) => new Intl.NumberFormat("en-PH", { maximumFractionDigits: 2 }).format(value);
   const expectedCount = forecast.expectedM1PlusCount24h;
   const countStepBase = 10 ** Math.floor(Math.log10(Math.max(1, expectedCount / 3)));
   const countStep = [1, 2, 5, 10].find((step) => step * countStepBase >= expectedCount / 3)! * countStepBase;
