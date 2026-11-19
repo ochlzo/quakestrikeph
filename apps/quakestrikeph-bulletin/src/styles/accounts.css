@@ -459,11 +459,7 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
 .location-map .maplibregl-marker{cursor:grab}.location-map .maplibregl-marker svg{width:27px;height:41px}
 .location-map .maplibregl-ctrl button{width:36px;height:36px}.location-map canvas{max-width:100%}
 .account-app .location-controls{margin-top:24px}
-.account-app .location-search{margin-top:24px;container-type:inline-size}
-.location-search-empty{padding:24px;line-height:1.6}
-.account-app .location-search-row{display:flex;flex-direction:column;align-items:flex-start;gap:12px}
-.account-app .location-search-combobox{width:100%;min-width:0}
-.account-app .location-locate{width:auto;max-width:none;height:52px;margin:0;padding:0 16px;flex-shrink:0}
+.account-app .location-search{margin-top:24px}
 .account-app .location-controls .location-summary{display:flex;align-items:flex-start;gap:12px;margin:0;padding:0;border:0;font-size:20px;line-height:1.4}
 .account-app .location-controls .location-summary strong{font-weight:600}
 .account-app .location-view-distance{display:block;margin-top:4px;font-size:14px;font-weight:400;color:var(--account-muted)}
@@ -477,21 +473,16 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
 .account-app .location-actions{display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-top:28px}
 .account-app .location-actions .primary,.account-app .location-actions .secondary{width:auto;max-width:none;height:52px;margin:0;padding:0 20px}
 .account-app .location-controls .quiet-note{text-align:left;margin:16px 0 0}
-@container(min-width:560px){.account-app .location-search-row{flex-direction:row;align-items:flex-end}.account-app .location-search-combobox{flex:1}}
 @media(max-width:760px){
   .account-app .location-controls{margin-top:20px}
   .account-app .location-controls .location-summary{font-size:18px;gap:10px}
   .account-app .location-controls .location-summary svg{width:22px;height:22px}
   .account-app .location-search{margin-top:20px}
-  .account-app .location-search-row{align-items:stretch;gap:8px}
-  .account-app .location-locate{width:100%;height:44px;min-height:44px;padding:0 16px}
   .account-app .location-controls .location-distance{width:100%;margin-top:16px}
   .account-app.settings-workspace .field:has(#distance){max-width:none}
-  .account-app .location-search-field [data-slot="search-input"]{font-size:16px}
   .account-app .location-actions{display:grid;grid-template-columns:1fr 2fr;gap:12px;margin-top:24px;padding-bottom:env(safe-area-inset-bottom)}
   .account-app .location-actions .primary,.account-app .location-actions .secondary{width:100%;padding-inline:12px}
 }
-.place-context{display:block;font-size:12px;color:#5f6b6e}
 .account-app .location-summary{overflow-wrap:anywhere}.account-app .location-summary svg{flex-shrink:0}
 .account-app .settings-rail nav button{justify-content:flex-start;font-size:14px;height:auto}
 .account-app .support a{text-decoration:underline;text-underline-offset:3px}
@@ -573,18 +564,6 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
   .account-app.account-entry footer { padding-block: 8px; }
 }
 
-/* FormField shares the accepted account sizing and shadcn border/focus behavior. */
-.account-app .account-form-field [data-slot="input"] {
-  border-width: revert-layer;
-  border-style: revert-layer;
-  border-radius: revert-layer;
-  outline: revert-layer;
-  outline-offset: revert-layer;
-  transition: revert-layer;
-}
-.account-app .account-form-field .show-password {
-  border-radius: revert-layer;
-}
 .account-app .field.account-form-field {
   margin-bottom: 16px;
 }
@@ -731,8 +710,6 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
 
 .location-map-canvas{width:100%;height:100%}
 .location-map-error{position:absolute;inset:0;z-index:3;background:#e7f2f3;padding:20px}
-.account-app .location-search-field-wrapper{gap:0}
-.account-app .location-search-field-wrapper [data-slot="field-error"]{margin-top:8px}
 .unsaved-dialog{gap:16px}
 .account-app .profile-name-actions{display:flex;align-items:center;gap:0}
 .account-app .profile-name-actions [data-slot="button"]{position:relative;width:32px;height:24px;padding:0;background:transparent;border:0;box-shadow:none}
@@ -751,9 +728,7 @@ body:has(.account-app[data-screen="channels"]) { overflow: hidden; }
 .unsaved-dialog [data-slot="dialog-footer"] [data-slot="button"]{flex:none;width:auto;white-space:nowrap}
 .account-app .location-controls .location-summary[data-missing="true"] svg{color:var(--destructive)}
 
-.account-app .location-search-row:has(#location-search-error) .location-locate{align-self:flex-start}
 .location-map-error [data-slot="button"]{min-height:44px;padding-inline:16px}
-@media(max-width:760px){.account-app .location-search-row:has(#location-search-error) .location-locate{align-self:flex-end}}
 
 @media (max-width: 760px) {
   .account-app:is(.account-entry, .focused-shell, .settings-workspace) { background: white; }

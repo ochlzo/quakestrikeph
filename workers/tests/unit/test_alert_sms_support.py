@@ -27,6 +27,8 @@ class Response:
     ("network", "smart", "expected"),
     [
         ("Globe/TM", False, True),
+        ("Globe", False, True),
+        ("TM", False, True),
         ("DITO", False, True),
     ],
 )

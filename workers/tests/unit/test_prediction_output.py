@@ -18,6 +18,7 @@ EVENT_TIME = datetime(2026, 9, 23, 12, tzinfo=UTC)
         {"m4_given_m1": -0.01},
         {"m4_given_m1": "0.4"},
         {"expected_count": -1},
+        {"radius_median": -1},
         {"radius_median": float("inf")},
         {"maximum_q05": 8},
         {"maximum_q50": None},

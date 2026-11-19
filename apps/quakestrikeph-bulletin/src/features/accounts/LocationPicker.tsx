@@ -1,12 +1,11 @@
 import {
   useEffect,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 import type { Map, Marker } from "maplibre-gl";
-import { CircleX, Earth, MapPinSearch, MapPin, Pencil, Ellipsis, Save, Trash } from "lucide-react";
+import { CircleX, Earth, MapPin, Pencil, Ellipsis, Save, Trash } from "lucide-react";
 import { Menu, MenuItem, MenuTrigger } from "react-aria-components";
 import { Popover } from "../../components/ui/popover";
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "../../components/ui/dialog";
@@ -19,28 +18,15 @@ import {
   EmptyContent,
 } from "../../components/ui/empty";
 import { Button } from "../../components/ui/button";
-import { Input } from "../../components/ui/input";
-import { Search, SearchInput } from "../../components/ui/search";
-import { Field, FieldLabel, FieldError } from "../../components/ui/field";
+import { Field } from "../../components/ui/field";
 import { toast } from "../../components/ui/toast";
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxTrigger,
-} from "../../components/ui/combobox";
 import { loadMapRuntime } from "../../lib/map-runtime";
 import type { AlertLocation, LocationEdit } from "./location-edit";
-import { locationLabel, usePlaces, type Place } from "./location-places";
+import { locationLabel, usePlaces } from "./location-places";
+import LocationSearchControls from "./LocationSearchControls";
+import { FormField } from "./FormField";
 import "maplibre-gl/dist/maplibre-gl.css";
 
-const normalized = (s: string) =>
-  s
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
 function radius(
   latitude: number,
   longitude: number,
@@ -139,29 +125,6 @@ export default function LocationPicker({
   useEffect(() => {
     if (!editing) setQuery("");
   }, [editing]);
-  const matches = useMemo(() => {
-    const terms = normalized(query.trim()).split(/\s+/);
-    const text = normalized(query.trim());
-    const rank = (p: Place) =>
-      normalized(p[0]) === text
-        ? 0
-        : normalized(p[0]).startsWith(text)
-          ? 1
-          : normalized(p[0]).includes(text)
-            ? 2
-            : 3;
-    return query.trim().length < 2
-      ? []
-      : list
-          .map((p, index) => ({ p, index }))
-          .filter(({ p }) =>
-            terms.every((t) =>
-              normalized(`${p[0]} ${p[1]} ${p[4]}`).includes(t),
-            ),
-          )
-          .sort((a, b) => rank(a.p) - rank(b.p))
-          .slice(0, 20);
-  }, [query, list]);
   useEffect(() => {
     let active = true;
     if (!showMap) return;
@@ -371,74 +334,16 @@ export default function LocationPicker({
         </Empty>
       )}
       {editing && (
-        <div className="location-search">
-          <div className="location-search-row">
-            <Combobox
-              className="location-search-combobox"
-              aria-label="Search for a location"
-              inputValue={query}
-              onInputChange={setQuery}
-              allowsCustomValue
-              allowsEmptyCollection
-              defaultFilter={() => true}
-              onSelectionChange={(key) => {
-                const match = matches.find((x) => x.index === key);
-                if (match) choose([match.p[2], match.p[3]]);
-              }}
-              menuTrigger="input"
-            >
-              <Field
-                className="location-search-field-wrapper"
-                data-invalid={searchError ? true : undefined}
-              >
-                <div ref={searchAnchor}>
-                  <Search className="location-search-field">
-                    <SearchInput
-                      placeholder="Search regions, cities or municipalities"
-                      aria-invalid={!!searchError}
-                      aria-describedby={
-                        searchError ? "location-search-error" : undefined
-                      }
-                    />
-                    <ComboboxTrigger aria-label="Show matching locations" />
-                  </Search>
-                </div>
-                {searchError && (
-                  <FieldError id="location-search-error">
-                    {searchError}
-                  </FieldError>
-                )}
-              </Field>
-              <ComboboxContent anchor={searchAnchor}>
-                <ComboboxList<{ p: Place; index: number }>
-                  items={matches}
-                  renderEmptyState={() => (
-                    <ComboboxEmpty className="location-search-empty">
-                      No matching places. Try another name or use the map.
-                    </ComboboxEmpty>
-                  )}
-                >
-                  {({ p, index }) => (
-                    <ComboboxItem id={index} textValue={`${p[0]}, ${p[1]}`}>
-                      <span>
-                        {p[0]}
-                        <small className="place-context">{p[1]}</small>
-                      </span>
-                    </ComboboxItem>
-                  )}
-                </ComboboxList>
-              </ComboboxContent>
-            </Combobox>
-            <Button
-              className="secondary location-locate"
-              onPress={locate}
-              isDisabled={locating}
-            >
-              <MapPinSearch />
-              {locating ? "Finding your location…" : "Use my location"}
-            </Button>
-          </div>
-        </div>
+        <LocationSearchControls
+          places={list}
+          query={query}
+          searchError={searchError}
+          searchAnchor={searchAnchor}
+          locating={locating}
+          onQueryChange={setQuery}
+          onPlaceSelect={(place) => choose([place[2], place[3]])}
+          onLocate={locate}
+        />
       )}
       {showMap && (
         <div className="location-map" data-map-ready={mapReady}>
@@ -533,30 +438,18 @@ export default function LocationPicker({
           )}
           {editing ? (
             <>
-              <Field
-                className="field account-form-field location-distance"
-                data-invalid={distanceError ? true : undefined}
-              >
-                <FieldLabel htmlFor="distance">Nearby distance (km)</FieldLabel>
-                <Input
-                  id="distance"
-                  aria-describedby={
-                    distanceError
-                      ? "distance-error distance-help"
-                      : "distance-help"
-                  }
-                  aria-invalid={!!distanceError}
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]+"
-                  title="Enter a whole-kilometre distance from 1 to 1,000 km."
-                  value={distance}
-                  onChange={(e) => edit.setDistance(e.target.value)}
-                />
-                {distanceError && (
-                  <FieldError id="distance-error">{distanceError}</FieldError>
-                )}
-              </Field>
+              <FormField
+                fieldClassName="location-distance"
+                id="distance"
+                label="Nearby distance (km)"
+                error={distanceError}
+                aria-describedby="distance-help"
+                inputMode="numeric"
+                pattern="[0-9]+"
+                title="Enter a whole-kilometre distance from 1 to 1,000 km."
+                value={distance}
+                onChange={(event) => edit.setDistance(event.currentTarget.value)}
+              />
               <p id="distance-help" className="support location-distance-help">
                 Receive alerts for earthquakes within this distance of your pin
                 when “Only earthquakes near my location” is on.

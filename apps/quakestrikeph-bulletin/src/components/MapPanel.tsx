@@ -13,6 +13,13 @@ import { cleanMapStyle, transformLabelRequest } from "../lib/map-labels";
 import { loadMapRuntime } from "../lib/map-runtime";
 import { toast } from "./ui/toast";
 
+type Epicenter = Pick<Earthquake, "latitude" | "longitude">;
+type ScenarioMap = {
+  point: Epicenter | null;
+  radiusKm?: number | null;
+  onPick?: (point: Epicenter) => void;
+};
+
 type Props = {
   events: Earthquake[];
   selectedId: string | null;
@@ -23,6 +30,8 @@ type Props = {
   showForecastOverview?: boolean;
   overviewInDrawer?: boolean;
   forecastAnchor?: Earthquake;
+  scenario?: ScenarioMap;
+  mapId?: string;
 };
 
 const emptyRadius = { type: "FeatureCollection" as const, features: [] };
@@ -32,6 +41,8 @@ const philippinesBounds: [[number, number], [number, number]] = [
   [110, 0],
   [135, 26],
 ];
+const scenarioOverviewCenter: [number, number] = [122.3, 12.5];
+const scenarioOverviewZoom = 4.55;
 
 // A great-circle destination keeps the drawn radius in kilometres at any latitude.
 function pointAtDistance(
@@ -59,7 +70,12 @@ function pointAtDistance(
   ];
 }
 
-function radiusCoordinates(event: Earthquake, radiusKm: number) {
+export function isInBulletinMap({ latitude, longitude }: Epicenter) {
+  const [[west, south], [east, north]] = philippinesBounds;
+  return latitude >= south && latitude <= north && longitude >= west && longitude <= east;
+}
+
+function radiusCoordinates(event: Epicenter, radiusKm: number) {
   return Array.from({ length: 97 }, (_, index) =>
     pointAtDistance(
       event.longitude,
@@ -70,7 +86,7 @@ function radiusCoordinates(event: Earthquake, radiusKm: number) {
   );
 }
 
-function fitMobileActivityRadius(instance: MapLibreMap, event: Earthquake, radiusKm: number | null, duration: number) {
+function fitActivityRadius(instance: MapLibreMap, event: Epicenter, radiusKm: number | null, duration: number, maxZoom = 7.2) {
   const { clientWidth: width, clientHeight: height } = instance.getContainer();
   if (!radiusKm || !width || !height) return false;
   const coordinates = radiusCoordinates(event, radiusKm);
@@ -86,7 +102,7 @@ function fitMobileActivityRadius(instance: MapLibreMap, event: Earthquake, radiu
       left: Math.min(28, width * 0.1),
       right: Math.min(28, width * 0.1),
     },
-    maxZoom: 7.2,
+    maxZoom,
     duration,
     linear: true,
   });
@@ -133,6 +149,8 @@ export default function MapPanel({
   showForecastOverview = true,
   overviewInDrawer = false,
   forecastAnchor,
+  scenario,
+  mapId = "earthquake-map",
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
@@ -153,17 +171,22 @@ export default function MapPanel({
   const [legendOpen, setLegendOpen] = useState(true);
   const [terrain, setTerrain] = useState(false);
   const [mapReady, setMapReady] = useState(false);
+  const scenarioPoint = scenario?.point;
+  const scenarioPick = scenario?.onPick;
   onSelectRef.current = onSelect;
   selectedIdRef.current = selectedId;
   const selectedEvent = events.find((event) => event.eventId === selectedId);
-  const areaEvent = forecastAnchor ?? selectedEvent;
+  const areaEvent = scenario ? scenarioPoint : forecastAnchor ?? selectedEvent;
   const forecastDismissed =
     !overviewInDrawer && dismissedForecast?.id === selectedId &&
     dismissedForecast.focusRequest === focusRequest;
-  const reportedRadiusKm =
-    forecastStatus === "ready" ? forecastRadiusKm(forecast) : null;
+  const reportedRadiusKm = scenario
+    ? scenario.radiusKm
+    : forecastStatus === "ready" ? forecastRadiusKm(forecast) : null;
   const radiusKm =
-    reportedRadiusKm !== null && reportedRadiusKm > 0 ? reportedRadiusKm : null;
+    reportedRadiusKm != null && Number.isFinite(reportedRadiusKm) && reportedRadiusKm > 0 ? reportedRadiusKm : null;
+  const scenarioRadiusKm = scenarioPoint ? radiusKm : null;
+  const scenarioRadiusPoint = scenarioRadiusKm ? scenarioPoint : null;
   const mobileRadiusKm = overviewInDrawer && !forecastAnchor ? radiusKm : null;
 
   useEffect(() => {
@@ -208,15 +231,16 @@ export default function MapPanel({
           transformRequest: transformLabelRequest,
           maxBounds: philippinesBounds,
           minZoom: 3.25,
-          center: forecastAnchor
+          center: scenario ? scenarioOverviewCenter : forecastAnchor
             ? [forecastAnchor.longitude, forecastAnchor.latitude]
             : compact
               ? [123.1, 11.7]
               : [123.3, 10.8],
-          zoom: forecastAnchor ? 7.2 : compact ? 4.15 : 5.55,
+          zoom: scenario ? scenarioOverviewZoom : forecastAnchor ? 7.2 : compact ? 4.15 : 5.55,
           pitch: 0,
           maxPitch: 0,
           bearing: 0,
+          ...(scenario && { cooperativeGestures: true }),
         });
         set3DInteractions(instance, false);
         map.current = instance;
@@ -324,6 +348,50 @@ export default function MapPanel({
 
   useEffect(() => {
     const instance = map.current;
+    if (!mapReady || !instance || !scenarioPick) return;
+    const pick = ({ lngLat }: { lngLat: { lat: number; lng: number } }) => {
+      const point = { latitude: lngLat.lat, longitude: lngLat.lng };
+      if (isInBulletinMap(point)) scenarioPick(point);
+    };
+    instance.on("click", pick);
+    const mapCanvas = instance.getCanvas();
+    mapCanvas.style.cursor = "crosshair";
+    return () => {
+      instance.off("click", pick);
+      mapCanvas.style.cursor = "";
+    };
+  }, [mapReady, scenarioPick]);
+
+  useEffect(() => {
+    const instance = map.current;
+    if (!mapReady || !instance || !scenarioPoint) return;
+    let active = true;
+    let pin: Marker | undefined;
+    const position: [number, number] = [scenarioPoint.longitude, scenarioPoint.latitude];
+    void loadMapRuntime().then(({ Marker }) => {
+      if (!active) return;
+      pin = new Marker({ color: "#0e6873" }).setLngLat(position).addTo(instance);
+      pin.getElement().setAttribute("aria-label", "Simulated earthquake epicenter");
+    });
+    return () => {
+      active = false;
+      pin?.remove();
+    };
+  }, [mapReady, scenarioPoint]);
+
+  useEffect(() => {
+    const instance = map.current;
+    if (!mapReady || !instance || !scenarioPoint) return;
+    const duration = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 500;
+    if (fitActivityRadius(instance, scenarioPoint, radiusKm, duration, 9.2)) return;
+    const position: [number, number] = [scenarioPoint.longitude, scenarioPoint.latitude];
+    if (focusRequest || !instance.getBounds().contains(position)) {
+      instance.flyTo({ center: position, zoom: 7.2, duration });
+    }
+  }, [mapReady, scenarioPoint, focusRequest, radiusKm]);
+
+  useEffect(() => {
+    const instance = map.current;
     if (!mapReady || !container.current || !instance) return;
     const element = container.current;
     const viewport = element.parentElement!;
@@ -382,7 +450,7 @@ export default function MapPanel({
       if (!pendingRecenter || !heightSettled || !selectedEvent || instance.isMoving()) return;
       pendingRecenter = false;
       const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 220;
-      if (fitMobileActivityRadius(instance, selectedEvent, mobileRadiusKm, duration)) return;
+      if (fitActivityRadius(instance, selectedEvent, mobileRadiusKm, duration)) return;
       // Recenter after resizing so MapLibre calculates the pan against a stable viewport.
       instance.easeTo({
         center: [selectedEvent.longitude, selectedEvent.latitude],
@@ -390,11 +458,25 @@ export default function MapPanel({
       });
     };
     instance.on("moveend", finishHeightChange);
+    const scenarioOutline = scenarioRadiusPoint && scenarioRadiusKm
+      ? radiusCoordinates(scenarioRadiusPoint, scenarioRadiusKm)
+      : null;
+    const radiusFits = (width: number, height: number) =>
+      scenarioOutline?.every((point) => {
+        const { x, y } = instance.project(point);
+        return x >= 2 && y >= 2 && x <= width - 2 && y <= height - 2;
+      });
+    let previousWidth = viewport.clientWidth;
     let previousHeight = viewport.clientHeight;
     const observer = new ResizeObserver(() => {
       if (transitionCenter) return;
-      const heightChanged = viewport.clientHeight !== previousHeight;
-      previousHeight = viewport.clientHeight;
+      const { clientWidth: width, clientHeight: height } = viewport;
+      const heightChanged = height !== previousHeight;
+      // Refit only if shrinking the map clips a radius that was fully in view.
+      const keepRadiusVisible = (width < previousWidth || height < previousHeight)
+        && radiusFits(previousWidth, previousHeight);
+      previousWidth = width;
+      previousHeight = height;
       const needsRecenter = overviewInDrawer && selectedEvent && heightChanged;
       if (needsRecenter) {
         window.clearTimeout(recenterTimer);
@@ -403,6 +485,9 @@ export default function MapPanel({
       }
       // resize() can emit moveend; do not fit until this resize has settled.
       instance.resize();
+      if (scenarioRadiusPoint && keepRadiusVisible && !radiusFits(width, height)) {
+        fitActivityRadius(instance, scenarioRadiusPoint, scenarioRadiusKm, 0, 9.2);
+      }
       if (needsRecenter) {
         const settleHeight = () => {
           heightSettled = true;
@@ -426,7 +511,7 @@ export default function MapPanel({
       element.classList.remove("map-sidebar-transition");
       element.style.removeProperty("--map-transition-width");
     };
-  }, [mapReady, overviewInDrawer, selectedEvent, mobileRadiusKm]);
+  }, [mapReady, overviewInDrawer, selectedEvent, mobileRadiusKm, scenarioRadiusPoint, scenarioRadiusKm]);
 
   useEffect(() => {
     if (!mapReady || !map.current) return;
@@ -556,7 +641,7 @@ export default function MapPanel({
     const coordinates =
       areaEvent &&
       radiusKm &&
-      (forecastAnchor || (showForecastOverview && !forecastDismissed))
+      (scenarioPoint || forecastAnchor || (showForecastOverview && !forecastDismissed))
         ? radiusCoordinates(areaEvent, radiusKm)
         : null;
     void source?.setData(
@@ -572,6 +657,7 @@ export default function MapPanel({
     mapReady,
     areaEvent,
     radiusKm,
+    scenarioPoint,
     forecastAnchor,
     showForecastOverview,
     forecastDismissed,
@@ -684,7 +770,7 @@ export default function MapPanel({
     )
       return;
     const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 700;
-    if (fitMobileActivityRadius(map.current, selectedEvent, mobileRadiusKm, duration)) return;
+    if (fitActivityRadius(map.current, selectedEvent, mobileRadiusKm, duration)) return;
     map.current.flyTo({
       center: [selectedEvent.longitude, selectedEvent.latitude],
       zoom: forecastAnchor ? map.current.getZoom() : 7.2,
@@ -732,6 +818,12 @@ export default function MapPanel({
     map.current?.zoomTo(map.current.getZoom() + delta, { duration: 350 });
   }
   function recenter() {
+    if (scenarioPoint && !scenarioPick && map.current) {
+      const duration = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 500;
+      if (fitActivityRadius(map.current, scenarioPoint, radiusKm, duration, 9.2)) return;
+      map.current.flyTo({ center: [scenarioPoint.longitude, scenarioPoint.latitude], zoom: 7.2, duration });
+      return;
+    }
     if (forecastAnchor) {
       observationPopup.current?.popup.remove();
       map.current?.flyTo({
@@ -742,8 +834,8 @@ export default function MapPanel({
     }
     const compact = window.matchMedia("(max-width: 600px)").matches;
     map.current?.flyTo({
-      center: compact ? [123.1, 11.7] : [123.3, 10.8],
-      zoom: compact ? 4.15 : 5.55,
+      center: scenario ? scenarioOverviewCenter : compact ? [123.1, 11.7] : [123.3, 10.8],
+      zoom: scenario ? scenarioOverviewZoom : compact ? 4.15 : 5.55,
       pitch: terrain ? (compact ? 20 : 42) : 0,
       duration: 700,
     });
@@ -767,9 +859,9 @@ export default function MapPanel({
   return (
     <div className="map-region">
       <section
-        id="earthquake-map"
+        id={mapId}
         className="map-panel"
-        aria-label="Earthquakes on the Philippine map"
+        aria-label={scenario ? scenarioPick ? "Choose an epicenter on the map" : "Estimated activity radius on the map" : "Earthquakes on the Philippine map"}
         onKeyDown={(event) => {
           if (event.key !== "Escape" || !observationPopup.current) return;
           const { id, popup } = observationPopup.current;
@@ -844,12 +936,12 @@ export default function MapPanel({
             variant="outline"
             size="icon"
             onPress={recenter}
-            aria-label={forecastAnchor ? "Recenter on trigger earthquake" : "Show the Philippines"}
+            aria-label={scenarioPoint && !scenarioPick ? "Recenter on the simulated earthquake" : forecastAnchor ? "Recenter on trigger earthquake" : "Show the Philippines"}
           >
             <LocateFixed aria-hidden="true" />
           </Button>
         </div>
-        <div
+        {!scenario && <div
           className={`map-legend-control${legendOpen ? " is-open" : ""}`}
           ref={legendControl}
         >
@@ -878,7 +970,7 @@ export default function MapPanel({
               </span>
             ))}
           </div>
-        </div>
+        </div>}
       </section>
     </div>
   );

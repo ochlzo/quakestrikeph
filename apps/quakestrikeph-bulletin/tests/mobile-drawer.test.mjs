@@ -133,7 +133,8 @@ for (const reducedMotion of [false, true]) {
         forecast: { activityRadiusMedianKm24h: radius }, forecastStatus: 'ready', overviewInDrawer: true });
       h.refs[0].current = { parentElement: viewport, closest: () => null, classList: { remove() {} }, style: { removeProperty() {} } };
       h.refs[1].current = map;
-      const effect = h.effects.find(({ deps }) => deps.length === 4 && deps[2] === earthquake);
+      const effect = h.effects.find(({ callback }) => callback.toString().includes('new ResizeObserver('));
+      assert.ok(effect, 'MapPanel should observe map resizes');
       const cleanup = effect.callback();
       viewport.clientHeight = 232;
       resize();

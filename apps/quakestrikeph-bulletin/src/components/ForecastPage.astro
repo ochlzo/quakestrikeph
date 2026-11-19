@@ -6,10 +6,12 @@ import { Logo } from "@quakestrikeph/ui/logo";
 import { ChevronLeft, Earth } from 'lucide-react';
 import ForecastReplay from '../features/forecast-replay/ForecastReplay.astro';
 import ForecastNavigation from './ForecastNavigation';
+import ForecastFacts from './ForecastFacts.astro';
+import ForecastDiscussion from './ForecastDiscussion.astro';
 import { LinkButton } from './ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from './ui/empty';
 import type { EarthquakeDetail } from '../lib/events';
-import { displayTime, likelihoodLevel, locationLabel, magnitude } from '../lib/events';
+import { displayTime, locationLabel, magnitude } from '../lib/events';
 import '../styles/globals.css';
 import '../styles/forecast.css';
 interface Props { event: EarthquakeDetail | null; error: 'invalid' | 'missing' | 'unavailable' | null; backHref: string; testMode?: boolean; expiresAt?: string | null; }
@@ -29,40 +31,11 @@ const availabilityMessage = availability?.status === 'processing'
   ? 'The system is preparing the forecast. Reload this page to check for an update.'
   : availability?.status === 'failed' ? 'The system could not complete forecast generation for this earthquake.'
   : unavailableMessages[availability?.reason ?? 'unknown'];
-const percent = (value: number) => value > 0 && value < .005 ? '<1%' :   value < 1 && value >= .995 ? '>99%' :   String(Math.round(value * 100)) + '%';
-const count = (value: number) => new Intl.NumberFormat('en-PH', { maximumFractionDigits: 2 }).format(value);
-const expectedCount = forecast?.expectedM1PlusCount24h ?? 0;
-const countStepBase = 10 ** Math.floor(Math.log10(Math.max(1, expectedCount / 3)));
-const countStep = [1, 2, 5, 10].find(step => step * countStepBase >= expectedCount / 3)! * countStepBase;
-const countPosition = expectedCount / (countStep * 3) * 100;
-const magnitudeEstimates = forecast && forecast.maximumMagnitudeQ05_24h !== null && forecast.maximumMagnitudeQ50_24h !== null && forecast.maximumMagnitudeQ95_24h !== null
-  ? [forecast.maximumMagnitudeQ05_24h, forecast.maximumMagnitudeQ50_24h, forecast.maximumMagnitudeQ95_24h] : [];
-const magnitudeMinimum = Math.floor((magnitudeEstimates[0] ?? 1) - 1);
-const magnitudeMaximum = Math.ceil((magnitudeEstimates[2] ?? 1) + 1);
-const magnitudePosition = (value: number) => (value - magnitudeMinimum) / (magnitudeMaximum - magnitudeMinimum) * 100;
-const magnitudeMiddlePosition = Math.max(20, Math.min(80, magnitudePosition(magnitudeEstimates[1] ?? 1)));
-const magnitudeTicks = Array.from({ length: 5 }, (_, index) => magnitudeMinimum + index * (magnitudeMaximum - magnitudeMinimum) / 4);
 const modelVersion = forecast?.modelReleaseId === 'a7f2286b-13a2-4708-a04d-4139281a4e1f' ? 'SEIS 1.0.1' : null;
-const probabilities = forecast ? [ { threshold: '1.0', value: forecast.probabilityM1Plus24h }, { threshold: '4.0', value: forecast.probabilityM4Plus24h }, { threshold: '5.0', value: forecast.probabilityM5Plus24h } ] : [];
-let chanceBounds = { x: 0, y: 0, width: 416, height: 296 };
-const chanceBoxes = probabilities.map((item, index) => {
-  const scale = Math.sqrt(item.value);
-  // Keep labels readable for small probabilities and separated for similar probabilities.
-  const width = Math.min(Math.max([240, 156, 96][index], 400 * scale), chanceBounds.width - 16);
-  const height = Math.min(Math.max([176, 112, 60][index], 280 * scale), chanceBounds.height - (index === 0 ? 16 : 48));
-  const x = chanceBounds.x + chanceBounds.width - width - 8;
-  const y = chanceBounds.y + chanceBounds.height - height - 8;
-  chanceBounds = { x, y, width, height };
-  return { ...item, ...chanceBounds };
-});
-const chanceFrame = chanceBoxes[0];
-const chanceViewBox = chanceFrame && [chanceFrame.x - 8, chanceFrame.y - 8, chanceFrame.width + 16, chanceFrame.height + 16].join(' ');
 const errorMessage = error === 'invalid' ? 'This earthquake link is invalid.' : error === 'missing' ? 'This earthquake was not found.' : 'The earthquake service is temporarily unavailable.';
 const errorTitle = error === 'invalid' ? 'Invalid earthquake link' : error === 'missing' ? 'Earthquake not found' : 'Forecast could not load';
 const canRetry = error !== 'invalid' && error !== 'missing';
-const magnitudeCopy = 'These estimates describe the largest qualifying earthquake if further activity of magnitude 1.0 or higher occurs. They do not mean an earthquake is certain.';
-const countCopy = forecast ? `The model estimates an average of ${count(forecast.expectedM1PlusCount24h)} earthquakes of magnitude 1.0 or higher during the 24-hour forecast window. The estimate can include decimals because it is an average. The actual number of earthquakes will be a whole number and may differ from the estimate.` : '';
-const radiusCopy = forecast && forecast.activityRadiusMedianKm24h !== null ? `The model estimates a typical spread of ${count(forecast.activityRadiusMedianKm24h)} km from the original earthquake’s epicenter during the 24-hour forecast window. This assumes an earthquake of magnitude 1.0 or higher occurs. Earthquakes may occur beyond this radius. The radius does not show shaking, damage, or a safe boundary.` : 'The activity radius estimate is unavailable.';
+
 ---
 <html lang="en">
 <head>
@@ -163,172 +136,12 @@ const radiusCopy = forecast && forecast.activityRadiusMedianKm24h !== null ? `Th
 </div>
 </div>
 </div>
-<section class="forecast-facts" aria-labelledby="activity-chance-title">
-{probabilities.map((item, index) => {
-const Wrapper = index === 0 ? 'h2' : 'div';
-return <>
-<Wrapper>
-<button class:list={['probability', { 'probability-primary': index === 0 }]} aria-expanded="false" aria-controls={'explain-m' + item.threshold[0]}>
-<span class="probability-label">{index === 0 ? <span class="probability-title" id="activity-chance-title">Chance of any further activity</span> : <span>Chance of further activity</span>}<span class="estimate-threshold">Magnitude {item.threshold} or higher</span></span>
-<strong class="fact-value">{percent(item.value)}{index === 0 && <span class="probability-level"> ({likelihoodLevel(item.value).replace(' likelihood', '')})</span>}</strong>
-<svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
-<path d="m6 9 6 6 6-6"/>
-</svg>
-</button>
-</Wrapper>
-<div class="probability-explanation" id={'explain-m' + item.threshold[0]} hidden>
-{index === 0 ? <p>The model estimates a {percent(item.value)} chance of at least one earthquake of magnitude {item.threshold} or higher during the 24-hour forecast window. This estimate does not guarantee that an earthquake will occur.</p> : <p>The “any further activity” estimate includes earthquakes of magnitude 1.0 or higher. This row focuses on magnitude {item.threshold} or higher, with a {percent(item.value)} chance of at least one during the same 24-hour window. These earthquakes are also included in the broader estimate, so the percentages should not be added together.</p>}
-</div>
-</>;
-})}</section>
-<div class="supporting-estimates">
-<h2>Activity estimates</h2>
-<details name="possible-activity">
-<summary>
-<span>Expected number of earthquakes<span class="estimate-threshold">Magnitude 1.0 or higher</span>
-</span>
-<strong class="fact-value">{count(forecast.expectedM1PlusCount24h)}</strong>
-<svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
-<path d="m6 9 6 6 6-6"/>
-</svg>
-</summary>
-<div class="disclosure-body">
-<p>{countCopy}</p>
-</div>
-</details>
-<details name="possible-activity">
-<summary>
-<span>Estimated largest earthquake magnitude</span>
-<strong class:list={['fact-value', { 'unavailable-value': forecast.maximumMagnitudeQ50_24h === null }]}>{forecast.maximumMagnitudeQ50_24h === null ? 'Unavailable' : magnitude(forecast.maximumMagnitudeQ50_24h)}</strong>
-<svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
-<path d="m6 9 6 6 6-6"/>
-</svg>
-</summary>
-<div class="disclosure-body">
-{forecast.maximumMagnitudeQ50_24h === null ? <p>The middle estimate is unavailable. {magnitudeCopy}</p> : <p>The model’s middle estimate for the largest earthquake during the 24-hour forecast window is magnitude {forecast.maximumMagnitudeQ50_24h.toFixed(1)}. This assumes an earthquake of magnitude 1.0 or higher occurs. The largest earthquake could be smaller or larger; magnitude {forecast.maximumMagnitudeQ50_24h.toFixed(1)} is not an upper limit.</p>}
-</div>
-</details>
-<details name="possible-activity">
-<summary>
-<span>Estimated activity radius</span>
-<strong class:list={['fact-value', { 'unavailable-value': forecast.activityRadiusMedianKm24h === null }]}>{forecast.activityRadiusMedianKm24h === null ? 'Unavailable' : count(forecast.activityRadiusMedianKm24h) + ' km'}</strong>
-<svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
-<path d="m6 9 6 6 6-6"/>
-</svg>
-</summary>
-<div class="disclosure-body">
-<p>{radiusCopy}</p>
-</div>
-</details>
-</div>
-<p class="essential-note">Forecasts are estimates, not exact predictions.</p>
+<ForecastFacts forecast={forecast} />
 </>}
 </section>
 {forecast && <ForecastReplay event={event} testMode={testMode} />}
 </div>
-{forecast && <section class="details-section" id="forecast-details" aria-labelledby="details-title">
-<div class="details-intro">
-<h2 id="details-title">Understand the forecast</h2>
-</div>
-<section class="explanation-section" id="forecast-panel-activity" aria-labelledby="chance-title">
-<h3 id="chance-title">Chance of at least one earthquake</h3>
-<div class="panel-columns">
-<div class="visual chance-visual">
-<svg class="chance-chart" viewBox={chanceViewBox} role="img" aria-label={'Chance of at least one earthquake during the same 24-hour period: ' + probabilities.map(item => `magnitude ${item.threshold} or higher, ${percent(item.value)}`).join('; ')}>
-{chanceBoxes.map((box, index) => <g class={'chance-tier-' + index}>
-<rect x={box.x} y={box.y} width={box.width} height={box.height} rx="12" />
-<text x={box.x + 16} y={box.y + 34}>{percent(box.value)}</text>
-</g>)}
-</svg>
-<ul class="chance-legend" aria-label="Magnitude thresholds">
-{probabilities.map((item, index) => <li><span class={'chance-swatch chance-tier-' + index} aria-hidden="true" /><span>Magnitude {item.threshold} or higher</span></li>)}
-</ul>
-</div>
-<div class="explanation-copy">
-<p>Each percentage shows the chance of at least one earthquake of that magnitude or higher during the same 24-hour period.</p>
-<p>Earthquakes of magnitude 5.0 or higher also count toward the chances for magnitude 4.0 and 1.0 or higher. The chances overlap, so do not add the percentages together.</p>
-<p>These are estimates. Even a high chance does not mean an earthquake is certain, and a low chance does not rule one out.</p>
-</div>
-</div>
-</section>
-<section class="explanation-section" id="forecast-count" aria-labelledby="count-title">
-<h3 id="count-title">Expected number of earthquakes</h3>
-<div class="panel-columns">
-<div class="visual count-visual">
-<div class="count-ruler" role="img" aria-label={`Estimated average: ${count(expectedCount)} earthquakes of magnitude 1.0 or higher during the 24-hour forecast window.`}>
-<div class="count-reading" style={`left: ${countPosition}%; transform: translateX(${countPosition < 25 ? '0' : countPosition > 75 ? '-100%' : '-50%'});`} aria-hidden="true">
-<strong class="count-value">{count(forecast.expectedM1PlusCount24h)}</strong>
-<span>Estimated average</span>
-</div>
-<div class="count-axis" aria-hidden="true">
-<span class="count-axis-line" />
-{[0, 1, 2, 3].map(index => <span class="count-tick" style={`left: ${index / 3 * 100}%;`}><span>{count(index * countStep)}</span></span>)}
-<svg class="count-continuation" viewBox="0 0 24 16" fill="none" stroke="currentColor" stroke-width="1"><path d="m16 2 6 6-6 6" /></svg>
-<svg class="count-marker" style={`left: ${countPosition}%;`} viewBox="0 0 16 36" fill="none"><path d="M8 0v26" stroke="currentColor" stroke-width="2" /><path d="m1 26 7 9 7-9Z" fill="currentColor" /></svg>
-</div>
-</div>
-<span>Magnitude 1.0 or higher · 24-hour window</span>
-</div>
-<div class="explanation-copy">
-<p>The model estimates an average of {count(expectedCount)} earthquakes during this 24-hour period. Actual earthquakes occur in whole numbers, so the total could be lower or higher.</p>
-</div>
-</div>
-</section>
-<section class="explanation-section" id="forecast-panel-magnitude" aria-labelledby="magnitude-title">
-<h3 id="magnitude-title">Largest earthquake magnitude</h3>
-<div class="panel-columns">
-<div class="visual magnitude-visual">
-{magnitudeEstimates.length === 3 ? <div class="magnitude-ruler" role="img" aria-label={`Largest earthquake magnitude estimates: lower ${magnitude(magnitudeEstimates[0])}, middle ${magnitude(magnitudeEstimates[1])}, upper ${magnitude(magnitudeEstimates[2])}. These estimates apply if further activity of magnitude 1.0 or higher occurs during the 24-hour forecast window.`}>
-<div class="magnitude-reading magnitude-middle" style={`left: ${magnitudeMiddlePosition}%;`} aria-hidden="true">
-<strong>{magnitude(magnitudeEstimates[1])}</strong><span>Middle estimate</span>
-</div>
-<svg class="magnitude-axis" viewBox="0 0 1000 96" preserveAspectRatio="none" aria-hidden="true">
-<rect class="magnitude-band" x={magnitudePosition(magnitudeEstimates[0]) * 10} y="14" width={(magnitudePosition(magnitudeEstimates[2]) - magnitudePosition(magnitudeEstimates[0])) * 10} height="20" rx="4" />
-<path d="M0 24h1000M8 18l-8 6 8 6m984-12 8 6-8 6" />
-{magnitudeTicks.map((_, index) => <path d={`M${index * 250} 36v6`} />)}
-{[0, 2].map(index => <path class="magnitude-end-marker" d={`M${magnitudePosition(magnitudeEstimates[index]) * 10} 10v28`} />)}
-<path class="magnitude-middle-marker" d={`M${magnitudeMiddlePosition * 10} -10L${magnitudePosition(magnitudeEstimates[1]) * 10} 14v24`} />
-</svg>
-<div class="magnitude-ticks" aria-hidden="true">{magnitudeTicks.map((value, index) => <span style={`left: ${index * 25}%;`}>{count(value)}</span>)}</div>
-<div class="magnitude-bounds" aria-hidden="true">{[0, 2].map(index => <div class="magnitude-bound"><strong>{magnitude(magnitudeEstimates[index])}</strong><span>{index === 0 ? 'Lower estimate' : 'Upper estimate'}</span></div>)}</div>
-</div> : <p>The magnitude estimates are unavailable.</p>}
-</div>
-<div class="explanation-copy">
-<h4>What the estimates tell you</h4>
-{magnitudeEstimates.length === 3 ? <>
-<p>If further earthquakes of magnitude 1.0 or higher occur during the 24-hour period, the model’s middle estimate for the largest is magnitude {magnitudeEstimates[1].toFixed(1)}.</p>
-<p>The lower estimate of {magnitudeEstimates[0].toFixed(1)} and upper estimate of {magnitudeEstimates[2].toFixed(1)} show uncertainty around that estimate. The largest earthquake could fall outside these values.</p>
-<p>These estimates do not mean an earthquake will occur.</p>
-</> : <p>{magnitudeCopy}</p>}
-</div>
-</div>
-</section>
-<section class="explanation-section" id="forecast-panel-area" aria-labelledby="area-title">
-<h3 id="area-title">Distance from the observed earthquake</h3>
-<div class="panel-columns">
-{forecast.activityRadiusMedianKm24h === null ? <div class="visual">
-<p>The activity radius is unavailable.</p>
-</div> : <div class="visual area-visual">
-<svg viewBox="0 0 300 300" role="img" aria-label={'Conceptual radius diagram: ' + count(forecast.activityRadiusMedianKm24h) + ' kilometres from the original earthquake’s epicenter to the dashed boundary; not a geographic map'}>
-<circle class="area-boundary" cx="150" cy="150" r="138" />
-<path class="area-radius" d="M150 150h138m0-6v12" />
-<circle class="area-epicenter" cx="150" cy="150" r="6" />
-</svg>
-<div class="area-reading">
-<strong>{count(forecast.activityRadiusMedianKm24h)} <span>km</span></strong>
-<span>Estimated activity radius</span>
-</div>
-<span class="area-origin">Original earthquake’s epicenter</span>
-</div>}
-<div class="explanation-copy">
-<h4>What the radius means</h4>
-<p>If further earthquakes of magnitude 1.0 or higher occur during the 24-hour period, the model estimates their typical spread from the original earthquake’s epicenter.</p>
-{forecast.activityRadiusMedianKm24h !== null && <p>The estimated radius is <strong>{count(forecast.activityRadiusMedianKm24h)} km</strong>. Further earthquakes may occur beyond this distance.</p>}
-<p>This radius does not show how far shaking reaches, where damage occurs, or where people are safe.</p>
-</div>
-</div>
-</section>
-</section>}
+{forecast && <ForecastDiscussion forecast={forecast} />}
 </>}
 </main>
 <footer class="disclaimer" id="disclaimer" aria-labelledby="disclaimer-title">

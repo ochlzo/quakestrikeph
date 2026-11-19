@@ -103,7 +103,18 @@ test('search and detail use latest revisions and current successful forecasts', 
     assert.equal(second.items[0]?.forecast, null);
     assert.equal(second.hasMore, false);
     assert.equal((await reader.findById(eventC))?.forecast, null);
-    assert.deepEqual((await reader.findById(eventA))?.forecastAvailability,
+    const jobCountQuery = 'SELECT count(*)::int AS count FROM prediction_jobs WHERE event_revision_id = $1';
+    const jobsBefore = await pool.query(jobCountQuery, [revisionA]);
+    const firstDetail = await reader.findById(eventA);
+    const reopenedDetail = await reader.findById(eventA);
+    for (const detail of [firstDetail, reopenedDetail]) {
+      assert.equal(detail?.forecast?.forecastId, selectedForecast);
+      assert.equal(detail.forecast.windowStart, '2026-09-27T00:00:00.000Z');
+      assert.equal(detail.forecast.windowEnd, '2026-09-28T00:00:00.000Z');
+    }
+    const jobsAfter = await pool.query(jobCountQuery, [revisionA]);
+    assert.equal(jobsAfter.rows[0].count, jobsBefore.rows[0].count);
+    assert.deepEqual(firstDetail?.forecastAvailability,
       { status: 'available', reason: null }, 'A recovered forecast outranks the skip reason and a later failed job');
     assert.deepEqual((await reader.findById(eventB))?.forecastAvailability,
       { status: 'unavailable', reason: 'insufficient_history' });
