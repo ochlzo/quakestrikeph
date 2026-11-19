@@ -1,0 +1,38 @@
+# Optional private service. Combine with compose.yml and compose.backend.yml.
+services:
+  forecast-simulator:
+    image: quakestrike-prediction:${WORKER_IMAGE_TAG:?Set WORKER_IMAGE_TAG to the tested Git commit SHA}
+    command: ["python", "-m", "quakestrike.forecast_simulation.runtime"]
+    environment:
+      SIMULATION_SERVICE_TOKEN: ${SIMULATION_SERVICE_TOKEN:?Set SIMULATION_SERVICE_TOKEN}
+      SIMULATION_DATABASE_URL: ${SIMULATION_DATABASE_URL:?Set SIMULATION_DATABASE_URL}
+      SIMULATION_REDIS_URL: ${SIMULATION_REDIS_URL:?Set SIMULATION_REDIS_URL}
+      SIMULATION_SLOTS: ${SIMULATION_SLOTS:?Set SIMULATION_SLOTS after capacity testing}
+      SIMULATION_BOOTSTRAP_MANIFEST: /app/bootstrap-snapshots/bootstrap-readiness.json
+      MODEL_RELEASE_ID: ${MODEL_RELEASE_ID:?Set MODEL_RELEASE_ID}
+      MODEL_ARTIFACT_DIRECTORY: /app/model-artifacts
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+    volumes:
+      - ${MODEL_ARTIFACT_HOST_DIRECTORY:-../model-artifacts}:/app/model-artifacts:ro
+      - ../bootstrap-snapshots:/app/bootstrap-snapshots:ro
+    networks: [private-data]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: ${SIMULATION_MEMORY_LIMIT:?Set the measured simulator memory limit}
+    cpus: ${SIMULATION_CPUS:?Set the measured simulator CPU limit}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:4350/healthz', timeout=2).close()"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: local
+      options:
+        max-size: "20m"
+        max-file: "5"

@@ -202,6 +202,33 @@ SQL
       exit 2
     fi
     ;;
+  create-simulator)
+    if [ -z "${SIMULATION_DB_PASSWORD:-}" ]; then
+      echo '{"action":"create-simulator","status":"failed","reason":"missing_simulation_password"}'
+      exit 2
+    fi
+    if psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set ON_ERROR_STOP=1 >/dev/null 2>&1 <<'SQL'
+\getenv simulator_password SIMULATION_DB_PASSWORD
+\getenv database_name POSTGRES_DB
+SELECT format('CREATE ROLE quakestrike_simulator LOGIN NOINHERIT PASSWORD %L', :'simulator_password')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'quakestrike_simulator') \gexec
+ALTER ROLE quakestrike_simulator NOSUPERUSER NOCREATEROLE NOCREATEDB NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD :'simulator_password';
+ALTER ROLE quakestrike_simulator SET default_transaction_read_only = on;
+GRANT CONNECT ON DATABASE :"database_name" TO quakestrike_simulator;
+GRANT USAGE ON SCHEMA public TO quakestrike_simulator;
+GRANT SELECT (run_id, status, trigger_type, bootstrap_snapshot_sha256, bootstrap_enriched_snapshot_sha256)
+  ON ingestion_runs TO quakestrike_simulator;
+GRANT SELECT (run_id, coverage_start, coverage_end) ON source_catalog_evidence TO quakestrike_simulator;
+GRANT SELECT (event_id, event_revision_id, revision_number, event_time, source_time_precision,
+  latitude, longitude, depth_km, magnitude) ON earthquake_event_revisions TO quakestrike_simulator;
+SQL
+    then
+      echo '{"action":"create-simulator","status":"ready"}'
+    else
+      echo '{"action":"create-simulator","status":"failed","reason":"role_provisioning_failed"}'
+      exit 2
+    fi
+    ;;
   create-maintenance)
     if psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set ON_ERROR_STOP=1 >/dev/null 2>&1 <<'SQL'
 \getenv database_name POSTGRES_DB
@@ -226,7 +253,7 @@ SQL
     fi
     ;;
   *)
-    echo 'Usage: provision-roles.sh create|grant-worker|create-alert-testing|create-observer|create-backend|create-maintenance' >&2
+    echo 'Usage: provision-roles.sh create|grant-worker|create-alert-testing|create-observer|create-backend|create-simulator|create-maintenance' >&2
     exit 2
     ;;
 esac

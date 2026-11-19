@@ -61,6 +61,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/forecast-simulations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run a guest forecast simulation synchronously
+         * @description Returns a 24-hour SEIS 1.0.1 forecast using the latest qualifying PHIVOLCS cutoff. Bulletin fetches catalog status through an internal Backend call when it renders /simulate-forecast. The Backend validates the cookie and scenario, rechecks catalog eligibility, and checks both quotas and capacity. Model start charges both quotas.
+         */
+        post: operations["runForecastSimulation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account": {
         parameters: {
             query?: never;
@@ -161,6 +181,81 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description The coordinate limits are the inclusive Bulletin map bounds and include offshore points. Magnitude and depth are subject to any narrower documented SEIS 1.0.1 limits. */
+        ForecastSimulationScenario: {
+            latitude: number;
+            longitude: number;
+            magnitude: number;
+            depthKm: number;
+        };
+        ForecastSimulationResult: {
+            scenario: components["schemas"]["ForecastSimulationScenario"];
+            /**
+             * Format: date-time
+             * @description Exact UTC cutoff used for this run. This is the hypothetical earthquake time.
+             */
+            catalogCutoff: string;
+            forecast: components["schemas"]["SimulatedForecast"];
+        };
+        /** @description The probabilities describe the chance of at least one earthquake of each magnitude threshold or higher during the window. M5+ is at most M4+, which is at most M1+. Magnitude quantiles describe the largest earthquake if M1+ activity occurs. They are either all null or ordered from q05 through q95. Null means unavailable. */
+        SimulatedForecast: {
+            /**
+             * Format: date-time
+             * @description Same instant as catalogCutoff, in UTC.
+             */
+            windowStart: string;
+            /**
+             * Format: date-time
+             * @description Exactly 24 elapsed hours after windowStart, in UTC.
+             */
+            windowEnd: string;
+            probabilityM1Plus24h: number;
+            probabilityM4Plus24h: number;
+            probabilityM5Plus24h: number;
+            expectedM1PlusCount24h: number;
+            maximumMagnitudeQ05_24h: number | null;
+            maximumMagnitudeQ50_24h: number | null;
+            maximumMagnitudeQ95_24h: number | null;
+            /** @description Median activity spread in kilometres from the submitted epicenter if M1+ activity occurs. */
+            activityRadiusMedianKm24h: number | null;
+        };
+        InvalidSimulationRequest: {
+            error: {
+                /** @enum {string} */
+                code: "INVALID_JSON" | "INVALID_REQUEST";
+                message: string;
+                /**
+                 * @description Present when the validation issue identifies a scenario field.
+                 * @enum {string}
+                 */
+                field?: "latitude" | "longitude" | "magnitude" | "depthKm";
+            };
+        };
+        SimulationLimitReached: {
+            error: {
+                /** @constant */
+                code: "SIMULATION_LIMIT_REACHED";
+                message: string;
+                /**
+                 * Format: date-time
+                 * @description Earliest UTC instant when both rolling limits allow another start based on current usage. The Backend checks both limits again on retry.
+                 */
+                retryAt: string;
+            };
+        };
+        SimulationUnavailable: {
+            error: {
+                /** @enum {string} */
+                code: "SIMULATION_BUSY" | "SIMULATION_QUOTA_UNAVAILABLE" | "SIMULATION_HISTORY_INSUFFICIENT" | "SIMULATION_CATALOG_UNAVAILABLE";
+                message: string;
+            } | {
+                /** @constant */
+                code: "SIMULATION_HISTORY_TOO_OLD";
+                message: string;
+                /** Format: date-time */
+                catalogCutoff: string;
+            };
+        };
         Preferences: {
             emailEnabled: boolean;
             smsEnabled: boolean;
@@ -374,7 +469,10 @@ export interface components {
     };
     parameters: never;
     requestBodies: never;
-    headers: never;
+    headers: {
+        /** @description All simulation responses from the Backend use no-store. */
+        SimulationCacheControl: "no-store";
+    };
     pathItems: never;
 }
 export type $defs = Record<string, never>;
@@ -465,6 +563,196 @@ export interface operations {
             400: components["responses"]["InvalidRequest"];
             404: components["responses"]["NotFound"];
             503: components["responses"]["Unavailable"];
+        };
+    };
+    runForecastSimulation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "latitude": 14.5995,
+                 *       "longitude": 120.9842,
+                 *       "magnitude": 5.2,
+                 *       "depthKm": 18
+                 *     }
+                 */
+                "application/json": components["schemas"]["ForecastSimulationScenario"];
+            };
+        };
+        responses: {
+            /** @description A completed simulation for the submitted scenario. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["SimulationCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "scenario": {
+                     *         "latitude": 14.5995,
+                     *         "longitude": 120.9842,
+                     *         "magnitude": 5.2,
+                     *         "depthKm": 18
+                     *       },
+                     *       "catalogCutoff": "2026-11-19T02:30:00Z",
+                     *       "forecast": {
+                     *         "windowStart": "2026-11-19T02:30:00Z",
+                     *         "windowEnd": "2026-11-20T02:30:00Z",
+                     *         "probabilityM1Plus24h": 0.82,
+                     *         "probabilityM4Plus24h": 0.17,
+                     *         "probabilityM5Plus24h": 0.04,
+                     *         "expectedM1PlusCount24h": 3.4,
+                     *         "maximumMagnitudeQ05_24h": 1.3,
+                     *         "maximumMagnitudeQ50_24h": 2.8,
+                     *         "maximumMagnitudeQ95_24h": 4.7,
+                     *         "activityRadiusMedianKm24h": null
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ForecastSimulationResult"];
+                };
+            };
+            /** @description Invalid JSON or invalid scenario. Neither quota was charged. */
+            400: {
+                headers: {
+                    "Cache-Control": components["headers"]["SimulationCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvalidSimulationRequest"];
+                };
+            };
+            /** @description Missing, invalid, or expired guest cookie. Reload /simulate-forecast before retrying. Neither quota was charged. */
+            403: {
+                headers: {
+                    "Cache-Control": components["headers"]["SimulationCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SIMULATION_GUEST_COOKIE_REQUIRED",
+                     *         "message": "Confirm the guest cookie before running a simulation."
+                     *       }
+                     *     }
+                     */
+                    "application/json": {
+                        error: {
+                            /** @constant */
+                            code: "SIMULATION_GUEST_COOKIE_REQUIRED";
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Request body exceeds 8 KiB. Neither quota was charged. */
+            413: {
+                headers: {
+                    "Cache-Control": components["headers"]["SimulationCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "PAYLOAD_TOO_LARGE",
+                     *         "message": "Request body is too large."
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description One or both simulation quotas are full. This request uses neither quota. The Backend returns retryAt and Retry-After based on current usage. The edge can also return its own 429 without this JSON body or retry deadline. */
+            429: {
+                headers: {
+                    "Cache-Control": components["headers"]["SimulationCacheControl"];
+                    /**
+                     * @description Seconds from the Backend response until retryAt, rounded up to a whole second.
+                     * @example 180
+                     */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SIMULATION_LIMIT_REACHED",
+                     *         "message": "Simulation limit reached.",
+                     *         "retryAt": "2026-11-19T02:38:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SimulationLimitReached"];
+                };
+            };
+            /** @description SIMULATION_MODEL_FAILED confirms that model execution started and failed. Both quotas were charged. INTERNAL_ERROR makes no guarantee about whether the model started. */
+            500: {
+                headers: {
+                    "Cache-Control": components["headers"]["SimulationCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SIMULATION_MODEL_FAILED",
+                     *         "message": "The model started but could not complete the forecast."
+                     *       }
+                     *     }
+                     */
+                    "application/json": {
+                        error: {
+                            /** @enum {string} */
+                            code: "SIMULATION_MODEL_FAILED" | "INTERNAL_ERROR";
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description The Backend could not admit the run. Neither quota was charged. */
+            503: {
+                headers: {
+                    "Cache-Control": components["headers"]["SimulationCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimulationUnavailable"];
+                };
+            };
+            /** @description The Backend timed out and cannot confirm whether execution started. An ingress timeout can occur without the Backend JSON body. */
+            504: {
+                headers: {
+                    "Cache-Control": components["headers"]["SimulationCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SIMULATION_OUTCOME_UNKNOWN",
+                     *         "message": "The run timed out before its outcome could be confirmed."
+                     *       }
+                     *     }
+                     */
+                    "application/json": {
+                        error: {
+                            /** @constant */
+                            code: "SIMULATION_OUTCOME_UNKNOWN";
+                            message: string;
+                        };
+                    };
+                };
+            };
         };
     };
     getAccount: {

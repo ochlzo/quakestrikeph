@@ -8,6 +8,7 @@ services:
       MIGRATION_DB_PASSWORD: ${MIGRATION_DB_PASSWORD:?Set MIGRATION_DB_PASSWORD in .env}
       WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD:?Set WORKER_DB_PASSWORD in .env}
       BACKEND_DB_PASSWORD: ${BACKEND_DB_PASSWORD:-}
+      SIMULATION_DB_PASSWORD: ${SIMULATION_DB_PASSWORD:-}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../database/initialization:/opt/quakestrike:ro
