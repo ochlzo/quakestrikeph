@@ -21,6 +21,7 @@ Its current coverage is Docker.
 | Back up, replace, and discard a server | [Server replacement](server-replacement.md) |
 | Set up, verify, or recover the Backend | [Backend API](backend-api.md) |
 | Change database passwords or open private pgAdmin | [Database maintenance](database-maintenance.md) |
+| Remove explicitly selected disposable test accounts | [Manual account cleanup](account-cleanup.md) |
 | Configure backups or check a restore test | [PostgreSQL backups](postgres-backups.md) |
 | Install or check checkpoint cleanup | [Checkpoint retention](ingestion-checkpoint-retention.md) |
 | Recover missing bootstrap readiness evidence | [Bootstrap readiness recovery](bootstrap-readiness-recovery.md) |

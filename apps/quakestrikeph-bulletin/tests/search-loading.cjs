@@ -4,7 +4,7 @@ const { chromium } = require('playwright');
 const root = process.env.BULLETIN_URL || 'http://localhost:4321';
 
 (async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+  const browser = await chromium.launch({ headless: true });
   try {
     for (const width of [1440, 390]) {
       const page = await browser.newPage({ viewport: { width, height: 900 } });

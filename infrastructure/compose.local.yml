@@ -61,6 +61,8 @@ services:
       PUBLIC_CLERK_PUBLISHABLE_KEY: ${PUBLIC_CLERK_PUBLISHABLE_KEY:-}
       ACCOUNT_API_TARGET: ${LOCAL_ACCOUNT_API_TARGET:-http://backend-api:3000}
       API_TARGET: ${LOCAL_API_TARGET:-http://backend-api:3000}
+      SIMULATION_BACKEND_TARGET: http://backend-api:3000
+      SIMULATION_PAGE_TOKEN: ${SIMULATION_PAGE_TOKEN:-}
       DEV_USE_POLLING: "true"
       CI: "true"
     volumes:

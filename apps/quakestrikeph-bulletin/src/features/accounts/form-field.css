@@ -1,0 +1,28 @@
+.account-form-field { min-width: 0; }
+
+.account-form-field [data-slot="field-label"] {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.account-form-field [data-slot="input"] {
+  height: 52px;
+  padding-inline: 14px;
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 15px;
+  border-width: revert-layer;
+  border-style: revert-layer;
+  border-radius: 10px;
+  outline: revert-layer;
+  outline-offset: revert-layer;
+  transition: revert-layer;
+}
+
+.account-form-field .show-password { border-radius: revert-layer; }
+
+@media (max-width: 760px) {
+  .account-form-field [data-slot="input"] { font-size: 16px; }
+}

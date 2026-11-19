@@ -2,7 +2,9 @@ import type { Earthquake, EarthquakeDetail } from "../../lib/events";
 import { displayTime } from "../../lib/events";
 import { loadObservationWindow } from "../../lib/api/forecast-observations";
 import { ReplayController } from "./controller";
-import { toast } from "../../components/ui/toast";
+import { createToastManager } from "../../components/ui/toast";
+
+export const replayToast = createToastManager();
 
 export function initReplayTimeline(
   root: HTMLElement,
@@ -49,7 +51,7 @@ export function initReplayTimeline(
       render();
     },
     onLoadError() {
-      toast.add({
+      replayToast.add({
         id: "forecast-observations-error",
         type: "error",
         timeout: 0,
@@ -58,7 +60,7 @@ export function initReplayTimeline(
         actionProps: { children: "Retry", onClick: () => controller.retry() },
       });
     },
-    onLoadSuccess: () => toast.close("forecast-observations-error"),
+    onLoadSuccess: () => replayToast.close("forecast-observations-error"),
   });
   let state = controller.snapshot;
   const zoomLevels = [360, 1440, 2880, 5760];
@@ -629,6 +631,7 @@ export function initReplayTimeline(
   controller.start();
   return () => {
     controller.dispose();
+    replayToast.close("forecast-observations-error");
     cancelPlaybackScroll();
     listeners.abort();
     resize.disconnect();

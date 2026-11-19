@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import MapPanel from "../../components/MapPanel";
 import type { Earthquake, EarthquakeDetail } from "../../lib/events";
-import { initReplayTimeline } from "./timeline";
+import { initReplayTimeline, replayToast } from "./timeline";
 import { Toaster } from "../../components/ui/toast";
 
 export default function ReplayMap({
@@ -24,7 +24,7 @@ export default function ReplayMap({
   return (
     <>
       <span ref={anchor} hidden />
-      <Toaster />
+      <Toaster toastManager={replayToast} />
       <MapPanel
         events={events}
         selectedId={event.eventId}

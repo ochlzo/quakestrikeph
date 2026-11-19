@@ -84,7 +84,15 @@ class SqlAlchemyFeatureHistoryQuery:
         )
         lower_bound = anchor_time - HISTORY_WINDOW
         statement = (
-            select(revisions)
+            select(
+                revisions.c.event_id,
+                revisions.c.event_time,
+                revisions.c.source_time_precision,
+                revisions.c.latitude,
+                revisions.c.longitude,
+                revisions.c.depth_km,
+                revisions.c.magnitude,
+            )
             .join(
                 latest_revision,
                 (latest_revision.c.event_id == revisions.c.event_id)

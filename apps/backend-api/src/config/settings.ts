@@ -5,6 +5,7 @@ export interface Settings {
   poolSize: number;
   queryTimeoutMs: number;
   brevoCallbackToken?: string;
+  simulations?: { url: URL; serviceToken: string; cookieKey: string; pageToken: string; ingressKey?: string; localIngress: boolean };
 }
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -38,5 +39,24 @@ export function loadSettings(env: NodeJS.ProcessEnv = process.env): Settings {
     poolSize: integerSetting(env.DB_POOL_SIZE, 5, 1, 20, 'DB_POOL_SIZE'),
     queryTimeoutMs: integerSetting(env.DB_QUERY_TIMEOUT_MS, 3000, 100, 30000, 'DB_QUERY_TIMEOUT_MS'),
     brevoCallbackToken,
+    simulations: simulationSettings(env),
   };
+}
+
+function simulationSettings(env: NodeJS.ProcessEnv): Settings['simulations'] {
+  if (!env.SIMULATION_SERVICE_URL) return undefined;
+  const url = new URL(env.SIMULATION_SERVICE_URL);
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
+    url.pathname !== '/' || url.search || url.hash) throw new Error('SIMULATION_SERVICE_URL must be an HTTP origin');
+  const serviceToken = env.SIMULATION_SERVICE_TOKEN ?? '';
+  const cookieKey = env.SIMULATION_COOKIE_KEY ?? '';
+  const pageToken = env.SIMULATION_PAGE_TOKEN ?? '';
+  const ingressKey = env.SIMULATION_INGRESS_KEY || undefined;
+  const localIngress = env.SIMULATION_LOCAL_INGRESS === 'true';
+  const secret = /^[a-f0-9]{64}$/;
+  if (!secret.test(serviceToken) || !secret.test(cookieKey) || !secret.test(pageToken) ||
+    (ingressKey ? localIngress || !secret.test(ingressKey) : !localIngress)) {
+    throw new Error('Configure simulation secrets and exactly one ingress mode');
+  }
+  return { url, serviceToken, cookieKey, pageToken, ingressKey, localIngress };
 }

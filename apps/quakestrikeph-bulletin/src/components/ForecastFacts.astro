@@ -1,0 +1,7 @@
+---
+import type { ComponentProps } from 'react';
+import ForecastFacts from './ForecastFacts';
+
+type Props = ComponentProps<typeof ForecastFacts>;
+---
+<ForecastFacts {...Astro.props} />

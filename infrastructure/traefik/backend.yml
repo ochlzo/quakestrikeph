@@ -1,5 +1,11 @@
 http:
   routers:
+    forecast-simulations:
+      entryPoints: [web]
+      rule: Host(`quakestrikeph.com`) && Path(`/api/v1/forecast-simulations`)
+      priority: 110
+      middlewares: [public-api-limit, simulation-ingress]
+      service: backend-api
     backend-api:
       entryPoints: [web]
       rule: Host(`quakestrikeph.com`) && PathPrefix(`/api/v1/`)
@@ -12,6 +18,10 @@ http:
       priority: 10
       service: bulletin
   middlewares:
+    simulation-ingress:
+      headers:
+        customRequestHeaders:
+          X-Simulation-Ingress: '{{ env "SIMULATION_INGRESS_KEY" }}'
     public-api-limit:
       rateLimit:
         average: 60

@@ -9,8 +9,21 @@ export function likelihoodLevel(probability: number) {
   return probability < 0.3 ? "Low likelihood" : probability < 0.7 ? "Moderate likelihood" : "High likelihood";
 }
 
+const philippineTimeOptions = {
+  timeZone: "Asia/Manila", year: "numeric", month: "short", day: "numeric",
+  hour: "2-digit", minute: "2-digit", hour12: true,
+} as const;
+const philippineTime = new Intl.DateTimeFormat("en-PH", philippineTimeOptions);
+const philippineTimeWithSeconds = new Intl.DateTimeFormat("en-PH", {
+  ...philippineTimeOptions, second: "2-digit",
+});
+
 export function displayTime(value: string) {
-  return new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(value)) + ' (PHT)';
+  return philippineTime.format(new Date(value)) + " (PHT)";
+}
+
+export function displayTimeWithSeconds(value: string) {
+  return philippineTimeWithSeconds.format(new Date(value)) + " (PHT)";
 }
 
 export function magnitude(value: number) { return `M${value.toFixed(1)}`; }

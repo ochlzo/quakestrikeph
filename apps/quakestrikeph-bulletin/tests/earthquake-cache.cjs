@@ -10,7 +10,7 @@ const fixtures = Array.from({ length: 60 }, (_, index) => ({
   depthKm: 10, locationDescription: `Sample location ${index}`, forecast: null,
 }));
 (async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+  const browser = await chromium.launch({ headless: true });
   try {
     for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
       const page = await browser.newPage({ viewport });
@@ -41,8 +41,9 @@ const fixtures = Array.from({ length: 60 }, (_, index) => ({
       await rows.first().waitFor();
       assert.equal(await rows.count(), 30);
       assert.equal(await cachedCount(), 30);
-      await page.getByRole('link', { name: 'Load more earthquakes', exact: true }).evaluate(link => link.click());
-      await page.waitForFunction(() => document.querySelectorAll('.event-row-v2:not(.event-row-skeleton)').length === 60);
+      await page.getByLabel('Go to next page').click();
+      await rows.filter({ hasText: 'Sample location 30' }).waitFor();
+      assert.equal(await rows.count(), 30);
       assert.equal(await cachedCount(), 30, 'Pagination must not enlarge the cache');
 
       mode = 'hold';
@@ -52,7 +53,7 @@ const fixtures = Array.from({ length: 60 }, (_, index) => ({
       await rows.first().waitFor();
       assert.equal(await rows.count(), 30);
       assert.equal(await page.evaluate(() => window.sawListSkeleton), false, 'Cached reload must not show a skeleton');
-      assert.equal(await page.getByRole('link', { name: 'Load more earthquakes', exact: true }).count(), 0,
+      assert.equal(await page.getByLabel('Go to next page').isDisabled(), true,
         'Pagination must wait for a fresh cursor');
       assert.equal(await page.getByText(/Saved results ·/).count(), 0);
       items = [{ ...fixtures[0], magnitude: 5.1, locationDescription: 'Revised location' },
@@ -69,8 +70,19 @@ const fixtures = Array.from({ length: 60 }, (_, index) => ({
       const before = requests;
       const failedRefresh = page.waitForResponse(response => response.url().includes('/earthquakes/search') && response.status() === 503);
       await page.goto(root, { waitUntil: 'domcontentloaded' });
-      await showList();
       await failedRefresh;
+      const notice = page.locator('[data-slot="toast"]:not([data-starting-style])')
+        .filter({ hasText: 'Earthquakes could not be refreshed.' });
+      await notice.waitFor();
+      if (viewport.width < 760) {
+        const clearsDrawerButton = await notice.evaluate(async element => {
+          await Promise.allSettled(element.getAnimations().map(animation => animation.finished));
+          const button = document.querySelector('.earthquake-drawer-trigger');
+          return element.getBoundingClientRect().bottom <= button.getBoundingClientRect().top;
+        });
+        assert.ok(clearsDrawerButton, 'The refresh error must leave Show earthquakes unobstructed');
+      }
+      await showList();
       await page.getByText('Revised location', { exact: true }).waitFor();
       assert.equal(await page.getByText(/Saved results ·/).count(), 0);
       assert.equal(await rows.count(), 30, 'Failed refresh must retain saved rows');

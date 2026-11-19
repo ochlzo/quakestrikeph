@@ -1,9 +1,9 @@
-"""Local development cleanup for disposable Bulletin test accounts.
+"""Explicit operator cleanup for disposable Bulletin test accounts.
 
 This is not an account-removal product route. The database design retains audit
 and delivery evidence for real accounts, so this command deletes that evidence
-explicitly and refuses any database that the migration login does not own. Run
-it only against a local development Compose database.
+explicitly using a privileged database login. VPS use requires the separately
+approved preview and confirmation procedure in docs/operations/account-cleanup.md.
 """
 
 from __future__ import annotations
@@ -11,8 +11,9 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Protocol
+from urllib.parse import urlsplit
 from uuid import UUID
 
 import redis
@@ -341,11 +342,19 @@ def _prepare(settings: Settings) -> tuple[Engine, Redis, HttpClerkDirectory]:
 
 
 def _delete_database(
-    engine: Engine, emails: Sequence[str]
+    engine: Engine, emails: Sequence[str], *, expected: CleanupPreview | None = None
 ) -> tuple[tuple[LocalAccount, ...], DeletionCounts]:
     factory = create_session_factory(engine)
     with factory() as session, session.begin():
         accounts = find_local_accounts(session.connection(), emails, lock=True)
+        if expected is not None:
+            counts = count_dependents(session.connection(), [a.user_id for a in accounts])
+            if accounts != expected.accounts or counts != (
+                expected.audit_logs,
+                expected.alert_recipients,
+                expected.alert_delivery_attempts,
+            ):
+                raise AccountCleanupError("plan_changed")
         counts = delete_local_accounts(session.connection(), [a.user_id for a in accounts])
     return accounts, counts
 
@@ -428,7 +437,23 @@ def _payload(
     }
 
 
-def delete_accounts(*, raw_emails: str | None, apply: bool) -> int:
+def plan_sha256(preview: CleanupPreview, database_url: str) -> str:
+    database = urlsplit(database_url)
+    selection = asdict(preview)
+    selection["emails"] = sorted(preview.emails)
+    selection["missing_emails"] = sorted(preview.missing_emails)
+    selection["accounts"] = sorted(selection["accounts"], key=lambda a: str(a["user_id"]))
+    selection["clerk_accounts"] = sorted(
+        selection["clerk_accounts"], key=lambda a: a["clerk_user_id"]
+    )
+    plan = {
+        "database": [database.hostname, database.port, database.path],
+        "preview": selection,
+    }
+    return _digest(json.dumps(plan, sort_keys=True, default=str))
+
+
+def delete_accounts(*, raw_emails: str | None, apply: bool, confirm_plan: str | None = None) -> int:
     try:
         emails = parse_emails(raw_emails)
     except EmailInputError as error:
@@ -439,6 +464,9 @@ def delete_accounts(*, raw_emails: str | None, apply: bool) -> int:
     client: Redis | None = None
     try:
         settings = Settings()
+        guarded = settings.account_cleanup_require_confirmation or confirm_plan is not None
+        if guarded and raw_emails is None:
+            raise AccountCleanupError("explicit_emails_required")
         engine, client, directory = _prepare(settings)
         with engine.connect() as connection:
             preview = build_preview(connection, emails, directory)
@@ -446,11 +474,24 @@ def delete_accounts(*, raw_emails: str | None, apply: bool) -> int:
         if not preview.accounts and not preview.clerk_accounts:
             print_json(_payload("empty", preview))
             return 1
+        token = plan_sha256(preview, settings.database_url) if guarded else None
+        if guarded:
+            clerk_ids = {account.clerk_user_id for account in preview.clerk_accounts}
+            if any(account.clerk_user_id not in clerk_ids for account in preview.accounts):
+                raise AccountCleanupError("clerk_identity_mismatch")
         if not apply:
-            print_json(_payload("preview", preview))
+            payload = _payload("preview", preview)
+            if guarded:
+                payload["plan_sha256"] = token
+            print_json(payload)
             return 0
+        if guarded and confirm_plan != token:
+            raise AccountCleanupError("preview_confirmation_required")
 
-        accounts, counts = _delete_database(engine, emails)
+        if guarded:
+            accounts, counts = _delete_database(engine, emails, expected=preview)
+        else:
+            accounts, counts = _delete_database(engine, emails)
         clerk_targets = {account.clerk_user_id: account for account in preview.clerk_accounts}
         for account in accounts:
             clerk_targets.setdefault(

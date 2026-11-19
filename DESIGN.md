@@ -65,9 +65,11 @@ Show earthquake and forecast times in Philippine time, with enough context to di
 ### Bulletin
 
 Above 760px, use the floating results sidebar beside the header and map. Search and filters remain above independently scrolling results.
-Keep Earthquakes and About centered in the desktop header, with the session-aware alert action separate.
+Center Earthquakes, Simulate Forecast, and About in the desktop header. Keep the session-aware alert action on the right.
+On Simulate Forecast, place the Bulletin logo on the left. Slide the selected tab indicator between pages and respect reduced-motion settings.
 
 At 760px and below, use the compact header, overlay navigation, and bottom earthquake drawer.
+Use the same compact header on Earthquakes and Simulate Forecast.
 The drawer keeps the map interactive and exposes the selected event, Forecast Overview, or searchable results.
 Preserve selection and filters when drawers close or the viewport crosses the breakpoint.
 Map controls, attribution, and selected content must remain reachable as the drawer changes height.

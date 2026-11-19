@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: QuakeStrike PH Bulletin API
   version: 1.0.0
-  description: Public earthquake information and authenticated owner-only account settings.
+  description: Public earthquake information, guest forecast simulations, and authenticated owner-only account settings.
 servers:
   - url: https://quakestrikeph.com/api/v1
     description: Primary public domain.
@@ -102,6 +102,182 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/Unavailable'
+  /forecast-simulations:
+    post:
+      operationId: runForecastSimulation
+      summary: Run a guest forecast simulation synchronously
+      x-status: draft
+      description: >-
+        Returns a 24-hour SEIS 1.0.1 forecast using the latest qualifying PHIVOLCS cutoff.
+        Bulletin fetches catalog status through an internal Backend call when it renders
+        /simulate-forecast. The Backend validates the cookie and scenario, rechecks catalog
+        eligibility, and checks both quotas and capacity. Model start charges both quotas.
+      externalDocs:
+        description: Issue #83 feature requirements
+        url: https://github.com/ochlzo/quakestrikeph/issues/83
+      security: [{ForecastSimulationGuest: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForecastSimulationScenario'
+            example: {latitude: 14.5995, longitude: 120.9842, magnitude: 5.2, depthKm: 18}
+      responses:
+        '200':
+          description: A completed simulation for the submitted scenario.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/SimulationCacheControl'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForecastSimulationResult'
+              example:
+                scenario: {latitude: 14.5995, longitude: 120.9842, magnitude: 5.2, depthKm: 18}
+                catalogCutoff: '2026-11-19T02:30:00Z'
+                forecast:
+                  windowStart: '2026-11-19T02:30:00Z'
+                  windowEnd: '2026-11-20T02:30:00Z'
+                  probabilityM1Plus24h: 0.82
+                  probabilityM4Plus24h: 0.17
+                  probabilityM5Plus24h: 0.04
+                  expectedM1PlusCount24h: 3.4
+                  maximumMagnitudeQ05_24h: 1.3
+                  maximumMagnitudeQ50_24h: 2.8
+                  maximumMagnitudeQ95_24h: 4.7
+                  activityRadiusMedianKm24h: null
+        '400':
+          description: Invalid JSON or invalid scenario. Neither quota was charged.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/SimulationCacheControl'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidSimulationRequest'
+              examples:
+                invalidField:
+                  value:
+                    error: {code: INVALID_REQUEST, field: depthKm, message: Enter a depth between 0 and 700 km.}
+                invalidJson:
+                  value:
+                    error: {code: INVALID_JSON, message: Request body must be valid JSON.}
+        '403':
+          description: Missing, invalid, or expired guest cookie. Reload /simulate-forecast before retrying. Neither quota was charged.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/SimulationCacheControl'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: object
+                    required: [code, message]
+                    properties:
+                      code: {type: string, const: SIMULATION_GUEST_COOKIE_REQUIRED}
+                      message: {type: string}
+              example:
+                error: {code: SIMULATION_GUEST_COOKIE_REQUIRED, message: Confirm the guest cookie before running a simulation.}
+        '413':
+          description: Request body exceeds 8 KiB. Neither quota was charged.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/SimulationCacheControl'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: {code: PAYLOAD_TOO_LARGE, message: Request body is too large.}
+        '429':
+          description: >-
+            One or both simulation quotas are full. This request uses neither quota.
+            The Backend returns retryAt and Retry-After based on current usage.
+            The edge can also return its own 429 without this JSON body or retry deadline.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/SimulationCacheControl'
+            Retry-After:
+              description: Seconds from the Backend response until retryAt, rounded up to a whole second.
+              schema: {type: integer, minimum: 0}
+              example: 180
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimulationLimitReached'
+              example:
+                error: {code: SIMULATION_LIMIT_REACHED, message: Simulation limit reached., retryAt: '2026-11-19T02:38:00Z'}
+        '503':
+          description: The Backend could not admit the run. Neither quota was charged.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/SimulationCacheControl'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimulationUnavailable'
+              examples:
+                busy:
+                  value:
+                    error: {code: SIMULATION_BUSY, message: All simulation slots are busy.}
+                quotaUnavailable:
+                  value:
+                    error: {code: SIMULATION_QUOTA_UNAVAILABLE, message: Simulation limits could not be checked.}
+                insufficientHistory:
+                  value:
+                    error: {code: SIMULATION_HISTORY_INSUFFICIENT, message: Seven continuous days of verified PHIVOLCS records are unavailable.}
+                historyTooOld:
+                  value:
+                    error: {code: SIMULATION_HISTORY_TOO_OLD, message: The latest qualifying PHIVOLCS cutoff is more than seven weeks old., catalogCutoff: '2026-09-30T02:30:00Z'}
+                catalogUnavailable:
+                  value:
+                    error: {code: SIMULATION_CATALOG_UNAVAILABLE, message: The PHIVOLCS catalog could not be checked.}
+        '500':
+          description: >-
+            SIMULATION_MODEL_FAILED confirms that model execution started and failed. Both
+            quotas were charged. INTERNAL_ERROR makes no guarantee about whether the model started.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/SimulationCacheControl'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: object
+                    required: [code, message]
+                    properties:
+                      code: {type: string, enum: [SIMULATION_MODEL_FAILED, INTERNAL_ERROR]}
+                      message: {type: string}
+              example:
+                error: {code: SIMULATION_MODEL_FAILED, message: The model started but could not complete the forecast.}
+        '504':
+          description: >-
+            The Backend timed out and cannot confirm whether execution started.
+            An ingress timeout can occur without the Backend JSON body.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/SimulationCacheControl'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: object
+                    required: [code, message]
+                    properties:
+                      code: {type: string, const: SIMULATION_OUTCOME_UNKNOWN}
+                      message: {type: string}
+              example:
+                error: {code: SIMULATION_OUTCOME_UNKNOWN, message: The run timed out before its outcome could be confirmed.}
   /account:
     get:
       operationId: getAccount
@@ -246,6 +422,20 @@ components:
       type: http
       scheme: bearer
       bearerFormat: Clerk session JWT
+    ForecastSimulationGuest:
+      type: apiKey
+      in: cookie
+      name: qs_guest
+      description: >-
+        Host-only cookie with Path=/, Secure, HttpOnly, SameSite=Lax, and a fixed 24-hour
+        lifetime (Max-Age=86400). If the cookie is missing or invalid, /simulate-forecast
+        issues one and redirects once. If the browser still sends no valid cookie, the page
+        shows cookie help and keeps Submit disabled. The page and redirect use Cache-Control no-store.
+  headers:
+    SimulationCacheControl:
+      required: true
+      description: All simulation responses from the Backend use no-store.
+      schema: {type: string, const: no-store}
   responses:
     InvalidRequest:
       description: Invalid filter or event identifier
@@ -274,6 +464,110 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
   schemas:
+    ForecastSimulationScenario:
+      type: object
+      additionalProperties: false
+      required: [latitude, longitude, magnitude, depthKm]
+      description: >-
+        The coordinate limits are the inclusive Bulletin map bounds and include offshore points.
+        Magnitude and depth are subject to any narrower documented SEIS 1.0.1 limits.
+      properties:
+        latitude: {type: number, minimum: 0, maximum: 26}
+        longitude: {type: number, minimum: 110, maximum: 135}
+        magnitude: {type: number, minimum: 1, maximum: 10}
+        depthKm: {type: number, minimum: 0, maximum: 700}
+    ForecastSimulationResult:
+      type: object
+      required: [scenario, catalogCutoff, forecast]
+      properties:
+        scenario:
+          $ref: '#/components/schemas/ForecastSimulationScenario'
+        catalogCutoff:
+          type: string
+          format: date-time
+          description: Exact UTC cutoff used for this run. This is the hypothetical earthquake time.
+        forecast:
+          $ref: '#/components/schemas/SimulatedForecast'
+    SimulatedForecast:
+      type: object
+      description: >-
+        The probabilities describe the chance of at least one earthquake of each magnitude
+        threshold or higher during the window. M5+ is at most M4+, which is at most M1+.
+        Magnitude quantiles describe the largest earthquake if M1+ activity occurs. They
+        are either all null or ordered from q05 through q95. Null means unavailable.
+      required: [windowStart, windowEnd, probabilityM1Plus24h, probabilityM4Plus24h, probabilityM5Plus24h,
+        expectedM1PlusCount24h, maximumMagnitudeQ05_24h, maximumMagnitudeQ50_24h,
+        maximumMagnitudeQ95_24h, activityRadiusMedianKm24h]
+      properties:
+        windowStart:
+          type: string
+          format: date-time
+          description: Same instant as catalogCutoff, in UTC.
+        windowEnd:
+          type: string
+          format: date-time
+          description: Exactly 24 elapsed hours after windowStart, in UTC.
+        probabilityM1Plus24h: {type: number, minimum: 0, maximum: 1}
+        probabilityM4Plus24h: {type: number, minimum: 0, maximum: 1}
+        probabilityM5Plus24h: {type: number, minimum: 0, maximum: 1}
+        expectedM1PlusCount24h: {type: number, minimum: 0}
+        maximumMagnitudeQ05_24h: {type: [number, 'null']}
+        maximumMagnitudeQ50_24h: {type: [number, 'null']}
+        maximumMagnitudeQ95_24h: {type: [number, 'null']}
+        activityRadiusMedianKm24h:
+          type: [number, 'null']
+          minimum: 0
+          description: Median activity spread in kilometres from the submitted epicenter if M1+ activity occurs.
+    InvalidSimulationRequest:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: {type: string, enum: [INVALID_JSON, INVALID_REQUEST]}
+            message: {type: string}
+            field:
+              type: string
+              enum: [latitude, longitude, magnitude, depthKm]
+              description: Present when the validation issue identifies a scenario field.
+    SimulationLimitReached:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, retryAt]
+          properties:
+            code: {type: string, const: SIMULATION_LIMIT_REACHED}
+            message: {type: string}
+            retryAt:
+              type: string
+              format: date-time
+              description: >-
+                Earliest UTC instant when both rolling limits allow another start based on
+                current usage. The Backend checks both limits again on retry.
+    SimulationUnavailable:
+      type: object
+      required: [error]
+      properties:
+        error:
+          oneOf:
+            - type: object
+              required: [code, message]
+              properties:
+                code:
+                  type: string
+                  enum: [SIMULATION_BUSY, SIMULATION_QUOTA_UNAVAILABLE, SIMULATION_HISTORY_INSUFFICIENT,
+                    SIMULATION_CATALOG_UNAVAILABLE]
+                message: {type: string}
+            - type: object
+              required: [code, message, catalogCutoff]
+              properties:
+                code: {type: string, const: SIMULATION_HISTORY_TOO_OLD}
+                message: {type: string}
+                catalogCutoff: {type: string, format: date-time}
     Preferences:
       type: object
       required: [emailEnabled, smsEnabled, magnitude, nearbyOnly, latitude, longitude, distanceKm]

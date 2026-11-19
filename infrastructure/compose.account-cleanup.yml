@@ -1,0 +1,31 @@
+# Manual VPS use only. Never add this file to deployment or ordinary startup.
+services:
+  account-cleanup:
+    profiles: ["account-cleanup"]
+    image: quakestrike-workers:${WORKER_IMAGE_TAG:?Set WORKER_IMAGE_TAG to the deployed tested Git commit SHA}
+    pull_policy: never
+    command: ["quakestrike", "delete-accounts"]
+    environment:
+      DATABASE_URL: ${MIGRATION_DATABASE_URL:?Set MIGRATION_DATABASE_URL in .env}
+      REDIS_URL: ${REDIS_URL:?Set REDIS_URL in .env}
+      ACCOUNT_REDIS_URL: ${ACCOUNT_REDIS_URL:?Set ACCOUNT_REDIS_URL in .env}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?Set CLERK_SECRET_KEY in .env}
+      PHIVOLCS_CATALOG_URL: ${PHIVOLCS_CATALOG_URL:?Set PHIVOLCS_CATALOG_URL in .env}
+      MODEL_RELEASE_ID: ${MODEL_RELEASE_ID:?Set MODEL_RELEASE_ID in .env}
+      ACCOUNT_CLEANUP_REQUIRE_CONFIRMATION: "true"
+      UV_CACHE_DIR: /tmp/uv-cache
+    networks: [private-data, cleanup-egress]
+    restart: "no"
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    logging:
+      driver: local
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+networks:
+  cleanup-egress:

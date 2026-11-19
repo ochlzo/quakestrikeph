@@ -9,9 +9,10 @@ import { accountRoutes, type AccountDependencies } from './routes/account.js';
 import { AccountError, SmsProviderError } from '../../domain/accounts.js';
 import { accountErrorStatus } from './accountErrors.js';
 import { brevoRoutes, type BrevoDependencies } from './routes/brevo.js';
+import { forecastSimulationRoutes, type SimulationDependencies } from './routes/forecastSimulations.js';
 
 export function createApp(reader: EarthquakeReader, now: () => Date = () => new Date(), accounts?: AccountDependencies,
-  brevo?: BrevoDependencies, synthetic?: SyntheticScenarioReader) {
+  brevo?: BrevoDependencies, synthetic?: SyntheticScenarioReader, simulations?: SimulationDependencies) {
   const app = express();
   app.disable('x-powered-by');
   app.use((req, res, next) => {
@@ -32,6 +33,10 @@ export function createApp(reader: EarthquakeReader, now: () => Date = () => new 
     if (req.path.startsWith('/api/v1/earthquakes/') && req.query.test === 'true') res.setHeader('Cache-Control', 'no-store');
     next();
   });
+  if (simulations) app.use('/api/v1/forecast-simulations', (_req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
   app.use(express.json({ limit: '8kb', strict: true }));
 
   app.get('/healthz', async (_req, res) => {
@@ -41,6 +46,7 @@ export function createApp(reader: EarthquakeReader, now: () => Date = () => new 
 
   app.use('/api/v1/earthquakes', earthquakeRoutes(reader, now, synthetic));
   app.use('/api/v1/account', accountRoutes(accounts));
+  if (simulations) app.use(forecastSimulationRoutes(simulations, now));
 
   app.use((_req, res) => {
     res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } });

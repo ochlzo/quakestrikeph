@@ -1,6 +1,6 @@
 import { Logo } from "@quakestrikeph/ui/logo";
-import { useState, type CSSProperties, type ReactNode } from "react";
-import { ChevronLeft, Earth, TextAlignStart, X } from "lucide-react";
+import { Fragment, useState, type CSSProperties, type ReactNode } from "react";
+import { ChevronLeft, Earth, FlaskConical, TextAlignStart, X } from "lucide-react";
 import AlertsButton from "./AlertsButton";
 import { Button } from "./ui/button";
 import {
@@ -10,7 +10,15 @@ import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { RouterProvider } from 'react-aria-components';
 import { navigate } from 'astro:transitions/client';
 
-function BulletinSidebar({ filters, results, settings = false, footer, onHover, onFocus }: { filters: ReactNode; results: ReactNode; settings?: boolean; footer?: ReactNode; onHover?: (active: boolean) => void; onFocus?: (active: boolean) => void }) {
+const bulletinPages = [
+  { href: "/", label: "Earthquakes", Icon: Earth },
+  { href: "/simulate-forecast", label: "Simulate Forecast", Icon: FlaskConical },
+  { href: "/about", label: "About", Icon: TextAlignStart },
+] as const;
+
+type BulletinPage = (typeof bulletinPages)[number]["href"];
+
+function BulletinSidebar({ filters, results, settings = false, page = "/", footer, onHover, onFocus }: { filters?: ReactNode; results?: ReactNode; settings?: boolean; page?: BulletinPage; footer?: ReactNode; onHover?: (active: boolean) => void; onFocus?: (active: boolean) => void }) {
   const { isMobile, setOpenMobile } = useSidebar();
   return (
     <Sidebar variant={settings ? "sidebar" : "floating"} collapsible={settings ? "icon" : "offcanvas"} className="bulletin-sidebar"
@@ -32,9 +40,14 @@ function BulletinSidebar({ filters, results, settings = false, footer, onHover, 
       <SidebarContent className="bulletin-sidebar-content">
         {isMobile || settings ? (
           <nav className="bulletin-mobile-nav" aria-label="Main navigation">
-            <a href="/" aria-label="Earthquakes" aria-current={settings ? undefined : "page"} onClick={() => setOpenMobile(false)}><Earth aria-hidden="true" /><span>Earthquakes</span></a>
-            <AlertsButton withinAccount={settings} />
-            <a href="/about" aria-label="About"><TextAlignStart aria-hidden="true" /><span>About</span></a>
+            {bulletinPages.filter(({ href }) => !settings || href !== "/simulate-forecast").map(({ href, label, Icon }) => (
+              <Fragment key={href}>
+                {href === "/about" && <AlertsButton withinAccount={settings} />}
+                <a href={href} aria-current={!settings && href === page ? "page" : undefined} onClick={() => setOpenMobile(false)}>
+                  <Icon aria-hidden="true" /><span>{label}</span>
+                </a>
+              </Fragment>
+            ))}
           </nav>
         ) : results}
       </SidebarContent>
@@ -43,18 +56,24 @@ function BulletinSidebar({ filters, results, settings = false, footer, onHover, 
   );
 }
 
-function BulletinHeader({ settings = false }: { settings?: boolean }) {
+function BulletinHeader({ settings = false, page = "/" }: { settings?: boolean; page?: BulletinPage }) {
   const { isMobile, open, openMobile } = useSidebar();
+  const simulation = page === "/simulate-forecast";
   return (
-    <header className="site-header bulletin-header">
-      {(!settings || isMobile) && <SidebarTrigger className="aria-expanded:bg-transparent hover:aria-expanded:bg-muted" aria-label="Toggle sidebar" aria-expanded={isMobile ? openMobile : open} />}
+    <header className={`site-header bulletin-header${simulation ? " simulation-header shell" : ""}`}>
+      {((!settings && !simulation) || isMobile) && <SidebarTrigger className="aria-expanded:bg-transparent hover:aria-expanded:bg-muted" aria-label="Toggle sidebar" aria-expanded={isMobile ? openMobile : open} />}
+      {simulation && <Logo className="simulation-brand" />}
       <a className="bulletin-mobile-title" href="/" aria-label="QuakeStrike PH Bulletin home">QuakeStrike PH</a>
       {!isMobile && !settings && (
         <nav className="site-nav" aria-label="Main navigation">
-          <Tabs selectedKey="/" keyboardActivation="manual">
+          <Tabs selectedKey={page} keyboardActivation="manual">
             <TabsList aria-label="Main navigation">
-              <TabsTrigger id="/" href="/">Earthquakes</TabsTrigger>
-              <TabsTrigger id="/about" href="/about">About</TabsTrigger>
+              {bulletinPages.map(({ href, label }) => (
+                <TabsTrigger key={href} id={href} href={href} aria-current={href === page ? "page" : undefined}>
+                  <span className="bulletin-nav-indicator" aria-hidden="true" />
+                  <span className="bulletin-nav-label">{label}</span>
+                </TabsTrigger>
+              ))}
             </TabsList>
           </Tabs>
         </nav>
@@ -65,6 +84,22 @@ function BulletinHeader({ settings = false }: { settings?: boolean }) {
         </a>
       ) : <AlertsButton />}
     </header>
+  );
+}
+
+function SimulationMobileSidebar() {
+  const { isMobile } = useSidebar();
+  return isMobile ? <BulletinSidebar page="/simulate-forecast" /> : null;
+}
+
+export function SimulationHeader() {
+  return (
+    <RouterProvider navigate={(href) => void navigate(href)}>
+      <SidebarProvider defaultOpen={false} className="simulation-header-shell min-h-0">
+        <SimulationMobileSidebar />
+        <BulletinHeader page="/simulate-forecast" />
+      </SidebarProvider>
+    </RouterProvider>
   );
 }
 

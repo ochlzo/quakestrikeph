@@ -8,6 +8,9 @@ services:
         PUBLIC_CLERK_PUBLISHABLE_KEY: ${PUBLIC_CLERK_PUBLISHABLE_KEY:-}
       labels:
         org.opencontainers.image.revision: ${BULLETIN_IMAGE_TAG:?Set BULLETIN_IMAGE_TAG to the tested Git commit SHA}
+    environment:
+      SIMULATION_BACKEND_TARGET: http://backend-api:3000
+      SIMULATION_PAGE_TOKEN: ${SIMULATION_PAGE_TOKEN:-}
     networks: [backend-edge]
     restart: unless-stopped
     mem_limit: 256m

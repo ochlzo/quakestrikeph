@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -12,7 +13,13 @@ from quakestrike.infrastructure.database.tables import (
     audit_logs,
     users,
 )
-from quakestrike.operator_accounts import delete_local_accounts, find_local_accounts
+from quakestrike.operator_accounts import (
+    AccountCleanupError,
+    _delete_database,
+    build_preview,
+    delete_local_accounts,
+    find_local_accounts,
+)
 
 from .test_forecast_alert_evidence import completed_alert
 from .test_prediction_worker import NOW
@@ -103,3 +110,42 @@ def test_delete_removes_only_the_selected_users_and_their_evidence(migrated_engi
         assert connection.scalar(select(func.count()).select_from(audit_logs)) == audit_count - 2
         assert connection.execute(select(alert_recipients.c.user_id)).scalars().all() == [other_id]
         assert connection.scalar(select(func.count()).select_from(alert_delivery_attempts)) == 1
+
+
+@pytest.mark.parametrize("change", [None, "accounts", "evidence"])
+def test_confirmed_selection_is_rechecked_inside_the_transaction(migrated_engine, change) -> None:
+    email = "reader@example.invalid"
+    with migrated_engine.begin() as connection:
+        target_id = _insert_user(connection, email)
+        preview = build_preview(connection, (email,), SimpleNamespace(find_by_email=lambda _: ()))
+
+    if change is not None:
+        with migrated_engine.begin() as connection:
+            if change == "accounts":
+                _insert_user(connection, email)
+            else:
+                connection.execute(
+                    insert(audit_logs).values(
+                        audit_id=uuid4(),
+                        actor_type="user",
+                        actor_user_id=target_id,
+                        action="profile_saved",
+                        outcome="succeeded",
+                        correlation_id=uuid4(),
+                    )
+                )
+        with pytest.raises(AccountCleanupError, match="plan_changed"):
+            _delete_database(migrated_engine, (email,), expected=preview)
+        with migrated_engine.connect() as connection:
+            assert connection.scalar(select(func.count()).select_from(users)) == (
+                2 if change == "accounts" else 1
+            )
+            assert connection.scalar(select(func.count()).select_from(audit_logs)) == (
+                1 if change == "evidence" else 0
+            )
+    else:
+        accounts, counts = _delete_database(migrated_engine, (email,), expected=preview)
+        assert accounts == preview.accounts
+        assert counts.users == 1
+        with migrated_engine.connect() as connection:
+            assert connection.scalar(select(func.count()).select_from(users)) == 0

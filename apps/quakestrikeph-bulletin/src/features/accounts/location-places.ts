@@ -13,6 +13,35 @@ function places() {
       throw error;
     }));
 }
+const normalized = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+export function matchPlaces(query: string, list: Place[]) {
+  const terms = normalized(query.trim()).split(/\s+/);
+  const text = normalized(query.trim());
+  const rank = (p: Place) =>
+    normalized(p[0]) === text
+      ? 0
+      : normalized(p[0]).startsWith(text)
+        ? 1
+        : normalized(p[0]).includes(text)
+          ? 2
+          : 3;
+  return query.trim().length < 2
+    ? []
+    : list
+        .map((p, index) => ({ p, index }))
+        .filter(({ p }) =>
+          terms.every((t) =>
+            normalized(`${p[0]} ${p[1]} ${p[4]}`).includes(t),
+          ),
+        )
+        .sort((a, b) => rank(a.p) - rank(b.p))
+        .slice(0, 20);
+}
+
 export function locationLabel(
   latitude: number | null,
   longitude: number | null,

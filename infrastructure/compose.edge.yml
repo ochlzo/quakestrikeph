@@ -1,6 +1,8 @@
 services:
   traefik:
     image: traefik:v3.7.13
+    environment:
+      SIMULATION_INGRESS_KEY: ${SIMULATION_INGRESS_KEY:-}
     command:
       - --providers.file.filename=/etc/traefik/backend.yml
       - --entrypoints.web.address=:80

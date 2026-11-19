@@ -10,7 +10,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/server.js",
     "test": "npm run build && node --test dist/tests/unit/app.test.js dist/tests/unit/searchRequest.test.js dist/tests/unit/accounts.test.js dist/tests/unit/brevo.test.js dist/tests/unit/syntheticScenarios.test.js",
-    "test:integration": "npm run build && node --test --test-concurrency=1 dist/tests/integration/earthquakes.test.js dist/tests/integration/accounts.test.js dist/tests/integration/brevo.test.js dist/tests/integration/syntheticScenarios.test.js",
+    "test:integration": "npm run build && node --test --test-concurrency=1 dist/tests/integration/earthquakes.test.js dist/tests/integration/accounts.test.js dist/tests/integration/brevo.test.js dist/tests/integration/syntheticScenarios.test.js dist/tests/integration/forecastSimulations.test.js",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

@@ -7,6 +7,7 @@ Use [local runtime](local-runtime.md#daily-bulletin-commands) for development an
 | --- | --- |
 | Prepare the Backend on a new VPS | [First VPS setup](#first-vps-setup) |
 | Check public search and detail routes | [Verify](#verify) |
+| Configure guest simulation | [Guest forecast simulation](#guest-forecast-simulation) |
 | Diagnose startup or stop the public path | [Failure and rollout notes](#failure-and-rollout-notes) |
 | Replace only the Backend during recovery | [Manual upgrade](#manually-upgrade-an-existing-backend) |
 
@@ -74,6 +75,35 @@ For a local contract check, run `npm ci` and `npm test` in `apps/backend-api`.
 The PostgreSQL query integration test runs in the isolated
 `quakestrike-data-ingestion-test` Compose project after the worker migration
 suite. It creates a disposable Backend role and never contacts production.
+
+## Guest forecast simulation
+
+The Backend registers `POST /api/v1/forecast-simulations` when `SIMULATION_SERVICE_URL` is set.
+Use the optional `infrastructure/compose.forecast-simulation.yml` file with the usual Backend Compose files.
+The simulator runs from the tested prediction image and listens on the private data network.
+Run one simulator instance. Its configured slots serve all Backend instances.
+
+- Configure `SIMULATION_DATABASE_URL` with the `quakestrike_simulator` login and the matching `SIMULATION_DB_PASSWORD`.
+  Provision the login with `sh /opt/quakestrike/provision-roles.sh create-simulator` in PostgreSQL after migrations.
+  The login can read coverage evidence and event revision fields.
+- Set `SIMULATION_SERVICE_URL=http://forecast-simulator:4350` and set `SIMULATION_REDIS_URL` to the shared quota store.
+  Set independent 64-character lowercase hex secrets for `SIMULATION_SERVICE_TOKEN`, `SIMULATION_COOKIE_KEY`,
+  `SIMULATION_PAGE_TOKEN`, and `SIMULATION_INGRESS_KEY`. Share the signing key across Backend instances.
+- For production, pass the ingress key to Traefik and the Backend. The simulation router adds the ingress key.
+  The Backend uses `CF-Connecting-IP` on that path. Keep Cloudflare's Pseudo IPv4 overwrite mode disabled.
+  For direct local testing, leave the ingress key empty and set `SIMULATION_LOCAL_INGRESS=true`.
+- Set `SIMULATION_SLOTS`, `SIMULATION_MEMORY_LIMIT`, and `SIMULATION_CPUS` for the simulator.
+  Before opening guest runs, measure guest capacity alongside live forecasts and Bulletin reads as specified in issue #83.
+
+The Bulletin server can call `GET /internal/forecast-simulations/page` on the private Backend URL.
+Send the visitor's `Cookie` header and `Authorization: Bearer <SIMULATION_PAGE_TOKEN>`.
+The response reports `guestCookieConfirmed` and `catalog`, which contains `status` and `catalogCutoff`.
+The catalog status is `current`, `stale`, `too_old`, `insufficient_history`, or `unavailable`.
+The cutoff is an ISO 8601 UTC timestamp when known and `null` otherwise.
+
+If the Backend returns `Set-Cookie`, forward it to the browser with one redirect back to the page.
+On the redirected request, call the internal endpoint with `?confirm=1` to check the cookie without issuing another.
+Serve the redirect and the page with `Cache-Control: no-store`.
 
 ## Failure and rollout notes
 

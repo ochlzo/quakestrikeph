@@ -1,0 +1,32 @@
+.location-search { container-type: inline-size; }
+.location-search-row { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.location-search-combobox { width: 100%; min-width: 0; }
+.location-search-field-wrapper { gap: 0; }
+.location-search-field-wrapper [data-slot="field-error"] { margin-top: 8px; }
+.location-search-field [data-slot="search-input"]:not(:focus) { text-overflow: ellipsis; }
+.location-search-field [data-slot="combobox-trigger"] { flex: none; }
+.location-search-empty { padding: 24px; line-height: 1.6; }
+.place-context { display: block; font-size: 12px; color: #5f6b6e; }
+.location-search .location-locate {
+  flex-shrink: 0;
+  height: 52px;
+  margin: 0;
+  padding: 0 16px;
+  border: 1px solid #dce3e4;
+  border-radius: 10px;
+  background: white;
+  color: var(--primary);
+  font-weight: 550;
+}
+.location-search .location-locate:hover:not([data-disabled]) { background: var(--accent); }
+
+@container (min-width: 560px) {
+  .location-search-row { flex-direction: row; }
+  .location-search-combobox { flex: 1; }
+}
+
+@media (max-width: 760px) {
+  .location-search-row { align-items: stretch; gap: 8px; }
+  .location-search .location-locate { width: 100%; height: 44px; }
+  .location-search-field [data-slot="search-input"] { font-size: 16px; }
+}

@@ -11,6 +11,8 @@ import { Iprog } from './infrastructure/sms/iprog.js';
 import { PostgresBrevoReconciler } from './infrastructure/postgres/brevo.js';
 import { RedisSyntheticScenarioReader } from './infrastructure/redis/syntheticScenarios.js';
 import { RedisTestBrevoReconciler } from './infrastructure/redis/testBrevo.js';
+import { HttpForecastSimulator } from './infrastructure/simulator.js';
+import { SimulationGuestCookies } from './application/forecastSimulations.js';
 
 const settings = loadSettings();
 const pool = new Pool({ connectionString: settings.databaseUrl, max: settings.poolSize,
@@ -32,10 +34,14 @@ const syntheticRedis = process.env.ALERT_TEST_REDIS_URL ? createClient({ url: pr
     reconnectStrategy: retries => Math.min(250 * 2 ** Math.min(retries, 4), 5000) } }) : undefined;
 syntheticRedis?.on('error', () => console.error(JSON.stringify({ service: 'backend-api', event: 'synthetic_redis_unavailable' })));
 if (syntheticRedis) void syntheticRedis.connect().catch(() => {});
+const simulations = settings.simulations;
 const server = createApp(reader, () => new Date(), accounts,
   { token: settings.brevoCallbackToken, reconciler: new PostgresBrevoReconciler(pool),
     testReconciler: syntheticRedis ? new RedisTestBrevoReconciler(syntheticRedis) : undefined },
-  syntheticRedis ? new RedisSyntheticScenarioReader(syntheticRedis) : undefined).listen(settings.port, '0.0.0.0', () => {
+  syntheticRedis ? new RedisSyntheticScenarioReader(syntheticRedis) : undefined,
+  simulations ? { simulator: new HttpForecastSimulator(simulations.url, simulations.serviceToken),
+    cookies: new SimulationGuestCookies(simulations.cookieKey), ingressKey: simulations.ingressKey,
+    pageToken: simulations.pageToken, localIngress: simulations.localIngress } : undefined).listen(settings.port, '0.0.0.0', () => {
   console.info(JSON.stringify({ service: 'backend-api', event: 'listening', port: settings.port }));
 });
 
