@@ -36,7 +36,7 @@ const initialResults = await prepareEventResults(initialState, searchInitialEven
       void loadMapRuntime().catch(() => { /* MapPanel retries and retains its placeholder on failure. */ });
     </script>
   </head>
-  <body>
+  <body data-bulletin-home>
     <div id="bulletin-view">
       <Bulletin initialResults={initialResults} initialState={initialState} client:load />
     </div>

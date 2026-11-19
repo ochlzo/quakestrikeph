@@ -70,8 +70,19 @@ const fixtures = Array.from({ length: 60 }, (_, index) => ({
       const before = requests;
       const failedRefresh = page.waitForResponse(response => response.url().includes('/earthquakes/search') && response.status() === 503);
       await page.goto(root, { waitUntil: 'domcontentloaded' });
-      await showList();
       await failedRefresh;
+      const notice = page.locator('[data-slot="toast"]:not([data-starting-style])')
+        .filter({ hasText: 'Earthquakes could not be refreshed.' });
+      await notice.waitFor();
+      if (viewport.width < 760) {
+        const clearsDrawerButton = await notice.evaluate(async element => {
+          await Promise.allSettled(element.getAnimations().map(animation => animation.finished));
+          const button = document.querySelector('.earthquake-drawer-trigger');
+          return element.getBoundingClientRect().bottom <= button.getBoundingClientRect().top;
+        });
+        assert.ok(clearsDrawerButton, 'The refresh error must leave Show earthquakes unobstructed');
+      }
+      await showList();
       await page.getByText('Revised location', { exact: true }).waitFor();
       assert.equal(await page.getByText(/Saved results ·/).count(), 0);
       assert.equal(await rows.count(), 30, 'Failed refresh must retain saved rows');
