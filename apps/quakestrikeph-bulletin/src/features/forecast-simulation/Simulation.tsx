@@ -9,7 +9,7 @@ import { FormField } from "@/features/accounts/FormField";
 import LocationSearchControls from "@/features/accounts/LocationSearchControls";
 import { browserLocation } from "@/features/accounts/location-edit";
 import { usePlaces } from "@/features/accounts/location-places";
-import { displayPreciseTime } from "@/lib/events";
+import { displayTimeWithSeconds } from "@/lib/events";
 import { initForecastDetails } from "@/lib/forecast-details";
 import {
   refreshSimulationPage,
@@ -266,19 +266,18 @@ export default function Simulation({
   const sourceSummary = (
     <>
       <span>PHIVOLCS records available through</span>
-      {cutoff ? <time dateTime={cutoff}>{displayPreciseTime(cutoff)}</time> : <strong>Unavailable</strong>}
-      {status === "stale" && <span className="simulate-stale">Records older than 24 hours</span>}
+      {cutoff ? (
+        <span className="simulate-cutoff">
+          <time dateTime={cutoff}>{displayTimeWithSeconds(cutoff)}</time>
+          {status === "stale" && <span className="simulate-stale">Over 24 hours old</span>}
+        </span>
+      ) : <strong>Unavailable</strong>}
     </>
   );
-  const sourceExplanation =
-    eligible && cutoff ? (
-      <RecordsTimeline cutoff={cutoff} />
-    ) : (
-      <p>
-        The model needs seven days of recent, verified PHIVOLCS records to estimate further earthquake
-        activity.
-      </p>
-    );
+  const sourceExplanation = (
+    <p>The model needs seven days of recent, verified PHIVOLCS records to estimate further earthquake activity.</p>
+  );
+  const sourceTimeline = eligible && cutoff && <RecordsTimeline cutoff={cutoff} />;
 
   const clearRunLimit = useCallback(() => {
     setRetryAt(null);
@@ -552,17 +551,23 @@ export default function Simulation({
           <div className="simulate-source simulate-source-desktop">
             <div className="simulate-source-heading">{sourceSummary}</div>
             {sourceExplanation}
+            {sourceTimeline}
           </div>
         </div>
       </form>
 
-      <details className="simulate-source simulate-source-mobile">
-        <summary className="simulate-source-heading">
-          {sourceSummary}
-          <ChevronDown size={16} aria-hidden="true" />
-        </summary>
+      <div className="simulate-source simulate-source-mobile">
+        <div className="simulate-source-heading">{sourceSummary}</div>
         {sourceExplanation}
-      </details>
+        {sourceTimeline && (
+          <details>
+            <summary className="simulate-source-heading">
+              Records timeline <ChevronDown size={16} aria-hidden="true" />
+            </summary>
+            {sourceTimeline}
+          </details>
+        )}
+      </div>
 
       {result && (
         <section className="simulation-result" aria-labelledby="simulation-result-title" ref={resultSection}>
@@ -602,12 +607,12 @@ export default function Simulation({
                   <div>
                     <span className="field-label">Starts at PHIVOLCS cutoff</span>
                     <time dateTime={result.forecast.windowStart}>
-                      {displayPreciseTime(result.forecast.windowStart)}
+                      {displayTimeWithSeconds(result.forecast.windowStart)}
                     </time>
                   </div>
                   <div>
                     <span className="field-label">Ends</span>
-                    <time dateTime={result.forecast.windowEnd}>{displayPreciseTime(result.forecast.windowEnd)}</time>
+                    <time dateTime={result.forecast.windowEnd}>{displayTimeWithSeconds(result.forecast.windowEnd)}</time>
                   </div>
                 </div>
               </div>

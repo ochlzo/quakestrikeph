@@ -1,3 +1,6 @@
+.simulation-header .alerts-button { grid-column: 3; }
+.simulate-page .skip { z-index: 60; }
+.simulate-page #simulator { padding-block: 16px 32px; }
 .simulate-page h1 { margin-bottom: 22px; }
 .simulate-workspace {
   display: grid;
@@ -40,10 +43,11 @@
 .simulate-source summary::-webkit-details-marker { display: none; }
 .simulate-source summary svg { margin-inline-start: auto; }
 .simulate-source time, .simulate-source strong { color: var(--ink); font-weight: 600; }
-.simulate-source[open] summary svg { rotate: 180deg; }
+.simulate-cutoff { display: inline-flex; align-items: baseline; gap: 8px; max-width: 100%; }
+.simulate-stale { flex: none; color: #774724; white-space: nowrap; }
+.simulate-source details[open] summary svg { rotate: 180deg; }
 .simulate-source p { max-width: 65ch; margin-bottom: 8px; color: var(--forecast-muted); font-size: 14px; }
 .simulate-source-desktop p { margin: 8px 0 0; }
-.simulate-source .simulate-stale { color: #774724; }
 .simulate-timeline { margin: 12px 0 0; }
 .timeline-periods {
   display: flex;
@@ -98,6 +102,7 @@
 .simulate-radius-figure figcaption { margin-top: 8px; font-size: 13px; color: var(--forecast-muted); }
 
 @media (width > 760px) {
+  .simulation-header { height: 68px; padding-inline: 0; }
   .simulate-radius-figure {
     align-self: stretch;
     display: grid;
@@ -107,6 +112,11 @@
 }
 
 @media (max-width: 760px) {
+  .simulation-header-shell { border-bottom: 0; }
+  .simulation-header.shell { width: 100%; }
+  .simulation-header .simulation-brand { display: none; }
+  .simulation-header .bulletin-mobile-title { grid-area: 1 / 2; }
+  .simulation-header [data-slot="sidebar-trigger"] { grid-area: 1 / 1; }
   .simulate-workspace { grid-template-columns: 1fr; gap: 21px; }
   .simulate-page h1 { margin-bottom: 14px; }
   .simulate-map { height: clamp(235px, 64vw, 360px); }
@@ -118,8 +128,10 @@
   .simulate-map .map-panel .maplibregl-ctrl-bottom-left { bottom: 11px; }
   .simulate-radius-map { height: clamp(275px, 73vw, 380px); }
   .simulate-source-desktop { display: none; }
-  .simulate-source-mobile { display: block; margin-top: 20px; border-top: 1px solid var(--line); }
-  .simulate-source summary { padding-block: 9px; }
+  .simulate-source-mobile { display: block; margin-top: 20px; padding-top: 9px; border-top: 1px solid var(--line); }
+  .simulate-source-mobile .simulate-source-heading { row-gap: 4px; }
+  .simulate-source-mobile > p { margin-top: 8px; }
+  .simulate-source-mobile summary { padding-block: 9px; }
   .simulation-result { margin-top: 21px; padding-top: 23px; }
   .simulation-result .overview { gap: 18px; }
 }

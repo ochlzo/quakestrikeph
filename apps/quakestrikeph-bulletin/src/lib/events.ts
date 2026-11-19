@@ -22,12 +22,8 @@ export function displayTime(value: string) {
   return philippineTime.format(new Date(value)) + " (PHT)";
 }
 
-export function displayPreciseTime(value: string) {
-  // The catalog can report microseconds, while Date and Intl retain at most milliseconds.
-  const fraction = value.match(/:\d{2}(\.\d+)(?:Z|[+-]\d{2}:\d{2})$/)?.[1] ?? "";
-  const parts = philippineTimeWithSeconds.formatToParts(new Date(value));
-  const time = parts.map((part) => part.type === "second" ? part.value + fraction : part.value).join("");
-  return time + " (PHT)";
+export function displayTimeWithSeconds(value: string) {
+  return philippineTimeWithSeconds.format(new Date(value)) + " (PHT)";
 }
 
 export function magnitude(value: number) { return `M${value.toFixed(1)}`; }

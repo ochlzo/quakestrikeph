@@ -10,7 +10,7 @@ const run = promisify(execFile);
 const scripts = [
   'bulletin-sidebar', 'earthquake-cache', 'event-readability', 'magnitude-filter',
   'map-worker', 'mobile-map', 'search-loading',
-  'simulation-catalog-refresh',
+  'simulation-catalog-refresh', 'simulation-navigation',
 ];
 
 for (const name of scripts) {

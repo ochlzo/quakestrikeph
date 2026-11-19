@@ -1,5 +1,8 @@
 ---
+import { ClientRouter } from 'astro:transitions';
 import BackgroundToaster from '@/components/BackgroundToaster';
+import { SimulationHeader } from '@/components/BulletinLayout';
+import BulletinTabMotion from '@/components/BulletinTabMotion.astro';
 import Simulation from '@/features/forecast-simulation/Simulation';
 import { loadSimulationPage } from '@/lib/api/forecast-simulations.server';
 import '@/styles/globals.css';
@@ -19,6 +22,7 @@ Astro.response.headers.set('Cache-Control', 'no-store');
 <!doctype html>
 <html lang="en">
   <head>
+    <ClientRouter />
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex" />
@@ -27,6 +31,7 @@ Astro.response.headers.set('Cache-Control', 'no-store');
   </head>
   <body class="forecast-page simulate-page">
     <a class="skip" href="#simulator">Skip to simulation</a>
+    <SimulationHeader client:load />
     <main class="shell" id="simulator" tabindex="-1"
       data-catalog-status={catalog.status}
       data-catalog-cutoff={catalog.catalogCutoff}
@@ -35,13 +40,15 @@ Astro.response.headers.set('Cache-Control', 'no-store');
       <Simulation client:load catalog={catalog} guestCookieConfirmed={guestCookieConfirmed} />
     </main>
     <BackgroundToaster client:load />
+    <BulletinTabMotion />
     <script>
-      const url = new URL(window.location.href);
-      if (url.searchParams.get('confirm') === '1') {
+      document.addEventListener('astro:page-load', () => {
+        const url = new URL(window.location.href);
+        if (url.pathname !== '/simulate-forecast' || url.searchParams.get('confirm') !== '1') return;
         // A later reload must be able to issue a cookie again.
         url.searchParams.delete('confirm');
         window.history.replaceState(window.history.state, '', url);
-      }
+      });
     </script>
   </body>
 </html>
