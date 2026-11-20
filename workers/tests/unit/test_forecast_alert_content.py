@@ -43,8 +43,20 @@ def forecast_alert():
 
 
 @pytest.mark.parametrize("available", [True, False])
-def test_alert_snapshots_use_amended_channel_copy(forecast_alert, available):
+@pytest.mark.parametrize(
+    "probability,percentage,likelihood",
+    [
+        (0.2999, "30%", "Low"),
+        (0.3, "30%", "Medium"),
+        (0.695, "70%", "Medium"),
+        (0.7, "70%", "High"),
+    ],
+)
+def test_alert_snapshots_use_amended_channel_copy(
+    forecast_alert, available, probability, percentage, likelihood
+):
     candidate, forecast = forecast_alert
+    forecast = replace(forecast, probability_m1_plus_24h=probability)
     if not available:
         forecast = replace(
             forecast,
@@ -91,7 +103,7 @@ def test_alert_snapshots_use_amended_channel_copy(forecast_alert, available):
         assert "2026-10-11 12:00:00" not in body
         assert "Median activity radius:" not in body
         assert "Maximum magnitude (5th / 50th / 95th percentiles):" not in body
-        assert "Chance of further M1.0+ activity: 70%\nLikelihood: High\n" in body
+        assert f"Chance of further M1.0+ activity: {percentage}\nLikelihood: {likelihood}\n" in body
         assert (
             "View current forecast: https://quakestrikeph.com/forecasts/"
             "12345678-1234-5678-1234-567812345678"

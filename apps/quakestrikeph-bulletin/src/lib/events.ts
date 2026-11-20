@@ -6,7 +6,7 @@ export type EarthquakeDetail = components["schemas"]["EarthquakeDetail"];
 
 // Display categories use probability, not earthquake severity.
 export function likelihoodLevel(probability: number) {
-  return probability < 0.3 ? "Low likelihood" : probability < 0.7 ? "Moderate likelihood" : "High likelihood";
+  return probability < 0.3 ? "Low likelihood" : probability < 0.7 ? "Medium likelihood" : "High likelihood";
 }
 
 const philippineTimeOptions = {

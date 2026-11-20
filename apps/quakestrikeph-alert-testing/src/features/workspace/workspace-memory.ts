@@ -8,7 +8,7 @@ export const initialInputs = (): Inputs => ({
   location: "12 km NE of Surigao City, Surigao del Norte", magnitude: "5.2", depth: "18",
   latitude: "9.86", longitude: "125.55",
   time: new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 16),
-  p1: "82", p4: "28", p5: "8", count: "12.4", radius: "42",
+  p1: "50", p4: "28", p5: "8", count: "12.4", radius: "42",
   q05: "2.8", q50: "4.2", q95: "5.6", local: "18", background: "4", spread: "20",
   spillover: "2", preset: "moderate",
 });
