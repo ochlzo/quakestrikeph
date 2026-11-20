@@ -8,6 +8,7 @@ import ForecastReplay from '../features/forecast-replay/ForecastReplay.astro';
 import ForecastNavigation from './ForecastNavigation';
 import ForecastFacts from './ForecastFacts.astro';
 import ForecastDiscussion from './ForecastDiscussion.astro';
+import ForecastDisclaimer from './ForecastDisclaimer.astro';
 import { LinkButton } from './ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from './ui/empty';
 import type { EarthquakeDetail } from '../lib/events';
@@ -31,7 +32,6 @@ const availabilityMessage = availability?.status === 'processing'
   ? 'The system is preparing the forecast. Reload this page to check for an update.'
   : availability?.status === 'failed' ? 'The system could not complete forecast generation for this earthquake.'
   : unavailableMessages[availability?.reason ?? 'unknown'];
-const modelVersion = forecast?.modelReleaseId === 'a7f2286b-13a2-4708-a04d-4139281a4e1f' ? 'SEIS 1.0.1' : null;
 const errorMessage = error === 'invalid' ? 'This earthquake link is invalid.' : error === 'missing' ? 'This earthquake was not found.' : 'The earthquake service is temporarily unavailable.';
 const errorTitle = error === 'invalid' ? 'Invalid earthquake link' : error === 'missing' ? 'Earthquake not found' : 'Forecast could not load';
 const canRetry = error !== 'invalid' && error !== 'missing';
@@ -144,33 +144,7 @@ const canRetry = error !== 'invalid' && error !== 'missing';
 {forecast && <ForecastDiscussion forecast={forecast} />}
 </>}
 </main>
-<footer class="disclaimer" id="disclaimer" aria-labelledby="disclaimer-title">
-<div class="shell">
-<h2 id="disclaimer-title">Educational use and limitations</h2>
-<p class="disclaimer-intro">
-<strong>For educational purposes only.</strong> These experimental estimates are not an official earthquake forecast or warning service.</p>
-<div class="disclaimer-grid">
-<div>
-<h3>How the algorithms work</h3>{modelVersion ? <p>SEIS 1.0.1 uses LightGBM to estimate earthquake probabilities and activity radius. CatBoost estimates the expected count and largest magnitude. These models use observed earthquake details and prior earthquake counts.</p> : <p>Forecasts come from a versioned model release. Algorithm details are unavailable for this release.</p>}{forecast && <dl class="model-reference event-grid">
-<div>
-<dt class="field-label">Model release</dt>
-<dd>{modelVersion && <strong>{modelVersion}<br />
-</strong>}{forecast.modelReleaseId}</dd>
-</div>
-<div>
-<dt class="field-label">Forecast reference</dt>
-<dd>{forecast.forecastId}</dd>
-</div>
-</dl>}<p>The models learn from historical records with limitations. Their outputs do not establish local shaking, damage, or a safe area.</p>
-</div>
-<div>
-<h3>Your responsibility</h3>
-<p>The estimates contain uncertainty. They do not guarantee whether, where, or when an earthquake will occur.</p>
-<p>You are responsible for decisions and actions you take using this information. Follow official PHIVOLCS and local authority advisories for safety decisions.</p>
-</div>
-</div>
-</div>
-</footer>
+<ForecastDisclaimer forecast={forecast} />
 <script>import { initForecastDetails } from '../lib/forecast-details'; initForecastDetails();</script>
 <script>import { monitorSyntheticForecast } from '../lib/api/synthetic-validity'; monitorSyntheticForecast();</script>
 </div>
