@@ -3,6 +3,7 @@ import { ClientRouter } from 'astro:transitions';
 import BackgroundToaster from '@/components/BackgroundToaster';
 import { SimulationHeader } from '@/components/BulletinLayout';
 import BulletinTabMotion from '@/components/BulletinTabMotion.astro';
+import ForecastDisclaimer from '@/components/ForecastDisclaimer.astro';
 import Simulation from '@/features/forecast-simulation/Simulation';
 import { loadSimulationPage } from '@/lib/api/forecast-simulations.server';
 import '@/styles/globals.css';
@@ -39,6 +40,7 @@ Astro.response.headers.set('Cache-Control', 'no-store');
       <h1>Simulate Forecast</h1>
       <Simulation client:load catalog={catalog} guestCookieConfirmed={guestCookieConfirmed} />
     </main>
+    <ForecastDisclaimer modelReleaseId="a7f2286b-13a2-4708-a04d-4139281a4e1f" />
     <BackgroundToaster client:load />
     <BulletinTabMotion />
     <script>

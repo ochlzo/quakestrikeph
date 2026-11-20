@@ -1,6 +1,11 @@
+body.simulate-page {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
 .simulation-header .alerts-button { grid-column: 3; }
 .simulate-page .skip { z-index: 60; }
-.simulate-page #simulator { padding-block: 16px 32px; }
+.simulate-page #simulator { flex: 1 0 auto; padding-block: 16px 56px; }
 .simulate-page h1 { margin-bottom: 22px; }
 .simulate-workspace {
   display: grid;
