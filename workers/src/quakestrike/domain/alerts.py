@@ -71,7 +71,7 @@ def create_automatic_alert_snapshots(
         )
     public_base_url = validate_public_bulletin_base_url(public_base_url)
     probability = forecast.probability_m1_plus_24h
-    likelihood = "Low" if probability < 0.3 else "Moderate" if probability < 0.7 else "High"
+    likelihood = "Low" if probability < 0.3 else "Medium" if probability < 0.7 else "High"
     link = f"View current forecast: {public_base_url}/forecasts/{event_id}"
     location = str(location_provenance["location_label"])
     common = (

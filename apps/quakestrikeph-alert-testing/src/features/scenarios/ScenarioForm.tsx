@@ -293,7 +293,7 @@ export default function ScenarioForm() {
               q95: "6.2",
             }
           : {
-              p1: "82",
+              p1: "50",
               p4: "28",
               p5: "8",
               count: "12.4",
@@ -396,9 +396,7 @@ export default function ScenarioForm() {
                     </SelectTrigger>
                     <SelectContent className="magnitude-filter-popover">
                       <SelectItem id="low">Low activity preset</SelectItem>
-                      <SelectItem id="moderate">
-                        Moderate activity preset
-                      </SelectItem>
+                      <SelectItem id="moderate">Medium activity preset</SelectItem>
                       <SelectItem id="high">High activity preset</SelectItem>
                     </SelectContent>
                   </Select>
