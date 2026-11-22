@@ -6,7 +6,11 @@ import posixpath
 import re
 from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
 
-from quakestrike.domain.source_rows import SourceIdentity
+from quakestrike.domain.source_rows import (
+    BULLETIN_ID_PATTERN_TEXT,
+    GROUP_ID_PATTERN_TEXT,
+    SourceIdentity,
+)
 
 OFFICIAL_HOST = "earthquake.phivolcs.dost.gov.ph"
 _ARCHIVE_BULLETIN_PATH = re.compile(
@@ -29,13 +33,13 @@ _DUPLICATE_TIMESTAMP_SEPARATOR = re.compile(r"^(?P<date>\d{4}_\d{3,4})__(?P<rest
 _RECOGNIZED_BULLETIN_PATH = re.compile(
     r"^/\d{4}_Earthquake_(?:Information|Bulletins)/"
     r"(?:January|February|March|April|May|June|July|August|September|October|November|December)/"
-    r"(?P<bulletin>(?P<group>\d{4}_\d{3,4}_\d{4,8})_B[A-Z0-9]+(?:_[A-Z0-9]+)*)\.(?:html?|pdf|jpe?g)$",
+    rf"(?P<bulletin>{BULLETIN_ID_PATTERN_TEXT})\.(?:html?|pdf|jpe?g)$",
     re.IGNORECASE,
 )
 _RECOGNIZED_GROUP_ONLY_PATH = re.compile(
     r"^/\d{4}_Earthquake_(?:Information|Bulletins)/"
     r"(?:January|February|March|April|May|June|July|August|September|October|November|December)/"
-    r"(?P<group>\d{4}_\d{3,4}_\d{4,8})\.(?:html?|pdf|jpe?g)$",
+    rf"(?P<group>{GROUP_ID_PATTERN_TEXT})\.(?:html?|pdf|jpe?g)$",
     re.IGNORECASE,
 )
 

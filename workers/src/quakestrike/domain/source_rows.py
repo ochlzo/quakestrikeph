@@ -97,8 +97,10 @@ class CatalogEvidence:
     accepted_rows: int
 
 
-_GROUP_ID_PATTERN = re.compile(r"^\d{4}_\d{3,4}_\d{4,8}$")
-_BULLETIN_ID_PATTERN = re.compile(r"^(?P<group>\d{4}_\d{3,4}_\d{4,8})_B[A-Z0-9]+(?:_[A-Z0-9]+)*$")
+GROUP_ID_PATTERN_TEXT = r"\d{4}_\d{3,4}_\d{4,8}"
+BULLETIN_ID_PATTERN_TEXT = rf"(?P<group>{GROUP_ID_PATTERN_TEXT})_?B[A-Z0-9]+(?:_[A-Z0-9]+)*"
+_GROUP_ID_PATTERN = re.compile(rf"^{GROUP_ID_PATTERN_TEXT}$")
+_BULLETIN_ID_PATTERN = re.compile(rf"^{BULLETIN_ID_PATTERN_TEXT}$")
 _MAX_DEPTH_KM = Decimal("9999999.999")
 
 

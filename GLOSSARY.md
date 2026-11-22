@@ -23,7 +23,7 @@ It differs from a PHIVOLCS bulletin or group identifier.
 The complete PHIVOLCS bulletin filename stem, such as `2026_0831_1609_B2`, identifying one source publication.
 
 **Source event group ID**:
-The PHIVOLCS filename portion before `_B`, such as `2026_0831_1609`, indicating a possible revision family.
+The PHIVOLCS filename portion before `_B` (or `B` when PHIVOLCS omits the underscore, such as `2026_1121_091033` from `2026_1121_091033B3`), such as `2026_0831_1609`, indicating a possible revision family.
 It is not unique and cannot establish event identity alone.
 
 **Source-less candidate**:
