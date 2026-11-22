@@ -82,3 +82,18 @@ def test_canonicalize_bulletin_url_accepts_scraper_supported_bulletin_extensions
 
     assert identity.source_bulletin_id == "2025_0102_0304_B1"
     assert identity.source_url.endswith(f"B1.{extension}")
+
+
+def test_canonicalize_bulletin_url_accepts_bulletin_suffix_without_underscore() -> None:
+    identity = canonicalize_bulletin_url(
+        "https://earthquake.phivolcs.dost.gov.ph/",
+        r"2026_Earthquake_Information\November\2026_1121_091033B3.html",
+        2026,
+    )
+
+    assert identity.source_url == (
+        "https://earthquake.phivolcs.dost.gov.ph/2026_Earthquake_Information/"
+        "November/2026_1121_091033B3.html"
+    )
+    assert identity.source_bulletin_id == "2026_1121_091033B3"
+    assert identity.source_event_group_id == "2026_1121_091033"

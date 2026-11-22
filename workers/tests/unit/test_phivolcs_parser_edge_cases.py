@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
-from quakestrike.domain.source_rows import DiagnosticCode
+from quakestrike.domain.source_rows import DiagnosticCode, NormalizedSourceRow
+from quakestrike.infrastructure.phivolcs.client import validated_catalog_evidence
 from quakestrike.infrastructure.phivolcs.parser import (
     CatalogStructuralError,
     parse_current_catalog,
@@ -117,3 +119,48 @@ def test_detail_parser_normalizes_known_origins_and_reports_missing_or_unknown_v
     assert DiagnosticCode.DETAIL_ORIGIN_UNKNOWN in {
         diagnostic.code for diagnostic in unknown.diagnostics
     }
+
+
+def test_source_row_and_catalog_parser_accept_bulletin_suffix_without_underscore() -> None:
+    direct = NormalizedSourceRow.from_catalog_values(
+        occurred_at=datetime(2026, 11, 21, 9, 10, tzinfo=UTC),
+        latitude="09.00",
+        longitude="126.29",
+        depth_km="052",
+        magnitude="3.9",
+        location_description="009 km N 10° W of Cagwait (Surigao Del Sur)",
+        source_bulletin_id="2026_1121_091033B3",
+        source_event_group_id=None,
+        source_url=(
+            "https://earthquake.phivolcs.dost.gov.ph/"
+            "2026_Earthquake_Information/November/2026_1121_091033B3.html"
+        ),
+    )
+
+    assert direct.source_bulletin_id == "2026_1121_091033B3"
+    assert direct.source_event_group_id == "2026_1121_091033"
+
+    html = (
+        "<html><body><strong>November 2026</strong><table>"
+        "<tr><th>Date</th><th>Lat</th><th>Lon</th><th>Depth</th><th>Mag</th><th>Location</th></tr>"
+        "<tr><td><a href='2026_Earthquake_Information\\November\\2026_1121_091033B3.html'>"
+        "21 November 2026 - 05:10 PM</a></td><td>09.00</td><td>126.29</td><td>052</td>"
+        "<td>3.9</td><td>009 km N 10° W of Cagwait (Surigao Del Sur)</td></tr>"
+        "<tr><td><a href='2026_Earthquake_Information\\November\\2026_1101_000500_B1.html'>"
+        "01 November 2026 - 08:05 AM</a></td><td>09.00</td><td>126.29</td><td>010</td>"
+        "<td>2.1</td><td>005 km N 10° W of Cagwait (Surigao Del Sur)</td></tr>"
+        "</table></body></html>"
+    )
+    body = html.encode("utf-8")
+    parsed = parse_current_catalog(body, CATALOG_URL)
+    evidence = validated_catalog_evidence(
+        parsed, CATALOG_URL, body, datetime(2026, 11, 22, 16, 0, tzinfo=UTC)
+    )
+
+    assert len(parsed.accepted_rows) == 2
+    assert parsed.rejected_rows == ()
+    assert parsed.candidate_row_count == 2
+    assert parsed.accepted_rows[0].source_bulletin_id == "2026_1121_091033B3"
+    assert parsed.accepted_rows[0].source_event_group_id == "2026_1121_091033"
+    assert evidence is not None
+    assert evidence.accepted_rows == 2
